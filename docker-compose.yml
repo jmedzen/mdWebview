@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mdWebview:
+    build: .
+    container_name: mdWebview
+    ports:
+      - "8330:8330"
+    environment:
+      - PORT=8330
+      - CONFIG_PATH=/data/config.json
+      - MD_ROOT=/data/md
+    volumes:
+      # Mount the local ./data folder to persist the configuration and sutra md files
+      - ./data:/data
+    restart: unless-stopped
