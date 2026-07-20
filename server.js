@@ -124,10 +124,18 @@ function handleFile(req, res, query) {
     console.log(`[API File] Reading file "${filePath}" with requested line: ${line}`);
   }
 
+  if (filePath.includes('\0')) {
+    return sendJSON(res, 400, { error: 'Invalid path' });
+  }
+
   const fullPath = path.join(getMdRoot(), filePath);
   const resolved = path.resolve(fullPath);
 
-  if (!resolved.startsWith(path.resolve(getMdRoot()))) {
+  // Check for path traversal using path.relative to prevent partial-name matching
+  const relative = path.relative(getMdRoot(), resolved);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+
+  if (!isSafe) {
     return sendJSON(res, 403, { error: 'Access denied' });
   }
 
@@ -208,8 +216,19 @@ function serveStatic(req, res, pathname) {
     filePath = path.join(APP_ROOT, 'index.html');
   }
 
+  if (pathname.includes('\0')) {
+    res.writeHead(400);
+    res.end('Invalid path');
+    return;
+  }
+
   const resolved = path.resolve(filePath);
-  const isForbidden = !resolved.startsWith(APP_ROOT) || 
+  
+  // Check for path traversal using path.relative to prevent partial-name matching
+  const relative = path.relative(APP_ROOT, resolved);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+
+  const isForbidden = !isSafe || 
                       resolved === CONFIG_PATH || 
                       path.basename(resolved) === 'package.json' || 
                       path.basename(resolved) === 'package-lock.json';
