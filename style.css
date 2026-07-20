@@ -630,12 +630,10 @@ body,
   transform: rotate(90deg);
 }
 .toc-group-children {
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.2s ease;
+  display: none;
 }
 .toc-group-children.expanded {
-  max-height: 2000px;
+  display: block;
 }
 
 /* ── Search Result Group Collapse ──────────────────────────── */
@@ -654,12 +652,10 @@ body,
   transform: rotate(-90deg);
 }
 .search-result-group-body {
-  overflow: hidden;
-  max-height: 2000px;
-  transition: max-height 0.2s ease;
+  display: block;
 }
 .search-result-group-body.collapsed {
-  max-height: 0;
+  display: none;
 }
 
 .panel-placeholder {
@@ -768,13 +764,11 @@ body,
 }
 
 .tree-children {
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.25s ease;
+  display: none;
 }
 
 .tree-children.expanded {
-  max-height: 4000px;
+  display: block;
 }
 
 .tree-file-count {
