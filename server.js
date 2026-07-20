@@ -60,8 +60,18 @@ const MIME_TYPES = {
   '.ico':  'image/x-icon',
 };
 
+// Security Headers
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
+};
+
 function sendJSON(res, statusCode, data) {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.writeHead(statusCode, Object.assign({
+    'Content-Type': 'application/json; charset=utf-8'
+  }, SECURITY_HEADERS));
   res.end(JSON.stringify(data));
 }
 
@@ -209,6 +219,13 @@ function handleSearch(req, res, query) {
 
 // ── Static File Server ───────────────────────────────────────
 function serveStatic(req, res, pathname) {
+  // Restrict methods for static files
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    res.end('Method Not Allowed');
+    return;
+  }
+
   let filePath = path.join(APP_ROOT, decodeURIComponent(pathname));
 
   // Default to index.html
@@ -217,7 +234,7 @@ function serveStatic(req, res, pathname) {
   }
 
   if (pathname.includes('\0')) {
-    res.writeHead(400);
+    res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Invalid path');
     return;
   }
@@ -233,7 +250,7 @@ function serveStatic(req, res, pathname) {
                       path.basename(resolved) === 'package.json' || 
                       path.basename(resolved) === 'package-lock.json';
   if (isForbidden) {
-    res.writeHead(403);
+    res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Forbidden');
     return;
   }
@@ -244,11 +261,11 @@ function serveStatic(req, res, pathname) {
       const indexPath = path.join(APP_ROOT, 'index.html');
       fs.readFile(indexPath, (err2, data) => {
         if (err2) {
-          res.writeHead(404);
+          res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
           res.end('Not Found');
           return;
         }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.writeHead(200, Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, SECURITY_HEADERS));
         res.end(data);
       });
       return;
@@ -259,11 +276,11 @@ function serveStatic(req, res, pathname) {
 
     fs.readFile(resolved, (err3, data) => {
       if (err3) {
-        res.writeHead(500);
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
         res.end('Server Error');
         return;
       }
-      res.writeHead(200, { 'Content-Type': contentType });
+      res.writeHead(200, Object.assign({ 'Content-Type': contentType }, SECURITY_HEADERS));
       res.end(data);
     });
   });
@@ -271,12 +288,12 @@ function serveStatic(req, res, pathname) {
 
 const sessions = new Set();
 
-function hashPassword(password, salt) {
+function hashPassword(password, salt, iterations = 100000) {
   if (!salt) {
     salt = crypto.randomBytes(16).toString('hex');
   }
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return { salt, hash };
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
+  return { salt, hash, iterations };
 }
 
 function generateSessionToken() {
@@ -291,8 +308,13 @@ function isAuthenticated(req) {
 function readJSONBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
+    const MAX_SIZE = 1024 * 1024; // 1MB size limit to prevent DoS memory exhaustion
     req.on('data', chunk => {
       body += chunk.toString();
+      if (body.length > MAX_SIZE) {
+        req.destroy();
+        reject(new Error('Payload too large'));
+      }
     });
     req.on('end', () => {
       try {
@@ -371,7 +393,15 @@ const server = http.createServer((req, res) => {
       if (!username || !password) {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
-      const { hash } = hashPassword(password, config.admin.salt);
+      let { hash } = hashPassword(password, config.admin.salt, 100000);
+      if (hash !== config.admin.passwordHash) {
+        // Fallback for legacy 1000 iterations
+        const legacy = hashPassword(password, config.admin.salt, 1000);
+        if (legacy.hash === config.admin.passwordHash) {
+          hash = legacy.hash;
+        }
+      }
+
       if (username === config.admin.username && hash === config.admin.passwordHash) {
         const token = generateSessionToken();
         sessions.add(token);
