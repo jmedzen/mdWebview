@@ -454,7 +454,11 @@
 
       // Decode frontmatter from base64 header
       let frontmatter = {};
-      try { frontmatter = JSON.parse(atob(metaB64)); } catch (_) {}
+      // atob() decodes as Latin-1, not UTF-8 — use TextDecoder for correct Chinese character handling
+      try {
+        const bytes = Uint8Array.from(atob(metaB64), c => c.charCodeAt(0));
+        frontmatter = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+      } catch (_) {}
 
       // Store metadata for cache restoration
       if (!renderCache.__meta) renderCache.__meta = new Map();
