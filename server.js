@@ -568,10 +568,10 @@ function serveStatic(req, res, pathname) {
     const ext = path.extname(resolved).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
-    // Set Cache-Control headers based on extension
+    // Set Cache-Control headers: force revalidation (no-cache) for code files, cache binary media
     let cacheControl = 'no-cache';
-    if (ext === '.css' || ext === '.js' || ext === '.png' || ext === '.jpg' || ext === '.svg' || ext === '.ico') {
-      cacheControl = 'public, max-age=86400'; // Cache for 24 hours
+    if (ext === '.png' || ext === '.jpg' || ext === '.ico') {
+      cacheControl = 'public, max-age=86400'; // Cache binary images for 24 hours
     }
 
     const headers = Object.assign({
