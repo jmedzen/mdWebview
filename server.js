@@ -24,6 +24,7 @@ function initWorkerPool() {
   for (let i = 0; i < POOL_SIZE; i++) {
     const w = new Worker(WORKER_PATH);
     w.idle = true;
+    w.currentJobId = null;
     w.on('message', ({ jobId, html, error }) => {
       const cb = jobCallbacks.get(jobId);
       if (cb) {
@@ -31,11 +32,20 @@ function initWorkerPool() {
         if (error) cb.reject(new Error(error));
         else cb.resolve(html);
       }
+      w.currentJobId = null;
       w.idle = true;
       flushQueue();
     });
     w.on('error', (err) => {
       console.error(`[Worker ${i}] Error:`, err.message);
+      if (w.currentJobId) {
+        const cb = jobCallbacks.get(w.currentJobId);
+        if (cb) {
+          jobCallbacks.delete(w.currentJobId);
+          cb.reject(err);
+        }
+        w.currentJobId = null;
+      }
       w.idle = true;
       flushQueue();
     });
@@ -50,6 +60,7 @@ function flushQueue() {
   if (!freeWorker) return;
   const { jobId, body, resolve, reject } = jobQueue.shift();
   jobCallbacks.set(jobId, { resolve, reject });
+  freeWorker.currentJobId = jobId;
   freeWorker.idle = false;
   freeWorker.postMessage({ jobId, body });
 }
@@ -60,6 +71,7 @@ function renderWithWorker(body) {
     const freeWorker = workerPool.find(w => w.idle);
     if (freeWorker) {
       jobCallbacks.set(jobId, { resolve, reject });
+      freeWorker.currentJobId = jobId;
       freeWorker.idle = false;
       freeWorker.postMessage({ jobId, body });
     } else {
@@ -101,11 +113,8 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error saving config:', err);
-  }
+  fs.promises.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+    .catch(err => console.error('Error saving config:', err));
 }
 
 loadConfig();
@@ -134,54 +143,146 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
 };
 
+let cachedIndexHtml = null;
+function getIndexHtml(callback) {
+  if (cachedIndexHtml) {
+    return callback(null, cachedIndexHtml);
+  }
+  const indexPath = path.join(APP_ROOT, 'index.html');
+  fs.readFile(indexPath, (err, data) => {
+    if (err) return callback(err);
+    cachedIndexHtml = data;
+    callback(null, data);
+  });
+}
+
+function sendCompressed(req, res, statusCode, headers, data) {
+  const acceptEncoding = req.headers['accept-encoding'] || '';
+  const contentType = headers['Content-Type'] || '';
+  const isCompressible = contentType.includes('text/') || 
+                         contentType.includes('javascript') || 
+                         contentType.includes('json') || 
+                         contentType.includes('xml');
+
+  if (isCompressible && data.length > 1024 && acceptEncoding.includes('gzip')) {
+    zlib.gzip(data, { level: zlib.constants.Z_BEST_SPEED }, (err, compressed) => {
+      if (err) {
+        res.writeHead(statusCode, headers);
+        res.end(data);
+        return;
+      }
+      res.writeHead(statusCode, Object.assign({}, headers, {
+        'Content-Encoding': 'gzip',
+        'Content-Length': compressed.length
+      }));
+      res.end(compressed);
+    });
+  } else {
+    res.writeHead(statusCode, Object.assign({}, headers, {
+      'Content-Length': data.length
+    }));
+    res.end(data);
+  }
+}
+
 function sendJSON(res, statusCode, data) {
-  res.writeHead(statusCode, Object.assign({
+  const jsonStr = JSON.stringify(data);
+  const payload = Buffer.from(jsonStr, 'utf-8');
+  
+  const headers = Object.assign({
     'Content-Type': 'application/json; charset=utf-8'
-  }, SECURITY_HEADERS));
-  res.end(JSON.stringify(data));
+  }, SECURITY_HEADERS);
+
+  // Use the cached Accept-Encoding from the response object (attached during request routing)
+  const acceptEncoding = res.reqHeadersAcceptEncoding || '';
+  if (payload.length > 1024 && acceptEncoding.includes('gzip')) {
+    zlib.gzip(payload, { level: zlib.constants.Z_BEST_SPEED }, (err, compressed) => {
+      if (err) {
+        res.writeHead(statusCode, headers);
+        res.end(payload);
+        return;
+      }
+      res.writeHead(statusCode, Object.assign({}, headers, {
+        'Content-Encoding': 'gzip',
+        'Content-Length': compressed.length
+      }));
+      res.end(compressed);
+    });
+  } else {
+    res.writeHead(statusCode, headers);
+    res.end(payload);
+  }
+}
+
+let cachedTree = null;
+let treeWatcher = null;
+
+function setupTreeWatcher() {
+  if (treeWatcher) return;
+  try {
+    const mdRoot = getMdRoot();
+    if (fs.existsSync(mdRoot)) {
+      treeWatcher = fs.watch(mdRoot, { recursive: true }, (eventType, filename) => {
+        // Invalidate tree cache on any change (add/remove/rename)
+        cachedTree = null;
+      });
+    }
+  } catch (err) {
+    console.error('Error setting up tree watcher:', err);
+  }
+}
+
+async function scanDirAsync(dir, relativePath) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    return [];
+  }
+  const result = [];
+  const promises = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const fullPath = path.join(dir, entry.name);
+    const relPath = relativePath ? relativePath + '/' + entry.name : entry.name;
+    if (entry.isDirectory()) {
+      promises.push(
+        scanDirAsync(fullPath, relPath).then(children => {
+          if (children.length > 0) {
+            result.push({
+              name: entry.name,
+              path: relPath,
+              type: 'directory',
+              children: children,
+            });
+          }
+        })
+      );
+    } else if (entry.name.endsWith('.md')) {
+      result.push({
+        name: entry.name.replace(/\.md$/, ''),
+        path: relPath,
+        type: 'file',
+      });
+    }
+  }
+  await Promise.all(promises);
+  result.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+    return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+  });
+  return result;
 }
 
 // ── API: Directory Tree ──────────────────────────────────────
-function handleTree(req, res) {
-  function scanDir(dir, relativePath) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (err) {
-      return [];
-    }
-    const result = [];
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue;
-      const fullPath = path.join(dir, entry.name);
-      const relPath = relativePath ? relativePath + '/' + entry.name : entry.name;
-      if (entry.isDirectory()) {
-        const children = scanDir(fullPath, relPath);
-        if (children.length > 0) {
-          result.push({
-            name: entry.name,
-            path: relPath,
-            type: 'directory',
-            children: children,
-          });
-        }
-      } else if (entry.name.endsWith('.md')) {
-        result.push({
-          name: entry.name.replace(/\.md$/, ''),
-          path: relPath,
-          type: 'file',
-        });
-      }
-    }
-    result.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-      return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
-    });
-    return result;
+async function handleTree(req, res) {
+  setupTreeWatcher();
+  if (cachedTree) {
+    return sendJSON(res, 200, cachedTree);
   }
-
   try {
-    const tree = scanDir(getMdRoot(), '');
+    const tree = await scanDirAsync(getMdRoot(), '');
+    cachedTree = tree;
     sendJSON(res, 200, tree);
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
@@ -215,91 +316,15 @@ function handleFile(req, res, query) {
     return sendJSON(res, 403, { error: 'Access denied' });
   }
 
-  try {
-    const raw = fs.readFileSync(resolved, 'utf-8');
-    // Return both raw content (for search/edit) and pre-rendered HTML
-    sendJSON(res, 200, { content: raw, path: filePath, line: line || null });
-  } catch (err) {
-    sendJSON(res, 404, { error: 'File not found: ' + filePath });
-  }
-}
-
-// ── Render: Server-Side Markdown → HTML ─────────────────────
-function renderMarkdownSSR(body) {
-  // 1. Extract footnotes
-  const lines = body.split('\n');
-  const cleanLines = [];
-  const footnotes = [];
-  const footnoteMap = {};
-  let currentFootnote = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const match = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
-    if (match) {
-      const id = match[1], text = match[2];
-      currentFootnote = { id, text: [text] };
-      footnotes.push(currentFootnote);
-      footnoteMap[id] = currentFootnote;
-    } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
-      currentFootnote.text.push(line);
-    } else if (currentFootnote && line.trim() === '') {
-      let isContinuation = false;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim() === '') continue;
-        if (lines[j].startsWith('    ') || lines[j].startsWith('\t')) isContinuation = true;
-        break;
-      }
-      if (isContinuation) { currentFootnote.text.push(line); }
-      else { currentFootnote = null; cleanLines.push(line); }
-    } else { currentFootnote = null; cleanLines.push(line); }
-  }
-
-  // 2. Inject line-number anchors
-  const bodyLines = cleanLines.join('\n').split('\n');
-  const annotatedLines = [];
-  let prevWasBlank = true;
-  bodyLines.forEach((line, idx) => {
-    const lineNum = idx + 1;
-    const trimmed = line.trim();
-    const isBlockStart = /^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed) ||
-      /^\d+\.\s/.test(trimmed) || /^>/.test(trimmed) || /^```/.test(trimmed) ||
-      (prevWasBlank && trimmed.length > 0);
-    if (isBlockStart)
-      annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
-    annotatedLines.push(line);
-    prevWasBlank = trimmed.length === 0;
-  });
-
-  // 3. Parse main body
-  let html = marked.parse(annotatedLines.join('\n'));
-
-  // 4. Footnote references
-  const refCounter = {};
-  html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
-    if (!refCounter[id]) refCounter[id] = 0;
-    refCounter[id]++;
-    return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="\u8a3b ${id}">[${id}]</a>`;
-  });
-
-  // 5. Footnotes section
-  if (footnotes.length > 0) {
-    let fhtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
-    footnotes.forEach((fn) => {
-      const id = fn.id;
-      let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
-      const count = refCounter[id] || 0;
-      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="\u8fd4\u56de">↩</a>` : '';
-      if (count > 1) { bl = ' '; for (let r = 1; r <= count; r++) bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">↩<sup>${r}</sup></a> `; }
-      if (fnRendered.includes('</p>')) { const li = fnRendered.lastIndexOf('</p>'); fnRendered = fnRendered.slice(0,li)+bl+fnRendered.slice(li); } else fnRendered += bl;
-      fhtml += `<li class="footnote-item" id="fn-def-${id}" data-id="${id}"><span class="footnote-label">[${id}]</span><div class="footnote-item-content">${fnRendered}</div></li>`;
+  fs.promises.readFile(resolved, 'utf-8')
+    .then(raw => {
+      sendJSON(res, 200, { content: raw, path: filePath, line: line || null });
+    })
+    .catch(err => {
+      sendJSON(res, 404, { error: 'File not found: ' + filePath });
     });
-    fhtml += '</ul></div>';
-    html += fhtml;
-  }
-
-  return html;
 }
+
 
 async function handleRender(req, res, query) {
   const filePath = query.path;
@@ -373,7 +398,35 @@ async function handleRender(req, res, query) {
 }
 
 // ── API: Full-text Search ────────────────────────────────────
-function handleSearch(req, res, query) {
+async function collectFilesAsync(dir, relativePath = '') {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    return [];
+  }
+  let files = [];
+  const promises = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const fullPath = path.join(dir, entry.name);
+    const relPath = relativePath ? relativePath + '/' + entry.name : entry.name;
+    if (entry.isDirectory()) {
+      promises.push(
+        collectFilesAsync(fullPath, relPath).then(subFiles => {
+          files = files.concat(subFiles);
+        })
+      );
+    } else if (entry.name.endsWith('.md')) {
+      files.push({ fullPath, relPath, name: entry.name });
+    }
+  }
+  await Promise.all(promises);
+  return files;
+}
+
+// ── API: Full-text Search ────────────────────────────────────
+async function handleSearch(req, res, query) {
   const q = query.q;
   if (!q || q.trim().length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
@@ -383,24 +436,20 @@ function handleSearch(req, res, query) {
   const MAX_RESULTS = 150;
   const SNIPPET_RADIUS = 60;
 
-  function searchDir(dir, relativePath) {
-    if (results.length >= MAX_RESULTS) return;
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (err) {
-      return;
-    }
-    for (const entry of entries) {
-      if (results.length >= MAX_RESULTS) return;
-      if (entry.name.startsWith('.')) continue;
-      const fullPath = path.join(dir, entry.name);
-      const relPath = relativePath ? relativePath + '/' + entry.name : entry.name;
-      if (entry.isDirectory()) {
-        searchDir(fullPath, relPath);
-      } else if (entry.name.endsWith('.md')) {
+  try {
+    const files = await collectFilesAsync(getMdRoot(), '');
+    const limit = 10;
+    let fileIdx = 0;
+
+    async function worker() {
+      while (fileIdx < files.length && results.length < MAX_RESULTS) {
+        const file = files[fileIdx++];
+        if (!file) break;
         try {
-          const content = fs.readFileSync(fullPath, 'utf-8');
+          const content = await fs.promises.readFile(file.fullPath, 'utf-8');
+          // Fast check to avoid splitting the file if it has no match
+          if (!content.includes(q)) continue;
+
           const lines = content.split('\n');
           let fileMatches = 0;
           for (let i = 0; i < lines.length && results.length < MAX_RESULTS; i++) {
@@ -412,8 +461,8 @@ function handleSearch(req, res, query) {
               if (start > 0) snippet = '…' + snippet;
               if (end < lines[i].length) snippet = snippet + '…';
               results.push({
-                file: relPath,
-                fileName: entry.name.replace(/\.md$/, ''),
+                file: file.relPath,
+                fileName: file.name.replace(/\.md$/, ''),
                 line: i + 1,
                 snippet: snippet,
               });
@@ -422,17 +471,23 @@ function handleSearch(req, res, query) {
             }
           }
         } catch (err) {
-          // skip
+          // ignore
         }
       }
     }
-  }
 
-  searchDir(getMdRoot(), '');
-  sendJSON(res, 200, { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS });
+    const workers = [];
+    for (let i = 0; i < limit; i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+
+    sendJSON(res, 200, { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS });
+  } catch (err) {
+    sendJSON(res, 500, { error: err.message });
+  }
 }
 
-// ── Static File Server ───────────────────────────────────────
 function serveStatic(req, res, pathname) {
   // Restrict methods for static files
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -473,21 +528,57 @@ function serveStatic(req, res, pathname) {
   fs.stat(resolved, (err, stats) => {
     if (err || !stats.isFile()) {
       // Fallback to index.html for SPA routing
-      const indexPath = path.join(APP_ROOT, 'index.html');
-      fs.readFile(indexPath, (err2, data) => {
+      getIndexHtml((err2, data) => {
         if (err2) {
           res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
           res.end('Not Found');
           return;
         }
-        res.writeHead(200, Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, SECURITY_HEADERS));
-        res.end(data);
+
+        // SPA fallback ETag based on length
+        const etag = `W/"index-${data.length}"`;
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+          res.end();
+          return;
+        }
+
+        const headers = Object.assign({
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'ETag': etag
+        }, SECURITY_HEADERS);
+
+        sendCompressed(req, res, 200, headers, data);
       });
+      return;
+    }
+
+    // Static file found — generate weak ETag based on size and mtime
+    const mtime = stats.mtime.getTime();
+    const size = stats.size;
+    const etag = `W/"${size}-${mtime}"`;
+
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      res.end();
       return;
     }
 
     const ext = path.extname(resolved).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+    // Set Cache-Control headers based on extension
+    let cacheControl = 'no-cache';
+    if (ext === '.css' || ext === '.js' || ext === '.png' || ext === '.jpg' || ext === '.svg' || ext === '.ico') {
+      cacheControl = 'public, max-age=86400'; // Cache for 24 hours
+    }
+
+    const headers = Object.assign({
+      'Content-Type': contentType,
+      'Cache-Control': cacheControl,
+      'ETag': etag
+    }, SECURITY_HEADERS);
 
     fs.readFile(resolved, (err3, data) => {
       if (err3) {
@@ -495,8 +586,7 @@ function serveStatic(req, res, pathname) {
         res.end('Server Error');
         return;
       }
-      res.writeHead(200, Object.assign({ 'Content-Type': contentType }, SECURITY_HEADERS));
-      res.end(data);
+      sendCompressed(req, res, 200, headers, data);
     });
   });
 }
@@ -530,12 +620,34 @@ function timingSafeCompare(a, b) {
 }
 
 function hashPassword(password, salt, iterations = 100000) {
-  if (!salt) {
-    salt = crypto.randomBytes(16).toString('hex');
-  }
-  const hash = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
-  return { salt, hash, iterations };
+  return new Promise((resolve, reject) => {
+    if (!salt) {
+      salt = crypto.randomBytes(16).toString('hex');
+    }
+    crypto.pbkdf2(password, salt, iterations, 64, 'sha512', (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve({ salt, hash: derivedKey.toString('hex'), iterations });
+    });
+  });
 }
+
+// Clean up expired sessions and stale rate limit attempts every 1 hour to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (now > session.expiry) {
+      sessions.delete(token);
+    }
+  }
+  for (const [ip, attempt] of loginAttempts.entries()) {
+    if (now > attempt.lockUntil && attempt.attempts > 0) {
+      // Clear after lock duration has passed plus 1 hour idle time
+      if (now > attempt.lockUntil + 60 * 60 * 1000) {
+        loginAttempts.delete(ip);
+      }
+    }
+  }
+}, 60 * 60 * 1000);
 
 function generateSessionToken() {
   return crypto.randomBytes(32).toString('hex');
@@ -583,6 +695,7 @@ function readJSONBody(req) {
 
 // ── HTTP Server ──────────────────────────────────────────────
 const server = http.createServer((req, res) => {
+  res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';
   const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsed.pathname;
   const query = Object.fromEntries(parsed.searchParams);
@@ -627,14 +740,15 @@ const server = http.createServer((req, res) => {
       if (!username || !password || username.trim() === '' || password.trim() === '') {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
-      const { salt, hash } = hashPassword(password);
-      config.admin = {
-        username: username.trim(),
-        passwordHash: hash,
-        salt: salt
-      };
-      saveConfig();
-      return sendJSON(res, 200, { success: true });
+      return hashPassword(password).then(({ salt, hash }) => {
+        config.admin = {
+          username: username.trim(),
+          passwordHash: hash,
+          salt: salt
+        };
+        saveConfig();
+        return sendJSON(res, 200, { success: true });
+      });
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
     });
@@ -658,33 +772,34 @@ const server = http.createServer((req, res) => {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
 
-      let { hash } = hashPassword(password, config.admin.salt, 100000);
-      if (hash !== config.admin.passwordHash) {
+      // Perform async hashing
+      return hashPassword(password, config.admin.salt, 100000).then(({ hash }) => {
+        if (hash === config.admin.passwordHash) {
+          return { hash };
+        }
         // Fallback for legacy 1000 iterations
-        const legacy = hashPassword(password, config.admin.salt, 1000);
-        if (legacy.hash === config.admin.passwordHash) {
-          hash = legacy.hash;
-        }
-      }
+        return hashPassword(password, config.admin.salt, 1000).then(legacy => {
+          return { hash: legacy.hash === config.admin.passwordHash ? legacy.hash : hash };
+        });
+      }).then(({ hash }) => {
+        const isUsernameCorrect = timingSafeCompare(username, config.admin.username);
+        const isPasswordCorrect = timingSafeCompare(hash, config.admin.passwordHash);
 
-      const isUsernameCorrect = timingSafeCompare(username, config.admin.username);
-      const isPasswordCorrect = timingSafeCompare(hash, config.admin.passwordHash);
-
-      if (isUsernameCorrect && isPasswordCorrect) {
-        loginAttempts.delete(ip); // Clear attempts on success
-        const token = generateSessionToken();
-        sessions.set(token, { expiry: Date.now() + SESSION_DURATION });
-        return sendJSON(res, 200, { success: true, token });
-      } else {
-        attempt.attempts += 1;
-        if (attempt.attempts >= MAX_ATTEMPTS) {
-          attempt.lockUntil = Date.now() + LOCK_DURATION;
-          console.warn(`[Security Alert] IP ${ip} locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`);
+        if (isUsernameCorrect && isPasswordCorrect) {
+          loginAttempts.delete(ip); // Clear attempts on success
+          const token = generateSessionToken();
+          sessions.set(token, { expiry: Date.now() + SESSION_DURATION });
+          return sendJSON(res, 200, { success: true, token });
         } else {
-          loginAttempts.set(ip, attempt);
+          attempt.attempts += 1;
+          if (attempt.attempts >= MAX_ATTEMPTS) {
+            attempt.lockUntil = Date.now() + LOCK_DURATION;
+            console.warn(`[Security Alert] IP ${ip} locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`);
+          }
+          loginAttempts.set(ip, attempt); // Correctly save the attempt block in all paths
+          return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
         }
-        return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
-      }
+      });
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
     });
@@ -711,28 +826,28 @@ const server = http.createServer((req, res) => {
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
-      try {
-        const resolvedPath = path.resolve(mdRoot.trim());
-        const stats = fs.statSync(resolvedPath);
+      
+      const resolvedPath = path.resolve(mdRoot.trim());
+      return fs.promises.stat(resolvedPath).then(stats => {
         if (!stats.isDirectory()) {
           return sendJSON(res, 400, { error: 'Provided path is not a directory' });
         }
-      } catch (err) {
+        
+        config.settings.mdRoot = resolvedPath;
+        if (defaultFontSize) {
+          config.settings.defaultFontSize = Math.max(12, Math.min(28, parseInt(defaultFontSize)));
+        }
+        if (defaultTheme) {
+          config.settings.defaultTheme = defaultTheme;
+        }
+        if (siteName !== undefined) {
+          config.settings.siteName = siteName.trim() || 'mdWebview';
+        }
+        saveConfig();
+        return sendJSON(res, 200, { success: true, settings: config.settings });
+      }).catch(() => {
         return sendJSON(res, 400, { error: 'Directory path does not exist or is not readable' });
-      }
-
-      config.settings.mdRoot = path.resolve(mdRoot.trim());
-      if (defaultFontSize) {
-        config.settings.defaultFontSize = Math.max(12, Math.min(28, parseInt(defaultFontSize)));
-      }
-      if (defaultTheme) {
-        config.settings.defaultTheme = defaultTheme;
-      }
-      if (siteName !== undefined) {
-        config.settings.siteName = siteName.trim() || 'mdWebview';
-      }
-      saveConfig();
-      return sendJSON(res, 200, { success: true, settings: config.settings });
+      });
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
     });

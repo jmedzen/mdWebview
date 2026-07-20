@@ -29,6 +29,12 @@
   const CACHE_MAX = 10;
   const renderCache = new Map(); // path -> html (insertion-order LRU)
 
+  // Cached line anchors for the currently active document (prevents querySelectorAll on every mouseup)
+  let cachedLineAnchors = [];
+  function updateCachedLineAnchors(container) {
+    cachedLineAnchors = Array.from(container.querySelectorAll('.line-anchor'));
+  }
+
   function cacheGet(key) {
     if (!renderCache.has(key)) return null;
     const val = renderCache.get(key);
@@ -152,14 +158,34 @@
     // Try exact line anchor first
     let target = document.getElementById('L' + lineNum);
     if (!target) {
-      // Find nearest line anchor
-      const anchors = Array.from($$('.line-anchor', $('markdownBody')));
-      if (!anchors.length) return;
-      target = anchors.reduce((best, el) => {
+      // Find nearest line anchor using binary search on cachedLineAnchors
+      if (!cachedLineAnchors.length) return;
+      let low = 0;
+      let high = cachedLineAnchors.length - 1;
+      let best = cachedLineAnchors[0];
+      let bestDiff = Math.abs(parseInt(best.dataset.line || 0) - lineNum);
+
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        const el = cachedLineAnchors[mid];
         const n = parseInt(el.dataset.line || 0);
-        const bestN = parseInt(best.dataset.line || 0);
-        return Math.abs(n - lineNum) < Math.abs(bestN - lineNum) ? el : best;
-      }, anchors[0]);
+        const diff = Math.abs(n - lineNum);
+        
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = el;
+        }
+        
+        if (n === lineNum) {
+          best = el;
+          break;
+        } else if (n < lineNum) {
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+      target = best;
     }
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -417,8 +443,13 @@
         if (cachedMeta) renderContentHeader(filePath, cachedMeta);
         const el = $('markdownBody');
         el.innerHTML = cachedHtml;
-        el.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
-        generateTOC();
+        
+        // Cache line anchors and query headings once
+        updateCachedLineAnchors(el);
+        const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+        headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+        
+        generateTOC(headings);
         loading.style.display = 'none';
         wrapper.style.display = 'block';
         if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
@@ -471,12 +502,16 @@
       // Insert pre-rendered HTML — no client-side parsing
       const el = $('markdownBody');
       el.innerHTML = html;
-      el.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+      
+      // Cache line anchors and query headings once
+      updateCachedLineAnchors(el);
+      const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+      headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
 
       // Cache for instant re-opens
       cacheSet(filePath, html);
 
-      generateTOC();
+      generateTOC(headings);
       loading.style.display = 'none';
       wrapper.style.display = 'block';
 
@@ -680,9 +715,9 @@
   // TABLE OF CONTENTS
   // ═══════════════════════════════════════════════════════════
 
-  function generateTOC() {
+  function generateTOC(headings) {
     const tocList = $('tocList');
-    const headings = $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
+    headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
 
     if (headings.length === 0) {
       tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
@@ -721,7 +756,7 @@
         headerBtn.className = 'toc-group-header';
         const chevron = document.createElement('span');
         chevron.className = 'toc-group-chevron expanded';
-        chevron.textContent = '\u203a';
+        chevron.textContent = '›';
         const label = document.createElement('span');
         label.textContent = group.leader.textContent;
         label.title = group.leader.textContent;
@@ -760,7 +795,7 @@
       }
     });
 
-    setupScrollSpy();
+    setupScrollSpy(headings);
   }
 
   function makeTocItem(h) {
@@ -787,40 +822,63 @@
       // Collapse all
       groups.forEach(el => el.classList.remove('expanded'));
       $$('.toc-group-chevron', $('tocList')).forEach(el => el.classList.remove('expanded'));
-      btn.title = '\u5c55\u958b\u5168\u90e8';
+      btn.title = '展開全部';
     } else {
       // Expand all
       groups.forEach(el => el.classList.add('expanded'));
       $$('.toc-group-chevron', $('tocList')).forEach(el => el.classList.add('expanded'));
-      btn.title = '\u647a\u758a\u5168\u90e8';
+      btn.title = '摺疊全部';
     }
   }
 
-  function setupScrollSpy() {
+  function setupScrollSpy(headings) {
     if (state.scrollSpyObserver) {
       state.scrollSpyObserver.disconnect();
     }
 
-    const tocItems = $$('.toc-item', $('tocList'));
+    const tocList = $('tocList');
+    const tocItems = $$('.toc-item', tocList);
     if (tocItems.length === 0) return;
 
-    const headings = $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
+    headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
+
+    // Create a fast lookup map targetId -> tocItem element for O(1) active class setting
+    const tocMap = new Map();
+    tocItems.forEach((item) => {
+      const target = item.getAttribute('data-target');
+      if (target) tocMap.set(target, item);
+    });
+
+    let currentActiveItem = tocList.querySelector('.toc-item.active');
+    let scrollIntoViewTimeout = null;
 
     const observer = new IntersectionObserver(
       (entries) => {
+        let lastIntersectingId = null;
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            const id = entry.target.id;
-            tocItems.forEach((item) => {
-              item.classList.toggle('active', item.getAttribute('data-target') === id);
-            });
-            // Scroll TOC item into view
-            const activeItem = document.querySelector('.toc-item.active');
-            if (activeItem) {
-              activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            }
+            lastIntersectingId = entry.target.id;
           }
         });
+
+        if (lastIntersectingId) {
+          const nextActiveItem = tocMap.get(lastIntersectingId);
+          if (nextActiveItem && nextActiveItem !== currentActiveItem) {
+            if (currentActiveItem) {
+              currentActiveItem.classList.remove('active');
+            }
+            nextActiveItem.classList.add('active');
+            currentActiveItem = nextActiveItem;
+
+            // Debounce active item scroll-into-view to avoid stutter/competing scroll animations
+            if (scrollIntoViewTimeout) {
+              clearTimeout(scrollIntoViewTimeout);
+            }
+            scrollIntoViewTimeout = setTimeout(() => {
+              nextActiveItem.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            }, 50);
+          }
+        }
       },
       {
         root: $('content'),
@@ -1089,12 +1147,16 @@
 
   function clearPageHighlights() {
     const marks = $$('.search-highlight', $('markdownBody'));
+    const uniqueParents = new Set();
     marks.forEach((mark) => {
       const parent = mark.parentNode;
       if (parent) {
         parent.replaceChild(document.createTextNode(mark.textContent), mark);
-        parent.normalize();
+        uniqueParents.add(parent);
       }
+    });
+    uniqueParents.forEach(parent => {
+      parent.normalize();
     });
   }
 
@@ -1567,9 +1629,13 @@
   }
 
   function escHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function escRegex(str) {
@@ -1688,21 +1754,27 @@
   function getSelectionLineNumber(selection) {
     if (!selection || selection.rangeCount === 0) return null;
     const range = selection.getRangeAt(0);
-    let startContainer = range.startContainer;
+    const startContainer = range.startContainer;
     
-    // Find the closest element
-    let current = startContainer.nodeType === Node.ELEMENT_NODE ? startContainer : startContainer.parentElement;
+    if (cachedLineAnchors.length === 0) return null;
     
-    const anchors = Array.from(document.querySelectorAll('.line-anchor'));
-    if (anchors.length === 0) return null;
-    
+    let low = 0;
+    let high = cachedLineAnchors.length - 1;
     let bestAnchor = null;
-    for (const anchor of anchors) {
+
+    // Binary search to find the closest preceding or containing anchor in O(log N) comparisons
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const anchor = cachedLineAnchors[mid];
       const rel = anchor.compareDocumentPosition(startContainer);
-      if (anchor === startContainer || (rel & Node.DOCUMENT_POSITION_CONTAINED_BY) || (rel & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      
+      if (anchor === startContainer || 
+          (rel & Node.DOCUMENT_POSITION_CONTAINED_BY) || 
+          (rel & Node.DOCUMENT_POSITION_FOLLOWING)) {
         bestAnchor = anchor;
+        low = mid + 1; // Look for a closer preceding anchor
       } else {
-        break;
+        high = mid - 1; // Anchor is after the selection start point
       }
     }
     

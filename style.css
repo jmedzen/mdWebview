@@ -15,6 +15,10 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   --sidebar-font-size: calc(var(--content-font-size, 16px) * 0.8125);
+  /* Global fallbacks for undefined variable references */
+  --text-normal: var(--text-primary);
+  --border-color: var(--border);
+  --accent-color: var(--accent);
 }
 
 body {
@@ -770,7 +774,7 @@ body,
 }
 
 .tree-children.expanded {
-  max-height: 100000px;
+  max-height: 4000px;
 }
 
 .tree-file-count {
