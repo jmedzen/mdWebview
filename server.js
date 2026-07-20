@@ -119,6 +119,11 @@ function handleFile(req, res, query) {
     return sendJSON(res, 400, { error: 'Missing path parameter' });
   }
 
+  const line = query.line;
+  if (line) {
+    console.log(`[API File] Reading file "${filePath}" with requested line: ${line}`);
+  }
+
   const fullPath = path.join(getMdRoot(), filePath);
   const resolved = path.resolve(fullPath);
 
@@ -128,7 +133,7 @@ function handleFile(req, res, query) {
 
   try {
     const content = fs.readFileSync(resolved, 'utf-8');
-    sendJSON(res, 200, { content, path: filePath });
+    sendJSON(res, 200, { content, path: filePath, line: line || null });
   } catch (err) {
     sendJSON(res, 404, { error: 'File not found: ' + filePath });
   }
@@ -288,6 +293,11 @@ const server = http.createServer((req, res) => {
   const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsed.pathname;
   const query = Object.fromEntries(parsed.searchParams);
+
+  // Log share link access if present
+  if ((pathname === '/' || pathname === '') && query.file) {
+    console.log(`[HTTP Server] Share Link accessed for file: "${query.file}" at line: ${query.line || 'none'}`);
+  }
 
   // API routes
   if (pathname === '/api/tree' && req.method === 'GET') {

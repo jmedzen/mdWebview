@@ -19,6 +19,9 @@
     scrollSpyObserver: null,
     adminToken: localStorage.getItem('mdWebview-admin-token') || null,
     siteName: 'mdWebview',
+    fileSort: 'name-asc',
+    searchSort: 'relevance',
+    lastSearchData: null,
   };
 
   // ── DOM Helpers ───────────────────────────────────────────
@@ -32,6 +35,74 @@
     applyFontSize(state.fontSize);
     setupEventListeners();
     await loadTree();
+
+    // Open file from URL query or hash on first load
+    const urlInfo = getFileFromURL();
+    if (urlInfo) {
+      await openFile(urlInfo.file, urlInfo.line);
+    }
+
+    // Handle browser back / forward
+    const handleUrlChange = async () => {
+      const info = getFileFromURL();
+      if (info && info.file !== state.currentFile) {
+        await openFile(info.file, info.line);
+      } else if (info && info.line) {
+        // Same file, different line
+        scrollToLine(info.line);
+      }
+    };
+    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+  }
+
+  function getFileFromURL() {
+    // 1. Try query parameters first (server readable)
+    const searchParams = new URLSearchParams(window.location.search);
+    const searchFile = searchParams.get('file');
+    if (searchFile) {
+      const searchLine = searchParams.get('line') ? parseInt(searchParams.get('line')) : null;
+      return { file: searchFile, line: searchLine };
+    }
+
+    // 2. Fallback to hash (backwards compatibility)
+    const hash = window.location.hash;
+    if (hash.startsWith('#file=')) {
+      try {
+        const params = new URLSearchParams(hash.slice(1));
+        const file = params.get('file');
+        const line = params.get('line') ? parseInt(params.get('line')) : null;
+        return file ? { file, line } : null;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function scrollToLine(lineNum) {
+    if (!lineNum) return;
+    // Try exact line anchor first
+    let target = document.getElementById('L' + lineNum);
+    if (!target) {
+      // Find nearest line anchor
+      const anchors = Array.from($$('.line-anchor', $('markdownBody')));
+      if (!anchors.length) return;
+      target = anchors.reduce((best, el) => {
+        const n = parseInt(el.dataset.line || 0);
+        const bestN = parseInt(best.dataset.line || 0);
+        return Math.abs(n - lineNum) < Math.abs(bestN - lineNum) ? el : best;
+      }, anchors[0]);
+    }
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Brief highlight on the parent block
+      const block = target.nextElementSibling || target.parentElement;
+      if (block) {
+        block.classList.add('line-highlight');
+        setTimeout(() => block.classList.remove('line-highlight'), 2500);
+      }
+    }
   }
 
   // ── Admin Status Checker ──
@@ -95,7 +166,8 @@
       if (!res.ok) throw new Error('Failed to load tree');
       state.treeData = await res.json();
       container.innerHTML = '';
-      renderTreeNodes(state.treeData, container, 0);
+      const sorted = sortTreeNodes(state.treeData, state.fileSort);
+      renderTreeNodes(sorted, container, 0);
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${err.message}</span></div>`;
     }
@@ -142,9 +214,68 @@
     });
   }
 
+  function sortTreeNodes(nodes, sortMode) {
+    // Deep-clone to avoid mutating original data
+    const cloned = nodes.map(n => n.children
+      ? { ...n, children: sortTreeNodes(n.children, sortMode) }
+      : { ...n }
+    );
+    return cloned.sort((a, b) => {
+      // Always keep directories before files
+      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+      switch (sortMode) {
+        case 'name-asc':
+          return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        case 'name-desc':
+          return b.name.localeCompare(a.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        case 'modified-desc':
+          // fallback to name if no mtime
+          return b.name.localeCompare(a.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        case 'modified-asc':
+          return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        default:
+          return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+      }
+    });
+  }
+
   function countFiles(node) {
     if (node.type === 'file') return 1;
     return (node.children || []).reduce((sum, c) => sum + countFiles(c), 0);
+  }
+
+  function collapseAllFolders() {
+    const btn = $('fileCollapseAllBtn');
+    const allFolders = $$('.tree-children', $('fileTree'));
+    const anyExpanded = Array.from(allFolders).some(el => el.classList.contains('expanded'));
+
+    if (anyExpanded) {
+      // Collapse all
+      allFolders.forEach(el => {
+        el.classList.remove('expanded');
+        const row = el.previousElementSibling;
+        if (row) {
+          const chevron = row.querySelector('.tree-chevron');
+          if (chevron) chevron.classList.remove('expanded');
+          const icon = row.querySelector('.tree-icon');
+          if (icon) icon.textContent = '\uD83D\uDCC1';
+        }
+      });
+      btn.title = '\u5c55\u958b\u5168\u90e8';
+    } else {
+      // Expand all
+      allFolders.forEach(el => {
+        el.classList.add('expanded');
+        const row = el.previousElementSibling;
+        if (row) {
+          const chevron = row.querySelector('.tree-chevron');
+          if (chevron) chevron.classList.add('expanded');
+          const icon = row.querySelector('.tree-icon');
+          if (icon) icon.textContent = '\uD83D\uDCC2';
+        }
+      });
+      btn.title = '\u647a\u758a\u5168\u90e8';
+    }
   }
 
   function highlightActiveFile(path) {
@@ -173,9 +304,20 @@
   // FILE VIEWER
   // ═══════════════════════════════════════════════════════════
 
-  async function openFile(filePath) {
-    if (state.currentFile === filePath) return;
+  async function openFile(filePath, scrollToLineNum) {
+    if (state.currentFile === filePath && !scrollToLineNum) return;
     state.currentFile = filePath;
+
+    // Update URL search parameters — preserve line param if provided
+    const params = new URLSearchParams();
+    params.set('file', filePath);
+    if (scrollToLineNum) params.set('line', scrollToLineNum);
+    const newSearch = '?' + params.toString();
+    if (window.location.search !== newSearch) {
+      // Clear hash if any, and set search query parameters
+      const newUrl = window.location.pathname + newSearch;
+      history.pushState(null, '', newUrl);
+    }
 
     // Auto-collapse sidebar on mobile screens when opening a file
     if (window.innerWidth <= 768) {
@@ -201,7 +343,7 @@
     highlightActiveFile(filePath);
 
     try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
+      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`);
       if (!res.ok) throw new Error('File not found');
       const data = await res.json();
 
@@ -212,7 +354,13 @@
 
       loading.style.display = 'none';
       wrapper.style.display = 'block';
-      content.scrollTop = 0;
+
+      if (scrollToLineNum) {
+        // Small delay to let layout settle, then scroll to line
+        setTimeout(() => scrollToLine(scrollToLineNum), 80);
+      } else {
+        content.scrollTop = 0;
+      }
 
       // Update page title
       const title = frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '');
@@ -251,7 +399,13 @@
     const fileName = parts.pop().replace(/\.md$/, '');
     const folder = parts.join(' / ');
 
-    let html = `<div class="file-path">${escHtml(folder ? folder + ' / ' + fileName : fileName)}</div>`;
+    let html = `<div class="file-path-row">`;
+    html += `<div class="file-path">${escHtml(folder ? folder + ' / ' + fileName : fileName)}</div>`;
+    html += `<button class="copy-link-btn" id="copyLinkBtn" title="複製連結">`;
+    html += `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542L3.343 7.914a3 3 0 104.243 4.243l1.828-1.829A3 3 0 008.586 5.5L8 6.086a1 1 0 00-.154.199 2 2 0 01.861 3.337L6.88 11.45a2 2 0 11-2.83-2.83l.793-.792a4 4 0 01-.128-1.287zm5.57-1.084a3 3 0 10-4.243-4.243L4.214 3.043A3 3 0 007.407 10.5l.585-.585a1 1 0 00.154-.199 2 2 0 01-.861-3.337l1.827-1.828a2 2 0 112.83 2.83l-.793.792a4 4 0 01.128 1.287z"/></svg>`;
+    html += `<span class="copy-link-label" id="copyLinkLabel">連結</span></button>`;
+    html += `</div>`;
+
     if (fm.title) {
       html += `<div class="file-title">${escHtml(fm.title)}</div>`;
     }
@@ -262,7 +416,43 @@
       html += `<div class="file-meta">${escHtml(meta.join(' · '))}</div>`;
     }
     header.innerHTML = html;
+
+    // Wire up copy-link button
+    const btn = header.querySelector('#copyLinkBtn');
+    const lbl = header.querySelector('#copyLinkLabel');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const url = window.location.href;
+        const doConfirm = () => {
+          lbl.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            lbl.textContent = '連結';
+            btn.classList.remove('copied');
+          }, 2000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(doConfirm).catch(() => {
+            fallbackCopy(url); doConfirm();
+          });
+        } else {
+          fallbackCopy(url); doConfirm();
+        }
+      });
+    }
   }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+
 
   async function renderMarkdown(body) {
     const el = $('markdownBody');
@@ -319,8 +509,31 @@
 
     const cleanBody = cleanLines.join('\n');
 
+    // ── Inject line-number anchors before block-starting lines ──
+    // This allows the DOM to be navigated by source line number.
+    const bodyLines = cleanBody.split('\n');
+    const annotatedLines = [];
+    let prevWasBlank = true; // treat start-of-file as after a blank line
+    bodyLines.forEach((line, idx) => {
+      const lineNum = idx + 1;
+      const trimmed = line.trim();
+      const isBlockStart =
+        /^#{1,6}\s/.test(trimmed) ||
+        /^[-*+]\s/.test(trimmed) ||
+        /^\d+\.\s/.test(trimmed) ||
+        /^>/.test(trimmed) ||
+        /^```/.test(trimmed) ||
+        (prevWasBlank && trimmed.length > 0);
+      if (isBlockStart) {
+        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+      }
+      annotatedLines.push(line);
+      prevWasBlank = trimmed.length === 0;
+    });
+    const annotatedBody = annotatedLines.join('\n');
+
     // Render the main markdown body
-    let html = marked.parse(cleanBody);
+    let html = marked.parse(annotatedBody);
 
     // ── Process footnote references [^id] in the main body ──
     const refCounter = {};
@@ -397,22 +610,110 @@
     }
 
     tocList.innerHTML = '';
-    headings.forEach((h) => {
+
+    // Detect the shallowest heading level in this document (H1, or H2 if no H1, etc.)
+    const minLevel = Math.min(...Array.from(headings).map(h => parseInt(h.tagName.charAt(1))));
+
+    // Group by top-level heading: each one starts a new collapsible section
+    const groups = []; // [{leader: element|null, items: [heading...]}, ...]
+    let currentGroup = null;
+
+    headings.forEach(h => {
       const level = parseInt(h.tagName.charAt(1));
-      const item = document.createElement('a');
-      item.className = 'toc-item';
-      item.setAttribute('data-level', level);
-      item.setAttribute('data-target', h.id);
-      item.textContent = h.textContent;
-      item.title = h.textContent;
-      item.addEventListener('click', (e) => {
-        e.preventDefault();
-        h.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      tocList.appendChild(item);
+      if (level === minLevel) {
+        currentGroup = { leader: h, items: [] };
+        groups.push(currentGroup);
+      } else {
+        if (!currentGroup) {
+          currentGroup = { leader: null, items: [] };
+          groups.push(currentGroup);
+        }
+        currentGroup.items.push(h);
+      }
+    });
+
+    groups.forEach(group => {
+      if (group.leader) {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'toc-group';
+
+        const headerBtn = document.createElement('button');
+        headerBtn.className = 'toc-group-header';
+        const chevron = document.createElement('span');
+        chevron.className = 'toc-group-chevron expanded';
+        chevron.textContent = '\u203a';
+        const label = document.createElement('span');
+        label.textContent = group.leader.textContent;
+        label.title = group.leader.textContent;
+        label.style.flex = '1';
+        label.style.overflow = 'hidden';
+        label.style.textOverflow = 'ellipsis';
+        label.style.whiteSpace = 'nowrap';
+        headerBtn.appendChild(chevron);
+        headerBtn.appendChild(label);
+
+        const children = document.createElement('div');
+        children.className = 'toc-group-children expanded';
+
+        headerBtn.addEventListener('click', () => {
+          group.leader.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const isExpanded = children.classList.contains('expanded');
+          if (isExpanded) {
+            children.classList.remove('expanded');
+            chevron.classList.remove('expanded');
+          } else {
+            children.classList.add('expanded');
+            chevron.classList.add('expanded');
+          }
+        });
+
+        group.items.forEach(h => {
+          children.appendChild(makeTocItem(h));
+        });
+
+        groupEl.appendChild(headerBtn);
+        groupEl.appendChild(children);
+        tocList.appendChild(groupEl);
+      } else {
+        // Items before first top-level heading — render flat
+        group.items.forEach(h => tocList.appendChild(makeTocItem(h)));
+      }
     });
 
     setupScrollSpy();
+  }
+
+  function makeTocItem(h) {
+    const level = parseInt(h.tagName.charAt(1));
+    const item = document.createElement('a');
+    item.className = 'toc-item';
+    item.setAttribute('data-level', level);
+    item.setAttribute('data-target', h.id);
+    item.textContent = h.textContent;
+    item.title = h.textContent;
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return item;
+  }
+
+  function tocCollapseAll() {
+    const btn = $('tocCollapseAllBtn');
+    const groups = $$('.toc-group-children', $('tocList'));
+    const anyExpanded = Array.from(groups).some(el => el.classList.contains('expanded'));
+
+    if (anyExpanded) {
+      // Collapse all
+      groups.forEach(el => el.classList.remove('expanded'));
+      $$('.toc-group-chevron', $('tocList')).forEach(el => el.classList.remove('expanded'));
+      btn.title = '\u5c55\u958b\u5168\u90e8';
+    } else {
+      // Expand all
+      groups.forEach(el => el.classList.add('expanded'));
+      $$('.toc-group-chevron', $('tocList')).forEach(el => el.classList.add('expanded'));
+      btn.title = '\u647a\u758a\u5168\u90e8';
+    }
   }
 
   function setupScrollSpy() {
@@ -484,6 +785,7 @@
 
   function renderSearchResults(data) {
     const container = $('searchResults');
+    state.lastSearchData = data;
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>沒有找到結果</span></div>';
@@ -499,9 +801,31 @@
       groups[r.file].items.push(r);
     });
 
-    for (const [file, group] of Object.entries(groups)) {
+    // Apply sort
+    let sortedGroups = Object.entries(groups);
+    switch (state.searchSort) {
+      case 'file-asc':
+        sortedGroups.sort(([, a], [, b]) => a.fileName.localeCompare(b.fileName, 'zh-TW', { numeric: true }));
+        break;
+      case 'file-desc':
+        sortedGroups.sort(([, a], [, b]) => b.fileName.localeCompare(a.fileName, 'zh-TW', { numeric: true }));
+        break;
+      case 'count-desc':
+        sortedGroups.sort(([, a], [, b]) => b.items.length - a.items.length);
+        break;
+      case 'relevance':
+      default:
+        // Keep original order (server already sorted by relevance)
+        break;
+    }
+
+    for (const [file, group] of sortedGroups) {
       html += `<div class="search-result-group">`;
-      html += `<div class="search-result-file"><span class="search-result-file-icon">📄</span>${escHtml(group.fileName)}</div>`;
+      html += `<div class="search-result-file" data-file-group="${escHtml(file)}">`;
+      html += `<span class="search-result-file-chevron expanded">›</span>`;
+      html += `<span class="search-result-file-icon">📄</span>${escHtml(group.fileName)}`;
+      html += `<span class="search-result-count">${group.items.length}</span></div>`;
+      html += `<div class="search-result-group-body">`;
       group.items.forEach((item) => {
         const snippet = highlightSearchTerm(item.snippet, data.query);
         html += `
@@ -510,18 +834,48 @@
             <span class="search-result-snippet">${snippet}</span>
           </div>`;
       });
-      html += `</div>`;
+      html += `</div></div>`;
     }
 
     container.innerHTML = html;
 
-    // Add click handlers
+    // Collapse toggle on file header click
+    $$('.search-result-file', container).forEach(fileEl => {
+      fileEl.addEventListener('click', () => {
+        const body = fileEl.nextElementSibling;
+        const chevron = fileEl.querySelector('.search-result-file-chevron');
+        if (body) {
+          body.classList.toggle('collapsed');
+          if (chevron) chevron.classList.toggle('collapsed');
+        }
+      });
+    });
+
+    // Open-file click on result items
     $$('.search-result-item', container).forEach((el) => {
       el.addEventListener('click', () => {
         const file = el.getAttribute('data-file');
         openFile(file);
       });
     });
+  }
+
+  function searchCollapseAll() {
+    const btn = $('searchCollapseAllBtn');
+    const bodies = $$('.search-result-group-body', $('searchResults'));
+    const anyExpanded = Array.from(bodies).some(el => !el.classList.contains('collapsed'));
+
+    if (anyExpanded) {
+      // Collapse all
+      bodies.forEach(el => el.classList.add('collapsed'));
+      $$('.search-result-file-chevron', $('searchResults')).forEach(el => el.classList.add('collapsed'));
+      btn.title = '\u5c55\u958b\u5168\u90e8';
+    } else {
+      // Expand all
+      bodies.forEach(el => el.classList.remove('collapsed'));
+      $$('.search-result-file-chevron', $('searchResults')).forEach(el => el.classList.remove('collapsed'));
+      btn.title = '\u647a\u758a\u5168\u90e8';
+    }
   }
 
   function highlightSearchTerm(text, query) {
@@ -764,6 +1118,64 @@
       });
     });
 
+    // ── File Sort Dropdown ──
+    $('fileSortBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      $('fileSortDropdown').classList.toggle('open');
+      $('searchSortDropdown').classList.remove('open');
+    });
+    $$('.sort-option', $('fileSortDropdown')).forEach(opt => {
+      opt.addEventListener('click', () => {
+        const sort = opt.getAttribute('data-sort');
+        state.fileSort = sort;
+        // Update active indicator and label
+        $$('.sort-option', $('fileSortDropdown')).forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        const labels = { 'name-asc': '名稱↑', 'name-desc': '名稱↓', 'modified-desc': '時間↓', 'modified-asc': '時間↑' };
+        $('fileSortLabel').textContent = labels[sort] || '名稱';
+        $('fileSortDropdown').classList.remove('open');
+        // Re-render tree with new sort
+        const container = $('fileTree');
+        container.innerHTML = '';
+        renderTreeNodes(sortTreeNodes(state.treeData, sort), container, 0);
+      });
+    });
+
+    // ── File Collapse All ──
+    $('fileCollapseAllBtn').addEventListener('click', collapseAllFolders);
+
+    // ── Search Sort Dropdown ──
+    $('searchSortBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      $('searchSortDropdown').classList.toggle('open');
+      $('fileSortDropdown').classList.remove('open');
+    });
+    $$('.sort-option', $('searchSortDropdown')).forEach(opt => {
+      opt.addEventListener('click', () => {
+        const sort = opt.getAttribute('data-sort');
+        state.searchSort = sort;
+        $$('.sort-option', $('searchSortDropdown')).forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        const labels = { 'relevance': '相關性', 'file-asc': '檔名↑', 'file-desc': '檔名↓', 'count-desc': '命中↓' };
+        $('searchSortLabel').textContent = labels[sort] || '相關性';
+        $('searchSortDropdown').classList.remove('open');
+        // Re-render with new sort (if we have data)
+        if (state.lastSearchData) renderSearchResults(state.lastSearchData);
+      });
+    });
+
+    // ── Search Collapse All ──
+    $('searchCollapseAllBtn').addEventListener('click', searchCollapseAll);
+
+    // ── TOC Collapse All ──
+    $('tocCollapseAllBtn').addEventListener('click', tocCollapseAll);
+
+    // ── Close dropdowns on outside click ──
+    document.addEventListener('click', () => {
+      $('fileSortDropdown').classList.remove('open');
+      $('searchSortDropdown').classList.remove('open');
+    });
+
     // ── Theme ──
     $('themeSelect').addEventListener('change', (e) => {
       applyTheme(e.target.value);
@@ -875,6 +1287,7 @@
 
     // ── Sidebar resize ──
     setupResizeHandle();
+    setupSelectionPopup();
 
     // ── Admin Button Click ──
     $('adminSettingsBtn').addEventListener('click', async () => {
@@ -1081,6 +1494,139 @@
 
   function escRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function setupSelectionPopup() {
+    let popup = $('selectionSharePopup');
+    if (!popup) {
+      popup = document.createElement('div');
+      popup.id = 'selectionSharePopup';
+      popup.className = 'selection-share-popup';
+      popup.innerHTML = `
+        <button id="selectionShareBtn" title="分享此段落與行數">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M11 2.5a2.5 2.5 0 11.603 1.628l-6.718 3.12a2.499 2.499 0 010 1.504l6.718 3.12a2.5 2.5 0 11-.488.928L4.397 9.77a2.5 2.5 0 110-3.54l6.718-3.12A2.499 2.499 0 0111 2.5z"/>
+          </svg>
+          <span id="selectionShareLabel">分享指定行</span>
+        </button>
+      `;
+      document.body.appendChild(popup);
+    }
+
+    const shareBtn = $('selectionShareBtn');
+    const shareLabel = $('selectionShareLabel');
+    let currentShareUrl = '';
+
+    document.addEventListener('mouseup', () => {
+      // Small timeout to let selection clear/update
+      setTimeout(() => {
+        const selection = window.getSelection();
+        const text = selection.toString().trim();
+        
+        if (!text || !state.currentFile) {
+          popup.classList.remove('visible');
+          return;
+        }
+
+        // Check if the selection is inside markdownBody
+        const range = selection.getRangeAt(0);
+        const container = $('markdownBody');
+        if (!container.contains(range.commonAncestorContainer)) {
+          popup.classList.remove('visible');
+          return;
+        }
+
+        // Get the line number of the start of selection
+        const lineNum = getSelectionLineNumber(selection);
+        if (!lineNum) {
+          popup.classList.remove('visible');
+          return;
+        }
+
+        // Calculate position: right above/right of the selection
+        const rect = range.getBoundingClientRect();
+        
+        // Show popup
+        popup.classList.add('visible');
+        
+        // Position it: center-top of selection range bounding box
+        const popupWidth = popup.offsetWidth || 110;
+        const popupHeight = popup.offsetHeight || 32;
+        
+        const top = rect.top + window.scrollY - popupHeight - 8;
+        const left = rect.left + rect.width / 2 + window.scrollX - popupWidth / 2;
+        
+        popup.style.top = `${Math.max(0, top)}px`;
+        popup.style.left = `${Math.max(0, left)}px`;
+
+        // Update share link
+        // Construct the URL using query parameters: ?file=...&line=...
+        const baseUrl = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        params.set('file', state.currentFile);
+        params.set('line', lineNum);
+        currentShareUrl = `${baseUrl}?${params.toString()}`;
+
+        // Reset label
+        shareLabel.textContent = `分享第 ${lineNum} 行`;
+        shareBtn.classList.remove('copied');
+      }, 50);
+    });
+
+    // Prevent selection from clearing when clicking the popup button
+    popup.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    shareBtn.addEventListener('click', () => {
+      if (!currentShareUrl) return;
+      navigator.clipboard.writeText(currentShareUrl).then(() => {
+        shareLabel.textContent = '✓ 已複製';
+        shareBtn.classList.add('copied');
+        setTimeout(() => {
+          popup.classList.remove('visible');
+        }, 1500);
+      }).catch(() => {
+        fallbackCopy(currentShareUrl);
+        shareLabel.textContent = '✓ 已複製';
+        shareBtn.classList.add('copied');
+        setTimeout(() => {
+          popup.classList.remove('visible');
+        }, 1500);
+      });
+    });
+
+    // Close popup on mousedown anywhere else
+    document.addEventListener('mousedown', (e) => {
+      if (!popup.contains(e.target)) {
+        popup.classList.remove('visible');
+      }
+    });
+  }
+
+  function getSelectionLineNumber(selection) {
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    let startContainer = range.startContainer;
+    
+    // Find the closest element
+    let current = startContainer.nodeType === Node.ELEMENT_NODE ? startContainer : startContainer.parentElement;
+    
+    const anchors = Array.from(document.querySelectorAll('.line-anchor'));
+    if (anchors.length === 0) return null;
+    
+    let bestAnchor = null;
+    for (const anchor of anchors) {
+      const rel = anchor.compareDocumentPosition(startContainer);
+      if (anchor === startContainer || (rel & Node.DOCUMENT_POSITION_CONTAINED_BY) || (rel & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        bestAnchor = anchor;
+      } else {
+        break;
+      }
+    }
+    
+    return bestAnchor ? parseInt(bestAnchor.getAttribute('data-line')) : null;
   }
 
   // ── Boot ──────────────────────────────────────────────────

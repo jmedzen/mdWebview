@@ -40,7 +40,7 @@
             <option value="obsidian-light">☀️ Obsidian Light</option>
             <option value="solarized">🔆 Solarized</option>
             <option value="zen">🍵 禪風 Zen</option>
-            <option value="sutra-gold">📜 經典金</option>
+            <option value="gruvbox">🍂 Gruvbox</option>
           </select>
         </div>
         <button id="adminSettingsBtn" class="control-btn settings-btn" title="後台設定">
@@ -81,6 +81,25 @@
         <div class="sidebar-panel active" id="panelFiles" data-panel="files">
           <div class="panel-header">
             <h3>檔案瀏覽器</h3>
+            <div class="panel-actions">
+              <!-- Sort By -->
+              <div class="panel-action-group" id="fileSortGroup">
+                <button class="panel-action-btn" id="fileSortBtn" title="排序方式">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2.5a.5.5 0 00-1 0v8.793l-1.146-1.147a.5.5 0 00-.708.708l2 1.999.007.007a.497.497 0 00.7-.006l2-2a.5.5 0 00-.707-.708L3.5 11.293V2.5zm3.5 1a.5.5 0 000 1h7a.5.5 0 000-1h-7zm0 3a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 3a.5.5 0 000 1h3a.5.5 0 000-1h-3z"/></svg>
+                  <span class="panel-action-label" id="fileSortLabel">名稱</span>
+                </button>
+                <div class="sort-dropdown" id="fileSortDropdown">
+                  <button class="sort-option active" data-sort="name-asc">名稱 A→Z</button>
+                  <button class="sort-option" data-sort="name-desc">名稱 Z→A</button>
+                  <button class="sort-option" data-sort="modified-desc">修改時間 ↓</button>
+                  <button class="sort-option" data-sort="modified-asc">修改時間 ↑</button>
+                </div>
+              </div>
+              <!-- Collapse All -->
+              <button class="panel-action-btn" id="fileCollapseAllBtn" title="摺疊全部">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M1.5 3.5A.5.5 0 012 3h12a.5.5 0 01.354.854l-6 6a.5.5 0 01-.707 0l-6-6A.5.5 0 011.5 3.5z" transform="scale(1,-1) translate(0,-16)"/><path d="M8 1a.5.5 0 01.5.5v5.793l1.146-1.147a.5.5 0 11.708.708l-2 2a.5.5 0 01-.707 0l-2-2a.5.5 0 11.708-.708L7.5 7.293V1.5A.5.5 0 018 1zm-5 9a.5.5 0 000 1h10a.5.5 0 000-1H3z"/></svg>
+              </button>
+            </div>
           </div>
           <div class="file-tree" id="fileTree">
             <div class="tree-loading">
@@ -94,6 +113,25 @@
         <div class="sidebar-panel" id="panelSearch" data-panel="search">
           <div class="panel-header">
             <h3>全文搜尋</h3>
+            <div class="panel-actions">
+              <!-- Sort By -->
+              <div class="panel-action-group" id="searchSortGroup">
+                <button class="panel-action-btn" id="searchSortBtn" title="排序方式">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2.5a.5.5 0 00-1 0v8.793l-1.146-1.147a.5.5 0 00-.708.708l2 1.999.007.007a.497.497 0 00.7-.006l2-2a.5.5 0 00-.707-.708L3.5 11.293V2.5zm3.5 1a.5.5 0 000 1h7a.5.5 0 000-1h-7zm0 3a.5.5 0 000 1h5a.5.5 0 000-1h-5zm0 3a.5.5 0 000 1h3a.5.5 0 000-1h-3z"/></svg>
+                  <span class="panel-action-label" id="searchSortLabel">相關性</span>
+                </button>
+                <div class="sort-dropdown" id="searchSortDropdown">
+                  <button class="sort-option active" data-sort="relevance">相關性</button>
+                  <button class="sort-option" data-sort="file-asc">檔名 A→Z</button>
+                  <button class="sort-option" data-sort="file-desc">檔名 Z→A</button>
+                  <button class="sort-option" data-sort="count-desc">命中數 ↓</button>
+                </div>
+              </div>
+              <!-- Collapse All -->
+              <button class="panel-action-btn" id="searchCollapseAllBtn" title="摺疊全部">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.5.5 0 01.5.5v5.793l1.146-1.147a.5.5 0 11.708.708l-2 2a.5.5 0 01-.707 0l-2-2a.5.5 0 11.708-.708L7.5 7.293V1.5A.5.5 0 018 1zm-5 9a.5.5 0 000 1h10a.5.5 0 000-1H3z"/></svg>
+              </button>
+            </div>
           </div>
           <div class="search-input-wrapper">
             <input type="text" id="globalSearchInput" placeholder="搜尋所有檔案…" class="search-input" autocomplete="off">
@@ -115,6 +153,11 @@
         <div class="sidebar-panel" id="panelToc" data-panel="toc">
           <div class="panel-header">
             <h3>本頁大綱</h3>
+            <div class="panel-actions">
+              <button class="panel-action-btn" id="tocCollapseAllBtn" title="摺疊全部">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.5.5 0 01.5.5v5.793l1.146-1.147a.5.5 0 11.708.708l-2 2a.5.5 0 01-.707 0l-2-2a.5.5 0 11.708-.708L7.5 7.293V1.5A.5.5 0 018 1zm-5 9a.5.5 0 000 1h10a.5.5 0 000-1H3z"/></svg>
+              </button>
+            </div>
           </div>
           <div class="toc-list" id="tocList">
             <div class="panel-placeholder">
@@ -270,7 +313,7 @@
               <option value="obsidian-light">☀️ Obsidian Light</option>
               <option value="solarized">🔆 Solarized</option>
               <option value="zen">🍵 禪風 Zen</option>
-              <option value="sutra-gold">📜 經典金</option>
+              <option value="gruvbox">🍂 Gruvbox</option>
             </select>
             <span class="field-hint">新讀者首次造訪時的主題。</span>
           </div>
