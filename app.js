@@ -24,12 +24,79 @@
     lastSearchData: null,
   };
 
+  // ── LRU Render Cache ─────────────────────────────────────
+  // Caches last N rendered HTML results to avoid re-parsing unchanged files.
+  const CACHE_MAX = 10;
+  const renderCache = new Map(); // path -> html (insertion-order LRU)
+
+  function cacheGet(key) {
+    if (!renderCache.has(key)) return null;
+    const val = renderCache.get(key);
+    // Re-insert to mark as recently used
+    renderCache.delete(key);
+    renderCache.set(key, val);
+    return val;
+  }
+
+  function cacheSet(key, val) {
+    if (renderCache.has(key)) renderCache.delete(key);
+    renderCache.set(key, val);
+    // Evict oldest entry if over limit
+    if (renderCache.size > CACHE_MAX) {
+      renderCache.delete(renderCache.keys().next().value);
+    }
+  }
+
+  // ── Markdown Web Worker ───────────────────────────────────
+  // Spins up a single shared worker, reused across all file opens.
+  let _mdWorker = null;
+  let _workerCallbacks = {}; // id -> { resolve, reject }
+  let _workerIdSeq = 0;
+
+  function getMdWorker() {
+    if (_mdWorker) return _mdWorker;
+    _mdWorker = new Worker('/md-worker.js');
+    _mdWorker.onmessage = (e) => {
+      const { id, ok, html, error } = e.data;
+      const cb = _workerCallbacks[id];
+      if (!cb) return;
+      delete _workerCallbacks[id];
+      if (ok) cb.resolve(html);
+      else cb.reject(new Error(error));
+    };
+    _mdWorker.onerror = (err) => {
+      // Fallback: terminate worker so next call re-creates it
+      console.error('[md-worker] Worker error, will recreate on next call:', err.message);
+      _mdWorker.terminate();
+      _mdWorker = null;
+    };
+    return _mdWorker;
+  }
+
+  function parseMarkdownInWorker(body) {
+    return new Promise((resolve, reject) => {
+      const id = ++_workerIdSeq;
+      _workerCallbacks[id] = { resolve, reject };
+      try {
+        getMdWorker().postMessage({ id, body });
+      } catch (err) {
+        delete _workerCallbacks[id];
+        reject(err);
+      }
+    });
+  }
+
   // ── DOM Helpers ───────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const $$ = (sel, root) => (root || document).querySelectorAll(sel);
 
   // ── Init ──────────────────────────────────────────────────
   async function init() {
+    // Configure marked once at startup (not on every render)
+    marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
+    // Pre-warm the Web Worker so first file open has no startup delay
+    getMdWorker();
+
     await checkAdminStatus();
     applyTheme(state.currentTheme);
     applyFontSize(state.fontSize);
@@ -349,7 +416,7 @@
 
       const { frontmatter, body } = parseFrontmatter(data.content);
       renderContentHeader(filePath, frontmatter);
-      await renderMarkdown(body);
+      await renderMarkdown(body, filePath);
       generateTOC();
 
       loading.style.display = 'none';
@@ -454,146 +521,104 @@
   }
 
 
-  async function renderMarkdown(body) {
+  async function renderMarkdown(body, cacheKey) {
     const el = $('markdownBody');
 
-    // Configure marked
-    marked.setOptions({
-      breaks: false,
-      gfm: true,
-      headerIds: true,
-      mangle: false,
-    });
-
-    // ── Extract footnote definitions from the markdown ──
-    const lines = body.split('\n');
-    const cleanLines = [];
-    const footnotes = []; // array of { id, text }
-    const footnoteMap = {};
-    let currentFootnote = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      // Match [^id]: text
-      const match = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
-      if (match) {
-        const id = match[1];
-        const text = match[2];
-        currentFootnote = { id, text: [text] };
-        footnotes.push(currentFootnote);
-        footnoteMap[id] = currentFootnote;
-      } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
-        // continuation of footnote text
-        currentFootnote.text.push(line);
-      } else if (currentFootnote && line.trim() === '') {
-        // Lookahead to see if next line is indented or another footnote
-        let isContinuation = false;
-        for (let j = i + 1; j < lines.length; j++) {
-          if (lines[j].trim() === '') continue;
-          if (lines[j].startsWith('    ') || lines[j].startsWith('\t')) {
-            isContinuation = true;
-          }
-          break;
-        }
-        if (isContinuation) {
-          currentFootnote.text.push(line);
-        } else {
-          currentFootnote = null;
-          cleanLines.push(line);
-        }
-      } else {
-        currentFootnote = null;
-        cleanLines.push(line);
+    // ── Check cache first: instant re-render for previously visited files ──
+    const cached = cacheKey ? cacheGet(cacheKey) : null;
+    let html;
+    if (cached) {
+      html = cached;
+    } else {
+      // Offload all heavy parsing to the Web Worker so main thread is never blocked.
+      // Falls back to inline parsing if Worker fails (e.g., file:// protocol).
+      try {
+        html = await parseMarkdownInWorker(body);
+      } catch (err) {
+        console.warn('[renderMarkdown] Worker unavailable, falling back to inline parse:', err.message);
+        html = inlineParseMarkdown(body);
       }
+      if (cacheKey) cacheSet(cacheKey, html);
     }
 
-    const cleanBody = cleanLines.join('\n');
-
-    // ── Inject line-number anchors before block-starting lines ──
-    // This allows the DOM to be navigated by source line number.
-    const bodyLines = cleanBody.split('\n');
-    const annotatedLines = [];
-    let prevWasBlank = true; // treat start-of-file as after a blank line
-    bodyLines.forEach((line, idx) => {
-      const lineNum = idx + 1;
-      const trimmed = line.trim();
-      const isBlockStart =
-        /^#{1,6}\s/.test(trimmed) ||
-        /^[-*+]\s/.test(trimmed) ||
-        /^\d+\.\s/.test(trimmed) ||
-        /^>/.test(trimmed) ||
-        /^```/.test(trimmed) ||
-        (prevWasBlank && trimmed.length > 0);
-      if (isBlockStart) {
-        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
-      }
-      annotatedLines.push(line);
-      prevWasBlank = trimmed.length === 0;
-    });
-    const annotatedBody = annotatedLines.join('\n');
-
-    // Render the main markdown body
-    let html = marked.parse(annotatedBody);
-
-    // ── Process footnote references [^id] in the main body ──
-    const refCounter = {};
-    html = html.replace(/\[\^([^\]]+)\]/g, (match, id) => {
-      if (!refCounter[id]) {
-        refCounter[id] = 0;
-      }
-      refCounter[id]++;
-      const refId = `fn-ref-${id}-${refCounter[id]}`;
-      return `<a href="#fn-def-${id}" id="${refId}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
-    });
-
-    // ── Render and append footnotes section ──
-    if (footnotes.length > 0) {
-      let footnotesHtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
-      
-      footnotes.forEach((fn) => {
-        const id = fn.id;
-        const fnText = fn.text.join('\n').trim();
-        let fnRendered = marked.parse(fnText).trim();
-        
-        // Generate backlink(s)
-        let backlinksHtml = '';
-        const count = refCounter[id] || 0;
-        if (count === 1) {
-          backlinksHtml = ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>`;
-        } else if (count > 1) {
-          backlinksHtml = ' ';
-          for (let r = 1; r <= count; r++) {
-            backlinksHtml += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
-          }
-        }
-
-        // Insert backlink into the last closing </p>
-        if (fnRendered.includes('</p>')) {
-          const lastIdx = fnRendered.lastIndexOf('</p>');
-          fnRendered = fnRendered.substring(0, lastIdx) + backlinksHtml + fnRendered.substring(lastIdx);
-        } else {
-          fnRendered += backlinksHtml;
-        }
-
-        footnotesHtml += `<li class="footnote-item" id="fn-def-${id}" data-id="${id}">
-          <span class="footnote-label">[${id}]</span>
-          <div class="footnote-item-content">${fnRendered}</div>
-        </li>`;
-      });
-      
-      footnotesHtml += '</ul></div>';
-      html += footnotesHtml;
-    }
-
+    // Insert HTML into DOM
     el.innerHTML = html;
 
     // Add IDs to headings for scroll spy
     const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
     headings.forEach((h, i) => {
-      if (!h.id) {
-        h.id = 'heading-' + i;
-      }
+      if (!h.id) h.id = 'heading-' + i;
     });
+  }
+
+  // Inline fallback: runs on main thread (same logic as md-worker.js)
+  function inlineParseMarkdown(body) {
+    const lines = body.split('\n');
+    const cleanLines = [];
+    const footnotes = [];
+    const footnoteMap = {};
+    let currentFootnote = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const match = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
+      if (match) {
+        const id = match[1]; const text = match[2];
+        currentFootnote = { id, text: [text] };
+        footnotes.push(currentFootnote);
+        footnoteMap[id] = currentFootnote;
+      } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
+        currentFootnote.text.push(line);
+      } else if (currentFootnote && line.trim() === '') {
+        let isContinuation = false;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() === '') continue;
+          if (lines[j].startsWith('    ') || lines[j].startsWith('\t')) isContinuation = true;
+          break;
+        }
+        if (isContinuation) { currentFootnote.text.push(line); }
+        else { currentFootnote = null; cleanLines.push(line); }
+      } else { currentFootnote = null; cleanLines.push(line); }
+    }
+
+    const cleanBody = cleanLines.join('\n');
+    const bodyLines = cleanBody.split('\n');
+    const annotatedLines = [];
+    let prevWasBlank = true;
+    bodyLines.forEach((line, idx) => {
+      const lineNum = idx + 1;
+      const trimmed = line.trim();
+      const isBlockStart = /^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed) ||
+        /^\d+\.\s/.test(trimmed) || /^>/.test(trimmed) || /^```/.test(trimmed) ||
+        (prevWasBlank && trimmed.length > 0);
+      if (isBlockStart) annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+      annotatedLines.push(line);
+      prevWasBlank = trimmed.length === 0;
+    });
+
+    let html = marked.parse(annotatedLines.join('\n'));
+    const refCounter = {};
+    html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
+      if (!refCounter[id]) refCounter[id] = 0;
+      refCounter[id]++;
+      return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
+    });
+
+    if (footnotes.length > 0) {
+      let fhtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
+      footnotes.forEach((fn) => {
+        const id = fn.id;
+        let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
+        const count = refCounter[id] || 0;
+        let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>` : '';
+        if (count > 1) { bl = ' '; for (let r = 1; r <= count; r++) bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">↩<sup>${r}</sup></a> `; }
+        if (fnRendered.includes('</p>')) { const li = fnRendered.lastIndexOf('</p>'); fnRendered = fnRendered.slice(0,li)+bl+fnRendered.slice(li); } else fnRendered += bl;
+        fhtml += `<li class="footnote-item" id="fn-def-${id}" data-id="${id}"><span class="footnote-label">[${id}]</span><div class="footnote-item-content">${fnRendered}</div></li>`;
+      });
+      fhtml += '</ul></div>';
+      html += fhtml;
+    }
+    return html;
   }
 
   // ═══════════════════════════════════════════════════════════
