@@ -410,27 +410,60 @@
     highlightActiveFile(filePath);
 
     try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`);
+      // Check LRU cache first — cached files open instantly
+      const cachedHtml = cacheGet(filePath);
+      if (cachedHtml) {
+        // Restore from cache without any network or parse overhead
+        const dummyFrontmatter = {}; // frontmatter cached separately below
+        const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : null;
+        if (cachedMeta) renderContentHeader(filePath, cachedMeta);
+        const el = $('markdownBody');
+        el.innerHTML = cachedHtml;
+        const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+        generateTOC();
+        loading.style.display = 'none';
+        wrapper.style.display = 'block';
+        if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
+        else content.scrollTop = 0;
+        if (cachedMeta) {
+          const title = cachedMeta.title || filePath.split('/').pop().replace(/\.md$/, '');
+          document.title = `${title} — ${state.siteName}`;
+        }
+        return;
+      }
+
+      // Use server-side rendered HTML (fastest for first open — Node.js renders markdown)
+      const res = await fetch(`/api/render?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`);
       if (!res.ok) throw new Error('File not found');
       const data = await res.json();
 
-      const { frontmatter, body } = parseFrontmatter(data.content);
-      renderContentHeader(filePath, frontmatter);
-      await renderMarkdown(body, filePath);
-      generateTOC();
+      // Store frontmatter metadata alongside cache for title/header restoration
+      if (!renderCache.__meta) renderCache.__meta = new Map();
+      renderCache.__meta.set(filePath, data.frontmatter || {});
 
+      renderContentHeader(filePath, data.frontmatter || {});
+
+      // Insert SSR HTML directly — no client-side parsing needed
+      const el = $('markdownBody');
+      el.innerHTML = data.html;
+      const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+
+      // Cache the rendered HTML for instant re-opens
+      cacheSet(filePath, data.html);
+
+      generateTOC();
       loading.style.display = 'none';
       wrapper.style.display = 'block';
 
       if (scrollToLineNum) {
-        // Small delay to let layout settle, then scroll to line
         setTimeout(() => scrollToLine(scrollToLineNum), 80);
       } else {
         content.scrollTop = 0;
       }
 
-      // Update page title
-      const title = frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '');
+      const title = (data.frontmatter && data.frontmatter.title) || filePath.split('/').pop().replace(/\.md$/, '');
       document.title = `${title} — ${state.siteName}`;
     } catch (err) {
       loading.style.display = 'none';

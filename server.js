@@ -2,6 +2,10 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { marked } = require('marked');  // Server-side Markdown rendering
+
+// Configure marked once at startup
+marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
 
 const PORT = process.env.PORT || 8330;
 const APP_ROOT = path.resolve(process.cwd());
@@ -150,8 +154,119 @@ function handleFile(req, res, query) {
   }
 
   try {
-    const content = fs.readFileSync(resolved, 'utf-8');
-    sendJSON(res, 200, { content, path: filePath, line: line || null });
+    const raw = fs.readFileSync(resolved, 'utf-8');
+    // Return both raw content (for search/edit) and pre-rendered HTML
+    sendJSON(res, 200, { content: raw, path: filePath, line: line || null });
+  } catch (err) {
+    sendJSON(res, 404, { error: 'File not found: ' + filePath });
+  }
+}
+
+// ── Render: Server-Side Markdown → HTML ─────────────────────
+function renderMarkdownSSR(body) {
+  // 1. Extract footnotes
+  const lines = body.split('\n');
+  const cleanLines = [];
+  const footnotes = [];
+  const footnoteMap = {};
+  let currentFootnote = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/);
+    if (match) {
+      const id = match[1], text = match[2];
+      currentFootnote = { id, text: [text] };
+      footnotes.push(currentFootnote);
+      footnoteMap[id] = currentFootnote;
+    } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
+      currentFootnote.text.push(line);
+    } else if (currentFootnote && line.trim() === '') {
+      let isContinuation = false;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim() === '') continue;
+        if (lines[j].startsWith('    ') || lines[j].startsWith('\t')) isContinuation = true;
+        break;
+      }
+      if (isContinuation) { currentFootnote.text.push(line); }
+      else { currentFootnote = null; cleanLines.push(line); }
+    } else { currentFootnote = null; cleanLines.push(line); }
+  }
+
+  // 2. Inject line-number anchors
+  const bodyLines = cleanLines.join('\n').split('\n');
+  const annotatedLines = [];
+  let prevWasBlank = true;
+  bodyLines.forEach((line, idx) => {
+    const lineNum = idx + 1;
+    const trimmed = line.trim();
+    const isBlockStart = /^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed) ||
+      /^\d+\.\s/.test(trimmed) || /^>/.test(trimmed) || /^```/.test(trimmed) ||
+      (prevWasBlank && trimmed.length > 0);
+    if (isBlockStart)
+      annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+    annotatedLines.push(line);
+    prevWasBlank = trimmed.length === 0;
+  });
+
+  // 3. Parse main body
+  let html = marked.parse(annotatedLines.join('\n'));
+
+  // 4. Footnote references
+  const refCounter = {};
+  html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
+    if (!refCounter[id]) refCounter[id] = 0;
+    refCounter[id]++;
+    return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="\u8a3b ${id}">[${id}]</a>`;
+  });
+
+  // 5. Footnotes section
+  if (footnotes.length > 0) {
+    let fhtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
+    footnotes.forEach((fn) => {
+      const id = fn.id;
+      let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
+      const count = refCounter[id] || 0;
+      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="\u8fd4\u56de">↩</a>` : '';
+      if (count > 1) { bl = ' '; for (let r = 1; r <= count; r++) bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">↩<sup>${r}</sup></a> `; }
+      if (fnRendered.includes('</p>')) { const li = fnRendered.lastIndexOf('</p>'); fnRendered = fnRendered.slice(0,li)+bl+fnRendered.slice(li); } else fnRendered += bl;
+      fhtml += `<li class="footnote-item" id="fn-def-${id}" data-id="${id}"><span class="footnote-label">[${id}]</span><div class="footnote-item-content">${fnRendered}</div></li>`;
+    });
+    fhtml += '</ul></div>';
+    html += fhtml;
+  }
+
+  return html;
+}
+
+function handleRender(req, res, query) {
+  const filePath = query.path;
+  if (!filePath || filePath.includes('\0')) {
+    return sendJSON(res, 400, { error: 'Invalid path' });
+  }
+
+  const fullPath = path.join(getMdRoot(), filePath);
+  const resolved = path.resolve(fullPath);
+  const relative = path.relative(getMdRoot(), resolved);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  if (!isSafe) return sendJSON(res, 403, { error: 'Access denied' });
+
+  try {
+    let raw = fs.readFileSync(resolved, 'utf-8');
+
+    // Strip frontmatter before rendering
+    let frontmatter = {};
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (fmMatch) {
+      fmMatch[1].split('\n').forEach((l) => {
+        const [k, ...v] = l.split(':');
+        if (k && v.length) frontmatter[k.trim()] = v.join(':').trim();
+      });
+      raw = fmMatch[2];
+    }
+
+    const html = renderMarkdownSSR(raw);
+    sendJSON(res, 200, { html, frontmatter, path: filePath, line: query.line || null });
   } catch (err) {
     sendJSON(res, 404, { error: 'File not found: ' + filePath });
   }
@@ -383,6 +498,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/file' && req.method === 'GET') {
     return handleFile(req, res, query);
+  }
+  if (pathname === '/api/render' && req.method === 'GET') {
+    return handleRender(req, res, query);
   }
   if (pathname === '/api/search' && req.method === 'GET') {
     return handleSearch(req, res, query);
