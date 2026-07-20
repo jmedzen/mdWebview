@@ -49,7 +49,10 @@
     renderCache.set(key, val);
     // Evict oldest entry if over limit
     if (renderCache.size > CACHE_MAX) {
-      renderCache.delete(renderCache.keys().next().value);
+      const oldestKey = renderCache.keys().next().value;
+      renderCache.delete(oldestKey);
+      if (renderCache.__meta) renderCache.__meta.delete(oldestKey);
+      if (renderCache.__etag) renderCache.__etag.delete(oldestKey);
     }
   }
 

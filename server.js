@@ -19,36 +19,69 @@ const jobCallbacks = new Map(); // jobId -> { resolve, reject }
 let jobIdSeq = 0;
 const jobQueue = []; // queue for when all workers are busy
 
-function initWorkerPool() {
+function createWorker(index) {
   const WORKER_PATH = path.join(APP_ROOT, 'render-worker.js');
-  for (let i = 0; i < POOL_SIZE; i++) {
-    const w = new Worker(WORKER_PATH);
-    w.idle = true;
+  const w = new Worker(WORKER_PATH);
+  w.idle = true;
+  w.currentJobId = null;
+  w.index = index;
+
+  w.on('message', ({ jobId, html, error }) => {
+    const cb = jobCallbacks.get(jobId);
+    if (cb) {
+      jobCallbacks.delete(jobId);
+      if (error) cb.reject(new Error(error));
+      else cb.resolve(html);
+    }
     w.currentJobId = null;
-    w.on('message', ({ jobId, html, error }) => {
-      const cb = jobCallbacks.get(jobId);
+    w.idle = true;
+    flushQueue();
+  });
+
+  w.on('error', (err) => {
+    console.error(`[Worker ${w.index}] Error:`, err.message);
+    if (w.currentJobId) {
+      const cb = jobCallbacks.get(w.currentJobId);
       if (cb) {
-        jobCallbacks.delete(jobId);
-        if (error) cb.reject(new Error(error));
-        else cb.resolve(html);
+        jobCallbacks.delete(w.currentJobId);
+        cb.reject(err);
       }
       w.currentJobId = null;
-      w.idle = true;
-      flushQueue();
-    });
-    w.on('error', (err) => {
-      console.error(`[Worker ${i}] Error:`, err.message);
-      if (w.currentJobId) {
-        const cb = jobCallbacks.get(w.currentJobId);
-        if (cb) {
-          jobCallbacks.delete(w.currentJobId);
-          cb.reject(err);
-        }
-        w.currentJobId = null;
+    }
+    w.idle = true;
+    flushQueue();
+  });
+
+  w.on('exit', (code) => {
+    console.warn(`[Worker ${w.index}] Exited with code ${code}. Re-spawning...`);
+    
+    // Clean up active job if it died mid-execution to prevent leaking callbacks
+    if (w.currentJobId) {
+      const cb = jobCallbacks.get(w.currentJobId);
+      if (cb) {
+        jobCallbacks.delete(w.currentJobId);
+        cb.reject(new Error('Worker thread terminated unexpectedly'));
       }
-      w.idle = true;
-      flushQueue();
-    });
+    }
+    
+    // Remove the dead worker from the pool
+    const idx = workerPool.indexOf(w);
+    if (idx !== -1) {
+      workerPool.splice(idx, 1);
+    }
+    
+    // Respawn a new worker at the same index
+    const newWorker = createWorker(w.index);
+    workerPool.push(newWorker);
+    flushQueue();
+  });
+
+  return w;
+}
+
+function initWorkerPool() {
+  for (let i = 0; i < POOL_SIZE; i++) {
+    const w = createWorker(i);
     workerPool.push(w);
   }
   console.log(`  Workers: ${POOL_SIZE} render thread(s) ready`);
@@ -230,6 +263,16 @@ function setupTreeWatcher() {
   } catch (err) {
     console.error('Error setting up tree watcher:', err);
   }
+}
+
+function resetTreeWatcher() {
+  if (treeWatcher) {
+    try {
+      treeWatcher.close();
+    } catch (err) {}
+    treeWatcher = null;
+  }
+  cachedTree = null;
 }
 
 async function scanDirAsync(dir, relativePath) {
@@ -833,7 +876,10 @@ const server = http.createServer((req, res) => {
           return sendJSON(res, 400, { error: 'Provided path is not a directory' });
         }
         
-        config.settings.mdRoot = resolvedPath;
+        if (config.settings.mdRoot !== resolvedPath) {
+          config.settings.mdRoot = resolvedPath;
+          resetTreeWatcher();
+        }
         if (defaultFontSize) {
           config.settings.defaultFontSize = Math.max(12, Math.min(28, parseInt(defaultFontSize)));
         }
