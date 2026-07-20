@@ -286,7 +286,33 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-const sessions = new Set();
+// Session store mapping: token -> { expiry: timestamp }
+const sessions = new Map();
+const SESSION_DURATION = 2 * 60 * 60 * 1000; // 2 hours session expiry
+
+// Rate limiting / brute-force protection map: ip -> { attempts: count, lockUntil: timestamp }
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 5;
+const LOCK_DURATION = 15 * 60 * 1000; // 15 minutes lockout
+
+function getClientIP(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function timingSafeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'utf-8');
+  const bufB = Buffer.from(b, 'utf-8');
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA); // dummy operation
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 function hashPassword(password, salt, iterations = 100000) {
   if (!salt) {
@@ -302,7 +328,18 @@ function generateSessionToken() {
 
 function isAuthenticated(req) {
   const token = req.headers['x-admin-token'];
-  return token && sessions.has(token);
+  if (!token) return false;
+  const session = sessions.get(token);
+  if (!session) return false;
+  
+  if (Date.now() > session.expiry) {
+    sessions.delete(token); // Session expired
+    return false;
+  }
+  
+  // Slide session expiry on active request
+  session.expiry = Date.now() + SESSION_DURATION;
+  return true;
 }
 
 function readJSONBody(req) {
@@ -388,11 +425,21 @@ const server = http.createServer((req, res) => {
     if (!config.admin) {
       return sendJSON(res, 400, { error: 'Admin not configured' });
     }
+
+    const ip = getClientIP(req);
+    const attempt = loginAttempts.get(ip) || { attempts: 0, lockUntil: 0 };
+
+    if (Date.now() < attempt.lockUntil) {
+      const waitMinutes = Math.ceil((attempt.lockUntil - Date.now()) / 60000);
+      return sendJSON(res, 429, { error: `登入失敗次數過多，請於 ${waitMinutes} 分鐘後再試。` });
+    }
+
     return readJSONBody(req).then(data => {
       const { username, password } = data;
       if (!username || !password) {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
+
       let { hash } = hashPassword(password, config.admin.salt, 100000);
       if (hash !== config.admin.passwordHash) {
         // Fallback for legacy 1000 iterations
@@ -402,12 +449,23 @@ const server = http.createServer((req, res) => {
         }
       }
 
-      if (username === config.admin.username && hash === config.admin.passwordHash) {
+      const isUsernameCorrect = timingSafeCompare(username, config.admin.username);
+      const isPasswordCorrect = timingSafeCompare(hash, config.admin.passwordHash);
+
+      if (isUsernameCorrect && isPasswordCorrect) {
+        loginAttempts.delete(ip); // Clear attempts on success
         const token = generateSessionToken();
-        sessions.add(token);
+        sessions.set(token, { expiry: Date.now() + SESSION_DURATION });
         return sendJSON(res, 200, { success: true, token });
       } else {
-        return sendJSON(res, 401, { error: 'Invalid username or password' });
+        attempt.attempts += 1;
+        if (attempt.attempts >= MAX_ATTEMPTS) {
+          attempt.lockUntil = Date.now() + LOCK_DURATION;
+          console.warn(`[Security Alert] IP ${ip} locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`);
+        } else {
+          loginAttempts.set(ip, attempt);
+        }
+        return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
       }
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
