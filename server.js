@@ -2,10 +2,72 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { marked } = require('marked');  // Server-side Markdown rendering
+const zlib = require('zlib');
+const os = require('os');
+const { Worker } = require('worker_threads');
+const { marked } = require('marked');  // Still needed for inline fallback
 
 // Configure marked once at startup
 marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
+
+// ── Worker Thread Pool ─────────────────────────────────────────────────────
+// CPU-bound markdown rendering is offloaded to persistent worker threads.
+// This keeps the Node.js event loop free to handle other HTTP requests.
+const POOL_SIZE = Math.max(2, Math.min(4, os.cpus().length - 1));
+const workerPool = [];
+const jobCallbacks = new Map(); // jobId -> { resolve, reject }
+let jobIdSeq = 0;
+const jobQueue = []; // queue for when all workers are busy
+
+function initWorkerPool() {
+  const WORKER_PATH = path.join(APP_ROOT, 'render-worker.js');
+  for (let i = 0; i < POOL_SIZE; i++) {
+    const w = new Worker(WORKER_PATH);
+    w.idle = true;
+    w.on('message', ({ jobId, html, error }) => {
+      const cb = jobCallbacks.get(jobId);
+      if (cb) {
+        jobCallbacks.delete(jobId);
+        if (error) cb.reject(new Error(error));
+        else cb.resolve(html);
+      }
+      w.idle = true;
+      flushQueue();
+    });
+    w.on('error', (err) => {
+      console.error(`[Worker ${i}] Error:`, err.message);
+      w.idle = true;
+      flushQueue();
+    });
+    workerPool.push(w);
+  }
+  console.log(`  Workers: ${POOL_SIZE} render thread(s) ready`);
+}
+
+function flushQueue() {
+  if (jobQueue.length === 0) return;
+  const freeWorker = workerPool.find(w => w.idle);
+  if (!freeWorker) return;
+  const { jobId, body, resolve, reject } = jobQueue.shift();
+  jobCallbacks.set(jobId, { resolve, reject });
+  freeWorker.idle = false;
+  freeWorker.postMessage({ jobId, body });
+}
+
+function renderWithWorker(body) {
+  return new Promise((resolve, reject) => {
+    const jobId = ++jobIdSeq;
+    const freeWorker = workerPool.find(w => w.idle);
+    if (freeWorker) {
+      jobCallbacks.set(jobId, { resolve, reject });
+      freeWorker.idle = false;
+      freeWorker.postMessage({ jobId, body });
+    } else {
+      // All workers busy — queue the job
+      jobQueue.push({ jobId, body, resolve, reject });
+    }
+  });
+}
 
 const PORT = process.env.PORT || 8330;
 const APP_ROOT = path.resolve(process.cwd());
@@ -239,7 +301,7 @@ function renderMarkdownSSR(body) {
   return html;
 }
 
-function handleRender(req, res, query) {
+async function handleRender(req, res, query) {
   const filePath = query.path;
   if (!filePath || filePath.includes('\0')) {
     return sendJSON(res, 400, { error: 'Invalid path' });
@@ -254,6 +316,14 @@ function handleRender(req, res, query) {
   try {
     let raw = fs.readFileSync(resolved, 'utf-8');
 
+    // ETag based on file content hash for 304 Not Modified support
+    const etag = '"' + crypto.createHash('md5').update(raw).digest('hex') + '"';
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      res.end();
+      return;
+    }
+
     // Strip frontmatter before rendering
     let frontmatter = {};
     const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -265,8 +335,38 @@ function handleRender(req, res, query) {
       raw = fmMatch[2];
     }
 
-    const html = renderMarkdownSSR(raw);
-    sendJSON(res, 200, { html, frontmatter, path: filePath, line: query.line || null });
+    // Offload CPU-bound rendering to worker thread pool
+    const html = await renderWithWorker(raw);
+
+    // Encode frontmatter as base64 in response header (avoids JSON wrapping the HTML)
+    const metaHeader = Buffer.from(JSON.stringify(frontmatter), 'utf-8').toString('base64');
+
+    const responseHeaders = Object.assign({
+      'Content-Type': 'text/html; charset=utf-8',
+      'ETag': etag,
+      'Cache-Control': 'no-cache',
+      'X-Document-Meta': metaHeader,
+    }, SECURITY_HEADERS);
+
+    // Gzip compress if client supports it — reduces payload ~10x
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (acceptEncoding.includes('gzip')) {
+      zlib.gzip(Buffer.from(html, 'utf-8'), { level: zlib.constants.Z_BEST_SPEED }, (err, compressed) => {
+        if (err) {
+          res.writeHead(200, responseHeaders);
+          res.end(html);
+          return;
+        }
+        res.writeHead(200, Object.assign(responseHeaders, {
+          'Content-Encoding': 'gzip',
+          'Content-Length': compressed.length,
+        }));
+        res.end(compressed);
+      });
+    } else {
+      res.writeHead(200, responseHeaders);
+      res.end(html);
+    }
   } catch (err) {
     sendJSON(res, 404, { error: 'File not found: ' + filePath });
   }
@@ -641,6 +741,8 @@ const server = http.createServer((req, res) => {
   // Static files
   serveStatic(req, res, pathname);
 });
+
+initWorkerPool();
 
 server.listen(PORT, () => {
   console.log('');

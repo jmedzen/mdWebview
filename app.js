@@ -410,48 +410,67 @@
     highlightActiveFile(filePath);
 
     try {
-      // Check LRU cache first — cached files open instantly
+      // Check LRU cache first — cached files open instantly (no network at all)
       const cachedHtml = cacheGet(filePath);
       if (cachedHtml) {
-        // Restore from cache without any network or parse overhead
-        const dummyFrontmatter = {}; // frontmatter cached separately below
         const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : null;
         if (cachedMeta) renderContentHeader(filePath, cachedMeta);
         const el = $('markdownBody');
         el.innerHTML = cachedHtml;
-        const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+        el.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
         generateTOC();
         loading.style.display = 'none';
         wrapper.style.display = 'block';
         if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
         else content.scrollTop = 0;
         if (cachedMeta) {
-          const title = cachedMeta.title || filePath.split('/').pop().replace(/\.md$/, '');
-          document.title = `${title} — ${state.siteName}`;
+          document.title = `${cachedMeta.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
         }
         return;
       }
 
-      // Use server-side rendered HTML (fastest for first open — Node.js renders markdown)
-      const res = await fetch(`/api/render?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`);
+      // Build fetch headers — send ETag for 304 Not Modified support
+      const fetchHeaders = {};
+      const cachedEtag = renderCache.__etag ? renderCache.__etag.get(filePath) : null;
+      if (cachedEtag) fetchHeaders['If-None-Match'] = cachedEtag;
+
+      // SSR endpoint returns raw HTML (text/html) + gzip: avoids JSON.parse overhead
+      const res = await fetch(`/api/render?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`, {
+        headers: fetchHeaders
+      });
+
+      if (res.status === 304) {
+        // Server says nothing changed — shouldn't happen since we cleared cache, but handle gracefully
+        return;
+      }
       if (!res.ok) throw new Error('File not found');
-      const data = await res.json();
 
-      // Store frontmatter metadata alongside cache for title/header restoration
+      // res.text() is much faster than res.json() for large HTML payloads
+      const [html, metaB64, etag] = await Promise.all([
+        res.text(),
+        Promise.resolve(res.headers.get('X-Document-Meta') || 'e30='),
+        Promise.resolve(res.headers.get('ETag') || '')
+      ]);
+
+      // Decode frontmatter from base64 header
+      let frontmatter = {};
+      try { frontmatter = JSON.parse(atob(metaB64)); } catch (_) {}
+
+      // Store metadata for cache restoration
       if (!renderCache.__meta) renderCache.__meta = new Map();
-      renderCache.__meta.set(filePath, data.frontmatter || {});
+      if (!renderCache.__etag) renderCache.__etag = new Map();
+      renderCache.__meta.set(filePath, frontmatter);
+      if (etag) renderCache.__etag.set(filePath, etag);
 
-      renderContentHeader(filePath, data.frontmatter || {});
+      renderContentHeader(filePath, frontmatter);
 
-      // Insert SSR HTML directly — no client-side parsing needed
+      // Insert pre-rendered HTML — no client-side parsing
       const el = $('markdownBody');
-      el.innerHTML = data.html;
-      const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
-      headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+      el.innerHTML = html;
+      el.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
 
-      // Cache the rendered HTML for instant re-opens
-      cacheSet(filePath, data.html);
+      // Cache for instant re-opens
+      cacheSet(filePath, html);
 
       generateTOC();
       loading.style.display = 'none';
@@ -463,8 +482,7 @@
         content.scrollTop = 0;
       }
 
-      const title = (data.frontmatter && data.frontmatter.title) || filePath.split('/').pop().replace(/\.md$/, '');
-      document.title = `${title} — ${state.siteName}`;
+      document.title = `${frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
     } catch (err) {
       loading.style.display = 'none';
       wrapper.style.display = 'block';
