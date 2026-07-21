@@ -41,6 +41,17 @@
     // Re-insert to mark as recently used
     renderCache.delete(key);
     renderCache.set(key, val);
+    // Sync sub-map insertion order
+    if (renderCache.__meta && renderCache.__meta.has(key)) {
+      const m = renderCache.__meta.get(key);
+      renderCache.__meta.delete(key);
+      renderCache.__meta.set(key, m);
+    }
+    if (renderCache.__etag && renderCache.__etag.has(key)) {
+      const e = renderCache.__etag.get(key);
+      renderCache.__etag.delete(key);
+      renderCache.__etag.set(key, e);
+    }
     return val;
   }
 
@@ -273,7 +284,6 @@
     nodes.forEach((node, idx) => {
       const item = document.createElement('div');
       item.className = 'tree-item';
-      item.style.animationDelay = `${Math.min(idx * 15, 300)}ms`;
 
       if (node.type === 'directory') {
         item.innerHTML = `
@@ -468,13 +478,38 @@
       const cachedEtag = renderCache.__etag ? renderCache.__etag.get(filePath) : null;
       if (cachedEtag) fetchHeaders['If-None-Match'] = cachedEtag;
 
+      // Abort any previous in-flight openFile fetch
+      if (state._openFileAbort) state._openFileAbort.abort();
+      const abortCtrl = new AbortController();
+      state._openFileAbort = abortCtrl;
+
       // SSR endpoint returns raw HTML (text/html) + gzip: avoids JSON.parse overhead
       const res = await fetch(`/api/render?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`, {
-        headers: fetchHeaders
+        headers: fetchHeaders,
+        signal: abortCtrl.signal
       });
 
       if (res.status === 304) {
-        // Server says nothing changed — shouldn't happen since we cleared cache, but handle gracefully
+        // Server says content unchanged — use cached HTML
+        const cachedHtml = cacheGet(filePath);
+        if (cachedHtml) {
+          const el = $('markdownBody');
+          el.innerHTML = cachedHtml;
+          updateCachedLineAnchors(el);
+          const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+          headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+          const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : {};
+          renderContentHeader(filePath, cachedMeta || {});
+          generateTOC(headings);
+          loading.style.display = 'none';
+          wrapper.style.display = 'block';
+          if (scrollToLineNum) {
+            setTimeout(() => scrollToLine(scrollToLineNum), 80);
+          } else {
+            content.scrollTop = 0;
+          }
+          document.title = `${(cachedMeta && cachedMeta.title) || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+        }
         return;
       }
       if (!res.ok) throw new Error('File not found');
@@ -674,8 +709,7 @@
       } else { currentFootnote = null; cleanLines.push(line); }
     }
 
-    const cleanBody = cleanLines.join('\n');
-    const bodyLines = cleanBody.split('\n');
+    const bodyLines = cleanLines;
     const annotatedLines = [];
     let prevWasBlank = true;
     bodyLines.forEach((line, idx) => {
@@ -750,6 +784,7 @@
       }
     });
 
+    const fragment = document.createDocumentFragment();
     groups.forEach(group => {
       if (group.leader) {
         const groupEl = document.createElement('div');
@@ -791,12 +826,14 @@
 
         groupEl.appendChild(headerBtn);
         groupEl.appendChild(children);
-        tocList.appendChild(groupEl);
+        fragment.appendChild(groupEl);
       } else {
         // Items before first top-level heading — render flat
-        group.items.forEach(h => tocList.appendChild(makeTocItem(h)));
+        group.items.forEach(h => fragment.appendChild(makeTocItem(h)));
       }
     });
+
+    tocList.appendChild(fragment);
 
     setupScrollSpy(headings);
   }
@@ -933,7 +970,7 @@
       return;
     }
 
-    let html = `<div class="search-status">找到 ${data.total} 個結果${data.capped ? '（已達上限）' : ''}</div>`;
+    const parts = [`<div class="search-status">找到 ${data.total} 個結果${data.capped ? '（已達上限）' : ''}</div>`];
 
     // Group by file
     const groups = {};
@@ -961,43 +998,44 @@
     }
 
     for (const [file, group] of sortedGroups) {
-      html += `<div class="search-result-group">`;
-      html += `<div class="search-result-file" data-file-group="${escHtml(file)}">`;
-      html += `<span class="search-result-file-chevron expanded">›</span>`;
-      html += `<span class="search-result-file-icon">📄</span>${escHtml(group.fileName)}`;
-      html += `<span class="search-result-count">${group.items.length}</span></div>`;
-      html += `<div class="search-result-group-body">`;
+      parts.push(`<div class="search-result-group">`);
+      parts.push(`<div class="search-result-file" data-file-group="${escHtml(file)}">`);
+      parts.push(`<span class="search-result-file-chevron expanded">›</span>`);
+      parts.push(`<span class="search-result-file-icon">📄</span>${escHtml(group.fileName)}`);
+      parts.push(`<span class="search-result-count">${group.items.length}</span></div>`);
+      parts.push(`<div class="search-result-group-body">`);
       group.items.forEach((item) => {
         const snippet = highlightSearchTerm(item.snippet, data.query);
-        html += `
+        parts.push(`
           <div class="search-result-item" data-file="${escHtml(item.file)}" data-line="${item.line}">
             <span class="search-result-line">第 ${item.line} 行</span>
             <span class="search-result-snippet">${snippet}</span>
-          </div>`;
+          </div>`);
       });
-      html += `</div></div>`;
+      parts.push(`</div></div>`);
     }
 
-    container.innerHTML = html;
+    container.innerHTML = parts.join('');
 
-    // Collapse toggle on file header click
-    $$('.search-result-file', container).forEach(fileEl => {
-      fileEl.addEventListener('click', () => {
+    // Event delegation: single click handler for all search result interactions
+    container.addEventListener('click', (e) => {
+      // Collapse toggle on file header click
+      const fileEl = e.target.closest('.search-result-file');
+      if (fileEl) {
         const body = fileEl.nextElementSibling;
         const chevron = fileEl.querySelector('.search-result-file-chevron');
         if (body) {
           body.classList.toggle('collapsed');
           if (chevron) chevron.classList.toggle('collapsed');
         }
-      });
-    });
-
-    // Open-file click on result items
-    $$('.search-result-item', container).forEach((el) => {
-      el.addEventListener('click', () => {
-        const file = el.getAttribute('data-file');
+        return;
+      }
+      // Open-file click on result items
+      const itemEl = e.target.closest('.search-result-item');
+      if (itemEl) {
+        const file = itemEl.getAttribute('data-file');
         openFile(file);
-      });
+      }
     });
   }
 
@@ -1423,8 +1461,14 @@
     // ── Back to top ──
     const backToTop = $('backToTop');
     const contentEl = $('content');
+    let scrollRafPending = false;
     contentEl.addEventListener('scroll', () => {
-      backToTop.classList.toggle('visible', contentEl.scrollTop > 400);
+      if (scrollRafPending) return;
+      scrollRafPending = true;
+      requestAnimationFrame(() => {
+        backToTop.classList.toggle('visible', contentEl.scrollTop > 400);
+        scrollRafPending = false;
+      });
     });
     backToTop.addEventListener('click', () => {
       contentEl.scrollTo({ top: 0, behavior: 'smooth' });

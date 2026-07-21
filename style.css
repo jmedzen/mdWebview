@@ -267,6 +267,7 @@ body,
   padding: 0 16px;
   background: var(--header-bg);
   backdrop-filter: blur(12px);
+  will-change: transform;
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
   z-index: 100;
@@ -297,6 +298,7 @@ body,
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.2s ease;
+  will-change: transform, opacity;
 }
 .sidebar-toggle:hover {
   background: var(--hover-bg);
@@ -411,6 +413,7 @@ body,
   flex-direction: column;
   background: var(--sidebar-bg);
   backdrop-filter: blur(var(--sidebar-blur));
+  will-change: transform;
   -webkit-backdrop-filter: blur(var(--sidebar-blur));
   border-right: 1px solid var(--border-subtle);
   overflow: hidden;
@@ -565,6 +568,7 @@ body,
   flex-direction: column;
   gap: 1px;
   animation: dropdownFadeIn 0.12s ease;
+  will-change: transform, opacity;
 }
 .sort-dropdown.open {
   display: flex;

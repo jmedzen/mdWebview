@@ -98,18 +98,31 @@ function flushQueue() {
   freeWorker.postMessage({ jobId, body });
 }
 
+const JOB_TIMEOUT_MS = 30000; // 30 seconds
+
 function renderWithWorker(body) {
   return new Promise((resolve, reject) => {
     const jobId = ++jobIdSeq;
+    const timer = setTimeout(() => {
+      const cb = jobCallbacks.get(jobId);
+      if (cb) {
+        jobCallbacks.delete(jobId);
+        cb.reject(new Error('Worker render timeout after 30s'));
+      }
+    }, JOB_TIMEOUT_MS);
+    
+    const wrappedResolve = (val) => { clearTimeout(timer); resolve(val); };
+    const wrappedReject = (err) => { clearTimeout(timer); reject(err); };
+    
     const freeWorker = workerPool.find(w => w.idle);
     if (freeWorker) {
-      jobCallbacks.set(jobId, { resolve, reject });
+      jobCallbacks.set(jobId, { resolve: wrappedResolve, reject: wrappedReject });
       freeWorker.currentJobId = jobId;
       freeWorker.idle = false;
       freeWorker.postMessage({ jobId, body });
     } else {
       // All workers busy — queue the job
-      jobQueue.push({ jobId, body, resolve, reject });
+      jobQueue.push({ jobId, body, resolve: wrappedResolve, reject: wrappedReject });
     }
   });
 }
@@ -382,15 +395,15 @@ async function handleRender(req, res, query) {
   if (!isSafe) return sendJSON(res, 403, { error: 'Access denied' });
 
   try {
-    let raw = fs.readFileSync(resolved, 'utf-8');
-
-    // ETag based on file content hash for 304 Not Modified support
-    const etag = '"' + crypto.createHash('md5').update(raw).digest('hex') + '"';
+    const stat = await fs.promises.stat(resolved);
+    const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
       res.end();
       return;
     }
+
+    let raw = await fs.promises.readFile(resolved, 'utf-8');
 
     // Strip frontmatter before rendering
     let frontmatter = {};
@@ -468,6 +481,25 @@ async function collectFilesAsync(dir, relativePath = '') {
   return files;
 }
 
+function flattenTreeToFiles(nodes, mdRoot) {
+  const files = [];
+  function walk(nodeList) {
+    for (const node of nodeList) {
+      if (node.type === 'directory' && node.children) {
+        walk(node.children);
+      } else if (node.type === 'file') {
+        files.push({
+          fullPath: path.join(mdRoot, node.path),
+          relPath: node.path,
+          name: node.name + '.md'
+        });
+      }
+    }
+  }
+  walk(nodes);
+  return files;
+}
+
 // ── API: Full-text Search ────────────────────────────────────
 async function handleSearch(req, res, query) {
   const q = query.q;
@@ -480,7 +512,12 @@ async function handleSearch(req, res, query) {
   const SNIPPET_RADIUS = 60;
 
   try {
-    const files = await collectFilesAsync(getMdRoot(), '');
+    // Reuse cached tree to avoid redundant filesystem traversal
+    if (!cachedTree) {
+      cachedTree = await scanDirAsync(getMdRoot(), '');
+      setupTreeWatcher();
+    }
+    const files = flattenTreeToFiles(cachedTree, getMdRoot());
     const limit = 10;
     let fileIdx = 0;
 
@@ -493,25 +530,38 @@ async function handleSearch(req, res, query) {
           // Fast check to avoid splitting the file if it has no match
           if (!content.includes(q)) continue;
 
-          const lines = content.split('\n');
+          let pos = 0;
+          let lineNum = 1;
           let fileMatches = 0;
-          for (let i = 0; i < lines.length && results.length < MAX_RESULTS; i++) {
-            const idx = lines[i].indexOf(q);
-            if (idx !== -1) {
-              const start = Math.max(0, idx - SNIPPET_RADIUS);
-              const end = Math.min(lines[i].length, idx + q.length + SNIPPET_RADIUS);
-              let snippet = lines[i].substring(start, end).trim();
-              if (start > 0) snippet = '…' + snippet;
-              if (end < lines[i].length) snippet = snippet + '…';
-              results.push({
-                file: file.relPath,
-                fileName: file.name.replace(/\.md$/, ''),
-                line: i + 1,
-                snippet: snippet,
-              });
-              fileMatches++;
-              if (fileMatches >= 10) break;
+          while (pos < content.length && results.length < MAX_RESULTS && fileMatches < 10) {
+            const matchIdx = content.indexOf(q, pos);
+            if (matchIdx === -1) break;
+            
+            // Count newlines from pos to matchIdx to get line number
+            for (let j = pos; j < matchIdx; j++) {
+              if (content.charCodeAt(j) === 10) lineNum++;
             }
+            
+            // Extract snippet around match
+            const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
+            let lineEnd = content.indexOf('\n', matchIdx);
+            if (lineEnd === -1) lineEnd = content.length;
+            const lineText = content.substring(lineStart, lineEnd);
+            const idxInLine = matchIdx - lineStart;
+            const start = Math.max(0, idxInLine - SNIPPET_RADIUS);
+            const end = Math.min(lineText.length, idxInLine + q.length + SNIPPET_RADIUS);
+            let snippet = lineText.substring(start, end).trim();
+            if (start > 0) snippet = '…' + snippet;
+            if (end < lineText.length) snippet = snippet + '…';
+            
+            results.push({
+              file: file.relPath,
+              fileName: file.name.replace(/\.md$/, ''),
+              line: lineNum,
+              snippet: snippet,
+            });
+            fileMatches++;
+            pos = matchIdx + q.length;
           }
         } catch (err) {
           // ignore
@@ -611,10 +661,14 @@ function serveStatic(req, res, pathname) {
     const ext = path.extname(resolved).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
-    // Set Cache-Control headers: force revalidation (no-cache) for code files, cache binary media
+    // Set Cache-Control: immutable for versioned assets, no-cache for code, long cache for images
     let cacheControl = 'no-cache';
-    if (ext === '.png' || ext === '.jpg' || ext === '.ico') {
-      cacheControl = 'public, max-age=86400'; // Cache binary images for 24 hours
+    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const hasVersionQuery = urlObj.search && /[?&]v=/.test(urlObj.search);
+    if (hasVersionQuery) {
+      cacheControl = 'public, max-age=31536000, immutable';
+    } else if (ext === '.png' || ext === '.jpg' || ext === '.ico') {
+      cacheControl = 'public, max-age=86400';
     }
 
     const headers = Object.assign({
@@ -642,6 +696,7 @@ const SESSION_DURATION = 2 * 60 * 60 * 1000; // 2 hours session expiry
 const loginAttempts = new Map();
 const MAX_ATTEMPTS = 5;
 const LOCK_DURATION = 15 * 60 * 1000; // 15 minutes lockout
+const MAX_LOGIN_ENTRIES = 10000;
 
 function getClientIP(req) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -840,6 +895,11 @@ const server = http.createServer((req, res) => {
             console.warn(`[Security Alert] IP ${ip} locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`);
           }
           loginAttempts.set(ip, attempt); // Correctly save the attempt block in all paths
+          // Evict oldest entries if over limit
+          if (loginAttempts.size > MAX_LOGIN_ENTRIES) {
+            const oldestKey = loginAttempts.keys().next().value;
+            loginAttempts.delete(oldestKey);
+          }
           return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
         }
       });

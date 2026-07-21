@@ -48,7 +48,7 @@ function renderMarkdownSSR(body) {
   }
 
   // 2. Inject line-number anchors
-  const bodyLines = cleanLines.join('\n').split('\n');
+  const bodyLines = cleanLines;
   const annotatedLines = [];
   let prevWasBlank = true;
   bodyLines.forEach((line, idx) => {
