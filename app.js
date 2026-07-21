@@ -120,6 +120,7 @@
     await checkAdminStatus();
     applyTheme(state.currentTheme);
     applyFontSize(state.fontSize);
+    updateWelcomeShortcuts();
     setupEventListeners();
     await loadTree();
 
@@ -259,6 +260,53 @@
     
     if (!state.currentFile) {
       document.title = `${state.siteName} — 佛典經論閱讀器`;
+    }
+  }
+
+  // ── Platform Detection & Welcome Shortcuts ──────────────────
+  function detectPlatform() {
+    const ua = navigator.userAgent || '';
+    const platform = navigator.platform || '';
+
+    const isiPhone = /iPhone|iPod/i.test(ua);
+    const isiPad = /iPad/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOS = isiPhone || isiPad;
+    const isMac = !isIOS && (/Mac/i.test(platform) || /Macintosh/i.test(ua));
+    const isAndroidMobile = /Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+
+    if (isiPhone) return 'iphone';
+    if (isIOS) return 'ios';
+    if (isMac) return 'mac';
+    if (isAndroidMobile) return 'mobile';
+    return 'pc';
+  }
+
+  function updateWelcomeShortcuts() {
+    const container = $('welcomeShortcuts');
+    if (!container) return;
+
+    const plat = detectPlatform();
+
+    if (plat === 'mac') {
+      container.innerHTML = `
+        <div class="shortcut-item"><kbd>⌘ Cmd</kbd>+<kbd>F</kbd> 本頁搜尋</div>
+        <div class="shortcut-item"><kbd>⌘ Cmd</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
+      `;
+    } else if (plat === 'iphone' || plat === 'mobile') {
+      container.innerHTML = `
+        <div class="shortcut-item">🔍 點擊右上角按鈕搜尋本頁</div>
+        <div class="shortcut-item">🅰️ 點擊右上角按鈕調整字型</div>
+      `;
+    } else if (plat === 'ios') {
+      container.innerHTML = `
+        <div class="shortcut-item">🔍 點擊右上角按鈕或 <kbd>⌘ Cmd</kbd>+<kbd>F</kbd> 搜尋本頁</div>
+        <div class="shortcut-item">🅰️ 點擊右上角按鈕或 <kbd>⌘ Cmd</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>F</kbd> 本頁搜尋</div>
+        <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
+      `;
     }
   }
 
