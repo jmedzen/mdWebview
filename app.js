@@ -24,6 +24,35 @@
     lastSearchData: null,
   };
 
+  // ── Progress Bar & Yielding Helpers ─────────────────────
+  const progressBar = {
+    el: null,
+    set(percent) {
+      if (!this.el) this.el = $('topProgressBar');
+      if (!this.el) return;
+      this.el.style.opacity = '1';
+      this.el.style.width = percent + '%';
+    },
+    done() {
+      if (!this.el) this.el = $('topProgressBar');
+      if (!this.el) return;
+      this.el.style.width = '100%';
+      setTimeout(() => {
+        if (this.el) this.el.style.opacity = '0';
+        setTimeout(() => { if (this.el) this.el.style.width = '0%'; }, 300);
+      }, 200);
+    }
+  };
+
+  function yieldToMain() {
+    return new Promise((r) => setTimeout(r, 16));
+  }
+
+  function setLoadingStatus(text) {
+    const el = $('loadingStatusText');
+    if (el) el.textContent = text;
+  }
+
   // ── LRU Render Cache ─────────────────────────────────────
   // Caches last N rendered HTML results to avoid re-parsing unchanged files.
   const CACHE_MAX = 10;
@@ -434,9 +463,10 @@
 
   function highlightActiveFile(path) {
     $$('.tree-item-row.active').forEach((el) => el.classList.remove('active'));
+    $$('.tree-item-row.loading').forEach((el) => el.classList.remove('loading'));
     const target = document.querySelector(`.tree-file[data-path="${CSS.escape(path)}"]`);
     if (target) {
-      target.classList.add('active');
+      target.classList.add('active', 'loading');
       // Expand parent folders
       let parent = target.closest('.tree-children');
       while (parent) {
@@ -454,6 +484,10 @@
     }
   }
 
+  function clearActiveFileLoading() {
+    $$('.tree-item-row.loading').forEach((el) => el.classList.remove('loading'));
+  }
+
   // ═══════════════════════════════════════════════════════════
   // FILE VIEWER
   // ═══════════════════════════════════════════════════════════
@@ -462,18 +496,19 @@
     if (state.currentFile === filePath && !scrollToLineNum) return;
     state.currentFile = filePath;
 
+    progressBar.set(20);
+    setLoadingStatus('正在載入經論檔案…');
+
     // Update URL search parameters — preserve line param if provided
     const params = new URLSearchParams();
     params.set('file', filePath);
     if (scrollToLineNum) params.set('line', scrollToLineNum);
     const newSearch = '?' + params.toString();
     if (window.location.search !== newSearch) {
-      // Clear hash if any, and set search query parameters
       const newUrl = window.location.pathname + newSearch;
       history.pushState(null, '', newUrl);
     }
 
-    // Auto-collapse sidebar on mobile screens when opening a file
     if (window.innerWidth <= 768) {
       const sidebar = $('sidebar');
       if (!sidebar.classList.contains('collapsed')) {
@@ -491,28 +526,39 @@
     wrapper.style.display = 'none';
     loading.style.display = 'flex';
 
-    // Close page search
     closePageSearch();
-
     highlightActiveFile(filePath);
 
+    // Yield to main thread so browser paints the active file row & top progress bar immediately!
+    await yieldToMain();
+
     try {
-      // Check LRU cache first — cached files open instantly (no network at all)
+      // Check LRU cache first — cached files open instantly
       const cachedHtml = cacheGet(filePath);
       if (cachedHtml) {
+        progressBar.set(60);
+        setLoadingStatus('正在解構網頁視覺…');
+        await yieldToMain();
+
         const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : null;
         if (cachedMeta) renderContentHeader(filePath, cachedMeta);
         const el = $('markdownBody');
         el.innerHTML = cachedHtml;
-        
-        // Cache line anchors and query headings once
+
+        progressBar.set(85);
+        setLoadingStatus('生成章節大綱目錄…');
+        await yieldToMain();
+
         updateCachedLineAnchors(el);
         const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
         headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
-        
+
         generateTOC(headings);
         loading.style.display = 'none';
         wrapper.style.display = 'block';
+        clearActiveFileLoading();
+        progressBar.done();
+
         if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
         else content.scrollTop = 0;
         if (cachedMeta) {
@@ -521,24 +567,23 @@
         return;
       }
 
-      // Build fetch headers — send ETag for 304 Not Modified support
+      progressBar.set(40);
+      setLoadingStatus('正在自伺服器讀取檔案…');
+
       const fetchHeaders = {};
       const cachedEtag = renderCache.__etag ? renderCache.__etag.get(filePath) : null;
       if (cachedEtag) fetchHeaders['If-None-Match'] = cachedEtag;
 
-      // Abort any previous in-flight openFile fetch
       if (state._openFileAbort) state._openFileAbort.abort();
       const abortCtrl = new AbortController();
       state._openFileAbort = abortCtrl;
 
-      // SSR endpoint returns raw HTML (text/html) + gzip: avoids JSON.parse overhead
       const res = await fetch(`/api/render?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`, {
         headers: fetchHeaders,
         signal: abortCtrl.signal
       });
 
       if (res.status === 304) {
-        // Server says content unchanged — use cached HTML
         const cachedHtml = cacheGet(filePath);
         if (cachedHtml) {
           const el = $('markdownBody');
@@ -551,33 +596,33 @@
           generateTOC(headings);
           loading.style.display = 'none';
           wrapper.style.display = 'block';
-          if (scrollToLineNum) {
-            setTimeout(() => scrollToLine(scrollToLineNum), 80);
-          } else {
-            content.scrollTop = 0;
-          }
+          clearActiveFileLoading();
+          progressBar.done();
+          if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
+          else content.scrollTop = 0;
           document.title = `${(cachedMeta && cachedMeta.title) || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
         }
         return;
       }
+
       if (!res.ok) throw new Error('File not found');
 
-      // res.text() is much faster than res.json() for large HTML payloads
+      progressBar.set(70);
+      setLoadingStatus('正在解構成型 HTML 與註腳…');
+      await yieldToMain();
+
       const [html, metaB64, etag] = await Promise.all([
         res.text(),
         Promise.resolve(res.headers.get('X-Document-Meta') || 'e30='),
         Promise.resolve(res.headers.get('ETag') || '')
       ]);
 
-      // Decode frontmatter from base64 header
       let frontmatter = {};
-      // atob() decodes as Latin-1, not UTF-8 — use TextDecoder for correct Chinese character handling
       try {
         const bytes = Uint8Array.from(atob(metaB64), c => c.charCodeAt(0));
         frontmatter = JSON.parse(new TextDecoder('utf-8').decode(bytes));
       } catch (_) {}
 
-      // Store metadata for cache restoration
       if (!renderCache.__meta) renderCache.__meta = new Map();
       if (!renderCache.__etag) renderCache.__etag = new Map();
       renderCache.__meta.set(filePath, frontmatter);
@@ -585,21 +630,24 @@
 
       renderContentHeader(filePath, frontmatter);
 
-      // Insert pre-rendered HTML — no client-side parsing
       const el = $('markdownBody');
       el.innerHTML = html;
-      
-      // Cache line anchors and query headings once
+
+      progressBar.set(90);
+      setLoadingStatus('生成章節大綱目錄…');
+      await yieldToMain();
+
       updateCachedLineAnchors(el);
       const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
       headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
 
-      // Cache for instant re-opens
       cacheSet(filePath, html);
 
       generateTOC(headings);
       loading.style.display = 'none';
       wrapper.style.display = 'block';
+      clearActiveFileLoading();
+      progressBar.done();
 
       if (scrollToLineNum) {
         setTimeout(() => scrollToLine(scrollToLineNum), 80);
@@ -609,6 +657,9 @@
 
       document.title = `${frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
     } catch (err) {
+      if (err.name === 'AbortError') return;
+      clearActiveFileLoading();
+      progressBar.done();
       loading.style.display = 'none';
       wrapper.style.display = 'block';
       $('markdownBody').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${err.message}</span></div>`;

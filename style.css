@@ -247,6 +247,21 @@ body,
   transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease;
 }
 
+/* ── Top Progress Bar ──────────────────────────────────────── */
+.top-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-color, #d97706), #3b82f6);
+  z-index: 99999;
+  opacity: 0;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  pointer-events: none;
+  box-shadow: 0 0 8px var(--accent-color, #d97706);
+}
+
 /* ── App Layout ────────────────────────────────────────────── */
 .app {
   display: flex;
@@ -723,8 +738,14 @@ body,
 }
 
 .tree-item-row.active {
-  background: var(--active-bg);
-  color: var(--accent);
+  background: var(--nav-item-active-bg);
+  color: var(--accent-color);
+  font-weight: 500;
+}
+
+.tree-item-row.loading .tree-icon {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
 }
 
 .tree-item-row.active::before {

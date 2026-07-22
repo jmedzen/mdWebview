@@ -14,6 +14,7 @@
 </head>
 <body>
   <div class="app">
+    <div class="top-progress-bar" id="topProgressBar"></div>
     <!-- ── Header ─────────────────────────────────────── -->
     <header class="app-header" id="appHeader">
       <div class="header-left">
@@ -197,7 +198,7 @@
         <!-- Loading Overlay -->
         <div class="content-loading" id="contentLoading" style="display:none">
           <div class="spinner large"></div>
-          <span>載入中…</span>
+          <span id="loadingStatusText">載入中…</span>
         </div>
       </main>
     </div>
