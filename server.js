@@ -11,9 +11,9 @@ const { marked } = require('marked');  // Still needed for inline fallback
 marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
 
 // ── Worker Thread Pool ─────────────────────────────────────────────────────
-// CPU-bound markdown rendering is offloaded to persistent worker threads.
-// This keeps the Node.js event loop free to handle other HTTP requests.
-const POOL_SIZE = Math.max(2, Math.min(4, os.cpus().length - 1));
+// 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
+const numCpus = os.cpus().length || 4;
+const POOL_SIZE = Math.max(2, numCpus - 1);
 const workerPool = [];
 const jobCallbacks = new Map(); // jobId -> { resolve, reject }
 let jobIdSeq = 0;
