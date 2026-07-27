@@ -6,11 +6,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# Copy all essential application files
+# Copy all essential application files and default md repository
 COPY server.js app.js index.html style.css render-worker.js marked.min.js ./
+COPY md/ ./md/
 
-# Create data and md directories
-RUN mkdir -p /app/md /data
+# Create data directory
+RUN mkdir -p /data /app/md
 
 # Default environment variables
 ENV PORT=8330 \

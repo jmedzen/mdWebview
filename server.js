@@ -166,7 +166,40 @@ function saveConfig() {
 loadConfig();
 
 function getMdRoot() {
-  return config.settings.mdRoot;
+  const configured = config.settings.mdRoot;
+
+  // 1. If configured path exists and contains files/directories, use it directly
+  if (configured && fs.existsSync(configured)) {
+    try {
+      const items = fs.readdirSync(configured);
+      if (items.some(name => !name.startsWith('.'))) {
+        return configured;
+      }
+    } catch (_) {}
+  }
+
+  // 2. If configured path is invalid or empty (e.g. host absolute path inside Docker container),
+  // fallback to candidates that actually exist and contain files
+  const candidates = [
+    process.env.MD_ROOT,
+    '/data/md',
+    '/data',
+    path.join(APP_ROOT, 'md')
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      try {
+        const items = fs.readdirSync(candidate);
+        if (items.some(name => !name.startsWith('.'))) {
+          config.settings.mdRoot = candidate;
+          return candidate;
+        }
+      } catch (_) {}
+    }
+  }
+
+  return configured || path.join(APP_ROOT, 'md');
 }
 
 // MIME types
