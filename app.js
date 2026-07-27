@@ -6,11 +6,15 @@
 (function () {
   'use strict';
 
+  const appConfig = window.__APP_CONFIG__ || {};
+  const userFont = localStorage.getItem('mdWebview-user-fontsize');
+  const userTheme = localStorage.getItem('mdWebview-user-theme');
+
   // ── State ─────────────────────────────────────────────────
   const state = {
     currentFile: null,
-    currentTheme: localStorage.getItem('mdWebview-user-theme') || 'obsidian-dark',
-    fontSize: parseInt(localStorage.getItem('mdWebview-user-fontsize')) || 16,
+    currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
+    fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize || 16),
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -18,7 +22,7 @@
     pageSearchIndex: -1,
     scrollSpyObserver: null,
     adminToken: localStorage.getItem('mdWebview-admin-token') || null,
-    siteName: 'mdWebview',
+    siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
     searchSort: 'relevance',
     lastSearchData: null,

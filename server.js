@@ -222,16 +222,66 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
 };
 
-let cachedIndexHtml = null;
+let rawIndexHtml = null;
 function getIndexHtml(callback) {
-  if (cachedIndexHtml) {
-    return callback(null, cachedIndexHtml);
+  const renderDynamicIndex = (templateBuf) => {
+    let html = templateBuf.toString('utf-8');
+    const defaultTheme = config.settings.defaultTheme || 'obsidian-dark';
+    const defaultFontSize = config.settings.defaultFontSize || 16;
+    const siteName = config.settings.siteName || 'mdWebview';
+
+    // 1. Inject theme & font-size into <html> element
+    html = html.replace(/<html([^>]*)>/i, (match, p1) => {
+      let attrs = p1;
+      if (/data-theme="[^"]*"/i.test(attrs)) {
+        attrs = attrs.replace(/data-theme="[^"]*"/i, `data-theme="${defaultTheme}"`);
+      } else {
+        attrs += ` data-theme="${defaultTheme}"`;
+      }
+
+      if (/style="[^"]*"/i.test(attrs)) {
+        attrs = attrs.replace(/style="([^"]*)"/i, `style="$1; --content-font-size: ${defaultFontSize}px;"`);
+      } else {
+        attrs += ` style="--content-font-size: ${defaultFontSize}px;"`;
+      }
+      return `<html${attrs}>`;
+    });
+
+    // 2. Inject font size display value
+    html = html.replace(
+      /<span id="fontSizeDisplay" class="font-size-display">\d+<\/span>/i,
+      `<span id="fontSizeDisplay" class="font-size-display">${defaultFontSize}</span>`
+    );
+
+    // 3. Inject site name into title and logo
+    html = html.replace(
+      /<title>.*?<\/title>/i,
+      `<title>${siteName} — 佛典經論閱讀器</title>`
+    );
+    html = html.replace(
+      /<span class="logo-text">.*?<\/span>/i,
+      `<span class="logo-text">${siteName}</span>`
+    );
+
+    // 4. Inject server config script
+    const configScript = `<script>window.__APP_CONFIG__ = ${JSON.stringify(config.settings)};</script>`;
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', `${configScript}\n</head>`);
+    } else {
+      html = configScript + html;
+    }
+
+    return Buffer.from(html, 'utf-8');
+  };
+
+  if (rawIndexHtml) {
+    return callback(null, renderDynamicIndex(rawIndexHtml));
   }
   const indexPath = path.join(APP_ROOT, 'index.html');
   fs.readFile(indexPath, (err, data) => {
     if (err) return callback(err);
-    cachedIndexHtml = data;
-    callback(null, data);
+    rawIndexHtml = data;
+    callback(null, renderDynamicIndex(rawIndexHtml));
   });
 }
 
@@ -648,6 +698,30 @@ function serveStatic(req, res, pathname) {
   if (isForbidden) {
     res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Forbidden');
+    return;
+  }
+
+  // Intercept root or index.html requests to serve dynamic index with injected config.settings
+  if (pathname === '/' || pathname === '' || path.basename(resolved) === 'index.html') {
+    getIndexHtml((err, data) => {
+      if (err) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+        res.end('Server Error');
+        return;
+      }
+      const etag = `W/"index-${data.length}-${config.settings.defaultFontSize}-${config.settings.defaultTheme}"`;
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+        res.end();
+        return;
+      }
+      const headers = Object.assign({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'ETag': etag
+      }, SECURITY_HEADERS);
+      sendCompressed(req, res, 200, headers, data);
+    });
     return;
   }
 
