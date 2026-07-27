@@ -322,6 +322,8 @@ body,
 .logo-icon {
   font-size: 22px;
   line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
 }
 .logo-text {
   font-family: 'Inter', sans-serif;
@@ -329,6 +331,8 @@ body,
   font-weight: 600;
   letter-spacing: -0.3px;
   color: var(--text-primary);
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 /* ── Header Controls ───────────────────────────────────────── */

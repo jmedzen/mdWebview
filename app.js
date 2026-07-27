@@ -137,11 +137,14 @@
     // Handle browser back / forward
     const handleUrlChange = async () => {
       const info = getFileFromURL();
-      if (info && info.file !== state.currentFile) {
-        await openFile(info.file, info.line);
-      } else if (info && info.line) {
-        // Same file, different line
-        scrollToLine(info.line);
+      if (info && info.file) {
+        if (info.file !== state.currentFile) {
+          await openFile(info.file, info.line);
+        } else if (info.line) {
+          scrollToLine(info.line);
+        }
+      } else {
+        goHome();
       }
     };
     window.addEventListener('hashchange', handleUrlChange);
@@ -1370,10 +1373,13 @@
     });
 
     // ── App Logo / Return Home ──
-    const appLogo = $('appLogo');
-    if (appLogo) {
-      appLogo.addEventListener('click', goHome);
-    }
+    $$('.app-logo, #appLogo, .logo-icon, .logo-text').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        goHome();
+      });
+    });
 
     // ── Mobile: Close sidebar when clicking content area ──
     $('content').addEventListener('click', () => {
