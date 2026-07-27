@@ -389,6 +389,7 @@
       const res = await fetch('/api/tree');
       if (!res.ok) throw new Error('Failed to load tree');
       state.treeData = await res.json();
+      buildWikilinkIndex(state.treeData);
       container.innerHTML = '';
       const sorted = sortTreeNodes(state.treeData, state.fileSort);
       renderTreeNodes(sorted, container, 0);
@@ -840,7 +841,7 @@
       prevWasBlank = trimmed.length === 0;
     });
 
-    let html = marked.parse(annotatedLines.join('\n'));
+    let html = marked.parse(convertWikilinks(annotatedLines.join('\n')));
     const refCounter = {};
     html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
       if (!refCounter[id]) refCounter[id] = 0;
@@ -863,6 +864,106 @@
       html += fhtml;
     }
     return html;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // OBSIDIAN WIKILINK SUPPORT
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Name→path index for resolving wikilinks.
+   * Maps bare file names (e.g. "佛光辭典") to their tree path (e.g. "20-辭典/佛光辭典.md").
+   * Built once on tree load; O(1) per link resolution.
+   */
+  const wikilinkIndex = new Map();
+
+  function buildWikilinkIndex(treeNodes) {
+    wikilinkIndex.clear();
+    (function walk(nodes) {
+      for (const node of nodes) {
+        if (node.type === 'directory' && node.children) {
+          walk(node.children);
+        } else if (node.type === 'file') {
+          // node.name is already without .md extension
+          wikilinkIndex.set(node.name, node.path);
+        }
+      }
+    })(treeNodes);
+  }
+
+  /**
+   * Convert Obsidian [[wikilinks]] → HTML <a> tags before markdown parsing.
+   * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]]
+   * Single regex pass — O(n).
+   */
+  function convertWikilinks(text) {
+    return text.replace(/(?<!`)\[\[([^\]]+?)\]\]/g, (match, inner) => {
+      const pipeIdx = inner.indexOf('|');
+      let target, display;
+      if (pipeIdx !== -1) {
+        target = inner.substring(0, pipeIdx).trim();
+        display = inner.substring(pipeIdx + 1).trim();
+      } else {
+        target = inner.trim();
+        display = target;
+      }
+      const hashIdx = target.indexOf('#');
+      let file = target;
+      let anchor = '';
+      if (hashIdx !== -1) {
+        file = target.substring(0, hashIdx);
+        anchor = target.substring(hashIdx);
+      }
+      return `<a class="wikilink" data-wikilink-file="${escHtml(file)}" data-wikilink-anchor="${escHtml(anchor)}" href="javascript:void(0)" title="${escHtml(target)}">${escHtml(display)}</a>`;
+    });
+  }
+
+  /**
+   * Handle click on a rendered wikilink: resolve file name → tree path, then openFile.
+   */
+  function handleWikilinkClick(linkEl) {
+    const fileName = linkEl.getAttribute('data-wikilink-file');
+    const anchor = linkEl.getAttribute('data-wikilink-anchor') || '';
+
+    if (!fileName && anchor) {
+      // Pure anchor link within current file (e.g. [[#heading]])
+      scrollToHeadingByText(anchor.substring(1));
+      return;
+    }
+
+    // Resolve file name to tree path
+    const filePath = wikilinkIndex.get(fileName);
+    if (!filePath) {
+      console.warn(`[Wikilink] Could not resolve "${fileName}" — file not found in tree.`);
+      return;
+    }
+
+    openFile(filePath).then(() => {
+      if (anchor) {
+        // Wait for DOM update, then scroll to heading
+        setTimeout(() => scrollToHeadingByText(anchor.substring(1)), 150);
+      }
+    });
+  }
+
+  /**
+   * Scroll to a heading whose text matches the anchor text.
+   * Obsidian anchors use the raw heading text inside 【】brackets, so we match by textContent.
+   */
+  function scrollToHeadingByText(text) {
+    const headings = $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
+    // Strip leading/trailing 【】for flexible matching
+    const cleanText = text.replace(/^【/, '').replace(/】$/, '');
+    for (const h of headings) {
+      const hText = h.textContent.trim();
+      if (hText === text || hText === `【${cleanText}】` || hText.includes(cleanText)) {
+        h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        h.classList.add('highlight-flash');
+        setTimeout(() => h.classList.remove('highlight-flash'), 2000);
+        return;
+      }
+    }
+    console.warn(`[Wikilink] Heading "${text}" not found in document.`);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1494,6 +1595,14 @@
 
     // ── Footnotes Click Delegation ──
     $('markdownBody').addEventListener('click', (e) => {
+      // ── Wikilink Click Delegation ──
+      const wikilink = e.target.closest('.wikilink');
+      if (wikilink) {
+        e.preventDefault();
+        handleWikilinkClick(wikilink);
+        return;
+      }
+
       const refLink = e.target.closest('.footnote-ref');
       if (refLink) {
         e.preventDefault();

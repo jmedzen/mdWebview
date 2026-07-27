@@ -63,9 +63,11 @@ function renderMarkdownSSR(body) {
     annotatedLines.push(line);
     prevWasBlank = trimmed.length === 0;
   });
+  // 3. Convert Obsidian-style wikilinks before markdown parsing
+  const annotatedBody = convertWikilinks(annotatedLines.join('\n'));
 
-  // 3. Parse main body
-  let html = marked.parse(annotatedLines.join('\n'));
+  // 4. Parse main body
+  let html = marked.parse(annotatedBody);
 
   // 4. Process footnote references
   const refCounter = {};
@@ -99,4 +101,44 @@ function renderMarkdownSSR(body) {
   }
 
   return html;
+}
+
+/**
+ * Convert Obsidian [[wikilinks]] to HTML anchor tags.
+ * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]]
+ * Runs as a single regex pass on the raw markdown string — O(n) with no DOM cost.
+ */
+function convertWikilinks(text) {
+  // Negative lookbehind for backtick to skip wikilinks inside inline code
+  return text.replace(/(?<!`)\[\[([^\]]+?)\]\]/g, (match, inner) => {
+    const pipeIdx = inner.indexOf('|');
+    let target, display;
+    if (pipeIdx !== -1) {
+      target = inner.substring(0, pipeIdx).trim();
+      display = inner.substring(pipeIdx + 1).trim();
+    } else {
+      target = inner.trim();
+      display = target;
+    }
+
+    // Split target into file and heading anchor parts
+    const hashIdx = target.indexOf('#');
+    let file = target;
+    let anchor = '';
+    if (hashIdx !== -1) {
+      file = target.substring(0, hashIdx);
+      anchor = target.substring(hashIdx); // includes the #
+    }
+
+    // data-wikilink stores the raw file name for client-side openFile resolution
+    // href uses javascript:void(0) — actual navigation is handled by click delegation
+    return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="javascript:void(0)" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
+  });
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function escapeAttr(s) {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

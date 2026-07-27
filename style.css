@@ -1514,6 +1514,22 @@ kbd {
   margin: 2em 0;
 }
 
+/* Wikilinks (Obsidian [[internal links]]) */
+.markdown-body .wikilink {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--accent);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  padding-bottom: 1px;
+}
+
+.markdown-body .wikilink:hover {
+  color: var(--accent-hover);
+  border-bottom-style: solid;
+  border-bottom-color: var(--accent-hover);
+}
+
 /* Footnotes */
 .markdown-body .footnote-ref {
   font-size: 0.75em;
