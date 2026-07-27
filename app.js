@@ -118,8 +118,8 @@
     getMdWorker();
 
     await checkAdminStatus();
-    applyTheme(state.currentTheme);
-    applyFontSize(state.fontSize);
+    applyTheme(state.currentTheme, false);
+    applyFontSize(state.fontSize, false);
     updateWelcomeShortcuts();
     setupEventListeners();
     await loadTree();
@@ -239,15 +239,19 @@
 
       // If client doesn't have custom font size / theme settings saved in localStorage,
       // load default settings configured by the server.
-      if (!localStorage.getItem('mdWebview-fontsize') && data.settings && data.settings.defaultFontSize) {
-        state.fontSize = data.settings.defaultFontSize;
-      }
-      if (!localStorage.getItem('mdWebview-theme') && data.settings && data.settings.defaultTheme) {
-        state.currentTheme = data.settings.defaultTheme;
-      }
-      if (data.settings && data.settings.siteName) {
-        state.siteName = data.settings.siteName;
-        updateSiteNameUI();
+      if (data.settings) {
+        const userSavedFont = localStorage.getItem('mdWebview-fontsize');
+        if (!userSavedFont && data.settings.defaultFontSize) {
+          applyFontSize(data.settings.defaultFontSize, false);
+        }
+        const userSavedTheme = localStorage.getItem('mdWebview-theme');
+        if (!userSavedTheme && data.settings.defaultTheme) {
+          applyTheme(data.settings.defaultTheme, false);
+        }
+        if (data.settings.siteName) {
+          state.siteName = data.settings.siteName;
+          updateSiteNameUI();
+        }
       }
     } catch (err) {
       console.error('Error checking admin status:', err);
@@ -1253,10 +1257,13 @@
   // THEME
   // ═══════════════════════════════════════════════════════════
 
-  function applyTheme(theme) {
+  function applyTheme(theme, saveToLocalStorage = true) {
     document.documentElement.setAttribute('data-theme', theme);
-    $('themeSelect').value = theme;
-    localStorage.setItem('mdWebview-theme', theme);
+    const select = $('themeSelect');
+    if (select) select.value = theme;
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-theme', theme);
+    }
     state.currentTheme = theme;
   }
 
@@ -1264,12 +1271,15 @@
   // FONT SIZE
   // ═══════════════════════════════════════════════════════════
 
-  function applyFontSize(size) {
+  function applyFontSize(size, saveToLocalStorage = true) {
     size = Math.max(12, Math.min(28, size));
     state.fontSize = size;
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
-    $('fontSizeDisplay').textContent = size;
-    localStorage.setItem('mdWebview-fontsize', size);
+    const display = $('fontSizeDisplay');
+    if (display) display.textContent = size;
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-fontsize', size);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1643,9 +1653,17 @@
             successEl.style.display = 'none';
           }, 3000);
 
-          if (data.settings && data.settings.siteName) {
-            state.siteName = data.settings.siteName;
-            updateSiteNameUI();
+          if (data.settings) {
+            if (data.settings.defaultFontSize) {
+              applyFontSize(data.settings.defaultFontSize, true);
+            }
+            if (data.settings.defaultTheme) {
+              applyTheme(data.settings.defaultTheme, true);
+            }
+            if (data.settings.siteName) {
+              state.siteName = data.settings.siteName;
+              updateSiteNameUI();
+            }
           }
 
           // Reload the file tree and update UI with new paths
