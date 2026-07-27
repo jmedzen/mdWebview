@@ -925,17 +925,14 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
       
       const resolvedPath = path.resolve(mdRoot.trim());
-      return fs.promises.stat(resolvedPath).then(stats => {
-        if (!stats.isDirectory()) {
-          return sendJSON(res, 400, { error: 'Provided path is not a directory' });
-        }
-        
+
+      const updateSettings = () => {
         if (config.settings.mdRoot !== resolvedPath) {
           config.settings.mdRoot = resolvedPath;
           resetTreeWatcher();
@@ -951,7 +948,26 @@ const server = http.createServer((req, res) => {
         }
         saveConfig();
         return sendJSON(res, 200, { success: true, settings: config.settings });
-      }).catch(() => {
+      };
+
+      return fs.promises.stat(resolvedPath).then(stats => {
+        if (!stats.isDirectory()) {
+          return sendJSON(res, 400, { error: 'Provided path is not a directory' });
+        }
+        return updateSettings();
+      }).catch(err => {
+        if (err.code === 'ENOENT') {
+          if (createIfNotExists) {
+            return fs.promises.mkdir(resolvedPath, { recursive: true })
+              .then(() => updateSettings())
+              .catch(mkdirErr => sendJSON(res, 500, { error: 'Failed to create directory: ' + mkdirErr.message }));
+          }
+          return sendJSON(res, 404, { 
+            error: `目錄路徑 "${resolvedPath}" 不存在。`, 
+            code: 'DIR_NOT_FOUND',
+            path: resolvedPath 
+          });
+        }
         return sendJSON(res, 400, { error: 'Directory path does not exist or is not readable' });
       });
     }).catch(err => {
