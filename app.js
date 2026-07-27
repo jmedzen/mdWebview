@@ -9,8 +9,8 @@
   // ── State ─────────────────────────────────────────────────
   const state = {
     currentFile: null,
-    currentTheme: localStorage.getItem('mdWebview-theme') || 'obsidian-dark',
-    fontSize: parseInt(localStorage.getItem('mdWebview-fontsize')) || 16,
+    currentTheme: localStorage.getItem('mdWebview-user-theme') || 'obsidian-dark',
+    fontSize: parseInt(localStorage.getItem('mdWebview-user-fontsize')) || 16,
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -237,17 +237,27 @@
         localStorage.removeItem('mdWebview-admin-token');
       }
 
-      // If client doesn't have custom font size / theme settings saved in localStorage,
+      // Clean legacy contaminated keys from older versions
+      localStorage.removeItem('mdWebview-fontsize');
+      localStorage.removeItem('mdWebview-theme');
+
+      // If client doesn't have custom user font size / theme settings saved in localStorage,
       // load default settings configured by the server.
       if (data.settings) {
-        const userSavedFont = localStorage.getItem('mdWebview-fontsize');
-        if (!userSavedFont && data.settings.defaultFontSize) {
+        const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
+        if (userSavedFont) {
+          applyFontSize(parseInt(userSavedFont), true);
+        } else if (data.settings.defaultFontSize) {
           applyFontSize(data.settings.defaultFontSize, false);
         }
-        const userSavedTheme = localStorage.getItem('mdWebview-theme');
-        if (!userSavedTheme && data.settings.defaultTheme) {
+
+        const userSavedTheme = localStorage.getItem('mdWebview-user-theme');
+        if (userSavedTheme) {
+          applyTheme(userSavedTheme, true);
+        } else if (data.settings.defaultTheme) {
           applyTheme(data.settings.defaultTheme, false);
         }
+
         if (data.settings.siteName) {
           state.siteName = data.settings.siteName;
           updateSiteNameUI();
@@ -1262,7 +1272,7 @@
     const select = $('themeSelect');
     if (select) select.value = theme;
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-theme', theme);
+      localStorage.setItem('mdWebview-user-theme', theme);
     }
     state.currentTheme = theme;
   }
@@ -1278,7 +1288,7 @@
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-fontsize', size);
+      localStorage.setItem('mdWebview-user-fontsize', size);
     }
   }
 
@@ -1655,10 +1665,12 @@
 
           if (data.settings) {
             if (data.settings.defaultFontSize) {
-              applyFontSize(data.settings.defaultFontSize, true);
+              localStorage.removeItem('mdWebview-user-fontsize');
+              applyFontSize(data.settings.defaultFontSize, false);
             }
             if (data.settings.defaultTheme) {
-              applyTheme(data.settings.defaultTheme, true);
+              localStorage.removeItem('mdWebview-user-theme');
+              applyTheme(data.settings.defaultTheme, false);
             }
             if (data.settings.siteName) {
               state.siteName = data.settings.siteName;
