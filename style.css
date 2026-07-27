@@ -1500,34 +1500,6 @@ kbd {
   text-decoration: none;
 }
 
-/* ── Obsidian Internal Links ───────────────────────────────── */
-.markdown-body a.internal-link {
-  color: var(--accent);
-  font-weight: 500;
-  text-decoration: none;
-  border-bottom: 1.5px dashed var(--accent);
-  padding: 1px 4px;
-  border-radius: 4px;
-  background-color: rgba(217, 119, 6, 0.08);
-  transition: background-color 0.15s ease, border-bottom-style 0.15s ease;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.markdown-body a.internal-link:hover {
-  background-color: rgba(217, 119, 6, 0.18);
-  border-bottom-style: solid;
-  text-decoration: none;
-}
-
-.markdown-body a.internal-link::before {
-  content: '🔗';
-  font-size: 0.85em;
-  opacity: 0.85;
-}
-
 .footnotes {
   margin-top: 3.5em;
   padding-top: 1.5em;
