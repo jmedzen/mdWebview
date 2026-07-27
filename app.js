@@ -6,11 +6,15 @@
 (function () {
   'use strict';
 
+  const appConfig = window.__APP_CONFIG__ || {};
+  const userFont = localStorage.getItem('mdWebview-user-fontsize');
+  const userTheme = localStorage.getItem('mdWebview-user-theme');
+
   // ── State ─────────────────────────────────────────────────
   const state = {
     currentFile: null,
-    currentTheme: localStorage.getItem('mdWebview-theme') || 'obsidian-dark',
-    fontSize: parseInt(localStorage.getItem('mdWebview-fontsize')) || 16,
+    currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
+    fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize || 16),
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -18,7 +22,7 @@
     pageSearchIndex: -1,
     scrollSpyObserver: null,
     adminToken: localStorage.getItem('mdWebview-admin-token') || null,
-    siteName: 'mdWebview',
+    siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
     searchSort: 'relevance',
     lastSearchData: null,
@@ -118,9 +122,10 @@
     getMdWorker();
 
     await checkAdminStatus();
-    applyTheme(state.currentTheme);
-    applyFontSize(state.fontSize);
+    applyTheme(state.currentTheme, false);
+    applyFontSize(state.fontSize, false);
     updateWelcomeShortcuts();
+    updateWelcomeFooter(appConfig);
     setupEventListeners();
     await loadTree();
 
@@ -237,17 +242,33 @@
         localStorage.removeItem('mdWebview-admin-token');
       }
 
-      // If client doesn't have custom font size / theme settings saved in localStorage,
+      // Clean legacy contaminated keys from older versions
+      localStorage.removeItem('mdWebview-fontsize');
+      localStorage.removeItem('mdWebview-theme');
+
+      // If client doesn't have custom user font size / theme settings saved in localStorage,
       // load default settings configured by the server.
-      if (!localStorage.getItem('mdWebview-fontsize') && data.settings && data.settings.defaultFontSize) {
-        state.fontSize = data.settings.defaultFontSize;
-      }
-      if (!localStorage.getItem('mdWebview-theme') && data.settings && data.settings.defaultTheme) {
-        state.currentTheme = data.settings.defaultTheme;
-      }
-      if (data.settings && data.settings.siteName) {
-        state.siteName = data.settings.siteName;
-        updateSiteNameUI();
+      if (data.settings) {
+        const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
+        if (userSavedFont) {
+          applyFontSize(parseInt(userSavedFont), true);
+        } else if (data.settings.defaultFontSize) {
+          applyFontSize(data.settings.defaultFontSize, false);
+        }
+
+        const userSavedTheme = localStorage.getItem('mdWebview-user-theme');
+        if (userSavedTheme) {
+          applyTheme(userSavedTheme, true);
+        } else if (data.settings.defaultTheme) {
+          applyTheme(data.settings.defaultTheme, false);
+        }
+
+        if (data.settings.siteName) {
+          state.siteName = data.settings.siteName;
+          updateSiteNameUI();
+        }
+
+        updateWelcomeFooter(data.settings);
       }
     } catch (err) {
       console.error('Error checking admin status:', err);
@@ -257,10 +278,59 @@
   function updateSiteNameUI() {
     $$('.logo-text').forEach(el => el.textContent = state.siteName);
     $$('.welcome-title').forEach(el => el.textContent = state.siteName);
-    
+
     if (!state.currentFile) {
       document.title = `${state.siteName} — 佛典經論閱讀器`;
     }
+  }
+
+  function updateWelcomeFooter(settings) {
+    const footerEl = $('welcomeFooter');
+    if (!footerEl) return;
+    if (!settings) settings = window.__APP_CONFIG__ || {};
+
+    const parts = [];
+    if (settings.enableVersion && settings.version && settings.version.trim()) {
+      parts.push(`<span>版本：${escHtml(settings.version.trim())}</span>`);
+    }
+    if (settings.enableDownload && settings.downloadUrl && settings.downloadUrl.trim()) {
+      parts.push(`<span>下載：<a href="${escHtml(settings.downloadUrl.trim())}" target="_blank" rel="noopener noreferrer" class="welcome-download-link">離線閱讀完整版</a></span>`);
+    }
+
+    if (parts.length > 0) {
+      footerEl.innerHTML = parts.join('<span class="welcome-footer-sep">·</span>');
+      footerEl.style.display = 'flex';
+    } else {
+      footerEl.innerHTML = '';
+      footerEl.style.display = 'none';
+    }
+  }
+
+  // ── Go Home: close reader, return to welcome screen ────────
+  function goHome() {
+    if (!state.currentFile) return; // already on home
+    state.currentFile = null;
+
+    const welcome = $('welcomeScreen');
+    const wrapper = $('contentWrapper');
+    const loading = $('contentLoading');
+
+    welcome.style.display = 'flex';
+    wrapper.style.display = 'none';
+    loading.style.display = 'none';
+
+    // Clear URL query parameters
+    const cleanUrl = window.location.pathname;
+    history.pushState(null, '', cleanUrl);
+
+    // Reset document title
+    document.title = `${state.siteName} — 佛典經論閱讀器`;
+
+    // Remove active file highlight in tree
+    $$('.tree-item-row.active').forEach(el => el.classList.remove('active'));
+
+    // Close page search if open
+    closePageSearch();
   }
 
   // ── Platform Detection & Welcome Shortcuts ──────────────────
@@ -1253,10 +1323,13 @@
   // THEME
   // ═══════════════════════════════════════════════════════════
 
-  function applyTheme(theme) {
+  function applyTheme(theme, saveToLocalStorage = true) {
     document.documentElement.setAttribute('data-theme', theme);
-    $('themeSelect').value = theme;
-    localStorage.setItem('mdWebview-theme', theme);
+    const select = $('themeSelect');
+    if (select) select.value = theme;
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-user-theme', theme);
+    }
     state.currentTheme = theme;
   }
 
@@ -1264,12 +1337,15 @@
   // FONT SIZE
   // ═══════════════════════════════════════════════════════════
 
-  function applyFontSize(size) {
+  function applyFontSize(size, saveToLocalStorage = true) {
     size = Math.max(12, Math.min(28, size));
     state.fontSize = size;
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
-    $('fontSizeDisplay').textContent = size;
-    localStorage.setItem('mdWebview-fontsize', size);
+    const display = $('fontSizeDisplay');
+    if (display) display.textContent = size;
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-user-fontsize', size);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1318,6 +1394,11 @@
       const sidebar = $('sidebar');
       sidebar.classList.toggle('collapsed');
       state.sidebarCollapsed = sidebar.classList.contains('collapsed');
+    });
+
+    // ── Logo / site name → go home ──
+    document.querySelector('.app-logo')?.addEventListener('click', () => {
+      goHome();
     });
 
     // ── Mobile: Close sidebar when clicking content area ──
@@ -1611,43 +1692,71 @@
       const mdRoot = $('settingsMdRoot').value;
       const defaultFontSize = parseInt($('settingsFontSize').value);
       const defaultTheme = $('settingsTheme').value;
+      const enableVersion = $('settingsEnableVersion').checked;
+      const version = $('settingsVersion').value;
+      const enableDownload = $('settingsEnableDownload').checked;
+      const downloadUrl = $('settingsDownloadUrl').value;
       const errorEl = $('settingsErrorMsg');
       const successEl = $('settingsSuccessMsg');
 
-      try {
-        const res = await fetch('/api/admin/settings', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-Admin-Token': state.adminToken
-          },
-          body: JSON.stringify({
-            settings: { siteName, mdRoot, defaultFontSize, defaultTheme }
-          })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || '儲存失敗');
-        }
-        errorEl.style.display = 'none';
-        successEl.textContent = '設定已成功儲存';
-        successEl.style.display = 'block';
-        setTimeout(() => {
+      async function saveSettings(createIfNotExists = false) {
+        try {
+          const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'X-Admin-Token': state.adminToken
+            },
+            body: JSON.stringify({
+              settings: { 
+                siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
+                enableVersion, version, enableDownload, downloadUrl 
+              }
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            if (res.status === 404 && data.code === 'DIR_NOT_FOUND') {
+              const confirmCreate = window.confirm(`指定的目錄路徑不存在：\n${data.path || mdRoot}\n\n是否要自動創建此目錄？`);
+              if (confirmCreate) {
+                return await saveSettings(true);
+              }
+            }
+            throw new Error(data.error || '儲存失敗');
+          }
+          errorEl.style.display = 'none';
+          successEl.textContent = '設定已成功儲存';
+          successEl.style.display = 'block';
+          setTimeout(() => {
+            successEl.style.display = 'none';
+          }, 3000);
+
+          if (data.settings) {
+            if (data.settings.defaultFontSize) {
+              localStorage.removeItem('mdWebview-user-fontsize');
+              applyFontSize(data.settings.defaultFontSize, false);
+            }
+            if (data.settings.defaultTheme) {
+              localStorage.removeItem('mdWebview-user-theme');
+              applyTheme(data.settings.defaultTheme, false);
+            }
+            if (data.settings.siteName) {
+              state.siteName = data.settings.siteName;
+              updateSiteNameUI();
+            }
+            updateWelcomeFooter(data.settings);
+          }
+
+          // Reload the file tree and update UI with new paths
+          await loadTree();
+        } catch (err) {
           successEl.style.display = 'none';
-        }, 3000);
-
-        if (data.settings && data.settings.siteName) {
-          state.siteName = data.settings.siteName;
-          updateSiteNameUI();
+          errorEl.textContent = err.message;
+          errorEl.style.display = 'block';
         }
-
-        // Reload the file tree and update UI with new paths
-        await loadTree();
-      } catch (err) {
-        successEl.style.display = 'none';
-        errorEl.textContent = err.message;
-        errorEl.style.display = 'block';
       }
+
+      await saveSettings(false);
     });
 
     $('settingsCancelBtn').addEventListener('click', () => {
@@ -1705,6 +1814,10 @@
       $('settingsMdRoot').value = data.settings.mdRoot;
       $('settingsFontSize').value = data.settings.defaultFontSize;
       $('settingsTheme').value = data.settings.defaultTheme;
+      $('settingsEnableVersion').checked = !!data.settings.enableVersion;
+      $('settingsVersion').value = data.settings.version || '';
+      $('settingsEnableDownload').checked = !!data.settings.enableDownload;
+      $('settingsDownloadUrl').value = data.settings.downloadUrl || '';
       $('adminSettingsOverlay').style.display = 'flex';
     } catch (err) {
       console.error('Error fetching settings:', err);

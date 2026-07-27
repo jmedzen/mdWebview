@@ -309,6 +309,11 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.app-logo:hover {
+  opacity: 0.8;
 }
 .logo-icon {
   font-size: 22px;
@@ -1146,6 +1151,33 @@ body,
   color: var(--text-muted);
 }
 
+.welcome-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.welcome-footer-sep {
+  opacity: 0.5;
+}
+
+.welcome-download-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.welcome-download-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 kbd {
   display: inline-block;
   padding: 2px 6px;
@@ -1818,6 +1850,31 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.form-group-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.setting-checkbox-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .form-row {

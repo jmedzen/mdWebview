@@ -185,6 +185,7 @@
             <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>F</kbd> 本頁搜尋</div>
             <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
           </div>
+          <div class="welcome-footer" id="welcomeFooter" style="display: none;"></div>
         </div>
 
         <!-- File Content -->
@@ -318,6 +319,22 @@
             </select>
             <span class="field-hint">新讀者首次造訪時的主題。</span>
           </div>
+        </div>
+        <div class="form-group-setting">
+          <label class="setting-checkbox-label" for="settingsEnableVersion">
+            <input type="checkbox" id="settingsEnableVersion">
+            <span>顯示版本號</span>
+          </label>
+          <input type="text" id="settingsVersion" placeholder="例如: v1.0.0">
+          <span class="field-hint">勾選並填寫後，將在首頁最後一行顯示「版本：...」。</span>
+        </div>
+        <div class="form-group-setting">
+          <label class="setting-checkbox-label" for="settingsEnableDownload">
+            <input type="checkbox" id="settingsEnableDownload">
+            <span>顯示下載連結</span>
+          </label>
+          <input type="text" id="settingsDownloadUrl" placeholder="例如: https://example.com/download.zip">
+          <span class="field-hint">勾選並填寫後，將在首頁最後一行顯示「下載：離線閱讀完整版」。</span>
         </div>
         <div id="settingsErrorMsg" class="form-error" style="display: none;"></div>
         <div id="settingsSuccessMsg" class="form-success" style="display: none;"></div>

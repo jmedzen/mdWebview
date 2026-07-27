@@ -11,9 +11,9 @@ const { marked } = require('marked');  // Still needed for inline fallback
 marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
 
 // ── Worker Thread Pool ─────────────────────────────────────────────────────
-// CPU-bound markdown rendering is offloaded to persistent worker threads.
-// This keeps the Node.js event loop free to handle other HTTP requests.
-const POOL_SIZE = Math.max(2, Math.min(4, os.cpus().length - 1));
+// 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
+const numCpus = os.cpus().length || 4;
+const POOL_SIZE = Math.max(2, numCpus - 1);
 const workerPool = [];
 const jobCallbacks = new Map(); // jobId -> { resolve, reject }
 let jobIdSeq = 0;
@@ -137,7 +137,11 @@ let config = {
     mdRoot: process.env.MD_ROOT || path.join(APP_ROOT, 'md'),
     defaultFontSize: 16,
     defaultTheme: 'obsidian-dark',
-    siteName: 'mdWebview'
+    siteName: 'mdWebview',
+    enableVersion: false,
+    version: '',
+    enableDownload: false,
+    downloadUrl: ''
   }
 };
 
@@ -166,7 +170,40 @@ function saveConfig() {
 loadConfig();
 
 function getMdRoot() {
-  return config.settings.mdRoot;
+  const configured = config.settings.mdRoot;
+
+  // 1. If configured path exists and contains files/directories, use it directly
+  if (configured && fs.existsSync(configured)) {
+    try {
+      const items = fs.readdirSync(configured);
+      if (items.some(name => !name.startsWith('.'))) {
+        return configured;
+      }
+    } catch (_) {}
+  }
+
+  // 2. If configured path is invalid or empty (e.g. host absolute path inside Docker container),
+  // fallback to candidates that actually exist and contain files
+  const candidates = [
+    process.env.MD_ROOT,
+    '/data/md',
+    '/data',
+    path.join(APP_ROOT, 'md')
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      try {
+        const items = fs.readdirSync(candidate);
+        if (items.some(name => !name.startsWith('.'))) {
+          config.settings.mdRoot = candidate;
+          return candidate;
+        }
+      } catch (_) {}
+    }
+  }
+
+  return configured || path.join(APP_ROOT, 'md');
 }
 
 // MIME types
@@ -189,16 +226,66 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
 };
 
-let cachedIndexHtml = null;
+let rawIndexHtml = null;
 function getIndexHtml(callback) {
-  if (cachedIndexHtml) {
-    return callback(null, cachedIndexHtml);
+  const renderDynamicIndex = (templateBuf) => {
+    let html = templateBuf.toString('utf-8');
+    const defaultTheme = config.settings.defaultTheme || 'obsidian-dark';
+    const defaultFontSize = config.settings.defaultFontSize || 16;
+    const siteName = config.settings.siteName || 'mdWebview';
+
+    // 1. Inject theme & font-size into <html> element
+    html = html.replace(/<html([^>]*)>/i, (match, p1) => {
+      let attrs = p1;
+      if (/data-theme="[^"]*"/i.test(attrs)) {
+        attrs = attrs.replace(/data-theme="[^"]*"/i, `data-theme="${defaultTheme}"`);
+      } else {
+        attrs += ` data-theme="${defaultTheme}"`;
+      }
+
+      if (/style="[^"]*"/i.test(attrs)) {
+        attrs = attrs.replace(/style="([^"]*)"/i, `style="$1; --content-font-size: ${defaultFontSize}px;"`);
+      } else {
+        attrs += ` style="--content-font-size: ${defaultFontSize}px;"`;
+      }
+      return `<html${attrs}>`;
+    });
+
+    // 2. Inject font size display value
+    html = html.replace(
+      /<span id="fontSizeDisplay" class="font-size-display">\d+<\/span>/i,
+      `<span id="fontSizeDisplay" class="font-size-display">${defaultFontSize}</span>`
+    );
+
+    // 3. Inject site name into title and logo
+    html = html.replace(
+      /<title>.*?<\/title>/i,
+      `<title>${siteName} — 佛典經論閱讀器</title>`
+    );
+    html = html.replace(
+      /<span class="logo-text">.*?<\/span>/i,
+      `<span class="logo-text">${siteName}</span>`
+    );
+
+    // 4. Inject server config script
+    const configScript = `<script>window.__APP_CONFIG__ = ${JSON.stringify(config.settings)};</script>`;
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', `${configScript}\n</head>`);
+    } else {
+      html = configScript + html;
+    }
+
+    return Buffer.from(html, 'utf-8');
+  };
+
+  if (rawIndexHtml) {
+    return callback(null, renderDynamicIndex(rawIndexHtml));
   }
   const indexPath = path.join(APP_ROOT, 'index.html');
   fs.readFile(indexPath, (err, data) => {
     if (err) return callback(err);
-    cachedIndexHtml = data;
-    callback(null, data);
+    rawIndexHtml = data;
+    callback(null, renderDynamicIndex(rawIndexHtml));
   });
 }
 
@@ -618,6 +705,30 @@ function serveStatic(req, res, pathname) {
     return;
   }
 
+  // Intercept root or index.html requests to serve dynamic index with injected config.settings
+  if (pathname === '/' || pathname === '' || path.basename(resolved) === 'index.html') {
+    getIndexHtml((err, data) => {
+      if (err) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+        res.end('Server Error');
+        return;
+      }
+      const etag = `W/"index-${data.length}-${config.settings.defaultFontSize}-${config.settings.defaultTheme}"`;
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+        res.end();
+        return;
+      }
+      const headers = Object.assign({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'ETag': etag
+      }, SECURITY_HEADERS);
+      sendCompressed(req, res, 200, headers, data);
+    });
+    return;
+  }
+
   fs.stat(resolved, (err, stats) => {
     if (err || !stats.isFile()) {
       // Fallback to index.html for SPA routing
@@ -822,11 +933,7 @@ const server = http.createServer((req, res) => {
     return sendJSON(res, 200, {
       isSetup: !!config.admin,
       isAuthenticated: isAuthenticated(req),
-      settings: {
-        defaultFontSize: config.settings.defaultFontSize,
-        defaultTheme: config.settings.defaultTheme,
-        siteName: config.settings.siteName || 'mdWebview'
-      }
+      settings: config.settings
     });
   }
   if (pathname === '/api/admin/setup' && req.method === 'POST') {
@@ -925,17 +1032,14 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
       
       const resolvedPath = path.resolve(mdRoot.trim());
-      return fs.promises.stat(resolvedPath).then(stats => {
-        if (!stats.isDirectory()) {
-          return sendJSON(res, 400, { error: 'Provided path is not a directory' });
-        }
-        
+
+      const updateSettings = () => {
         if (config.settings.mdRoot !== resolvedPath) {
           config.settings.mdRoot = resolvedPath;
           resetTreeWatcher();
@@ -949,9 +1053,40 @@ const server = http.createServer((req, res) => {
         if (siteName !== undefined) {
           config.settings.siteName = siteName.trim() || 'mdWebview';
         }
+        if (enableVersion !== undefined) {
+          config.settings.enableVersion = !!enableVersion;
+        }
+        if (version !== undefined) {
+          config.settings.version = String(version).trim();
+        }
+        if (enableDownload !== undefined) {
+          config.settings.enableDownload = !!enableDownload;
+        }
+        if (downloadUrl !== undefined) {
+          config.settings.downloadUrl = String(downloadUrl).trim();
+        }
         saveConfig();
         return sendJSON(res, 200, { success: true, settings: config.settings });
-      }).catch(() => {
+      };
+
+      return fs.promises.stat(resolvedPath).then(stats => {
+        if (!stats.isDirectory()) {
+          return sendJSON(res, 400, { error: 'Provided path is not a directory' });
+        }
+        return updateSettings();
+      }).catch(err => {
+        if (err.code === 'ENOENT') {
+          if (createIfNotExists) {
+            return fs.promises.mkdir(resolvedPath, { recursive: true })
+              .then(() => updateSettings())
+              .catch(mkdirErr => sendJSON(res, 500, { error: 'Failed to create directory: ' + mkdirErr.message }));
+          }
+          return sendJSON(res, 404, { 
+            error: `目錄路徑 "${resolvedPath}" 不存在。`, 
+            code: 'DIR_NOT_FOUND',
+            path: resolvedPath 
+          });
+        }
         return sendJSON(res, 400, { error: 'Directory path does not exist or is not readable' });
       });
     }).catch(err => {
