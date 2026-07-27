@@ -309,21 +309,10 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
-  user-select: none;
-  transition: opacity 0.2s ease, transform 0.15s ease;
-}
-.app-logo:hover {
-  opacity: 0.85;
-}
-.app-logo:active {
-  transform: scale(0.97);
 }
 .logo-icon {
   font-size: 22px;
   line-height: 1;
-  cursor: pointer;
-  pointer-events: auto;
 }
 .logo-text {
   font-family: 'Inter', sans-serif;
@@ -331,8 +320,6 @@ body,
   font-weight: 600;
   letter-spacing: -0.3px;
   color: var(--text-primary);
-  cursor: pointer;
-  pointer-events: auto;
 }
 
 /* ── Header Controls ───────────────────────────────────────── */
@@ -1511,6 +1498,34 @@ kbd {
 .markdown-body .footnote-ref:hover {
   color: var(--accent-hover);
   text-decoration: none;
+}
+
+/* ── Obsidian Internal Links ───────────────────────────────── */
+.markdown-body a.internal-link {
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1.5px dashed var(--accent);
+  padding: 1px 4px;
+  border-radius: 4px;
+  background-color: rgba(217, 119, 6, 0.08);
+  transition: background-color 0.15s ease, border-bottom-style 0.15s ease;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.markdown-body a.internal-link:hover {
+  background-color: rgba(217, 119, 6, 0.18);
+  border-bottom-style: solid;
+  text-decoration: none;
+}
+
+.markdown-body a.internal-link::before {
+  content: '🔗';
+  font-size: 0.85em;
+  opacity: 0.85;
 }
 
 .footnotes {

@@ -67,12 +67,15 @@ function renderMarkdownSSR(body) {
   // 3. Parse main body
   let html = marked.parse(annotatedLines.join('\n'));
 
+  // 3.5. Process Obsidian-style wikilinks [[TargetFile#Anchor|Alias]]
+  html = processObsidianWikilinks(html);
+
   // 4. Process footnote references
   const refCounter = {};
   html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
     if (!refCounter[id]) refCounter[id] = 0;
     refCounter[id]++;
-    return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="\u8a3b ${id}">[${id}]</a>`;
+    return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
   });
 
   // 5. Footnotes section
@@ -81,12 +84,13 @@ function renderMarkdownSSR(body) {
     footnotes.forEach((fn) => {
       const id = fn.id;
       let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
+      fnRendered = processObsidianWikilinks(fnRendered);
       const count = refCounter[id] || 0;
-      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="\u8fd4\u56de">\u21a9</a>` : '';
+      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>` : '';
       if (count > 1) {
         bl = ' ';
         for (let r = 1; r <= count; r++)
-          bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">\u21a9<sup>${r}</sup></a> `;
+          bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">↩<sup>${r}</sup></a> `;
       }
       if (fnRendered.includes('</p>')) {
         const li = fnRendered.lastIndexOf('</p>');
@@ -99,4 +103,48 @@ function renderMarkdownSSR(body) {
   }
 
   return html;
+}
+
+function processObsidianWikilinks(html) {
+  if (!html) return '';
+  return html.replace(/(<code[\s\S]*?<\/code>)|\[\[([^\]\|#]+)?(?:#([^\]\|]+))?(?:\|([^\]]+))?\]\]/gi, (match, codeBlock, rawFile, rawAnchor, rawAlias) => {
+    if (codeBlock) return codeBlock;
+
+    const file = rawFile ? rawFile.trim() : '';
+    const anchor = rawAnchor ? rawAnchor.trim() : '';
+    let label = rawAlias ? rawAlias.trim() : '';
+
+    if (!label) {
+      if (file && anchor) {
+        label = `${file} > ${anchor}`;
+      } else if (file) {
+        label = file;
+      } else if (anchor) {
+        label = `#${anchor}`;
+      } else {
+        label = match;
+      }
+    }
+
+    return `<a href="javascript:void(0);" class="internal-link" data-target-file="${escAttr(file)}" data-target-anchor="${escAttr(anchor)}" title="內部連結: ${escAttr(file || '本頁')}${anchor ? '#' + escAttr(anchor) : ''}">${escHtml(label)}</a>`;
+  });
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escAttr(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }

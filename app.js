@@ -137,14 +137,11 @@
     // Handle browser back / forward
     const handleUrlChange = async () => {
       const info = getFileFromURL();
-      if (info && info.file) {
-        if (info.file !== state.currentFile) {
-          await openFile(info.file, info.line);
-        } else if (info.line) {
-          scrollToLine(info.line);
-        }
-      } else {
-        goHome();
+      if (info && info.file !== state.currentFile) {
+        await openFile(info.file, info.line);
+      } else if (info && info.line) {
+        // Same file, different line
+        scrollToLine(info.line);
       }
     };
     window.addEventListener('hashchange', handleUrlChange);
@@ -475,6 +472,109 @@
     }
   }
 
+  // ── Navigation & Link Resolvers ───────────────────────────
+
+  function goHome() {
+    state.currentFile = null;
+
+    // Clear URL query parameters
+    if (window.location.search || window.location.hash) {
+      history.pushState(null, '', window.location.pathname);
+    }
+
+    // Hide content wrapper & loading, show welcome screen
+    const welcome = $('welcomeScreen');
+    const wrapper = $('contentWrapper');
+    const loading = $('contentLoading');
+
+    if (welcome) welcome.style.display = 'flex';
+    if (wrapper) wrapper.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+
+    // Clear active highlight from file tree
+    $$('.tree-item-row.active').forEach((el) => el.classList.remove('active'));
+
+    // Reset TOC
+    const tocList = $('tocList');
+    if (tocList) tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>開啟檔案後顯示目錄</span></div>';
+
+    // Reset page title
+    document.title = `${state.siteName} — 佛典經論閱讀器`;
+
+    // Close page search if open
+    closePageSearch();
+  }
+
+  function resolveVaultPath(target) {
+    if (!target || !state.treeData) return null;
+    let cleanTarget = target.trim().replace(/\\/g, '/');
+    if (cleanTarget.endsWith('.md')) {
+      cleanTarget = cleanTarget.slice(0, -3);
+    }
+    const targetLower = cleanTarget.toLowerCase();
+    const baseTarget = cleanTarget.split('/').pop().toLowerCase();
+
+    const allFiles = [];
+    function collect(nodes) {
+      if (!nodes) return;
+      for (const node of nodes) {
+        if (node.type === 'directory' && node.children) {
+          collect(node.children);
+        } else if (node.type === 'file') {
+          allFiles.push(node);
+        }
+      }
+    }
+    collect(state.treeData);
+
+    // 1. Exact path match (without .md or with .md)
+    let match = allFiles.find(f => {
+      const p = f.path.replace(/\.md$/, '');
+      return p === cleanTarget;
+    });
+    if (match) return match.path.endsWith('.md') ? match.path : match.path + '.md';
+
+    // 2. Exact filename match (name without .md)
+    match = allFiles.find(f => f.name.toLowerCase() === baseTarget);
+    if (match) return match.path.endsWith('.md') ? match.path : match.path + '.md';
+
+    // 3. Partial path or filename match
+    match = allFiles.find(f => f.name.toLowerCase().includes(baseTarget) || f.path.toLowerCase().includes(targetLower));
+    if (match) return match.path.endsWith('.md') ? match.path : match.path + '.md';
+
+    return null;
+  }
+
+  function jumpToAnchorOrHeading(anchor) {
+    if (!anchor) return;
+    const clean = anchor.trim();
+    // 1. Line number check (e.g. L12 or 12)
+    const lineMatch = clean.match(/^(?:L)?(\d+)$/i);
+    if (lineMatch) {
+      scrollToLine(parseInt(lineMatch[1]));
+      return;
+    }
+
+    // 2. Direct ID match
+    let el = document.getElementById(clean);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.classList.add('line-highlight');
+      setTimeout(() => el.classList.remove('line-highlight'), 2500);
+      return;
+    }
+
+    // 3. Heading text content match
+    const headings = Array.from($$('h1, h2, h3, h4, h5, h6', $('markdownBody')));
+    const cleanLower = clean.toLowerCase();
+    const targetHeading = headings.find(h => h.textContent.trim().toLowerCase() === cleanLower || h.textContent.trim().toLowerCase().includes(cleanLower));
+    if (targetHeading) {
+      targetHeading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      targetHeading.classList.add('line-highlight');
+      setTimeout(() => targetHeading.classList.remove('line-highlight'), 2500);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════
   // FILE VIEWER
   // ═══════════════════════════════════════════════════════════
@@ -636,31 +736,6 @@
     }
   }
 
-  // ── Home View Navigation ─────────────────────────────────
-  function goHome() {
-    if (state._openFileAbort) state._openFileAbort.abort();
-    state.currentFile = null;
-
-    // Reset URL without page reload
-    if (window.location.search || window.location.hash) {
-      history.pushState(null, '', window.location.pathname);
-    }
-
-    // Toggle UI views
-    $('contentLoading').style.display = 'none';
-    $('contentWrapper').style.display = 'none';
-    $('welcomeScreen').style.display = 'flex';
-    $('content').scrollTop = 0;
-
-    // Clear active file highlight and TOC
-    highlightActiveFile(null);
-    $('tocList').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>開啟檔案後自動顯示大綱</span></div>';
-
-    // Reset page search & title
-    closePageSearch();
-    document.title = `${state.siteName} — 佛典經論閱讀器`;
-  }
-
   function parseFrontmatter(raw) {
     const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!match) return { frontmatter: {}, body: raw };
@@ -818,6 +893,8 @@
     });
 
     let html = marked.parse(annotatedLines.join('\n'));
+    html = processObsidianWikilinks(html);
+
     const refCounter = {};
     html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
       if (!refCounter[id]) refCounter[id] = 0;
@@ -830,6 +907,7 @@
       footnotes.forEach((fn) => {
         const id = fn.id;
         let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
+        fnRendered = processObsidianWikilinks(fnRendered);
         const count = refCounter[id] || 0;
         let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>` : '';
         if (count > 1) { bl = ' '; for (let r = 1; r <= count; r++) bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">↩<sup>${r}</sup></a> `; }
@@ -840,6 +918,31 @@
       html += fhtml;
     }
     return html;
+  }
+
+  function processObsidianWikilinks(html) {
+    if (!html) return '';
+    return html.replace(/(<code[\s\S]*?<\/code>)|\[\[([^\]\|#]+)?(?:#([^\]\|]+))?(?:\|([^\]]+))?\]\]/gi, (match, codeBlock, rawFile, rawAnchor, rawAlias) => {
+      if (codeBlock) return codeBlock;
+
+      const file = rawFile ? rawFile.trim() : '';
+      const anchor = rawAnchor ? rawAnchor.trim() : '';
+      let label = rawAlias ? rawAlias.trim() : '';
+
+      if (!label) {
+        if (file && anchor) {
+          label = `${file} > ${anchor}`;
+        } else if (file) {
+          label = file;
+        } else if (anchor) {
+          label = `#${anchor}`;
+        } else {
+          label = match;
+        }
+      }
+
+      return `<a href="javascript:void(0);" class="internal-link" data-target-file="${escAttr(file)}" data-target-anchor="${escAttr(anchor)}" title="內部連結: ${escAttr(file || '本頁')}${anchor ? '#' + escAttr(anchor) : ''}">${escHtml(label)}</a>`;
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1372,15 +1475,6 @@
       state.sidebarCollapsed = sidebar.classList.contains('collapsed');
     });
 
-    // ── App Logo / Return Home ──
-    $$('.app-logo, #appLogo, .logo-icon, .logo-text').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        goHome();
-      });
-    });
-
     // ── Mobile: Close sidebar when clicking content area ──
     $('content').addEventListener('click', () => {
       if (window.innerWidth <= 768) {
@@ -1502,8 +1596,45 @@
             targetEl.classList.remove('highlight-flash');
           }, 2000);
         }
+        return;
+      }
+
+      // Obsidian Internal Links [[File#Anchor|Alias]]
+      const internalLink = e.target.closest('.internal-link');
+      if (internalLink) {
+        e.preventDefault();
+        const targetFile = internalLink.getAttribute('data-target-file') || '';
+        const targetAnchor = internalLink.getAttribute('data-target-anchor') || '';
+
+        if (!targetFile && targetAnchor) {
+          jumpToAnchorOrHeading(targetAnchor);
+          return;
+        }
+
+        if (targetFile) {
+          const resolvedPath = resolveVaultPath(targetFile);
+          if (resolvedPath) {
+            openFile(resolvedPath).then(() => {
+              if (targetAnchor) {
+                setTimeout(() => jumpToAnchorOrHeading(targetAnchor), 150);
+              }
+            });
+          } else {
+            // File not found -> fallback to global search and switch tab
+            const searchInput = $('globalSearchInput');
+            if (searchInput) searchInput.value = targetFile;
+            performGlobalSearch(targetFile);
+            switchSidebarTab('search');
+          }
+        }
       }
     });
+
+    // ── Home Logo click ──
+    const logo = $('appLogo');
+    if (logo) {
+      logo.addEventListener('click', goHome);
+    }
 
     // ── Font size ──
     $('fontDecrease').addEventListener('click', () => applyFontSize(state.fontSize - 1));
