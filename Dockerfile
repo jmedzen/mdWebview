@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -6,11 +6,16 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# Copy application code
-COPY server.js app.js index.html style.css ./
+# Copy all essential application files
+COPY server.js app.js index.html style.css render-worker.js marked.min.js ./
 
-# Create a default md folder
-RUN mkdir -p /app/md
+# Create data and md directories
+RUN mkdir -p /app/md /data
+
+# Default environment variables
+ENV PORT=8330 \
+    CONFIG_PATH=/data/config.json \
+    MD_ROOT=/data/md
 
 # Expose default port
 EXPOSE 8330
