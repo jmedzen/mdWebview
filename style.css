@@ -309,6 +309,11 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.app-logo:hover {
+  opacity: 0.8;
 }
 .logo-icon {
   font-size: 22px;

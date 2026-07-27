@@ -275,10 +275,37 @@
   function updateSiteNameUI() {
     $$('.logo-text').forEach(el => el.textContent = state.siteName);
     $$('.welcome-title').forEach(el => el.textContent = state.siteName);
-    
+
     if (!state.currentFile) {
       document.title = `${state.siteName} — 佛典經論閱讀器`;
     }
+  }
+
+  // ── Go Home: close reader, return to welcome screen ────────
+  function goHome() {
+    if (!state.currentFile) return; // already on home
+    state.currentFile = null;
+
+    const welcome = $('welcomeScreen');
+    const wrapper = $('contentWrapper');
+    const loading = $('contentLoading');
+
+    welcome.style.display = 'flex';
+    wrapper.style.display = 'none';
+    loading.style.display = 'none';
+
+    // Clear URL query parameters
+    const cleanUrl = window.location.pathname;
+    history.pushState(null, '', cleanUrl);
+
+    // Reset document title
+    document.title = `${state.siteName} — 佛典經論閱讀器`;
+
+    // Remove active file highlight in tree
+    $$('.tree-item-row.active').forEach(el => el.classList.remove('active'));
+
+    // Close page search if open
+    closePageSearch();
   }
 
   // ── Platform Detection & Welcome Shortcuts ──────────────────
@@ -1342,6 +1369,11 @@
       const sidebar = $('sidebar');
       sidebar.classList.toggle('collapsed');
       state.sidebarCollapsed = sidebar.classList.contains('collapsed');
+    });
+
+    // ── Logo / site name → go home ──
+    document.querySelector('.app-logo')?.addEventListener('click', () => {
+      goHome();
     });
 
     // ── Mobile: Close sidebar when clicking content area ──
