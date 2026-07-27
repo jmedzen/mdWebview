@@ -305,7 +305,6 @@
       footerEl.style.display = 'none';
     }
   }
-
   // ── Go Home: close reader, return to welcome screen ────────
   function goHome() {
     if (!state.currentFile) return; // already on home
