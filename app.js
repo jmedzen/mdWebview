@@ -633,6 +633,31 @@
     }
   }
 
+  // ── Home View Navigation ─────────────────────────────────
+  function goHome() {
+    if (state._openFileAbort) state._openFileAbort.abort();
+    state.currentFile = null;
+
+    // Reset URL without page reload
+    if (window.location.search || window.location.hash) {
+      history.pushState(null, '', window.location.pathname);
+    }
+
+    // Toggle UI views
+    $('contentLoading').style.display = 'none';
+    $('contentWrapper').style.display = 'none';
+    $('welcomeScreen').style.display = 'flex';
+    $('content').scrollTop = 0;
+
+    // Clear active file highlight and TOC
+    highlightActiveFile(null);
+    $('tocList').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>開啟檔案後自動顯示大綱</span></div>';
+
+    // Reset page search & title
+    closePageSearch();
+    document.title = `${state.siteName} — 佛典經論閱讀器`;
+  }
+
   function parseFrontmatter(raw) {
     const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!match) return { frontmatter: {}, body: raw };
@@ -1343,6 +1368,12 @@
       sidebar.classList.toggle('collapsed');
       state.sidebarCollapsed = sidebar.classList.contains('collapsed');
     });
+
+    // ── App Logo / Return Home ──
+    const appLogo = $('appLogo');
+    if (appLogo) {
+      appLogo.addEventListener('click', goHome);
+    }
 
     // ── Mobile: Close sidebar when clicking content area ──
     $('content').addEventListener('click', () => {
