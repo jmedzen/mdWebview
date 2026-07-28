@@ -86,13 +86,14 @@ function parseMarkdown(body) {
     annotatedLines.push(line);
     prevWasBlank = trimmed.length === 0;
   });
-  // ── 3. Convert Obsidian-style wikilinks before markdown parsing ──
-  const annotatedBody = convertWikilinks(annotatedLines.join('\n'));
 
-  // ── 4. Parse main markdown body ──────────────────────────────
-  let html = marked.parse(annotatedBody);
+  // ── 3. Parse main markdown body to HTML ─────────────────────
+  let html = marked.parse(annotatedLines.join('\n'));
 
-  // ── 4. Process footnote references ──────────────────────────
+  // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
+  html = convertWikilinks(html);
+
+  // ── 5. Process footnote references ──────────────────────────
   const refCounter = {};
   html = html.replace(/\[\^([^\]]+)\]/g, (match, id) => {
     if (!refCounter[id]) refCounter[id] = 0;
@@ -101,7 +102,7 @@ function parseMarkdown(body) {
     return `<a href="#fn-def-${id}" id="${refId}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
   });
 
-  // ── 5. Build footnotes section ───────────────────────────────
+  // ── 6. Build footnotes section ───────────────────────────────
   if (footnotes.length > 0) {
     let footnotesHtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
 
@@ -109,6 +110,7 @@ function parseMarkdown(body) {
       const id = fn.id;
       const fnText = fn.text.join('\n').trim();
       let fnRendered = marked.parse(fnText).trim();
+      fnRendered = convertWikilinks(fnRendered);
 
       let backlinksHtml = '';
       const count = refCounter[id] || 0;
@@ -142,12 +144,16 @@ function parseMarkdown(body) {
 }
 
 /**
- * Convert Obsidian [[wikilinks]] to HTML anchor tags.
- * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]]
- * Runs as a single regex pass on the raw markdown string.
+ * Convert Obsidian [[wikilinks]] in HTML output to <a> tags.
+ * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]], [[#heading]]
+ * Skips matches inside <code>...</code> or <pre>...</pre> tags.
  */
-function convertWikilinks(text) {
-  return text.replace(/(?<!`)\[\[([^\]]+?)\]\]/g, (match, inner) => {
+function convertWikilinks(html) {
+  if (!html) return html;
+  return html.replace(/(<code[\s\S]*?<\/code>|<pre[\s\S]*?<\/pre>)|(?<!`)\[\[([^\]\n]+?)\]\]/gi, (match, codeBlock, inner) => {
+    if (codeBlock) return codeBlock;
+    if (!inner) return match;
+
     const pipeIdx = inner.indexOf('|');
     let target, display;
     if (pipeIdx !== -1) {
@@ -157,13 +163,15 @@ function convertWikilinks(text) {
       target = inner.trim();
       display = target;
     }
+
     const hashIdx = target.indexOf('#');
     let file = target;
     let anchor = '';
     if (hashIdx !== -1) {
-      file = target.substring(0, hashIdx);
-      anchor = target.substring(hashIdx);
+      file = target.substring(0, hashIdx).trim();
+      anchor = target.substring(hashIdx).trim();
     }
+
     return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="javascript:void(0)" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
   });
 }

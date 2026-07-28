@@ -63,32 +63,34 @@ function renderMarkdownSSR(body) {
     annotatedLines.push(line);
     prevWasBlank = trimmed.length === 0;
   });
-  // 3. Convert Obsidian-style wikilinks before markdown parsing
-  const annotatedBody = convertWikilinks(annotatedLines.join('\n'));
 
-  // 4. Parse main body
-  let html = marked.parse(annotatedBody);
+  // 3. Parse main body to HTML
+  let html = marked.parse(annotatedLines.join('\n'));
 
-  // 4. Process footnote references
+  // 4. Convert Obsidian-style [[wikilinks]] on HTML output
+  html = convertWikilinks(html);
+
+  // 5. Process footnote references
   const refCounter = {};
   html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
     if (!refCounter[id]) refCounter[id] = 0;
     refCounter[id]++;
-    return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="\u8a3b ${id}">[${id}]</a>`;
+    return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
   });
 
-  // 5. Footnotes section
+  // 6. Footnotes section
   if (footnotes.length > 0) {
     let fhtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
     footnotes.forEach((fn) => {
       const id = fn.id;
       let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
+      fnRendered = convertWikilinks(fnRendered);
       const count = refCounter[id] || 0;
-      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="\u8fd4\u56de">\u21a9</a>` : '';
+      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>` : '';
       if (count > 1) {
         bl = ' ';
         for (let r = 1; r <= count; r++)
-          bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">\u21a9<sup>${r}</sup></a> `;
+          bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
       }
       if (fnRendered.includes('</p>')) {
         const li = fnRendered.lastIndexOf('</p>');
@@ -104,13 +106,16 @@ function renderMarkdownSSR(body) {
 }
 
 /**
- * Convert Obsidian [[wikilinks]] to HTML anchor tags.
- * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]]
- * Runs as a single regex pass on the raw markdown string — O(n) with no DOM cost.
+ * Convert Obsidian [[wikilinks]] in HTML output to <a> tags.
+ * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]], [[#heading]]
+ * Skips matches inside <code>...</code> or <pre>...</pre> tags.
  */
-function convertWikilinks(text) {
-  // Negative lookbehind for backtick to skip wikilinks inside inline code
-  return text.replace(/(?<!`)\[\[([^\]]+?)\]\]/g, (match, inner) => {
+function convertWikilinks(html) {
+  if (!html) return html;
+  return html.replace(/(<code[\s\S]*?<\/code>|<pre[\s\S]*?<\/pre>)|(?<!`)\[\[([^\]\n]+?)\]\]/gi, (match, codeBlock, inner) => {
+    if (codeBlock) return codeBlock;
+    if (!inner) return match;
+
     const pipeIdx = inner.indexOf('|');
     let target, display;
     if (pipeIdx !== -1) {
@@ -121,17 +126,14 @@ function convertWikilinks(text) {
       display = target;
     }
 
-    // Split target into file and heading anchor parts
     const hashIdx = target.indexOf('#');
     let file = target;
     let anchor = '';
     if (hashIdx !== -1) {
-      file = target.substring(0, hashIdx);
-      anchor = target.substring(hashIdx); // includes the #
+      file = target.substring(0, hashIdx).trim();
+      anchor = target.substring(hashIdx).trim();
     }
 
-    // data-wikilink stores the raw file name for client-side openFile resolution
-    // href uses javascript:void(0) — actual navigation is handled by click delegation
     return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="javascript:void(0)" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
   });
 }

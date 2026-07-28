@@ -844,7 +844,9 @@
       prevWasBlank = trimmed.length === 0;
     });
 
-    let html = marked.parse(convertWikilinks(annotatedLines.join('\n')));
+    let html = marked.parse(annotatedLines.join('\n'));
+    html = convertWikilinks(html);
+
     const refCounter = {};
     html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
       if (!refCounter[id]) refCounter[id] = 0;
@@ -857,6 +859,7 @@
       footnotes.forEach((fn) => {
         const id = fn.id;
         let fnRendered = marked.parse(fn.text.join('\n').trim()).trim();
+        fnRendered = convertWikilinks(fnRendered);
         const count = refCounter[id] || 0;
         let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>` : '';
         if (count > 1) { bl = ' '; for (let r = 1; r <= count; r++) bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink">↩<sup>${r}</sup></a> `; }
@@ -875,7 +878,6 @@
 
   /**
    * Name→path index for resolving wikilinks.
-   * Maps bare file names (e.g. "佛光辭典") to their tree path (e.g. "20-辭典/佛光辭典.md").
    * Built once on tree load; O(1) per link resolution.
    */
   const wikilinkIndex = new Map();
@@ -887,20 +889,36 @@
         if (node.type === 'directory' && node.children) {
           walk(node.children);
         } else if (node.type === 'file') {
-          // node.name is already without .md extension
-          wikilinkIndex.set(node.name, node.path);
+          // Bare file name (e.g. "大智度論釋記_卷21")
+          const nameNoExt = node.name.replace(/\.md$/i, '').trim();
+          wikilinkIndex.set(nameNoExt, node.path);
+          wikilinkIndex.set(nameNoExt.toLowerCase(), node.path);
+
+          // Full relative path without .md
+          const pathNoExt = node.path.replace(/\.md$/i, '').trim();
+          wikilinkIndex.set(pathNoExt, node.path);
+          wikilinkIndex.set(pathNoExt.toLowerCase(), node.path);
+
+          // Basename without .md
+          const baseName = node.path.split('/').pop().replace(/\.md$/i, '').trim();
+          wikilinkIndex.set(baseName, node.path);
+          wikilinkIndex.set(baseName.toLowerCase(), node.path);
         }
       }
     })(treeNodes);
   }
 
   /**
-   * Convert Obsidian [[wikilinks]] → HTML <a> tags before markdown parsing.
-   * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]]
-   * Single regex pass — O(n).
+   * Convert Obsidian [[wikilinks]] in HTML output to <a> tags.
+   * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]], [[#heading]]
+   * Skips matches inside <code>...</code> or <pre>...</pre> tags.
    */
-  function convertWikilinks(text) {
-    return text.replace(/(?<!`)\[\[([^\]]+?)\]\]/g, (match, inner) => {
+  function convertWikilinks(html) {
+    if (!html) return html;
+    return html.replace(/(<code[\s\S]*?<\/code>|<pre[\s\S]*?<\/pre>)|(?<!`)\[\[([^\]\n]+?)\]\]/gi, (match, codeBlock, inner) => {
+      if (codeBlock) return codeBlock;
+      if (!inner) return match;
+
       const pipeIdx = inner.indexOf('|');
       let target, display;
       if (pipeIdx !== -1) {
@@ -910,13 +928,15 @@
         target = inner.trim();
         display = target;
       }
+
       const hashIdx = target.indexOf('#');
       let file = target;
       let anchor = '';
       if (hashIdx !== -1) {
-        file = target.substring(0, hashIdx);
-        anchor = target.substring(hashIdx);
+        file = target.substring(0, hashIdx).trim();
+        anchor = target.substring(hashIdx).trim();
       }
+
       return `<a class="wikilink" data-wikilink-file="${escHtml(file)}" data-wikilink-anchor="${escHtml(anchor)}" href="javascript:void(0)" title="${escHtml(target)}">${escHtml(display)}</a>`;
     });
   }
@@ -925,8 +945,10 @@
    * Handle click on a rendered wikilink: resolve file name → tree path, then openFile.
    */
   function handleWikilinkClick(linkEl) {
-    const fileName = linkEl.getAttribute('data-wikilink-file');
+    let fileName = linkEl.getAttribute('data-wikilink-file') || '';
     const anchor = linkEl.getAttribute('data-wikilink-anchor') || '';
+
+    fileName = fileName.trim().replace(/\.md$/i, '');
 
     if (!fileName && anchor) {
       // Pure anchor link within current file (e.g. [[#heading]])
@@ -935,7 +957,7 @@
     }
 
     // Resolve file name to tree path
-    const filePath = wikilinkIndex.get(fileName);
+    const filePath = wikilinkIndex.get(fileName) || wikilinkIndex.get(fileName.toLowerCase());
     if (!filePath) {
       console.warn(`[Wikilink] Could not resolve "${fileName}" — file not found in tree.`);
       return;
@@ -943,30 +965,33 @@
 
     openFile(filePath).then(() => {
       if (anchor) {
-        // Wait for DOM update, then scroll to heading
-        setTimeout(() => scrollToHeadingByText(anchor.substring(1)), 150);
+        setTimeout(() => scrollToHeadingByText(anchor.substring(1)), 200);
       }
     });
   }
 
   /**
    * Scroll to a heading whose text matches the anchor text.
-   * Obsidian anchors use the raw heading text inside 【】brackets, so we match by textContent.
+   * Obsidian anchors match by heading textContent, with flexible bracket handling.
    */
   function scrollToHeadingByText(text) {
+    if (!text) return;
+    const targetText = decodeURIComponent(text).trim();
+    const cleanText = targetText.replace(/^【/, '').replace(/】$/, '').trim();
+
     const headings = $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
-    // Strip leading/trailing 【】for flexible matching
-    const cleanText = text.replace(/^【/, '').replace(/】$/, '');
     for (const h of headings) {
       const hText = h.textContent.trim();
-      if (hText === text || hText === `【${cleanText}】` || hText.includes(cleanText)) {
+      const hCleanText = hText.replace(/^【/, '').replace(/】$/, '').trim();
+
+      if (hText === targetText || hCleanText === cleanText || hText.includes(cleanText) || cleanText.includes(hText)) {
         h.scrollIntoView({ behavior: 'smooth', block: 'start' });
         h.classList.add('highlight-flash');
         setTimeout(() => h.classList.remove('highlight-flash'), 2000);
         return;
       }
     }
-    console.warn(`[Wikilink] Heading "${text}" not found in document.`);
+    console.warn(`[Wikilink] Heading "${targetText}" not found in document.`);
   }
 
   // ═══════════════════════════════════════════════════════════
