@@ -2007,6 +2007,18 @@ kbd {
   filter: brightness(1.1);
 }
 
+.save-close-btn {
+  background: var(--accent);
+  color: var(--bg-primary);
+  opacity: 0.9;
+  border: 1px solid var(--accent);
+}
+
+.save-close-btn:hover {
+  filter: brightness(1.15);
+  opacity: 1;
+}
+
 .cancel-btn {
   background: transparent;
   border: 1px solid var(--border);

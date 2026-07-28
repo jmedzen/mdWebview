@@ -1763,8 +1763,7 @@
     });
 
     // ── Login Form Submission ──
-    $('adminLoginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    const submitLoginForm = async () => {
       const username = $('loginUsername').value;
       const password = $('loginPassword').value;
       const errorEl = $('loginErrorMsg');
@@ -1790,6 +1789,18 @@
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
       }
+    };
+
+    $('adminLoginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await submitLoginForm();
+    });
+
+    $('loginPassword').addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        await submitLoginForm();
+      }
     });
 
     $('loginCancelBtn').addEventListener('click', () => {
@@ -1797,8 +1808,7 @@
     });
 
     // ── Settings Form Submission ──
-    $('adminSettingsForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    async function performSaveSettings(createIfNotExists = false, closeAfterSave = false) {
       const siteName = $('settingsSiteName').value;
       const mdRoot = $('settingsMdRoot').value;
       const defaultFontSize = parseInt($('settingsFontSize').value);
@@ -1810,65 +1820,80 @@
       const errorEl = $('settingsErrorMsg');
       const successEl = $('settingsSuccessMsg');
 
-      async function saveSettings(createIfNotExists = false) {
-        try {
-          const res = await fetch('/api/admin/settings', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'X-Admin-Token': state.adminToken
-            },
-            body: JSON.stringify({
-              settings: { 
-                siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-                enableVersion, version, enableDownload, downloadUrl 
-              }
-            })
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            if (res.status === 404 && data.code === 'DIR_NOT_FOUND') {
-              const confirmCreate = window.confirm(`指定的目錄路徑不存在：\n${data.path || mdRoot}\n\n是否要自動創建此目錄？`);
-              if (confirmCreate) {
-                return await saveSettings(true);
-              }
+      try {
+        const res = await fetch('/api/admin/settings', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Admin-Token': state.adminToken
+          },
+          body: JSON.stringify({
+            settings: { 
+              siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
+              enableVersion, version, enableDownload, downloadUrl 
             }
-            throw new Error(data.error || '儲存失敗');
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 404 && data.code === 'DIR_NOT_FOUND') {
+            const confirmCreate = window.confirm(`指定的目錄路徑不存在：\n${data.path || mdRoot}\n\n是否要自動創建此目錄？`);
+            if (confirmCreate) {
+              return await performSaveSettings(true, closeAfterSave);
+            }
           }
-          errorEl.style.display = 'none';
+          throw new Error(data.error || '儲存失敗');
+        }
+        errorEl.style.display = 'none';
+
+        if (data.settings) {
+          if (data.settings.defaultFontSize) {
+            localStorage.removeItem('mdWebview-user-fontsize');
+            applyFontSize(data.settings.defaultFontSize, false);
+          }
+          if (data.settings.defaultTheme) {
+            localStorage.removeItem('mdWebview-user-theme');
+            applyTheme(data.settings.defaultTheme, false);
+          }
+          if (data.settings.siteName) {
+            state.siteName = data.settings.siteName;
+            updateSiteNameUI();
+          }
+          updateWelcomeFooter(data.settings);
+        }
+
+        // Reload the file tree and update UI with new paths
+        await loadTree();
+
+        if (closeAfterSave) {
+          $('adminSettingsOverlay').style.display = 'none';
+        } else {
           successEl.textContent = '設定已成功儲存';
           successEl.style.display = 'block';
           setTimeout(() => {
             successEl.style.display = 'none';
           }, 3000);
-
-          if (data.settings) {
-            if (data.settings.defaultFontSize) {
-              localStorage.removeItem('mdWebview-user-fontsize');
-              applyFontSize(data.settings.defaultFontSize, false);
-            }
-            if (data.settings.defaultTheme) {
-              localStorage.removeItem('mdWebview-user-theme');
-              applyTheme(data.settings.defaultTheme, false);
-            }
-            if (data.settings.siteName) {
-              state.siteName = data.settings.siteName;
-              updateSiteNameUI();
-            }
-            updateWelcomeFooter(data.settings);
-          }
-
-          // Reload the file tree and update UI with new paths
-          await loadTree();
-        } catch (err) {
-          successEl.style.display = 'none';
-          errorEl.textContent = err.message;
-          errorEl.style.display = 'block';
         }
+        return true;
+      } catch (err) {
+        successEl.style.display = 'none';
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+        return false;
       }
+    }
 
-      await saveSettings(false);
+    $('adminSettingsForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await performSaveSettings(false, false);
     });
+
+    const saveAndCloseBtn = $('settingsSaveAndCloseBtn');
+    if (saveAndCloseBtn) {
+      saveAndCloseBtn.addEventListener('click', async () => {
+        await performSaveSettings(false, true);
+      });
+    }
 
     $('settingsCancelBtn').addEventListener('click', () => {
       $('adminSettingsOverlay').style.display = 'none';
