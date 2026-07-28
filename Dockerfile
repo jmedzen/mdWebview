@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm install --production
 
 # Copy all essential application files and default md repository
-COPY server.js app.js index.html style.css render-worker.js marked.min.js ./
+COPY server.js app.js index.html style.css render-worker.js md-worker.js marked.min.js ./
 COPY md/ ./md/
 
 # Create data directory
