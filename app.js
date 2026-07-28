@@ -289,12 +289,15 @@
     if (!footerEl) return;
     if (!settings) settings = window.__APP_CONFIG__ || {};
 
+    const isVersionEnabled = settings.enableVersion === true || settings.enableVersion === 'true';
+    const isDownloadEnabled = settings.enableDownload === true || settings.enableDownload === 'true';
+
     const parts = [];
-    if (settings.enableVersion && settings.version && settings.version.trim()) {
-      parts.push(`<span>版本：${escHtml(settings.version.trim())}</span>`);
+    if (isVersionEnabled && settings.version && String(settings.version).trim()) {
+      parts.push(`<span>版本：${escHtml(String(settings.version).trim())}</span>`);
     }
-    if (settings.enableDownload && settings.downloadUrl && settings.downloadUrl.trim()) {
-      parts.push(`<span>下載：<a href="${escHtml(settings.downloadUrl.trim())}" target="_blank" rel="noopener noreferrer" class="welcome-download-link">離線閱讀完整版</a></span>`);
+    if (isDownloadEnabled && settings.downloadUrl && String(settings.downloadUrl).trim()) {
+      parts.push(`<span>下載：<a href="${escHtml(String(settings.downloadUrl).trim())}" target="_blank" rel="noopener noreferrer" class="welcome-download-link">離線閱讀完整版</a></span>`);
     }
 
     if (parts.length > 0) {
