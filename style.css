@@ -1985,6 +1985,8 @@ kbd {
 .modal-right-actions {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .modal-btn {
