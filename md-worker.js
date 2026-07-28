@@ -1,6 +1,6 @@
 /* ================================================================
-   md-worker.js — Markdown rendering Web Worker
-   All heavy parsing is done off the main thread so the UI stays smooth.
+   md-worker.js — High-Performance Markdown Rendering Web Worker
+   Offloads all heavy parsing to background worker thread.
    ================================================================ */
 
 /* global importScripts, marked, self */
@@ -25,11 +25,12 @@ self.onmessage = function (e) {
 };
 
 function parseMarkdown(body) {
-  // ── 1. Extract footnote definitions ──────────────────────────
+  if (!body) return { html: '' };
+
+  // ── 1. Extract footnote definitions (O(N) single pass) ────────
   const lines = body.split('\n');
   const cleanLines = [];
   const footnotes = [];
-  const footnoteMap = {};
   let currentFootnote = null;
 
   for (let i = 0; i < lines.length; i++) {
@@ -40,38 +41,27 @@ function parseMarkdown(body) {
       const text = match[2];
       currentFootnote = { id, text: [text] };
       footnotes.push(currentFootnote);
-      footnoteMap[id] = currentFootnote;
     } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
       currentFootnote.text.push(line);
     } else if (currentFootnote && line.trim() === '') {
-      let isContinuation = false;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim() === '') continue;
-        if (lines[j].startsWith('    ') || lines[j].startsWith('\t')) {
-          isContinuation = true;
-        }
-        break;
-      }
-      if (isContinuation) {
-        currentFootnote.text.push(line);
-      } else {
-        currentFootnote = null;
-        cleanLines.push(line);
-      }
+      currentFootnote.text.push(line);
     } else {
-      currentFootnote = null;
+      if (currentFootnote) {
+        while (currentFootnote.text.length > 1 && currentFootnote.text[currentFootnote.text.length - 1].trim() === '') {
+          currentFootnote.text.pop();
+        }
+        currentFootnote = null;
+      }
       cleanLines.push(line);
     }
   }
 
-  const cleanBody = cleanLines.join('\n');
-
   // ── 2. Inject line-number anchors ────────────────────────────
-  const bodyLines = cleanBody.split('\n');
   const annotatedLines = [];
   let prevWasBlank = true;
-  bodyLines.forEach((line, idx) => {
-    const lineNum = idx + 1;
+  for (let i = 0; i < cleanLines.length; i++) {
+    const line = cleanLines[i];
+    const lineNum = i + 1;
     const trimmed = line.trim();
     const isBlockStart =
       /^#{1,6}\s/.test(trimmed) ||
@@ -85,32 +75,40 @@ function parseMarkdown(body) {
     }
     annotatedLines.push(line);
     prevWasBlank = trimmed.length === 0;
-  });
+  }
 
   // ── 3. Parse main markdown body to HTML ─────────────────────
   let html = marked.parse(annotatedLines.join('\n'));
 
   // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
-  html = convertWikilinks(html);
+  if (html.includes('[[')) {
+    html = convertWikilinks(html);
+  }
 
   // ── 5. Process footnote references ──────────────────────────
   const refCounter = {};
-  html = html.replace(/\[\^([^\]]+)\]/g, (match, id) => {
-    if (!refCounter[id]) refCounter[id] = 0;
-    refCounter[id]++;
-    const refId = `fn-ref-${id}-${refCounter[id]}`;
-    return `<a href="#fn-def-${id}" id="${refId}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
-  });
-
-  // ── 6. Build footnotes section ───────────────────────────────
   if (footnotes.length > 0) {
+    html = html.replace(/\[\^([^\]]+)\]/g, (match, id) => {
+      if (!refCounter[id]) refCounter[id] = 0;
+      refCounter[id]++;
+      const refId = `fn-ref-${id}-${refCounter[id]}`;
+      return `<a href="#fn-def-${id}" id="${refId}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
+    });
+
+    // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
+    const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
+    const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
+    let combinedFnHtml = marked.parse(combinedFnText).trim();
+    if (combinedFnHtml.includes('[[')) {
+      combinedFnHtml = convertWikilinks(combinedFnHtml);
+    }
+    const fnRenderedArray = combinedFnHtml.split(/<!--FN_SPLIT_DELIMITER-->/i);
+
     let footnotesHtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
 
-    footnotes.forEach((fn) => {
+    footnotes.forEach((fn, idx) => {
       const id = fn.id;
-      const fnText = fn.text.join('\n').trim();
-      let fnRendered = marked.parse(fnText).trim();
-      fnRendered = convertWikilinks(fnRendered);
+      let fnRendered = (fnRenderedArray[idx] || '').trim();
 
       let backlinksHtml = '';
       const count = refCounter[id] || 0;
@@ -146,10 +144,10 @@ function parseMarkdown(body) {
 /**
  * Convert Obsidian [[wikilinks]] in HTML output to <a> tags.
  * Supports: [[page]], [[page|display]], [[page#heading]], [[page#heading|display]], [[#heading]]
- * Skips matches inside <code>...</code> or <pre>...</pre> tags.
+ * Fast exit if no wikilinks found. Skips matches inside <code>...</code> or <pre>...</pre> tags.
  */
 function convertWikilinks(html) {
-  if (!html) return html;
+  if (!html || !html.includes('[[')) return html;
   return html.replace(/(<code[\s\S]*?<\/code>|<pre[\s\S]*?<\/pre>)|(?<!`)\[\[([^\]\n]+?)\]\]/gi, (match, codeBlock, inner) => {
     if (codeBlock) return codeBlock;
     if (!inner) return match;
