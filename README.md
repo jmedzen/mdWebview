@@ -60,6 +60,8 @@ mdWebview/
 ### 🚀 快速開始
 
 #### 1. 使用 Node.js 本地執行
+- 系統需求：需安裝 **Node.js** v24 或以上版本。
+
 ```bash
 # 啟動伺服器
 npm start
@@ -182,6 +184,8 @@ mdWebview/
 ### 🚀 Quick Start
 
 #### 1. Local Run with Node.js
+- Prerequisites: **Node.js** v24 or above recommended.
+
 ```bash
 # Start server
 npm start
