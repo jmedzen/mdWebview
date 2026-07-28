@@ -1047,20 +1047,30 @@
     const tocList = $('tocList');
     headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
 
-    if (!headings || headings.length === 0) {
+    // Filter valid headings & extract clean text (stripping .line-anchor spans)
+    const validItems = [];
+    headings.forEach((h) => {
+      const clone = h.cloneNode(true);
+      clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
+      const text = clone.textContent.trim();
+      if (text) {
+        validItems.push({ h, text, level: parseInt(h.tagName.charAt(1)) });
+      }
+    });
+
+    if (validItems.length === 0) {
       tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
       return;
     }
 
     tocList.innerHTML = '';
 
-    const minLevel = Math.min(...Array.from(headings).map(h => parseInt(h.tagName.charAt(1))));
+    const minLevel = Math.min(...validItems.map(item => item.level));
     const fragment = document.createDocumentFragment();
     const rows = [];
 
-    headings.forEach((h, idx) => {
-      const level = parseInt(h.tagName.charAt(1));
-      const text = h.textContent.trim() || `Heading ${level}`;
+    validItems.forEach((itemObj, idx) => {
+      const { h, text, level } = itemObj;
 
       const row = document.createElement('div');
       row.className = 'toc-item-row';
@@ -1068,9 +1078,15 @@
       row.setAttribute('data-target', h.id);
       row.setAttribute('data-index', idx);
 
-      // Indent level
-      const indent = (level - minLevel) * 12 + 6;
+      // Indent level matching Obsidian (16px per depth)
+      const depth = level - minLevel;
+      const indent = depth * 16 + 8;
       row.style.paddingLeft = `${indent}px`;
+
+      if (depth > 0) {
+        row.classList.add('is-nested');
+        row.style.setProperty('--guide-left', `${indent - 10}px`);
+      }
 
       const chevron = document.createElement('span');
       chevron.className = 'toc-item-chevron empty';
@@ -1109,7 +1125,7 @@
     }
 
     tocList.appendChild(fragment);
-    setupScrollSpy(headings);
+    setupScrollSpy(validItems.map(item => item.h));
   }
 
   function toggleSubtreeVisibility(rows, parentIdx, isCollapsed) {

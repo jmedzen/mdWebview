@@ -940,24 +940,27 @@ body,
 .toc-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px;
+  padding: 6px 8px;
+  position: relative;
 }
 
 .toc-item-row {
   display: flex;
   align-items: center;
-  height: 26px;
-  min-height: 26px;
-  padding: 0 6px;
+  min-height: 24px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  padding-right: 6px;
   margin: 1px 0;
   font-size: 13px;
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', sans-serif;
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background 0.1s ease, color 0.1s ease;
   user-select: none;
-  line-height: 1.2;
+  line-height: 1.35;
+  position: relative;
 }
 
 .toc-item-row:hover {
@@ -971,13 +974,25 @@ body,
   font-weight: 600;
 }
 
+/* Vertical tree guide line for nested outline items */
+.toc-item-row.is-nested::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--guide-left, 12px);
+  width: 1px;
+  background: var(--border);
+  opacity: 0.4;
+}
+
 .toc-item-chevron {
   width: 16px;
   height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 9px;
   margin-right: 2px;
   flex-shrink: 0;
   transition: transform 0.15s ease, opacity 0.15s ease;
@@ -987,7 +1002,7 @@ body,
 
 .toc-item-chevron:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .toc-item-chevron.empty {
