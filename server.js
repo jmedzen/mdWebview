@@ -135,18 +135,34 @@ let config = {
   admin: null, // { username, passwordHash, salt }
   settings: {
     mdRoot: process.env.MD_ROOT || path.join(APP_ROOT, 'md'),
-    defaultFontSize: 16,
-    defaultTheme: 'obsidian-dark',
-    siteName: 'mdWebview',
-    enableVersion: false,
-    version: '',
-    enableDownload: false,
-    downloadUrl: ''
+    defaultFontSize: parseInt(process.env.DEFAULT_FONT_SIZE, 10) || 20,
+    defaultTheme: process.env.DEFAULT_THEME || 'zen',
+    siteName: process.env.SITE_NAME || '大覺藏集',
+    enableVersion: process.env.ENABLE_VERSION !== undefined ? process.env.ENABLE_VERSION === 'true' : true,
+    version: process.env.VERSION || '2026-3',
+    enableDownload: process.env.ENABLE_DOWNLOAD !== undefined ? process.env.ENABLE_DOWNLOAD === 'true' : true,
+    downloadUrl: process.env.DOWNLOAD_URL || ''
   }
 };
 
 function loadConfig() {
   try {
+    // 1. Try reading template/fallback config file in APP_ROOT if available
+    const candidateFiles = [
+      path.join(APP_ROOT, 'config.json.template'),
+      path.join(APP_ROOT, 'config.json')
+    ];
+    for (const file of candidateFiles) {
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed.settings) config.settings = { ...config.settings, ...parsed.settings };
+        if (parsed.admin && !config.admin) config.admin = parsed.admin;
+        break;
+      }
+    }
+
+    // 2. Load persistent CONFIG_PATH if exists, overriding template/env defaults
     if (fs.existsSync(CONFIG_PATH)) {
       const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
       const parsed = JSON.parse(raw);

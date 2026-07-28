@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm install --production
 
 # Copy all essential application files
-COPY server.js app.js index.html style.css render-worker.js md-worker.js marked.min.js ./
+COPY server.js app.js index.html style.css render-worker.js md-worker.js marked.min.js config.json.template ./
 
 # Create data and md directory
 RUN mkdir -p /data /app/md
@@ -15,7 +15,12 @@ RUN mkdir -p /data /app/md
 # Default environment variables
 ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
-    MD_ROOT=/data/md
+    MD_ROOT=/data/md \
+    SITE_NAME="大覺藏集" \
+    ENABLE_VERSION=true \
+    VERSION="2026-3" \
+    ENABLE_DOWNLOAD=true \
+    DOWNLOAD_URL=""
 
 # Expose default port
 EXPOSE 8330
