@@ -147,19 +147,13 @@ let config = {
 
 function loadConfig() {
   try {
-    // 1. Try reading template/fallback config file in APP_ROOT if available
-    const candidateFiles = [
-      path.join(APP_ROOT, 'config.json.template'),
-      path.join(APP_ROOT, 'config.json')
-    ];
-    for (const file of candidateFiles) {
-      if (fs.existsSync(file)) {
-        const raw = fs.readFileSync(file, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed.settings) config.settings = { ...config.settings, ...parsed.settings };
-        if (parsed.admin && !config.admin) config.admin = parsed.admin;
-        break;
-      }
+    // 1. Try reading local config.json in APP_ROOT if present
+    const defaultConfigPath = path.join(APP_ROOT, 'config.json');
+    if (fs.existsSync(defaultConfigPath)) {
+      const raw = fs.readFileSync(defaultConfigPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed.settings) config.settings = { ...config.settings, ...parsed.settings };
+      if (parsed.admin && !config.admin) config.admin = parsed.admin;
     }
 
     // 2. Load persistent CONFIG_PATH if exists, overriding template defaults
