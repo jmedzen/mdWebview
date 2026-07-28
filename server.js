@@ -147,7 +147,14 @@ let config = {
 
 function loadConfig() {
   try {
-    // 1. Try reading local config.json in APP_ROOT if present
+    // 1. Initial environment variables as base defaults
+    if (process.env.SITE_NAME) config.settings.siteName = process.env.SITE_NAME;
+    if (process.env.ENABLE_VERSION !== undefined) config.settings.enableVersion = process.env.ENABLE_VERSION === 'true';
+    if (process.env.VERSION !== undefined) config.settings.version = process.env.VERSION;
+    if (process.env.ENABLE_DOWNLOAD !== undefined) config.settings.enableDownload = process.env.ENABLE_DOWNLOAD === 'true';
+    if (process.env.DOWNLOAD_URL !== undefined) config.settings.downloadUrl = process.env.DOWNLOAD_URL;
+
+    // 2. Try reading local config.json in APP_ROOT if present
     const defaultConfigPath = path.join(APP_ROOT, 'config.json');
     if (fs.existsSync(defaultConfigPath)) {
       const raw = fs.readFileSync(defaultConfigPath, 'utf-8');
@@ -156,7 +163,8 @@ function loadConfig() {
       if (parsed.admin && !config.admin) config.admin = parsed.admin;
     }
 
-    // 2. Load persistent CONFIG_PATH if exists, overriding template defaults
+    // 3. HIGHEST PRIORITY: Persistent CONFIG_PATH (/data/config.json)
+    // Saved admin settings must always override defaults across container updates!
     if (fs.existsSync(CONFIG_PATH)) {
       const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
@@ -167,13 +175,6 @@ function loadConfig() {
         config.admin = parsed.admin;
       }
     }
-
-    // 3. Explicit environment variables override settings if provided
-    if (process.env.SITE_NAME) config.settings.siteName = process.env.SITE_NAME;
-    if (process.env.ENABLE_VERSION !== undefined) config.settings.enableVersion = process.env.ENABLE_VERSION === 'true';
-    if (process.env.VERSION !== undefined) config.settings.version = process.env.VERSION;
-    if (process.env.ENABLE_DOWNLOAD !== undefined) config.settings.enableDownload = process.env.ENABLE_DOWNLOAD === 'true';
-    if (process.env.DOWNLOAD_URL !== undefined) config.settings.downloadUrl = process.env.DOWNLOAD_URL;
   } catch (err) {
     console.error('Error loading config:', err);
   }

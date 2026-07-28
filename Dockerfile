@@ -15,12 +15,7 @@ RUN mkdir -p /data /app/md
 # Default environment variables
 ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
-    MD_ROOT=/data/md \
-    SITE_NAME="mdWebview" \
-    ENABLE_VERSION=false \
-    VERSION="" \
-    ENABLE_DOWNLOAD=false \
-    DOWNLOAD_URL=""
+    MD_ROOT=/data/md
 
 # Expose default port
 EXPOSE 8330
