@@ -1047,118 +1047,121 @@
     const tocList = $('tocList');
     headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
 
-    if (headings.length === 0) {
+    if (!headings || headings.length === 0) {
       tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
       return;
     }
 
     tocList.innerHTML = '';
 
-    // Detect the shallowest heading level in this document (H1, or H2 if no H1, etc.)
     const minLevel = Math.min(...Array.from(headings).map(h => parseInt(h.tagName.charAt(1))));
-
-    // Group by top-level heading: each one starts a new collapsible section
-    const groups = []; // [{leader: element|null, items: [heading...]}, ...]
-    let currentGroup = null;
-
-    headings.forEach(h => {
-      const level = parseInt(h.tagName.charAt(1));
-      if (level === minLevel) {
-        currentGroup = { leader: h, items: [] };
-        groups.push(currentGroup);
-      } else {
-        if (!currentGroup) {
-          currentGroup = { leader: null, items: [] };
-          groups.push(currentGroup);
-        }
-        currentGroup.items.push(h);
-      }
-    });
-
     const fragment = document.createDocumentFragment();
-    groups.forEach(group => {
-      if (group.leader) {
-        const groupEl = document.createElement('div');
-        groupEl.className = 'toc-group';
+    const rows = [];
 
-        const headerBtn = document.createElement('button');
-        headerBtn.className = 'toc-group-header';
-        const chevron = document.createElement('span');
-        chevron.className = 'toc-group-chevron expanded';
-        chevron.textContent = '›';
-        const label = document.createElement('span');
-        label.textContent = group.leader.textContent;
-        label.title = group.leader.textContent;
-        label.style.flex = '1';
-        label.style.overflow = 'hidden';
-        label.style.textOverflow = 'ellipsis';
-        label.style.whiteSpace = 'nowrap';
-        headerBtn.appendChild(chevron);
-        headerBtn.appendChild(label);
+    headings.forEach((h, idx) => {
+      const level = parseInt(h.tagName.charAt(1));
+      const text = h.textContent.trim() || `Heading ${level}`;
 
-        const children = document.createElement('div');
-        children.className = 'toc-group-children expanded';
+      const row = document.createElement('div');
+      row.className = 'toc-item-row';
+      row.setAttribute('data-level', level);
+      row.setAttribute('data-target', h.id);
+      row.setAttribute('data-index', idx);
 
-        headerBtn.addEventListener('click', () => {
-          group.leader.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          const isExpanded = children.classList.contains('expanded');
-          if (isExpanded) {
-            children.classList.remove('expanded');
-            chevron.classList.remove('expanded');
-          } else {
-            children.classList.add('expanded');
-            chevron.classList.add('expanded');
-          }
-        });
+      // Indent level
+      const indent = (level - minLevel) * 12 + 6;
+      row.style.paddingLeft = `${indent}px`;
 
-        group.items.forEach(h => {
-          children.appendChild(makeTocItem(h));
-        });
+      const chevron = document.createElement('span');
+      chevron.className = 'toc-item-chevron empty';
+      chevron.textContent = '▾';
 
-        groupEl.appendChild(headerBtn);
-        groupEl.appendChild(children);
-        fragment.appendChild(groupEl);
-      } else {
-        // Items before first top-level heading — render flat
-        group.items.forEach(h => fragment.appendChild(makeTocItem(h)));
-      }
+      const label = document.createElement('span');
+      label.className = 'toc-item-label';
+      label.textContent = text;
+      label.title = text;
+
+      row.appendChild(chevron);
+      row.appendChild(label);
+
+      row.addEventListener('click', (e) => {
+        if (e.target === chevron && !chevron.classList.contains('empty')) {
+          e.stopPropagation();
+          const isCollapsed = row.classList.toggle('collapsed');
+          toggleSubtreeVisibility(rows, idx, isCollapsed);
+        } else {
+          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+
+      fragment.appendChild(row);
+      rows.push(row);
     });
+
+    // Determine parent chevrons
+    for (let i = 0; i < rows.length; i++) {
+      const curLevel = parseInt(rows[i].getAttribute('data-level'));
+      const nextRow = rows[i + 1];
+      if (nextRow && parseInt(nextRow.getAttribute('data-level')) > curLevel) {
+        const chev = rows[i].querySelector('.toc-item-chevron');
+        chev.classList.remove('empty');
+      }
+    }
 
     tocList.appendChild(fragment);
-
     setupScrollSpy(headings);
   }
 
-  function makeTocItem(h) {
-    const level = parseInt(h.tagName.charAt(1));
-    const item = document.createElement('a');
-    item.className = 'toc-item';
-    item.setAttribute('data-level', level);
-    item.setAttribute('data-target', h.id);
-    item.textContent = h.textContent;
-    item.title = h.textContent;
-    item.addEventListener('click', (e) => {
-      e.preventDefault();
-      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    return item;
+  function toggleSubtreeVisibility(rows, parentIdx, isCollapsed) {
+    const parentLevel = parseInt(rows[parentIdx].getAttribute('data-level'));
+    for (let i = parentIdx + 1; i < rows.length; i++) {
+      const curLevel = parseInt(rows[i].getAttribute('data-level'));
+      if (curLevel <= parentLevel) break; // End of subtree
+
+      if (isCollapsed) {
+        rows[i].classList.add('is-hidden');
+      } else {
+        rows[i].classList.remove('is-hidden');
+        if (rows[i].classList.contains('collapsed')) {
+          const childLevel = parseInt(rows[i].getAttribute('data-level'));
+          while (i + 1 < rows.length && parseInt(rows[i + 1].getAttribute('data-level')) > childLevel) {
+            i++;
+            rows[i].classList.add('is-hidden');
+          }
+        }
+      }
+    }
   }
 
   function tocCollapseAll() {
     const btn = $('tocCollapseAllBtn');
-    const groups = $$('.toc-group-children', $('tocList'));
-    const anyExpanded = Array.from(groups).some(el => el.classList.contains('expanded'));
+    const rows = $$('.toc-item-row', $('tocList'));
+    if (rows.length === 0) return;
 
-    if (anyExpanded) {
-      // Collapse all
-      groups.forEach(el => el.classList.remove('expanded'));
-      $$('.toc-group-chevron', $('tocList')).forEach(el => el.classList.remove('expanded'));
-      btn.title = '展開全部';
-    } else {
+    const anyCollapsed = Array.from(rows).some(el => el.classList.contains('collapsed'));
+
+    if (anyCollapsed) {
       // Expand all
-      groups.forEach(el => el.classList.add('expanded'));
-      $$('.toc-group-chevron', $('tocList')).forEach(el => el.classList.add('expanded'));
-      btn.title = '摺疊全部';
+      rows.forEach(r => {
+        r.classList.remove('collapsed');
+        r.classList.remove('is-hidden');
+      });
+      if (btn) btn.title = '摺疊全部';
+    } else {
+      // Collapse top parents
+      const minLevel = Math.min(...Array.from(rows).map(r => parseInt(r.getAttribute('data-level'))));
+      rows.forEach(r => {
+        const level = parseInt(r.getAttribute('data-level'));
+        if (level === minLevel) {
+          const chev = r.querySelector('.toc-item-chevron');
+          if (chev && !chev.classList.contains('empty')) {
+            r.classList.add('collapsed');
+          }
+        } else {
+          r.classList.add('is-hidden');
+        }
+      });
+      if (btn) btn.title = '展開全部';
     }
   }
 
@@ -1168,19 +1171,18 @@
     }
 
     const tocList = $('tocList');
-    const tocItems = $$('.toc-item', tocList);
+    const tocItems = $$('.toc-item-row', tocList);
     if (tocItems.length === 0) return;
 
     headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
 
-    // Create a fast lookup map targetId -> tocItem element for O(1) active class setting
     const tocMap = new Map();
     tocItems.forEach((item) => {
       const target = item.getAttribute('data-target');
       if (target) tocMap.set(target, item);
     });
 
-    let currentActiveItem = tocList.querySelector('.toc-item.active');
+    let currentActiveItem = tocList.querySelector('.toc-item-row.active');
     let scrollIntoViewTimeout = null;
 
     const observer = new IntersectionObserver(
@@ -1201,7 +1203,6 @@
             nextActiveItem.classList.add('active');
             currentActiveItem = nextActiveItem;
 
-            // Debounce active item scroll-into-view to avoid stutter/competing scroll animations
             if (scrollIntoViewTimeout) {
               clearTimeout(scrollIntoViewTimeout);
             }
