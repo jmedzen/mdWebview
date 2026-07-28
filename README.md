@@ -71,6 +71,8 @@ node server.js
 預設伺服器埠號為 `http://localhost:8330`。
 
 #### 2. 使用 Docker Compose 部署
+> 💡 **提示**：管理員於後台（`/admin`）調整並儲存的所有設定皆會自動持久化儲存於 `./data/config.json`，在 Docker Image 升級或容器重啟後皆會持續保留。
+
 ```yaml
 version: '3.8'
 services:
@@ -83,12 +85,6 @@ services:
       - PORT=8330
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
-      # 選填：自訂環境變數設定
-      - SITE_NAME=大覺藏集
-      - ENABLE_VERSION=true
-      - VERSION=2026-3
-      - ENABLE_DOWNLOAD=true
-      - DOWNLOAD_URL=https://example.com/download.zip
     volumes:
       - ./data:/data
       - ./md:/data/md
@@ -197,6 +193,8 @@ node server.js
 The default server URL is `http://localhost:8330`.
 
 #### 2. Deploy with Docker Compose
+> 💡 **Note**: All settings configured and saved via the Admin Panel (`/admin`) are automatically persisted in `./data/config.json` and will be strictly preserved across Docker image updates and container restarts.
+
 ```yaml
 version: '3.8'
 services:
@@ -209,12 +207,6 @@ services:
       - PORT=8330
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
-      # Optional environment variables
-      - SITE_NAME=mdWebview
-      - ENABLE_VERSION=true
-      - VERSION=v1.0.0
-      - ENABLE_DOWNLOAD=true
-      - DOWNLOAD_URL=https://example.com/download.zip
     volumes:
       - ./data:/data
       - ./md:/data/md
