@@ -1,11 +1,11 @@
 {
   "settings": {
-    "defaultFontSize": 20,
-    "defaultTheme": "zen",
-    "siteName": "大覺藏集",
-    "enableVersion": true,
-    "version": "2026-3",
-    "enableDownload": true,
+    "defaultFontSize": 16,
+    "defaultTheme": "obsidian-dark",
+    "siteName": "mdWebview",
+    "enableVersion": false,
+    "version": "",
+    "enableDownload": false,
     "downloadUrl": ""
   }
 }

@@ -16,10 +16,10 @@ RUN mkdir -p /data /app/md
 ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
     MD_ROOT=/data/md \
-    SITE_NAME="大覺藏集" \
-    ENABLE_VERSION=true \
-    VERSION="2026-3" \
-    ENABLE_DOWNLOAD=true \
+    SITE_NAME="mdWebview" \
+    ENABLE_VERSION=false \
+    VERSION="" \
+    ENABLE_DOWNLOAD=false \
     DOWNLOAD_URL=""
 
 # Expose default port

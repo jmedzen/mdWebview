@@ -135,12 +135,12 @@ let config = {
   admin: null, // { username, passwordHash, salt }
   settings: {
     mdRoot: process.env.MD_ROOT || path.join(APP_ROOT, 'md'),
-    defaultFontSize: parseInt(process.env.DEFAULT_FONT_SIZE, 10) || 20,
-    defaultTheme: process.env.DEFAULT_THEME || 'zen',
-    siteName: process.env.SITE_NAME || '大覺藏集',
-    enableVersion: process.env.ENABLE_VERSION !== undefined ? process.env.ENABLE_VERSION === 'true' : true,
-    version: process.env.VERSION || '2026-3',
-    enableDownload: process.env.ENABLE_DOWNLOAD !== undefined ? process.env.ENABLE_DOWNLOAD === 'true' : true,
+    defaultFontSize: parseInt(process.env.DEFAULT_FONT_SIZE, 10) || 16,
+    defaultTheme: process.env.DEFAULT_THEME || 'obsidian-dark',
+    siteName: process.env.SITE_NAME || 'mdWebview',
+    enableVersion: process.env.ENABLE_VERSION ? process.env.ENABLE_VERSION === 'true' : false,
+    version: process.env.VERSION || '',
+    enableDownload: process.env.ENABLE_DOWNLOAD ? process.env.ENABLE_DOWNLOAD === 'true' : false,
     downloadUrl: process.env.DOWNLOAD_URL || ''
   }
 };
