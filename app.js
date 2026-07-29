@@ -1453,11 +1453,12 @@
         }
         return;
       }
-      // Open-file click on result items
+      // Open-file click on result items — pass line number for auto-scrolling
       const itemEl = e.target.closest('.search-result-item');
       if (itemEl) {
         const file = itemEl.getAttribute('data-file');
-        openFile(file);
+        const line = itemEl.getAttribute('data-line');
+        openFile(file, line ? parseInt(line, 10) : null);
       }
     });
   }
