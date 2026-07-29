@@ -1703,9 +1703,25 @@
     });
   }
 
+  // ── Toast Notification ────────────────────────────────────
+  let _toastTimer = null;
+  function showToast(msg) {
+    const el = $('toastNotification');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.display = 'block';
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => {
+      el.style.display = 'none';
+    }, 2000);
+  }
+
   // ── Bookmarks ──────────────────────────────────────────────
   function toggleBookmark(filePath, title) {
-    if (!filePath) return;
+    if (!filePath) {
+      showToast('⚠️ 請先開啟一本經文檔案');
+      return false;
+    }
     const fileName = title || filePath.split('/').pop().replace(/\.md$/, '');
     let list = state.bookmarks || [];
     const idx = list.findIndex(item => item.filePath === filePath);
@@ -1714,6 +1730,7 @@
     if (idx >= 0) {
       list.splice(idx, 1);
       isBookmarked = false;
+      showToast('🗑️ 已從書籤移除');
     } else {
       list.unshift({
         filePath,
@@ -1721,6 +1738,7 @@
         time: new Date().toLocaleDateString('zh-TW')
       });
       isBookmarked = true;
+      showToast('🔖 已新增至書籤與最愛');
     }
 
     state.bookmarks = list;
@@ -1750,44 +1768,47 @@
   }
 
   function renderBookmarksList() {
-    const container = $('bookmarksList');
-    if (!container) return;
+    const targets = [$('bookmarksList'), $('sidebarBookmarksList')].filter(Boolean);
+    if (targets.length === 0) return;
 
     const list = state.bookmarks || [];
-    if (list.length === 0) {
-      container.innerHTML = `<div class="list-empty-hint">尚無收藏書籤。開啟經文時點擊標題旁邊的 🔖 按鈕即可新增書籤。</div>`;
-      return;
-    }
+    targets.forEach(container => {
+      if (list.length === 0) {
+        container.innerHTML = `<div class="list-empty-hint">尚無收藏書籤。閱讀經文時點擊 🔖 按鈕即可新增。</div>`;
+        return;
+      }
 
-    let html = '';
-    list.forEach(item => {
-      html += `
-        <div class="list-item-row" data-file="${escHtml(item.filePath)}">
-          <span class="list-item-title">🔖 ${escHtml(item.fileName)}</span>
-          <span class="list-item-time">${escHtml(item.time || '')}</span>
-          <button type="button" class="list-item-del-btn" data-del-bookmark="${escHtml(item.filePath)}" title="移除書籤">✕</button>
-        </div>
-      `;
-    });
-    container.innerHTML = html;
+      let html = '';
+      list.forEach(item => {
+        html += `
+          <div class="list-item-row" data-file="${escHtml(item.filePath)}">
+            <span class="list-item-title">🔖 ${escHtml(item.fileName)}</span>
+            <span class="list-item-time">${escHtml(item.time || '')}</span>
+            <button type="button" class="list-item-del-btn" data-del-bookmark="${escHtml(item.filePath)}" title="移除書籤">✕</button>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
 
-    $$('.list-item-row', container).forEach(row => {
-      row.addEventListener('click', (e) => {
-        const delBtn = e.target.closest('.list-item-del-btn');
-        if (delBtn) {
-          e.stopPropagation();
-          const targetFile = delBtn.getAttribute('data-del-bookmark');
-          state.bookmarks = state.bookmarks.filter(i => i.filePath !== targetFile);
-          localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(state.bookmarks));
-          renderBookmarksList();
-          if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
-          return;
-        }
-        const file = row.getAttribute('data-file');
-        if (file) {
-          $('userSettingsOverlay').style.display = 'none';
-          openFile(file);
-        }
+      $$('.list-item-row', container).forEach(row => {
+        row.addEventListener('click', (e) => {
+          const delBtn = e.target.closest('.list-item-del-btn');
+          if (delBtn) {
+            e.stopPropagation();
+            const targetFile = delBtn.getAttribute('data-del-bookmark');
+            state.bookmarks = state.bookmarks.filter(i => i.filePath !== targetFile);
+            localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(state.bookmarks));
+            renderBookmarksList();
+            if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
+            showToast('🗑️ 已移除書籤');
+            return;
+          }
+          const file = row.getAttribute('data-file');
+          if (file) {
+            if ($('userSettingsOverlay')) $('userSettingsOverlay').style.display = 'none';
+            openFile(file);
+          }
+        });
       });
     });
   }
@@ -2159,6 +2180,20 @@
       });
     }
 
+    const addBkmHandler = () => {
+      if (state.currentFile) {
+        toggleBookmark(state.currentFile);
+      } else {
+        showToast('⚠️ 請先點擊開啟一本經文');
+      }
+    };
+
+    const sidebarBkmBtn = $('sidebarAddBookmarkBtn');
+    if (sidebarBkmBtn) sidebarBkmBtn.addEventListener('click', addBkmHandler);
+
+    const menuBkmBtn = $('menuAddCurrentBookmarkBtn');
+    if (menuBkmBtn) menuBkmBtn.addEventListener('click', addBkmHandler);
+
     const clearBkmBtn = $('clearBookmarksBtn');
     if (clearBkmBtn) {
       clearBkmBtn.addEventListener('click', () => {
@@ -2167,6 +2202,7 @@
           localStorage.removeItem('mdWebview-user-bookmarks');
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+          showToast('🗑️ 已清除所有書籤');
         }
       });
     }

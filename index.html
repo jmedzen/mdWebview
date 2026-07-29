@@ -62,6 +62,12 @@
             </svg>
             <span class="tab-label">大綱</span>
           </button>
+          <button class="sidebar-tab" data-tab="bookmarks" title="經文書籤與最愛">
+            <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3 2.75C3 1.784 3.784 1 4.75 1h6.5c.966 0 1.75.784 1.75 1.75v11.5a.75.75 0 01-1.22.585L8 11.593l-3.78 3.242A.75.75 0 013 14.25V2.75z"/>
+            </svg>
+            <span class="tab-label">書籤</span>
+          </button>
         </div>
 
         <!-- Files Panel -->
@@ -151,6 +157,19 @@
               <span class="placeholder-icon">📑</span>
               <span>開啟檔案後顯示大綱</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Bookmarks Panel -->
+        <div class="sidebar-panel" id="panelBookmarks" data-panel="bookmarks">
+          <div class="panel-header">
+            <h3>經文書籤與最愛</h3>
+            <button class="panel-action-btn" id="sidebarAddBookmarkBtn" title="將目前開啟的經文加入書籤">
+              + 新增當前
+            </button>
+          </div>
+          <div class="bookmarks-list" id="sidebarBookmarksList">
+            <div class="list-empty-hint">尚無收藏書籤</div>
           </div>
         </div>
       </aside>
@@ -356,7 +375,10 @@
         <div class="settings-tab-pane" id="pane-bookmarks" style="display: none;">
           <div class="setting-section-header">
             <span>我的書籤與最愛經文</span>
-            <button type="button" id="clearBookmarksBtn" class="text-action-btn">清除全部書籤</button>
+            <div class="setting-section-actions">
+              <button type="button" id="menuAddCurrentBookmarkBtn" class="text-action-btn">+ 新增當前經文</button>
+              <button type="button" id="clearBookmarksBtn" class="text-action-btn">清除全部書籤</button>
+            </div>
           </div>
           <div class="bookmarks-list" id="bookmarksList">
             <div class="list-empty-hint">尚無收藏書籤。開啟經文時點擊標題旁邊的 🔖 按鈕即可新增書籤。</div>
@@ -480,6 +502,8 @@
       </form>
     </div>
   </div>
+
+  <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
   <script src="marked.min.js?v=1.1.1" defer></script>
   <script src="app.js?v=1.1.1" defer></script>
