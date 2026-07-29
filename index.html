@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.5.2">
+  <link rel="stylesheet" href="style.css?v=1.6.0">
 </head>
 <body>
   <div class="app">
@@ -30,6 +30,11 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+            <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
+          </svg>
+        </button>
         <button id="adminSettingsBtn" class="control-btn settings-btn" title="偏好設定與系統管理">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path d="M9.405 1.02c-.252-.772-1.345-.772-1.597 0L7.54 2.18c-.287.882-1.258 1.285-2.03.856l-.993-.55c-.694-.383-1.467.39-1.085 1.085l.55.992c.429.773.026 1.744-.856 2.03l-1.16.267c-.772.252-.772 1.345 0 1.597l1.16.267c.882.287 1.285 1.258.856 2.03l-.55.993c-.383.694.39 1.467 1.085 1.085l.992-.55c.773-.429 1.744-.026 2.03.856l.267 1.16c.252.772 1.345.772 1.597 0l.267-1.16c.287-.882 1.258-1.285 2.03-.856l.993.55c.694.383 1.467-.39 1.085-1.085l-.55-.992c-.429-.773-.026-1.744.856-2.03l1.16-.267c.772-.252.772-1.345 0-1.597l-1.16-.267c-.882-.287-1.285-1.258-.856-2.03l.55-.993c.383-.694-.39-1.467-1.085-1.085l-.992.55c-.773.429-1.744.026-2.03-.856l-.267-1.16zM8 10a2 2 0 110-4 2 2 0 010 4z"/>
@@ -516,7 +521,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.5.2" defer></script>
-  <script src="app.js?v=1.5.2" defer></script>
+  <script src="marked.min.js?v=1.6.0" defer></script>
+  <script src="app.js?v=1.6.0" defer></script>
 </body>
 </html>

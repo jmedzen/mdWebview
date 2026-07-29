@@ -2296,6 +2296,19 @@
     $('pageSearchNext').addEventListener('click', () => navigatePageSearch(1));
     $('pageSearchClose').addEventListener('click', closePageSearch);
 
+    // ── Header Page Search Button ──
+    const headerSearchBtn = $('headerPageSearchBtn');
+    if (headerSearchBtn) {
+      headerSearchBtn.addEventListener('click', () => {
+        const bar = $('pageSearchBar');
+        if (bar && bar.classList.contains('visible')) {
+          closePageSearch();
+        } else {
+          openPageSearch();
+        }
+      });
+    }
+
     // ── Keyboard shortcuts ──
     document.addEventListener('keydown', (e) => {
       // Ctrl/Cmd + F → page search
