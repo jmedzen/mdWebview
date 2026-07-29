@@ -284,7 +284,7 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'"
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
 };
 
 let rawIndexHtml = null;
@@ -1110,6 +1110,9 @@ const server = http.createServer((req, res) => {
       const { username, password } = data;
       if (!username || !password || username.trim() === '' || password.trim() === '') {
         return sendJSON(res, 400, { error: 'Username and password are required' });
+      }
+      if (password.length < 8) {
+        return sendJSON(res, 400, { error: '密碼長度至少需為 8 個字元' });
       }
       return hashPassword(password).then(({ salt, hash }) => {
         config.admin = {
