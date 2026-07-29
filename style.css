@@ -1799,34 +1799,72 @@ kbd {
   }
 
   /* Setting Menu Mobile Optimization */
-  .settings-modal-card {
+  .user-settings-card {
     width: 95vw;
     max-height: 90vh;
     padding: 16px;
+    margin: 0;
   }
 
   .settings-tabs-nav {
+    display: flex;
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px;
+    padding-bottom: 6px;
+    gap: 6px;
   }
 
   .settings-tab-btn {
     padding: 8px 12px;
     font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .setting-item-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 0;
+  }
+
+  .setting-item-label {
+    width: 100%;
+  }
+
+  .setting-select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
   }
 
   .segmented-control {
+    width: 100%;
+    display: flex;
     flex-wrap: wrap;
+    gap: 4px;
+    box-sizing: border-box;
   }
 
   .segment-btn {
-    flex: 1 1 auto;
-    min-width: 65px;
+    flex: 1 1 45%;
     text-align: center;
-    padding: 6px 8px;
+    padding: 8px 4px;
     font-size: 12px;
+    box-sizing: border-box;
+  }
+
+  .font-size-setting-controls {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .user-settings-card .modal-actions .submit-btn {
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
   }
 }
 
@@ -2214,15 +2252,36 @@ kbd {
 /* ── User Settings & Preferences Menu Modal ───────────────────── */
 .user-settings-card {
   max-width: 620px;
-  width: 90vw;
-  padding: 24px;
+  width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.user-settings-card .modal-header {
+  flex-shrink: 0;
 }
 
 .settings-menu-body {
-  margin-top: 16px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.user-settings-card .modal-actions {
+  flex-shrink: 0;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
 }
 
 .settings-tabs-nav {
