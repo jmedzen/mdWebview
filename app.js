@@ -2634,6 +2634,7 @@
   }
 
   async function openSettingsOverlay() {
+    setupAdminTabEvents();
     const errorEl = $('settingsErrorMsg');
     const successEl = $('settingsSuccessMsg');
     errorEl.style.display = 'none';
@@ -2663,6 +2664,97 @@
       $('adminSettingsOverlay').style.display = 'flex';
     } catch (err) {
       console.error('Error fetching settings:', err);
+    }
+  }
+
+  // ── Admin Logs Tab Logic ─────────────────────────────────
+  let stateAdminLogs = [];
+
+  async function fetchAdminLogs() {
+    const viewer = $('adminLogViewer');
+    if (!viewer) return;
+    viewer.innerHTML = '<div class="search-loading"><div class="spinner"></div><span>載入日誌中…</span></div>';
+    try {
+      const res = await fetch('/api/admin/logs');
+      if (!res.ok) throw new Error('Failed to load logs');
+      const data = await res.json();
+      stateAdminLogs = Array.isArray(data.logs) ? data.logs : [];
+      renderAdminLogs();
+    } catch (err) {
+      viewer.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>無法讀取系統日誌: ${escHtml(err.message)}</span></div>`;
+    }
+  }
+
+  function renderAdminLogs() {
+    const viewer = $('adminLogViewer');
+    const searchInput = $('adminLogSearchInput');
+    const filterText = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    if (!viewer) return;
+
+    let filtered = stateAdminLogs;
+    if (filterText) {
+      filtered = stateAdminLogs.filter(item => {
+        const text = `${item.timestamp} ${item.level} ${item.tag} ${item.message}`.toLowerCase();
+        return text.includes(filterText);
+      });
+    }
+
+    const countEl = $('adminLogsCount');
+    if (countEl) {
+      countEl.textContent = `共 ${filtered.length} 條日誌紀錄 (最多顯示最近 250 條)`;
+    }
+
+    if (filtered.length === 0) {
+      viewer.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📜</span><span>沒有找到匹配的日誌紀錄</span></div>';
+      return;
+    }
+
+    const html = filtered.map(item => {
+      const timeStr = item.timestamp ? item.timestamp.replace('T', ' ').replace('Z', '') : '';
+      const levelClass = item.level || 'INFO';
+      return `<div class="log-entry">
+        <span class="log-time">[${escHtml(timeStr)}]</span>
+        <span class="log-badge ${escHtml(levelClass)}">${escHtml(item.level)}</span>
+        <span class="log-tag">[${escHtml(item.tag)}]</span>
+        <span class="log-msg">${escHtml(item.message)}</span>
+      </div>`;
+    }).join('');
+
+    viewer.innerHTML = html;
+    viewer.scrollTop = viewer.scrollHeight;
+  }
+
+  function setupAdminTabEvents() {
+    const tabConfigBtn = $('adminTabConfigBtn');
+    const tabLogsBtn = $('adminTabLogsBtn');
+    const paneConfig = $('adminPaneConfig');
+    const paneLogs = $('adminPaneLogs');
+    const refreshBtn = $('adminLogRefreshBtn');
+    const searchInput = $('adminLogSearchInput');
+
+    if (tabConfigBtn && tabLogsBtn) {
+      tabConfigBtn.addEventListener('click', () => {
+        tabConfigBtn.classList.add('active');
+        tabLogsBtn.classList.remove('active');
+        paneConfig.style.display = 'block';
+        paneLogs.style.display = 'none';
+      });
+
+      tabLogsBtn.addEventListener('click', () => {
+        tabLogsBtn.classList.add('active');
+        tabConfigBtn.classList.remove('active');
+        paneLogs.style.display = 'block';
+        paneConfig.style.display = 'none';
+        fetchAdminLogs();
+      });
+    }
+
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => fetchAdminLogs());
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', debounce(() => renderAdminLogs(), 200));
     }
   }
 

@@ -10,21 +10,42 @@ const { marked } = require('marked');  // Still needed for inline fallback
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 
+// ── System Log Buffer (Recent 250 logs) ─────────────────────────────────────
+const MAX_LOG_BUFFER = 250;
+const systemLogBuffer = [];
+
+function pushToLogBuffer(level, tag, msg) {
+  const messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
+  systemLogBuffer.push({
+    timestamp: new Date().toISOString(),
+    level,
+    tag,
+    message: messageStr
+  });
+  if (systemLogBuffer.length > MAX_LOG_BUFFER) {
+    systemLogBuffer.shift();
+  }
+}
+
 // ── Logger Utility ──────────────────────────────────────────────────────────
 const Logger = {
   formatTimestamp() {
     return new Date().toISOString();
   },
   info(tag, msg) {
+    pushToLogBuffer('INFO', tag, msg);
     console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] ${msg}`);
   },
   warn(tag, msg) {
+    pushToLogBuffer('WARN', tag, msg);
     console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] ${msg}`);
   },
   error(tag, msg, err) {
+    pushToLogBuffer('ERROR', tag, err ? `${msg}: ${err.message || err}` : msg);
     console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] ${msg}`, err ? (err.stack || err) : '');
   },
   debug(tag, msg) {
+    pushToLogBuffer('DEBUG', tag, msg);
     if (process.env.DEBUG) {
       console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] ${msg}`);
     }
@@ -1013,6 +1034,12 @@ const server = http.createServer((req, res) => {
       isAuthenticated: isAuthenticated(req),
       settings: config.settings
     });
+  }
+  if (pathname === '/api/admin/logs' && req.method === 'GET') {
+    if (!isAuthenticated(req)) {
+      return sendJSON(res, 401, { error: 'Unauthorized' });
+    }
+    return sendJSON(res, 200, { logs: systemLogBuffer });
   }
   if (pathname === '/api/admin/setup' && req.method === 'POST') {
     if (config.admin) {

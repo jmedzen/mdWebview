@@ -2632,9 +2632,151 @@ kbd {
   animation: toastFadeIn 0.25s ease-out;
 }
 
-@keyframes toastFadeIn {
-  from { opacity: 0; transform: translate(-50%, 10px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+/* ── Admin Tabs & Log Viewer ────────────────────────────── */
+.admin-tabs-nav {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
 }
+
+.admin-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.admin-tab-btn.active {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.admin-logs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-logs-count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.admin-logs-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-log-search {
+  height: 30px;
+  padding: 0 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  width: 220px;
+  box-sizing: border-box;
+}
+
+.admin-log-search:focus {
+  border-color: var(--accent);
+}
+
+.small-btn {
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  height: 30px !important;
+}
+
+.admin-log-viewer {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  height: 380px;
+  max-height: 55vh;
+  overflow-y: auto;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  box-sizing: border-box;
+}
+
+.log-entry {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+
+.log-entry:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: var(--text-muted);
+  margin-right: 6px;
+}
+
+.log-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 10px;
+  margin-right: 6px;
+}
+
+.log-badge.INFO {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.log-badge.WARN {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.log-badge.ERROR {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.log-badge.DEBUG {
+  background: rgba(107, 114, 128, 0.15);
+  color: #9ca3af;
+}
+
+.log-tag {
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.log-msg {
+  color: var(--text-primary);
+}
+
 
 
