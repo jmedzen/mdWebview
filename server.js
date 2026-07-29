@@ -780,14 +780,34 @@ function serveStatic(req, res, pathname) {
   // Check for path traversal using path.relative to prevent partial-name matching
   const relative = path.relative(APP_ROOT, resolved);
   const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  const baseName = path.basename(resolved);
+  const ext = path.extname(resolved).toLowerCase();
 
-  const isForbidden = !isSafe || 
-                      resolved === CONFIG_PATH || 
-                      path.basename(resolved) === 'package.json' || 
-                      path.basename(resolved) === 'package-lock.json';
-  if (isForbidden) {
+  // 1. Blacklist Check: Block hidden files/folders, server backend source code, worker threads, and project config files
+  const isHiddenFile = baseName.startsWith('.') || relative.split(path.sep).some(segment => segment.startsWith('.'));
+  const isServerSource = baseName === 'server.js' || baseName === 'render-worker.js' || baseName === 'md-worker.js';
+  const isSensitiveConfig = resolved === CONFIG_PATH || 
+                            baseName === 'package.json' || 
+                            baseName === 'package-lock.json' || 
+                            baseName === 'Dockerfile' || 
+                            baseName.toLowerCase() === 'readme.md';
+
+  if (!isSafe || isHiddenFile || isServerSource || isSensitiveConfig) {
     res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Forbidden');
+    return;
+  }
+
+  // 2. Whitelist Check: Allow explicit public client assets and safe static media/font extensions
+  const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 'favicon.ico']);
+  const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf']);
+
+  const isAllowedExact = ALLOWED_EXACT_FILES.has(baseName);
+  const isAllowedExt = ALLOWED_EXTENSIONS.has(ext);
+
+  if (!isAllowedExact && !isAllowedExt) {
+    res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    res.end('Access Denied');
     return;
   }
 
@@ -903,6 +923,32 @@ function getClientIP(req) {
   return req.socket.remoteAddress || 'unknown';
 }
 
+// ── Global API Rate Limiter (Sliding Window per IP: max 30 req/sec) ─────────
+const apiRateLimits = new Map();
+const API_RATE_LIMIT_WINDOW_MS = 1000;
+const API_RATE_LIMIT_MAX = 30;
+
+function checkApiRateLimit(req, res) {
+  const ip = getClientIP(req);
+  const now = Date.now();
+  let record = apiRateLimits.get(ip);
+
+  if (!record || (now - record.windowStart) >= API_RATE_LIMIT_WINDOW_MS) {
+    record = { count: 1, windowStart: now };
+    apiRateLimits.set(ip, record);
+    return true;
+  }
+
+  record.count += 1;
+  if (record.count > API_RATE_LIMIT_MAX) {
+    Logger.warn('Security', `IP ${ip} exceeded API rate limit (${record.count} req/s). Blocked with 429.`);
+    sendJSON(res, 429, { error: '請求過於頻繁 (429 Too Many Requests)，請稍後再試。' });
+    return false;
+  }
+
+  return true;
+}
+
 function timingSafeCompare(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   const bufA = Buffer.from(a, 'utf-8');
@@ -1011,6 +1057,13 @@ const server = http.createServer((req, res) => {
   // Log share link access if present
   if ((pathname === '/' || pathname === '') && query.file) {
     Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`);
+  }
+
+  // Global API Rate Limiting Check (30 req/sec max)
+  if (pathname.startsWith('/api/')) {
+    if (!checkApiRateLimit(req, res)) {
+      return;
+    }
   }
 
   // API routes
