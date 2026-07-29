@@ -803,7 +803,10 @@ body,
 
 /* ── Search ────────────────────────────────────────────────── */
 .search-folder-wrapper {
-  padding: 0 12px 6px;
+  width: 98%;
+  margin: 0 auto 6px;
+  padding: 0;
+  box-sizing: border-box;
   flex-shrink: 0;
 }
 
@@ -822,6 +825,7 @@ body,
   transition: all 0.2s ease;
   white-space: nowrap;
   text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 
 .search-folder-select:focus,
@@ -831,13 +835,18 @@ body,
 
 .search-input-wrapper {
   display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 0 12px 8px;
+  width: 98%;
+  margin: 0 auto 8px;
+  padding: 0;
+  box-sizing: border-box;
   flex-shrink: 0;
 }
 
 .search-input {
   flex: 1;
+  min-width: 0;
   height: 32px;
   padding: 0 10px;
   background: var(--input-bg);
@@ -848,6 +857,7 @@ body,
   font-size: var(--sidebar-font-size);
   outline: none;
   transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 .search-input:focus {
   border-color: var(--accent);
@@ -870,6 +880,8 @@ body,
   justify-content: center;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  box-sizing: border-box;
+}
 }
 .search-go-btn:hover {
   opacity: 0.85;
