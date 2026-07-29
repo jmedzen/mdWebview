@@ -83,6 +83,7 @@ function renderMarkdownSSR(body) {
 
   // 3. Parse main body to HTML
   let html = marked.parse(annotatedLines.join('\n'));
+  html = sanitizeDangerousTags(html);
 
   // 4. Convert Obsidian-style [[wikilinks]] on HTML output
   if (html.includes('[[')) {
@@ -129,6 +130,14 @@ function renderMarkdownSSR(body) {
   }
 
   return html;
+}
+
+function sanitizeDangerousTags(html) {
+  if (!html) return '';
+  // Strip dangerous inline scripts and event handlers from rendered HTML output
+  return html
+    .replace(/<script\b[^<]*([\s\S]*?)<\/script>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
 }
 
 /**

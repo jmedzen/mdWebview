@@ -443,7 +443,7 @@
       const sorted = sortTreeNodes(state.treeData, state.fileSort);
       renderTreeNodes(sorted, container, 0);
     } catch (err) {
-      container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${err.message}</span></div>`;
+      container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
     }
   }
 
@@ -795,7 +795,7 @@
     } catch (err) {
       loading.style.display = 'none';
       wrapper.style.display = 'block';
-      $('markdownBody').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${err.message}</span></div>`;
+      $('markdownBody').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
     }
   }
 
@@ -1441,7 +1441,7 @@
       renderSearchResults(data);
     } catch (err) {
       if (err.name === 'AbortError') return;
-      $('searchResults').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>搜尋失敗: ${err.message}</span></div>`;
+      $('searchResults').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
     }
   }
 
