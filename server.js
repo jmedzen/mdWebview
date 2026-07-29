@@ -14,8 +14,24 @@ marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 const MAX_LOG_BUFFER = 250;
 const systemLogBuffer = [];
 
+function safeDecodeURI(str) {
+  if (typeof str !== 'string' || !str.includes('%')) return str;
+  try {
+    return decodeURIComponent(str);
+  } catch (_) {
+    return str.replace(/(?:%[0-9A-Fa-f]{2})+/g, (match) => {
+      try {
+        return decodeURIComponent(match);
+      } catch (_) {
+        return match;
+      }
+    });
+  }
+}
+
 function pushToLogBuffer(level, tag, msg) {
-  const messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
+  let messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
+  messageStr = safeDecodeURI(messageStr);
   systemLogBuffer.push({
     timestamp: new Date().toISOString(),
     level,
@@ -33,21 +49,25 @@ const Logger = {
     return new Date().toISOString();
   },
   info(tag, msg) {
-    pushToLogBuffer('INFO', tag, msg);
-    console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] ${msg}`);
+    const decoded = safeDecodeURI(msg);
+    pushToLogBuffer('INFO', tag, decoded);
+    console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] ${decoded}`);
   },
   warn(tag, msg) {
-    pushToLogBuffer('WARN', tag, msg);
-    console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] ${msg}`);
+    const decoded = safeDecodeURI(msg);
+    pushToLogBuffer('WARN', tag, decoded);
+    console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] ${decoded}`);
   },
   error(tag, msg, err) {
-    pushToLogBuffer('ERROR', tag, err ? `${msg}: ${err.message || err}` : msg);
-    console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] ${msg}`, err ? (err.stack || err) : '');
+    const decodedMsg = safeDecodeURI(err ? `${msg}: ${err.message || err}` : msg);
+    pushToLogBuffer('ERROR', tag, decodedMsg);
+    console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] ${decodedMsg}`, err ? (err.stack || err) : '');
   },
   debug(tag, msg) {
-    pushToLogBuffer('DEBUG', tag, msg);
+    const decoded = safeDecodeURI(msg);
+    pushToLogBuffer('DEBUG', tag, decoded);
     if (process.env.DEBUG) {
-      console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] ${msg}`);
+      console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] ${decoded}`);
     }
   }
 };
