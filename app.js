@@ -431,11 +431,49 @@
       if (!res.ok) throw new Error('Failed to load tree');
       state.treeData = await res.json();
       buildWikilinkIndex(state.treeData);
+      populateSearchFolderSelect(state.treeData);
       container.innerHTML = '';
       const sorted = sortTreeNodes(state.treeData, state.fileSort);
       renderTreeNodes(sorted, container, 0);
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${err.message}</span></div>`;
+    }
+  }
+
+  function populateSearchFolderSelect(nodes) {
+    const select = $('searchFolderSelect');
+    if (!select) return;
+
+    const currentVal = select.value;
+    const folders = [];
+
+    function extractFolders(list) {
+      if (!Array.isArray(list)) return;
+      for (const node of list) {
+        if (node.type === 'directory') {
+          folders.push({
+            path: node.path,
+            name: node.name
+          });
+          if (node.children) {
+            extractFolders(node.children);
+          }
+        }
+      }
+    }
+
+    extractFolders(nodes);
+    folders.sort((a, b) => a.path.localeCompare(b.path, 'zh-TW'));
+
+    let html = '<option value="">📁 所有資料夾 (全庫搜尋)</option>';
+    folders.forEach(f => {
+      const depth = (f.path.match(/\//g) || []).length;
+      const indent = depth > 0 ? '&nbsp;&nbsp;'.repeat(depth) + '└ ' : '';
+      html += `<option value="${escHtml(f.path)}">${indent}📁 ${escHtml(f.name)} (${escHtml(f.path)})</option>`;
+    });
+    select.innerHTML = html;
+    if (currentVal) {
+      select.value = currentVal;
     }
   }
 
@@ -1308,13 +1346,15 @@
       return;
     }
 
+    const folder = $('searchFolderSelect') ? $('searchFolderSelect').value : '';
+
     if (searchAbortController) searchAbortController.abort();
     searchAbortController = new AbortController();
 
     $('searchResults').innerHTML = '<div class="search-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}`, {
         signal: searchAbortController.signal,
       });
       if (!res.ok) throw new Error('Search failed');
@@ -2132,6 +2172,16 @@
     $('globalSearchBtn').addEventListener('click', () => {
       performGlobalSearch($('globalSearchInput').value);
     });
+
+    const searchFolderSelect = $('searchFolderSelect');
+    if (searchFolderSelect) {
+      searchFolderSelect.addEventListener('change', () => {
+        const query = $('globalSearchInput').value.trim();
+        if (query) {
+          performGlobalSearch(query);
+        }
+      });
+    }
 
     // ── Page search ──
     const debouncedPageSearch = debounce(doPageSearch, 200);

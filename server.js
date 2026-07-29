@@ -612,6 +612,7 @@ async function handleSearch(req, res, query) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
 
+  const targetFolder = query.folder ? query.folder.trim().replace(/^\/+|\/+$/g, '') : '';
   const results = [];
   const MAX_RESULTS = 150;
   const SNIPPET_RADIUS = 60;
@@ -622,7 +623,13 @@ async function handleSearch(req, res, query) {
       cachedTree = await scanDirAsync(getMdRoot(), '');
       setupTreeWatcher();
     }
-    const files = flattenTreeToFiles(cachedTree, getMdRoot());
+    let files = flattenTreeToFiles(cachedTree, getMdRoot());
+
+    // Filter files by target directory if specified
+    if (targetFolder) {
+      files = files.filter(f => f.relPath === targetFolder || f.relPath.startsWith(targetFolder + '/'));
+    }
+
     const limit = 10;
     let fileIdx = 0;
 
