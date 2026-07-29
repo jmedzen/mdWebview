@@ -1953,9 +1953,12 @@
     });
 
     // ── Theme ──
-    $('themeSelect').addEventListener('change', (e) => {
-      applyTheme(e.target.value);
-    });
+    const themeSel = $('themeSelect');
+    if (themeSel) {
+      themeSel.addEventListener('change', (e) => {
+        applyTheme(e.target.value);
+      });
+    }
 
     // ── Footnotes Click Delegation ──
     $('markdownBody').addEventListener('click', (e) => {
@@ -1998,8 +2001,10 @@
     });
 
     // ── Font size ──
-    $('fontDecrease').addEventListener('click', () => applyFontSize(state.fontSize - 1));
-    $('fontIncrease').addEventListener('click', () => applyFontSize(state.fontSize + 1));
+    const fontDec = $('fontDecrease');
+    if (fontDec) fontDec.addEventListener('click', () => applyFontSize(state.fontSize - 1));
+    const fontInc = $('fontIncrease');
+    if (fontInc) fontInc.addEventListener('click', () => applyFontSize(state.fontSize + 1));
 
     // ── Global search ──
     const debouncedSearch = debounce(performGlobalSearch, 400);
