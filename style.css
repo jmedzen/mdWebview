@@ -691,7 +691,8 @@ body,
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 0;
+  padding: 4px 0 60px 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tree-loading {
@@ -710,9 +711,10 @@ body,
 
 .tree-item-row {
   display: flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 12px;
+  align-items: flex-start;
+  min-height: 32px;
+  height: auto;
+  padding: 6px 12px;
   cursor: pointer;
   border-radius: 0;
   transition: all 0.1s ease;
@@ -720,9 +722,6 @@ body,
   gap: 6px;
   color: var(--text-secondary);
   font-size: var(--sidebar-font-size);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tree-item-row:hover {
@@ -756,6 +755,7 @@ body,
   color: var(--text-muted);
   transition: transform 0.2s ease;
   font-size: calc(var(--sidebar-font-size) * 10 / 13);
+  margin-top: 2px;
 }
 
 .tree-chevron.expanded {
@@ -766,11 +766,16 @@ body,
   flex-shrink: 0;
   font-size: calc(var(--sidebar-font-size) * 14 / 13);
   line-height: 1;
+  margin-top: 2px;
 }
 
 .tree-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.35;
   font-family: 'Noto Serif TC', 'Inter', sans-serif;
   font-size: var(--sidebar-font-size);
 }
@@ -787,7 +792,10 @@ body,
   font-size: calc(var(--sidebar-font-size) * 10 / 13);
   color: var(--text-muted);
   margin-left: auto;
+  margin-top: 2px;
   padding: 1px 6px;
+  flex-shrink: 0;
+}
   background: var(--badge-bg);
   border-radius: 10px;
   flex-shrink: 0;
@@ -1082,7 +1090,8 @@ body,
 
 .content-header .file-path-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -1094,9 +1103,10 @@ body,
   letter-spacing: 0.3px;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.4;
 }
 
 /* Copy-link button */
@@ -2456,7 +2466,7 @@ kbd {
 
 .list-item-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 8px 10px;
   border-radius: 6px;
@@ -2472,10 +2482,12 @@ kbd {
   font-size: 13px;
   color: var(--text-primary);
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.35;
   flex: 1;
+  min-width: 0;
 }
 
 .list-item-time {
