@@ -841,16 +841,26 @@
   }
 
   function parseFrontmatter(raw) {
-    const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (!match) return { frontmatter: {}, body: raw };
+    if (!raw || typeof raw !== 'string') return { frontmatter: {}, body: '' };
+    if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) return { frontmatter: {}, body: raw };
+
+    const startOffset = raw.startsWith('---\r\n') ? 5 : 4;
+    const endIdx = raw.indexOf('\n---\n', startOffset);
+    const endIdxAlt = raw.indexOf('\r\n---\r\n', startOffset);
+    const actualEndIdx = endIdx !== -1 ? endIdx : endIdxAlt;
+
+    if (actualEndIdx === -1) return { frontmatter: {}, body: raw };
+
+    const fmRaw = raw.substring(startOffset, actualEndIdx);
+    const bodyOffset = endIdx !== -1 ? actualEndIdx + 5 : actualEndIdx + 7;
+    const body = raw.substring(bodyOffset);
 
     const fm = {};
-    match[1].split('\n').forEach((line) => {
+    fmRaw.split('\n').forEach((line) => {
       const idx = line.indexOf(':');
       if (idx > 0) {
         const key = line.substring(0, idx).trim();
         let val = line.substring(idx + 1).trim();
-        // Remove surrounding quotes
         if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
           val = val.slice(1, -1);
         }
@@ -858,7 +868,7 @@
       }
     });
 
-    return { frontmatter: fm, body: match[2] };
+    return { frontmatter: fm, body };
   }
 
   function renderContentHeader(filePath, fm) {
@@ -1556,6 +1566,9 @@
         break;
     }
 
+    const queryEscaped = escHtml(data.query || '');
+    const precompiledRegex = queryEscaped ? new RegExp(`(${escRegex(queryEscaped)})`, 'gi') : null;
+
     for (const [file, group] of sortedGroups) {
       parts.push(`<div class="search-result-group">`);
       parts.push(`<div class="search-result-file" data-file-group="${escHtml(file)}">`);
@@ -1564,7 +1577,7 @@
       parts.push(`<span class="search-result-count">${group.items.length}</span></div>`);
       parts.push(`<div class="search-result-group-body">`);
       group.items.forEach((item) => {
-        const snippet = highlightSearchTerm(item.snippet, data.query);
+        const snippet = highlightSearchTerm(item.snippet, precompiledRegex);
         parts.push(`
           <div class="search-result-item" data-file="${escHtml(item.file)}" data-line="${item.line}">
             <span class="search-result-line">第 ${item.line} 行</span>
@@ -1617,10 +1630,17 @@
     }
   }
 
-  function highlightSearchTerm(text, query) {
+  function highlightSearchTerm(text, compiledRegexOrQuery) {
     const escaped = escHtml(text);
-    const queryEscaped = escHtml(query);
-    const regex = new RegExp(`(${escRegex(queryEscaped)})`, 'gi');
+    if (!compiledRegexOrQuery) return escaped;
+
+    let regex;
+    if (compiledRegexOrQuery instanceof RegExp) {
+      regex = compiledRegexOrQuery;
+    } else {
+      const queryEscaped = escHtml(compiledRegexOrQuery);
+      regex = new RegExp(`(${escRegex(queryEscaped)})`, 'gi');
+    }
     return escaped.replace(regex, '<mark>$1</mark>');
   }
 

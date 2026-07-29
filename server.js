@@ -410,6 +410,8 @@ function sendJSON(res, statusCode, data) {
 
 let cachedTree = null;
 let treeWatcher = null;
+const searchCache = new Map(); // key: "folder::q" -> { time, data }
+const SEARCH_CACHE_MAX = 30;
 
 function setupTreeWatcher() {
   if (treeWatcher) return;
@@ -417,8 +419,9 @@ function setupTreeWatcher() {
     const mdRoot = getMdRoot();
     if (fs.existsSync(mdRoot)) {
       treeWatcher = fs.watch(mdRoot, { recursive: true }, (eventType, filename) => {
-        // Invalidate tree cache on any change (add/remove/rename)
+        // Invalidate tree and search caches on any change (add/remove/rename)
         cachedTree = null;
+        searchCache.clear();
       });
     }
   } catch (err) {
@@ -434,6 +437,7 @@ function resetTreeWatcher() {
     treeWatcher = null;
   }
   cachedTree = null;
+  searchCache.clear();
 }
 
 async function scanDirAsync(dir, relativePath) {
@@ -670,6 +674,13 @@ async function handleSearch(req, res, query) {
   }
 
   const targetFolder = query.folder ? query.folder.trim().replace(/^\/+|\/+$/g, '') : '';
+  const cacheKey = `${targetFolder}::${q}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && (Date.now() - cached.time) < 60000) {
+    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} (Cache Hit) -> ${cached.data.results.length} matches (0ms)`);
+    return sendJSON(res, 200, cached.data);
+  }
+
   const results = [];
   const SNIPPET_RADIUS = 60;
 
@@ -747,8 +758,15 @@ async function handleSearch(req, res, query) {
     }
     await Promise.all(workers);
 
+    const searchData = { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS };
+    if (searchCache.size >= SEARCH_CACHE_MAX) {
+      const oldestKey = searchCache.keys().next().value;
+      searchCache.delete(oldestKey);
+    }
+    searchCache.set(cacheKey, { time: Date.now(), data: searchData });
+
     Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} -> ${results.length} matches in ${Date.now() - searchStart}ms`);
-    sendJSON(res, 200, { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS });
+    sendJSON(res, 200, searchData);
   } catch (err) {
     Logger.error('Search', `Search failed for query "${q}"`, err);
     sendJSON(res, 500, { error: err.message });

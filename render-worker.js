@@ -19,6 +19,9 @@ parentPort.on('message', ({ jobId, body }) => {
 
 function preprocessObsidianFormatting(text) {
   if (!text) return '';
+  // Fast exit: if text contains no Obsidian bold tokens, skip expensive regex replace entirely
+  if (!text.includes('**') && !text.includes('__')) return text;
+
   // 1. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
   text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
     const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
