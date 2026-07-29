@@ -276,6 +276,7 @@ const MIME_TYPES = {
   '.jpg':  'image/jpeg',
   '.svg':  'image/svg+xml',
   '.ico':  'image/x-icon',
+  '.pdf':  'application/pdf',
 };
 
 // Security Headers
@@ -798,9 +799,9 @@ function serveStatic(req, res, pathname) {
     return;
   }
 
-  // 2. Whitelist Check: Allow explicit public client assets and safe static media/font extensions
+  // 2. Whitelist Check: Allow explicit public client assets and safe static media/font/document extensions
   const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 'favicon.ico']);
-  const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf']);
+  const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf', '.pdf']);
 
   const isAllowedExact = ALLOWED_EXACT_FILES.has(baseName);
   const isAllowedExt = ALLOWED_EXTENSIONS.has(ext);
