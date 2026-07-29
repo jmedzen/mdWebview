@@ -25,15 +25,25 @@
     }
   }
 
+  function isMobileBrowser() {
+    const ua = navigator.userAgent || '';
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    const isSmallWidth = window.innerWidth <= 768;
+    return isMobileUA || isSmallWidth;
+  }
+
+  const isMobile = isMobileBrowser();
+
   // ── State ─────────────────────────────────────────────────
   const state = {
     currentFile: null,
     currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
     fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize || 16),
-    textAlign: userAlign || 'justify',
+    textAlign: userAlign || (isMobile ? 'left' : 'justify'),
     lineHeight: userLineHeight || '1.8',
-    maxWidth: userMaxWidth || '800px',
+    maxWidth: userMaxWidth || (isMobile ? '100%' : '800px'),
     autoReadProgress: userReadProgress !== 'false',
+    isMobile: isMobile,
     recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
     bookmarks: safeJsonParse('mdWebview-user-bookmarks', []),
     sidebarTab: 'files',

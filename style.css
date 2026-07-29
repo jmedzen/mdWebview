@@ -1773,7 +1773,12 @@ kbd {
   }
 
   .content-wrapper {
-    padding: 24px 20px 60px;
+    padding: 16px 12px 60px;
+  }
+
+  .file-title {
+    font-size: 20px;
+    line-height: 1.35;
   }
 
   .header-right {
@@ -1785,16 +1790,51 @@ kbd {
   }
 
   .page-search-input {
-    width: 160px;
+    width: 140px;
   }
 
   .welcome-shortcuts {
     flex-direction: column;
     gap: 8px;
   }
+
+  /* Setting Menu Mobile Optimization */
+  .settings-modal-card {
+    width: 95vw;
+    max-height: 90vh;
+    padding: 16px;
+  }
+
+  .settings-tabs-nav {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  .settings-tab-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .segmented-control {
+    flex-wrap: wrap;
+  }
+
+  .segment-btn {
+    flex: 1 1 auto;
+    min-width: 65px;
+    text-align: center;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
 }
 
 @media (max-width: 480px) {
+  .content-wrapper {
+    padding: 12px 8px 50px;
+  }
+
   .font-size-controls {
     display: none;
   }
@@ -1804,12 +1844,18 @@ kbd {
   }
 
   .modal-card {
-    padding: 20px;
+    padding: 16px;
   }
 
   .form-row {
     flex-direction: column;
     gap: 12px;
+  }
+
+  .setting-item-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 }
 
