@@ -794,6 +794,8 @@
         generateTOC(headings);
       });
     } catch (err) {
+      headingTextMap.clear();
+      cachedLineAnchors = [];
       loading.style.display = 'none';
       wrapper.style.display = 'block';
       $('markdownBody').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
@@ -1707,7 +1709,11 @@
   }
 
   function clearPageHighlights() {
-    const marks = $$('.search-highlight', $('markdownBody'));
+    state.pageSearchMatches = [];
+    state.pageSearchIndex = -1;
+    const body = $('markdownBody');
+    if (!body) return;
+    const marks = $$('.search-highlight', body);
     const uniqueParents = new Set();
     marks.forEach((mark) => {
       const parent = mark.parentNode;

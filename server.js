@@ -929,6 +929,8 @@ const apiRateLimits = new Map();
 const API_RATE_LIMIT_WINDOW_MS = 1000;
 const API_RATE_LIMIT_MAX = 30;
 
+const MAX_RATE_LIMIT_ENTRIES = 10000;
+
 function checkApiRateLimit(req, res) {
   const ip = getClientIP(req);
   const now = Date.now();
@@ -937,6 +939,11 @@ function checkApiRateLimit(req, res) {
   if (!record || (now - record.windowStart) >= API_RATE_LIMIT_WINDOW_MS) {
     record = { count: 1, windowStart: now };
     apiRateLimits.set(ip, record);
+    // Evict oldest entry if Map size exceeds limit
+    if (apiRateLimits.size > MAX_RATE_LIMIT_ENTRIES) {
+      const oldestKey = apiRateLimits.keys().next().value;
+      apiRateLimits.delete(oldestKey);
+    }
     return true;
   }
 
