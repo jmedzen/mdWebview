@@ -794,6 +794,15 @@
         }
       });
     }
+
+    // Wire up bookmark button
+    const bkmBtn = header.querySelector('#bookmarkBtn');
+    if (bkmBtn) {
+      updateBookmarkButtonUI(filePath);
+      bkmBtn.addEventListener('click', () => {
+        toggleBookmark(filePath, (fm && fm.title) || fileName);
+      });
+    }
   }
 
   function fallbackCopy(text) {
