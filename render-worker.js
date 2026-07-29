@@ -17,8 +17,24 @@ parentPort.on('message', ({ jobId, body }) => {
   }
 });
 
+function preprocessObsidianFormatting(text) {
+  if (!text) return '';
+  // 1. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
+  text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
+    const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+    return '<strong>' + trimmed + '</strong>';
+  });
+  // 2. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
+  text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
+    const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+    return '<strong>' + trimmed + '</strong>';
+  });
+  return text;
+}
+
 function renderMarkdownSSR(body) {
   if (!body) return '';
+  body = preprocessObsidianFormatting(body);
 
   // 1. Extract footnote definitions (O(N) single pass)
   const lines = body.split('\n');
