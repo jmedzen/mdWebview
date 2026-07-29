@@ -614,7 +614,6 @@ async function handleSearch(req, res, query) {
 
   const targetFolder = query.folder ? query.folder.trim().replace(/^\/+|\/+$/g, '') : '';
   const results = [];
-  const MAX_RESULTS = 150;
   const SNIPPET_RADIUS = 60;
 
   try {
@@ -625,10 +624,14 @@ async function handleSearch(req, res, query) {
     }
     let files = flattenTreeToFiles(cachedTree, getMdRoot());
 
-    // Filter files by target directory if specified
+    // Filter files by target directory or specific file path if specified
     if (targetFolder) {
       files = files.filter(f => f.relPath === targetFolder || f.relPath.startsWith(targetFolder + '/'));
     }
+
+    const isSingleFile = files.length === 1;
+    const MAX_RESULTS = isSingleFile ? 1000 : 300;
+    const MAX_FILE_MATCHES = isSingleFile ? 1000 : 50;
 
     const limit = 10;
     let fileIdx = 0;
@@ -645,7 +648,7 @@ async function handleSearch(req, res, query) {
           let pos = 0;
           let lineNum = 1;
           let fileMatches = 0;
-          while (pos < content.length && results.length < MAX_RESULTS && fileMatches < 10) {
+          while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
             const matchIdx = content.indexOf(q, pos);
             if (matchIdx === -1) break;
             
