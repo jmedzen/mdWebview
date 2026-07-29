@@ -510,15 +510,26 @@ async function handleRender(req, res, query) {
 
     let raw = await fs.promises.readFile(resolved, 'utf-8');
 
-    // Strip frontmatter before rendering
+    // Strip frontmatter before rendering (O(1) fast scanning without regex string-duplication)
     let frontmatter = {};
-    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (fmMatch) {
-      fmMatch[1].split('\n').forEach((l) => {
-        const [k, ...v] = l.split(':');
-        if (k && v.length) frontmatter[k.trim()] = v.join(':').trim();
-      });
-      raw = fmMatch[2];
+    if (raw.startsWith('---\n') || raw.startsWith('---\r\n')) {
+      const isCrlf = raw.startsWith('---\r\n');
+      const startOffset = isCrlf ? 5 : 4;
+      const endFmIndex = raw.indexOf(isCrlf ? '\r\n---' : '\n---', startOffset);
+      if (endFmIndex !== -1) {
+        const fmText = raw.substring(startOffset, endFmIndex);
+        fmText.split(/\r?\n/).forEach((l) => {
+          const idx = l.indexOf(':');
+          if (idx !== -1) {
+            const k = l.substring(0, idx).trim();
+            const v = l.substring(idx + 1).trim();
+            if (k) frontmatter[k] = v;
+          }
+        });
+        const contentStart = endFmIndex + (isCrlf ? 5 : 4);
+        const nextNL = raw.indexOf('\n', contentStart);
+        raw = nextNL !== -1 ? raw.substring(nextNL + 1) : raw.substring(contentStart);
+      }
     }
 
     // Offload CPU-bound rendering to worker thread pool

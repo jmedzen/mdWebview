@@ -709,12 +709,9 @@
         if (cachedHtml) {
           const el = $('markdownBody');
           el.innerHTML = cachedHtml;
-          updateCachedLineAnchors(el);
-          const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
-          headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
           const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : {};
           renderContentHeader(filePath, cachedMeta || {});
-          generateTOC(headings);
+          
           loading.style.display = 'none';
           wrapper.style.display = 'block';
           if (scrollToLineNum) {
@@ -723,6 +720,15 @@
             content.scrollTop = 0;
           }
           document.title = `${(cachedMeta && cachedMeta.title) || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+
+          // Defer TOC generation & line-anchor indexing to idle time
+          const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 10));
+          scheduleIdle(() => {
+            updateCachedLineAnchors(el);
+            const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+            headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+            generateTOC(headings);
+          });
         }
         return;
       }
@@ -751,19 +757,14 @@
 
       renderContentHeader(filePath, frontmatter);
 
-      // Insert pre-rendered HTML — no client-side parsing
+      // Insert pre-rendered HTML
       const el = $('markdownBody');
       el.innerHTML = html;
-      
-      // Cache line anchors and query headings once
-      updateCachedLineAnchors(el);
-      const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
-      headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
 
       // Cache for instant re-opens
       cacheSet(filePath, html);
 
-      generateTOC(headings);
+      // Reveal text immediately (FCP First)
       loading.style.display = 'none';
       wrapper.style.display = 'block';
 
@@ -774,6 +775,15 @@
       }
 
       document.title = `${frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+
+      // Defer TOC generation & line-anchor indexing to idle time (non-blocking)
+      const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 10));
+      scheduleIdle(() => {
+        updateCachedLineAnchors(el);
+        const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+        headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
+        generateTOC(headings);
+      });
     } catch (err) {
       loading.style.display = 'none';
       wrapper.style.display = 'block';
