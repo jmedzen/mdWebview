@@ -2675,8 +2675,12 @@
     if (!viewer) return;
     viewer.innerHTML = '<div class="search-loading"><div class="spinner"></div><span>載入日誌中…</span></div>';
     try {
-      const res = await fetch('/api/admin/logs');
-      if (!res.ok) throw new Error('Failed to load logs');
+      const headers = {};
+      if (state.adminToken) {
+        headers['X-Admin-Token'] = state.adminToken;
+      }
+      const res = await fetch('/api/admin/logs', { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       stateAdminLogs = Array.isArray(data.logs) ? data.logs : [];
       renderAdminLogs();
