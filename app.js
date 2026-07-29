@@ -1647,8 +1647,9 @@
     }
 
     const options = isMobile ? [
-      { label: '80%', value: '80%' },
+      { label: '85%', value: '85%' },
       { label: '90%', value: '90%' },
+      { label: '95%', value: '95%' },
       { label: '100% 全寬', value: '100%' }
     ] : [
       { label: '680px', value: '680px' },
