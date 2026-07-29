@@ -1134,48 +1134,75 @@
 
     fileName = fileName.trim().replace(/\.md$/i, '');
 
+    // Case 1: Pure anchor link within current file (e.g. [[#heading]])
     if (!fileName && anchor) {
-      // Pure anchor link within current file (e.g. [[#heading]])
       scrollToHeadingByText(anchor.substring(1));
       return;
     }
 
     // Resolve file name to tree path
     const filePath = wikilinkIndex.get(fileName) || wikilinkIndex.get(fileName.toLowerCase());
+
+    // Case 2: Target file is the currently open document — do NOT reload the file!
+    const isSameFile = (filePath && state.currentFile && (filePath === state.currentFile || filePath.endsWith('/' + state.currentFile))) ||
+      (state.currentFile && fileName && fileName.toLowerCase() === state.currentFile.split('/').pop().replace(/\.md$/i, '').toLowerCase());
+
+    if (isSameFile) {
+      if (anchor) {
+        scrollToHeadingByText(anchor.substring(1));
+      }
+      return;
+    }
+
     if (!filePath) {
       console.warn(`[Wikilink] Could not resolve "${fileName}" — file not found in tree.`);
       return;
     }
 
+    // Case 3: Target is a DIFFERENT file
     openFile(filePath).then(() => {
       if (anchor) {
-        setTimeout(() => scrollToHeadingByText(anchor.substring(1)), 200);
+        setTimeout(() => scrollToHeadingByText(anchor.substring(1)), 150);
       }
     });
   }
 
   /**
-   * Scroll to a heading whose text matches the anchor text.
-   * Obsidian anchors match by heading textContent, with flexible bracket handling.
+   * Scroll to a heading whose ID or text matches the anchor text.
+   * Fast O(1) ID lookup first, followed by heading textContent match.
    */
   function scrollToHeadingByText(text) {
     if (!text) return;
     const targetText = decodeURIComponent(text).trim();
-    const cleanText = targetText.replace(/^【/, '').replace(/】$/, '').trim();
+    if (!targetText) return;
 
-    const headings = $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
-    for (const h of headings) {
-      const hText = h.textContent.trim();
-      const hCleanText = hText.replace(/^【/, '').replace(/】$/, '').trim();
+    const body = $('markdownBody');
+    if (!body) return;
 
-      if (hText === targetText || hCleanText === cleanText || hText.includes(cleanText) || cleanText.includes(hText)) {
-        h.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        h.classList.add('highlight-flash');
-        setTimeout(() => h.classList.remove('highlight-flash'), 2000);
-        return;
+    // 1. O(1) Fast ID Lookup
+    let targetEl = document.getElementById(targetText) || document.getElementById(encodeURIComponent(targetText));
+    if (!targetEl) {
+      // 2. Heading textContent match
+      const cleanText = targetText.replace(/^【/, '').replace(/】$/, '').trim();
+      const headings = $$('h1, h2, h3, h4, h5, h6', body);
+      for (const h of headings) {
+        const hText = h.textContent.trim();
+        const hCleanText = hText.replace(/^【/, '').replace(/】$/, '').trim();
+
+        if (hText === targetText || hCleanText === cleanText || hText.includes(cleanText) || (cleanText.length > 1 && cleanText.includes(hText))) {
+          targetEl = h;
+          break;
+        }
       }
     }
-    console.warn(`[Wikilink] Heading "${targetText}" not found in document.`);
+
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      targetEl.classList.add('highlight-flash');
+      setTimeout(() => targetEl.classList.remove('highlight-flash'), 2000);
+    } else {
+      console.warn(`[Wikilink] Heading "${targetText}" not found in document.`);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2201,6 +2228,17 @@
           setTimeout(() => {
             targetEl.classList.remove('highlight-flash');
           }, 2000);
+        }
+        return;
+      }
+
+      // ── Standard internal anchor links <a href="#..."> ──
+      const anchorLink = e.target.closest('a[href^="#"]');
+      if (anchorLink) {
+        const href = anchorLink.getAttribute('href');
+        if (href && href.length > 1) {
+          e.preventDefault();
+          scrollToHeadingByText(href.substring(1));
         }
       }
     });
