@@ -1789,9 +1789,10 @@
 
       let html = '';
       list.forEach(item => {
+        const displayPath = item.filePath ? item.filePath.replace(/\.md$/i, '') : item.fileName;
         html += `
           <div class="list-item-row" data-file="${escHtml(item.filePath)}">
-            <span class="list-item-title">🔖 ${escHtml(item.fileName)}</span>
+            <span class="list-item-title">🔖 ${escHtml(displayPath)}</span>
             <span class="list-item-time">${escHtml(item.time || '')}</span>
             <button type="button" class="list-item-del-btn" data-del-bookmark="${escHtml(item.filePath)}" title="移除書籤">✕</button>
           </div>
