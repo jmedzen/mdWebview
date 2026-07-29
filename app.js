@@ -466,6 +466,7 @@
     folders.sort((a, b) => a.path.localeCompare(b.path, 'zh-TW'));
 
     let html = '<option value="">📁 所有資料夾 (全庫搜尋)</option>';
+    html += '<option value="__CURRENT_FILE__">📄 本頁搜尋 (僅限目前開啟檔案)</option>';
     folders.forEach(f => {
       const depth = (f.path.match(/\//g) || []).length;
       const indent = depth > 0 ? '&nbsp;&nbsp;'.repeat(depth) + '└ ' : '';
@@ -617,6 +618,15 @@
     addRecentFile(filePath);
     updateBookmarkButtonUI(filePath);
     saveReadProgress(filePath);
+
+    // If search selector is set to __CURRENT_FILE__, automatically update search results for newly opened file
+    const searchFolderSelect = $('searchFolderSelect');
+    if (searchFolderSelect && searchFolderSelect.value === '__CURRENT_FILE__') {
+      const searchInput = $('globalSearchInput');
+      if (searchInput && searchInput.value.trim()) {
+        performGlobalSearch(searchInput.value.trim());
+      }
+    }
 
     // Update URL search parameters — preserve line param if provided
     const params = new URLSearchParams();
@@ -1346,7 +1356,15 @@
       return;
     }
 
-    const folder = $('searchFolderSelect') ? $('searchFolderSelect').value : '';
+    let folder = $('searchFolderSelect') ? $('searchFolderSelect').value : '';
+
+    if (folder === '__CURRENT_FILE__') {
+      if (!state.currentFile) {
+        $('searchResults').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📄</span><span>目前尚未開啟任何經文檔案</span></div>';
+        return;
+      }
+      folder = state.currentFile;
+    }
 
     if (searchAbortController) searchAbortController.abort();
     searchAbortController = new AbortController();
