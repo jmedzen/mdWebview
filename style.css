@@ -2285,21 +2285,27 @@ kbd {
 }
 
 .settings-tabs-nav {
+  flex-shrink: 0;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 8px;
+  padding: 10px 0 8px 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
 }
 
 .settings-tab-btn {
+  flex-shrink: 0;
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  padding: 8px 14px;
+  padding: 8px 12px;
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.2s ease;
 }
 

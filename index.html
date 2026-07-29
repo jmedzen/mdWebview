@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.2.0">
+  <link rel="stylesheet" href="style.css?v=1.2.1">
 </head>
 <body>
   <div class="app">
@@ -252,15 +252,15 @@
         </button>
       </div>
 
-      <div class="settings-menu-body">
-        <!-- Settings Tabs Navigation -->
-        <div class="settings-tabs-nav" id="userSettingsTabsNav">
-          <button type="button" class="settings-tab-btn active" data-tab="appearance">🎨 視覺排版</button>
-          <button type="button" class="settings-tab-btn" data-tab="progress">📖 閱讀紀錄</button>
-          <button type="button" class="settings-tab-btn" data-tab="bookmarks">🔖 書籤最愛</button>
-          <button type="button" class="settings-tab-btn" data-tab="system">🔒 系統管理</button>
-        </div>
+      <!-- Settings Tabs Navigation (Pinned at top) -->
+      <div class="settings-tabs-nav" id="userSettingsTabsNav">
+        <button type="button" class="settings-tab-btn active" data-tab="appearance">🎨 視覺排版</button>
+        <button type="button" class="settings-tab-btn" data-tab="progress">📖 閱讀紀錄</button>
+        <button type="button" class="settings-tab-btn" data-tab="bookmarks">🔖 書籤最愛</button>
+        <button type="button" class="settings-tab-btn" data-tab="system">🔒 系統管理</button>
+      </div>
 
+      <div class="settings-menu-body">
         <!-- Tab 1: 視覺排版 (Appearance) -->
         <div class="settings-tab-pane active" id="pane-appearance">
           <!-- Theme -->
@@ -487,7 +487,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.2.0" defer></script>
-  <script src="app.js?v=1.2.0" defer></script>
+  <script src="marked.min.js?v=1.2.1" defer></script>
+  <script src="app.js?v=1.2.1" defer></script>
 </body>
 </html>
