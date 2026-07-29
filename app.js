@@ -9,12 +9,22 @@
   const appConfig = window.__APP_CONFIG__ || {};
   const userFont = localStorage.getItem('mdWebview-user-fontsize');
   const userTheme = localStorage.getItem('mdWebview-user-theme');
+  const userAlign = localStorage.getItem('mdWebview-user-textalign');
+  const userLineHeight = localStorage.getItem('mdWebview-user-lineheight');
+  const userMaxWidth = localStorage.getItem('mdWebview-user-maxwidth');
+  const userReadProgress = localStorage.getItem('mdWebview-user-readprogress');
 
   // ── State ─────────────────────────────────────────────────
   const state = {
     currentFile: null,
     currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
     fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize || 16),
+    textAlign: userAlign || 'justify',
+    lineHeight: userLineHeight || '1.8',
+    maxWidth: userMaxWidth || '800px',
+    autoReadProgress: userReadProgress !== 'false',
+    recentFiles: JSON.parse(localStorage.getItem('mdWebview-user-recentfiles') || '[]'),
+    bookmarks: JSON.parse(localStorage.getItem('mdWebview-user-bookmarks') || '[]'),
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -124,15 +134,22 @@
     await checkAdminStatus();
     applyTheme(state.currentTheme, false);
     applyFontSize(state.fontSize, false);
+    applyTextAlign(state.textAlign, false);
+    applyLineHeight(state.lineHeight, false);
+    applyMaxWidth(state.maxWidth, false);
+    applyAutoReadProgress(state.autoReadProgress, false);
+
     updateWelcomeShortcuts();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
     await loadTree();
 
-    // Open file from URL query or hash on first load
+    // Open file from URL query or hash on first load; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
     if (urlInfo) {
       await openFile(urlInfo.file, urlInfo.line);
+    } else {
+      restoreReadProgress();
     }
 
     // Handle browser back / forward
@@ -532,8 +549,11 @@
   // ═══════════════════════════════════════════════════════════
 
   async function openFile(filePath, scrollToLineNum) {
-    if (state.currentFile === filePath && !scrollToLineNum) return;
     state.currentFile = filePath;
+
+    addRecentFile(filePath);
+    updateBookmarkButtonUI(filePath);
+    saveReadProgress(filePath);
 
     // Update URL search parameters — preserve line param if provided
     const params = new URLSearchParams();
@@ -720,6 +740,9 @@
     html += `<button class="copy-link-btn" id="copyLinkBtn" title="複製連結">`;
     html += `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542L3.343 7.914a3 3 0 104.243 4.243l1.828-1.829A3 3 0 008.586 5.5L8 6.086a1 1 0 00-.154.199 2 2 0 01.861 3.337L6.88 11.45a2 2 0 11-2.83-2.83l.793-.792a4 4 0 01-.128-1.287zm5.57-1.084a3 3 0 10-4.243-4.243L4.214 3.043A3 3 0 007.407 10.5l.585-.585a1 1 0 00.154-.199 2 2 0 01-.861-3.337l1.827-1.828a2 2 0 112.83 2.83l-.793.792a4 4 0 01.128 1.287z"/></svg>`;
     html += `<span class="copy-link-label" id="copyLinkLabel">連結</span></button>`;
+    html += `<button class="bookmark-btn" id="bookmarkBtn" title="加入/取消書籤">`;
+    html += `<span class="bookmark-icon">🔖</span>`;
+    html += `<span class="bookmark-label" id="bookmarkLabel">加書籤</span></button>`;
     html += `</div>`;
 
     if (fm.title) {
@@ -1517,6 +1540,9 @@
     document.documentElement.setAttribute('data-theme', theme);
     const select = $('themeSelect');
     if (select) select.value = theme;
+    const settingSelect = $('settingThemeSelect');
+    if (settingSelect) settingSelect.value = theme;
+
     if (saveToLocalStorage) {
       localStorage.setItem('mdWebview-user-theme', theme);
     }
@@ -1536,6 +1562,254 @@
     if (saveToLocalStorage) {
       localStorage.setItem('mdWebview-user-fontsize', size);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // TEXT ALIGN, LINE HEIGHT, MAX WIDTH, READ PROGRESS
+  // ═══════════════════════════════════════════════════════════
+
+  function applyTextAlign(align, saveToLocalStorage = true) {
+    if (!align) align = 'justify';
+    state.textAlign = align;
+    document.documentElement.style.setProperty('--content-text-align', align);
+
+    const group = $('settingTextAlignGroup');
+    if (group) {
+      $$('.segment-btn', group).forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === align);
+      });
+    }
+
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-user-textalign', align);
+    }
+  }
+
+  function applyLineHeight(lh, saveToLocalStorage = true) {
+    if (!lh) lh = '1.8';
+    state.lineHeight = lh;
+    document.documentElement.style.setProperty('--content-line-height', lh);
+
+    const group = $('settingLineHeightGroup');
+    if (group) {
+      $$('.segment-btn', group).forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === lh);
+      });
+    }
+
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-user-lineheight', lh);
+    }
+  }
+
+  function applyMaxWidth(mw, saveToLocalStorage = true) {
+    if (!mw) mw = '800px';
+    state.maxWidth = mw;
+    document.documentElement.style.setProperty('--content-max-width', mw);
+
+    const group = $('settingMaxWidthGroup');
+    if (group) {
+      $$('.segment-btn', group).forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === mw);
+      });
+    }
+
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-user-maxwidth', mw);
+    }
+  }
+
+  function applyAutoReadProgress(enabled, saveToLocalStorage = true) {
+    state.autoReadProgress = enabled;
+    const chk = $('settingAutoReadProgressCheck');
+    if (chk) chk.checked = enabled;
+
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-user-readprogress', enabled ? 'true' : 'false');
+    }
+  }
+
+  // ── Recent Files (Top 20) ──────────────────────────────────
+  function addRecentFile(filePath, title) {
+    if (!filePath) return;
+    const fileName = title || filePath.split('/').pop().replace(/\.md$/, '');
+    let list = state.recentFiles || [];
+    list = list.filter(item => item.filePath !== filePath);
+    list.unshift({
+      filePath,
+      fileName,
+      time: new Date().toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    });
+    if (list.length > 20) list = list.slice(0, 20);
+    state.recentFiles = list;
+    localStorage.setItem('mdWebview-user-recentfiles', JSON.stringify(list));
+    renderRecentFilesList();
+  }
+
+  function renderRecentFilesList() {
+    const container = $('recentFilesList');
+    if (!container) return;
+
+    const list = state.recentFiles || [];
+    if (list.length === 0) {
+      container.innerHTML = `<div class="list-empty-hint">尚無最近開啟的經文檔案</div>`;
+      return;
+    }
+
+    let html = '';
+    list.forEach(item => {
+      html += `
+        <div class="list-item-row" data-file="${escHtml(item.filePath)}">
+          <span class="list-item-title">${escHtml(item.fileName)}</span>
+          <span class="list-item-time">${escHtml(item.time || '')}</span>
+          <button type="button" class="list-item-del-btn" data-del-file="${escHtml(item.filePath)}" title="移除紀錄">✕</button>
+        </div>
+      `;
+    });
+    container.innerHTML = html;
+
+    $$('.list-item-row', container).forEach(row => {
+      row.addEventListener('click', (e) => {
+        const delBtn = e.target.closest('.list-item-del-btn');
+        if (delBtn) {
+          e.stopPropagation();
+          const targetFile = delBtn.getAttribute('data-del-file');
+          state.recentFiles = state.recentFiles.filter(i => i.filePath !== targetFile);
+          localStorage.setItem('mdWebview-user-recentfiles', JSON.stringify(state.recentFiles));
+          renderRecentFilesList();
+          return;
+        }
+        const file = row.getAttribute('data-file');
+        if (file) {
+          $('userSettingsOverlay').style.display = 'none';
+          openFile(file);
+        }
+      });
+    });
+  }
+
+  // ── Bookmarks ──────────────────────────────────────────────
+  function toggleBookmark(filePath, title) {
+    if (!filePath) return;
+    const fileName = title || filePath.split('/').pop().replace(/\.md$/, '');
+    let list = state.bookmarks || [];
+    const idx = list.findIndex(item => item.filePath === filePath);
+    let isBookmarked = false;
+
+    if (idx >= 0) {
+      list.splice(idx, 1);
+      isBookmarked = false;
+    } else {
+      list.unshift({
+        filePath,
+        fileName,
+        time: new Date().toLocaleDateString('zh-TW')
+      });
+      isBookmarked = true;
+    }
+
+    state.bookmarks = list;
+    localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(list));
+    renderBookmarksList();
+    updateBookmarkButtonUI(filePath);
+    return isBookmarked;
+  }
+
+  function updateBookmarkButtonUI(filePath) {
+    const btn = $('bookmarkBtn');
+    const lbl = $('bookmarkLabel');
+    if (!btn) return;
+
+    const list = state.bookmarks || [];
+    const isBookmarked = list.some(item => item.filePath === filePath);
+
+    if (isBookmarked) {
+      btn.classList.add('bookmarked');
+      if (lbl) lbl.textContent = '已加書籤';
+      btn.title = '取消書籤';
+    } else {
+      btn.classList.remove('bookmarked');
+      if (lbl) lbl.textContent = '加書籤';
+      btn.title = '加入書籤與最愛';
+    }
+  }
+
+  function renderBookmarksList() {
+    const container = $('bookmarksList');
+    if (!container) return;
+
+    const list = state.bookmarks || [];
+    if (list.length === 0) {
+      container.innerHTML = `<div class="list-empty-hint">尚無收藏書籤。開啟經文時點擊標題旁邊的 🔖 按鈕即可新增書籤。</div>`;
+      return;
+    }
+
+    let html = '';
+    list.forEach(item => {
+      html += `
+        <div class="list-item-row" data-file="${escHtml(item.filePath)}">
+          <span class="list-item-title">🔖 ${escHtml(item.fileName)}</span>
+          <span class="list-item-time">${escHtml(item.time || '')}</span>
+          <button type="button" class="list-item-del-btn" data-del-bookmark="${escHtml(item.filePath)}" title="移除書籤">✕</button>
+        </div>
+      `;
+    });
+    container.innerHTML = html;
+
+    $$('.list-item-row', container).forEach(row => {
+      row.addEventListener('click', (e) => {
+        const delBtn = e.target.closest('.list-item-del-btn');
+        if (delBtn) {
+          e.stopPropagation();
+          const targetFile = delBtn.getAttribute('data-del-bookmark');
+          state.bookmarks = state.bookmarks.filter(i => i.filePath !== targetFile);
+          localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(state.bookmarks));
+          renderBookmarksList();
+          if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
+          return;
+        }
+        const file = row.getAttribute('data-file');
+        if (file) {
+          $('userSettingsOverlay').style.display = 'none';
+          openFile(file);
+        }
+      });
+    });
+  }
+
+  // ── Read Progress Auto-Save / Restore ─────────────────────
+  let _saveProgressTimer = null;
+  function saveReadProgress(filePath) {
+    if (!filePath || !state.autoReadProgress) return;
+    if (_saveProgressTimer) clearTimeout(_saveProgressTimer);
+    _saveProgressTimer = setTimeout(() => {
+      const content = $('content');
+      const progress = {
+        filePath,
+        scrollTop: content ? content.scrollTop : 0,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('mdWebview-last-read-progress', JSON.stringify(progress));
+    }, 400);
+  }
+
+  function restoreReadProgress() {
+    if (!state.autoReadProgress) return false;
+    const raw = localStorage.getItem('mdWebview-last-read-progress');
+    if (!raw) return false;
+    try {
+      const data = JSON.parse(raw);
+      if (data && data.filePath) {
+        openFile(data.filePath).then(() => {
+          const content = $('content');
+          if (content && data.scrollTop) {
+            setTimeout(() => { content.scrollTop = data.scrollTop; }, 120);
+          }
+        });
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1805,14 +2079,99 @@
     setupResizeHandle();
     setupSelectionPopup();
 
-    // ── Admin Button Click ──
-    $('adminSettingsBtn').addEventListener('click', async () => {
-      if (state.adminToken) {
-        await openSettingsOverlay();
-      } else {
-        openLoginOverlay();
-      }
+    // ── User Settings Gear Button Click ──
+    $('adminSettingsBtn').addEventListener('click', () => {
+      openUserSettingsOverlay();
     });
+
+    // ── Setting Menu Tab Navigation ──
+    $$('.settings-tab-btn', $('userSettingsTabsNav')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.getAttribute('data-tab');
+        $$('.settings-tab-btn', $('userSettingsTabsNav')).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        $$('.settings-tab-pane', $('userSettingsOverlay')).forEach(pane => {
+          pane.style.display = pane.id === `pane-${tab}` ? 'flex' : 'none';
+        });
+      });
+    });
+
+    // ── Setting Menu Controls ──
+    const settingThemeSel = $('settingThemeSelect');
+    if (settingThemeSel) {
+      settingThemeSel.addEventListener('change', (e) => applyTheme(e.target.value));
+    }
+
+    const textAlignGroup = $('settingTextAlignGroup');
+    if (textAlignGroup) {
+      $$('.segment-btn', textAlignGroup).forEach(btn => {
+        btn.addEventListener('click', () => applyTextAlign(btn.getAttribute('data-value')));
+      });
+    }
+
+    const lineHeightGroup = $('settingLineHeightGroup');
+    if (lineHeightGroup) {
+      $$('.segment-btn', lineHeightGroup).forEach(btn => {
+        btn.addEventListener('click', () => applyLineHeight(btn.getAttribute('data-value')));
+      });
+    }
+
+    const maxWidthGroup = $('settingMaxWidthGroup');
+    if (maxWidthGroup) {
+      $$('.segment-btn', maxWidthGroup).forEach(btn => {
+        btn.addEventListener('click', () => applyMaxWidth(btn.getAttribute('data-value')));
+      });
+    }
+
+    const autoProgressCheck = $('settingAutoReadProgressCheck');
+    if (autoProgressCheck) {
+      autoProgressCheck.addEventListener('change', (e) => applyAutoReadProgress(e.target.checked));
+    }
+
+    const clearRecentBtn = $('clearRecentFilesBtn');
+    if (clearRecentBtn) {
+      clearRecentBtn.addEventListener('click', () => {
+        if (confirm('確定要清除所有最近開啟的經文紀錄？')) {
+          state.recentFiles = [];
+          localStorage.removeItem('mdWebview-user-recentfiles');
+          renderRecentFilesList();
+        }
+      });
+    }
+
+    const clearBkmBtn = $('clearBookmarksBtn');
+    if (clearBkmBtn) {
+      clearBkmBtn.addEventListener('click', () => {
+        if (confirm('確定要清除所有經文書籤與最愛？')) {
+          state.bookmarks = [];
+          localStorage.removeItem('mdWebview-user-bookmarks');
+          renderBookmarksList();
+          if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+        }
+      });
+    }
+
+    // Modal Close
+    $('userSettingsCloseBtn').addEventListener('click', () => {
+      $('userSettingsOverlay').style.display = 'none';
+    });
+    $('userSettingsDoneBtn').addEventListener('click', () => {
+      $('userSettingsOverlay').style.display = 'none';
+    });
+
+    // Menu Sub-Modals (Admin Login / Admin Vault Settings)
+    $('menuOpenAdminLoginBtn').addEventListener('click', () => {
+      $('userSettingsOverlay').style.display = 'none';
+      openLoginOverlay();
+    });
+
+    const vaultBtn = $('menuOpenVaultSettingsBtn');
+    if (vaultBtn) {
+      vaultBtn.addEventListener('click', async () => {
+        $('userSettingsOverlay').style.display = 'none';
+        await openSettingsOverlay();
+      });
+    }
 
     // ── Setup Form Submission ──
     $('adminSetupForm').addEventListener('submit', async (e) => {
@@ -2004,6 +2363,27 @@
       localStorage.removeItem('mdWebview-admin-token');
       $('adminSettingsOverlay').style.display = 'none';
     });
+  }
+
+  function openUserSettingsOverlay() {
+    renderRecentFilesList();
+    renderBookmarksList();
+
+    const statusText = $('adminStatusText');
+    const loginBtn = $('menuOpenAdminLoginBtn');
+    const vaultBtn = $('menuOpenVaultSettingsBtn');
+
+    if (state.adminToken) {
+      if (statusText) statusText.textContent = '管理員登入狀態：已登入 ✅';
+      if (loginBtn) loginBtn.style.display = 'none';
+      if (vaultBtn) vaultBtn.style.display = 'inline-block';
+    } else {
+      if (statusText) statusText.textContent = '管理員登入狀態：尚未登入';
+      if (loginBtn) loginBtn.style.display = 'inline-block';
+      if (vaultBtn) vaultBtn.style.display = 'none';
+    }
+
+    $('userSettingsOverlay').style.display = 'flex';
   }
 
   // ── Helper functions for admin panels ──
