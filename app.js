@@ -25,6 +25,13 @@
     }
   }
 
+  // ── Client Logger Utility ─────────────────────────────────
+  const log = {
+    info: (msg, ...args) => console.log(`%c[mdWebview]%c ${msg}`, 'color:#8b6b43;font-weight:bold', 'color:inherit', ...args),
+    warn: (msg, ...args) => console.warn(`%c[mdWebview]%c ${msg}`, 'color:#d97706;font-weight:bold', 'color:inherit', ...args),
+    error: (msg, ...args) => console.error(`%c[mdWebview]%c ${msg}`, 'color:#dc2626;font-weight:bold', 'color:inherit', ...args)
+  };
+
   function isMobileBrowser() {
     const ua = navigator.userAgent || '';
     const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
@@ -614,6 +621,7 @@
 
   async function openFile(filePath, scrollToLineNum) {
     state.currentFile = filePath;
+    log.info(`Opening file "${filePath}"${scrollToLineNum ? ` (Line: ${scrollToLineNum})` : ''}`);
 
     addRecentFile(filePath);
     updateBookmarkButtonUI(filePath);

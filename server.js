@@ -10,6 +10,27 @@ const { marked } = require('marked');  // Still needed for inline fallback
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 
+// ── Logger Utility ──────────────────────────────────────────────────────────
+const Logger = {
+  formatTimestamp() {
+    return new Date().toISOString();
+  },
+  info(tag, msg) {
+    console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] ${msg}`);
+  },
+  warn(tag, msg) {
+    console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] ${msg}`);
+  },
+  error(tag, msg, err) {
+    console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] ${msg}`, err ? (err.stack || err) : '');
+  },
+  debug(tag, msg) {
+    if (process.env.DEBUG) {
+      console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] ${msg}`);
+    }
+  }
+};
+
 // ── Worker Thread Pool ─────────────────────────────────────────────────────
 // 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
 const numCpus = os.cpus().length || 4;
@@ -39,7 +60,7 @@ function createWorker(index) {
   });
 
   w.on('error', (err) => {
-    console.error(`[Worker ${w.index}] Error:`, err.message);
+    Logger.error('WorkerPool', `[Worker #${w.index}] Thread error`, err);
     if (w.currentJobId) {
       const cb = jobCallbacks.get(w.currentJobId);
       if (cb) {
@@ -500,9 +521,11 @@ async function handleRender(req, res, query) {
   if (!isSafe) return sendJSON(res, 403, { error: 'Access denied' });
 
   try {
+    const renderStart = Date.now();
     const stat = await fs.promises.stat(resolved);
     const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
     if (req.headers['if-none-match'] === etag) {
+      Logger.debug('Render', `304 Not Modified: "${filePath}" (${Date.now() - renderStart}ms)`);
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
       res.end();
       return;
@@ -618,6 +641,7 @@ function flattenTreeToFiles(nodes, mdRoot) {
 
 // ── API: Full-text Search ────────────────────────────────────
 async function handleSearch(req, res, query) {
+  const searchStart = Date.now();
   const q = query.q;
   if (!q || q.trim().length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
@@ -701,8 +725,10 @@ async function handleSearch(req, res, query) {
     }
     await Promise.all(workers);
 
+    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} -> ${results.length} matches in ${Date.now() - searchStart}ms`);
     sendJSON(res, 200, { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS });
   } catch (err) {
+    Logger.error('Search', `Search failed for query "${q}"`, err);
     sendJSON(res, 500, { error: err.message });
   }
 }
@@ -943,14 +969,27 @@ function readJSONBody(req) {
 
 // ── HTTP Server ──────────────────────────────────────────────
 const server = http.createServer((req, res) => {
+  const reqStart = Date.now();
   res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';
   const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsed.pathname;
   const query = Object.fromEntries(parsed.searchParams);
 
+  // HTTP Access Logging Middleware
+  const origEnd = res.end;
+  res.end = function(...args) {
+    origEnd.apply(res, args);
+    const duration = Date.now() - reqStart;
+    if (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50) {
+      Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`);
+    } else {
+      Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`);
+    }
+  };
+
   // Log share link access if present
   if ((pathname === '/' || pathname === '') && query.file) {
-    console.log(`[HTTP Server] Share Link accessed for file: "${query.file}" at line: ${query.line || 'none'}`);
+    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`);
   }
 
   // API routes
