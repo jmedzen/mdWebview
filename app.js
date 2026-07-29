@@ -1636,8 +1636,43 @@
     }
   }
 
+  function renderMaxWidthControl() {
+    const group = $('settingMaxWidthGroup');
+    if (!group) return;
+
+    const isMobile = isMobileBrowser();
+    let currentVal = state.maxWidth;
+    if (!currentVal) {
+      currentVal = isMobile ? '100%' : '800px';
+    }
+
+    const options = isMobile ? [
+      { label: '80%', value: '80%' },
+      { label: '90%', value: '90%' },
+      { label: '100% 全寬', value: '100%' }
+    ] : [
+      { label: '680px', value: '680px' },
+      { label: '800px', value: '800px' },
+      { label: '1000px', value: '1000px' }
+    ];
+
+    let html = '';
+    options.forEach(opt => {
+      const active = (currentVal === opt.value) ? ' active' : '';
+      html += `<button type="button" class="segment-btn${active}" data-value="${opt.value}">${opt.label}</button>`;
+    });
+    group.innerHTML = html;
+
+    $$('.segment-btn', group).forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyMaxWidth(btn.getAttribute('data-value'));
+      });
+    });
+  }
+
   function applyMaxWidth(mw, saveToLocalStorage = true) {
-    if (!mw) mw = '800px';
+    const isMobile = isMobileBrowser();
+    if (!mw) mw = isMobile ? '100%' : '800px';
     state.maxWidth = mw;
     document.documentElement.style.setProperty('--content-max-width', mw);
 
@@ -2465,6 +2500,7 @@
   }
 
   function openUserSettingsOverlay() {
+    renderMaxWidthControl();
     renderRecentFilesList();
     renderBookmarksList();
 
