@@ -1830,13 +1830,28 @@
     if (_saveProgressTimer) clearTimeout(_saveProgressTimer);
     _saveProgressTimer = setTimeout(() => {
       const content = $('content');
+      if (!content) return;
+
+      // Find top visible line anchor if available
+      let currentLine = null;
+      const anchors = $$('.markdown-line[data-line]', $('markdownBody'));
+      const contentRect = content.getBoundingClientRect();
+      for (const a of anchors) {
+        const rect = a.getBoundingClientRect();
+        if (rect.top >= contentRect.top + 20) {
+          currentLine = parseInt(a.getAttribute('data-line'));
+          break;
+        }
+      }
+
       const progress = {
         filePath,
-        scrollTop: content ? content.scrollTop : 0,
+        scrollTop: content.scrollTop,
+        line: currentLine,
         timestamp: Date.now()
       };
       localStorage.setItem('mdWebview-last-read-progress', JSON.stringify(progress));
-    }, 400);
+    }, 250);
   }
 
   function restoreReadProgress() {
@@ -1846,10 +1861,15 @@
     try {
       const data = JSON.parse(raw);
       if (data && data.filePath) {
-        openFile(data.filePath).then(() => {
+        openFile(data.filePath, data.line).then(() => {
           const content = $('content');
-          if (content && data.scrollTop) {
-            setTimeout(() => { content.scrollTop = data.scrollTop; }, 120);
+          if (content && typeof data.scrollTop === 'number') {
+            setTimeout(() => {
+              content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
+            }, 200);
+            setTimeout(() => {
+              content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
+            }, 400);
           }
         });
         return true;
@@ -2115,6 +2135,9 @@
     const contentEl = $('content');
     let scrollRafPending = false;
     contentEl.addEventListener('scroll', () => {
+      if (state.currentFile) {
+        saveReadProgress(state.currentFile);
+      }
       if (scrollRafPending) return;
       scrollRafPending = true;
       requestAnimationFrame(() => {
