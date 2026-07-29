@@ -14,6 +14,17 @@
   const userMaxWidth = localStorage.getItem('mdWebview-user-maxwidth');
   const userReadProgress = localStorage.getItem('mdWebview-user-readprogress');
 
+  function safeJsonParse(key, fallback) {
+    try {
+      const item = localStorage.getItem(key);
+      if (!item) return fallback;
+      const parsed = JSON.parse(item);
+      return Array.isArray(parsed) ? parsed : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   // ── State ─────────────────────────────────────────────────
   const state = {
     currentFile: null,
@@ -23,8 +34,8 @@
     lineHeight: userLineHeight || '1.8',
     maxWidth: userMaxWidth || '800px',
     autoReadProgress: userReadProgress !== 'false',
-    recentFiles: JSON.parse(localStorage.getItem('mdWebview-user-recentfiles') || '[]'),
-    bookmarks: JSON.parse(localStorage.getItem('mdWebview-user-bookmarks') || '[]'),
+    recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
+    bookmarks: safeJsonParse('mdWebview-user-bookmarks', []),
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -419,6 +430,7 @@
   }
 
   function renderTreeNodes(nodes, container, level) {
+    if (!Array.isArray(nodes) || !container) return;
     nodes.forEach((node, idx) => {
       const item = document.createElement('div');
       item.className = 'tree-item';
@@ -434,7 +446,9 @@
           <div class="tree-children"></div>
         `;
         const childrenEl = item.querySelector('.tree-children');
-        renderTreeNodes(node.children, childrenEl, level + 1);
+        if (Array.isArray(node.children)) {
+          renderTreeNodes(node.children, childrenEl, level + 1);
+        }
 
         const row = item.querySelector('.tree-item-row');
         row.addEventListener('click', () => {
@@ -459,8 +473,9 @@
   }
 
   function sortTreeNodes(nodes, sortMode) {
+    if (!Array.isArray(nodes)) return [];
     // Deep-clone to avoid mutating original data
-    const cloned = nodes.map(n => n.children
+    const cloned = nodes.map(n => Array.isArray(n.children)
       ? { ...n, children: sortTreeNodes(n.children, sortMode) }
       : { ...n }
     );
