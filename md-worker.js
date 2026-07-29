@@ -7,7 +7,7 @@
 importScripts('https://cdn.jsdelivr.net/npm/marked/marked.min.js');
 
 marked.setOptions({
-  breaks: false,
+  breaks: true,
   gfm: true,
   headerIds: true,
   mangle: false,

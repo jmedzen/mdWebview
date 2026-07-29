@@ -8,7 +8,7 @@ const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
 
 // Configure marked once at startup
-marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
+marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 
 // ── Worker Thread Pool ─────────────────────────────────────────────────────
 // 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool

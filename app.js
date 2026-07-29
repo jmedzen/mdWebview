@@ -148,7 +148,7 @@
   // ── Init ──────────────────────────────────────────────────
   async function init() {
     // Configure marked once at startup (not on every render)
-    marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
+    marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
     // Pre-warm the Web Worker so first file open has no startup delay
     getMdWorker();
 

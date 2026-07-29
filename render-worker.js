@@ -6,7 +6,7 @@
 const { parentPort } = require('worker_threads');
 const { marked } = require('marked');
 
-marked.setOptions({ breaks: false, gfm: true, headerIds: true, mangle: false });
+marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 
 parentPort.on('message', ({ jobId, body }) => {
   try {
