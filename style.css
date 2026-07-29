@@ -22,13 +22,21 @@ html {
   --text-normal: var(--text-primary);
   --border-color: var(--border);
   --accent-color: var(--accent);
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
 }
 
 body {
   font-family: 'Inter', 'Noto Serif TC', -apple-system, BlinkMacSystemFont, sans-serif;
   overflow: hidden;
-  height: 100vh;
-  width: 100vw;
+  height: 100%;
+  width: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 /* ── Theme 1: Obsidian Dark (Default) ──────────────────────── */

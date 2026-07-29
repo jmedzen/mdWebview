@@ -218,6 +218,44 @@
     return null;
   }
 
+  /**
+   * Safely scroll an element into view inside an overflow container without
+   * causing the outer window/body to scroll up on iOS Safari / Mobile browsers.
+   */
+  function safeScrollToElement(targetEl, containerEl, blockPos = 'start') {
+    if (!targetEl) return;
+    if (!containerEl) containerEl = $('content');
+    if (!containerEl) return;
+
+    const targetRect = targetEl.getBoundingClientRect();
+    const containerRect = containerEl.getBoundingClientRect();
+    
+    let targetScrollTop = containerEl.scrollTop + (targetRect.top - containerRect.top);
+    
+    if (blockPos === 'start') {
+      targetScrollTop -= 12;
+    } else if (blockPos === 'center') {
+      targetScrollTop -= (containerRect.height / 2) - (targetRect.height / 2);
+    }
+
+    containerEl.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: 'smooth'
+    });
+
+    // iOS Safari Safety Guard: Force window scrollY back to 0 to prevent header shifting
+    if (window.scrollY !== 0) {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  // iOS Safari Window Scroll Guard — Keep window.scrollY strictly at 0
+  window.addEventListener('scroll', () => {
+    if (window.scrollY !== 0) {
+      window.scrollTo(0, 0);
+    }
+  }, { passive: true });
+
   function scrollToLine(lineNum) {
     if (!lineNum) return;
     // Try exact line anchor first
@@ -253,7 +291,7 @@
       target = best;
     }
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      safeScrollToElement(target, $('content'), 'start');
       // Brief highlight on the parent block
       const block = target.nextElementSibling || target.parentElement;
       if (block) {
@@ -1234,7 +1272,7 @@
     }
 
     if (targetEl) {
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      safeScrollToElement(targetEl, $('content'), 'start');
       targetEl.classList.add('highlight-flash');
       setTimeout(() => targetEl.classList.remove('highlight-flash'), 2000);
     } else {
@@ -1309,7 +1347,7 @@
           const isCollapsed = row.classList.toggle('collapsed');
           toggleSubtreeVisibility(rows, idx, isCollapsed);
         } else {
-          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          safeScrollToElement(h, $('content'), 'start');
         }
       });
 
@@ -1626,7 +1664,7 @@
     if (matches.length > 0) {
       state.pageSearchIndex = 0;
       matches[0].classList.add('active');
-      matches[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      safeScrollToElement(matches[0], $('content'), 'center');
     }
 
     $('pageSearchCount').textContent = matches.length > 0 ? `1/${matches.length}` : '0/0';
@@ -1648,7 +1686,7 @@
 
     // Set new active
     matches[state.pageSearchIndex].classList.add('active');
-    matches[state.pageSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    safeScrollToElement(matches[state.pageSearchIndex], $('content'), 'center');
 
     $('pageSearchCount').textContent = `${state.pageSearchIndex + 1}/${matches.length}`;
   }
@@ -2249,7 +2287,7 @@
         const targetId = refLink.getAttribute('href').substring(1);
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          safeScrollToElement(targetEl, $('content'), 'center');
           targetEl.classList.add('highlight-flash');
           setTimeout(() => {
             targetEl.classList.remove('highlight-flash');
@@ -2264,7 +2302,7 @@
         const targetId = backLink.getAttribute('href').substring(1);
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          safeScrollToElement(targetEl, $('content'), 'center');
           targetEl.classList.add('highlight-flash');
           setTimeout(() => {
             targetEl.classList.remove('highlight-flash');
