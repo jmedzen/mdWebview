@@ -665,8 +665,9 @@
     wrapper.style.display = 'none';
     loading.style.display = 'flex';
 
-    // Close page search
+    // Close page search and reset heading O(1) map for new file
     closePageSearch();
+    headingTextMap.clear();
 
     highlightActiveFile(filePath);
 
@@ -1167,9 +1168,37 @@
     });
   }
 
+  // ── O(1) Heading Text Map for Instant Link Navigation ──
+  const headingTextMap = new Map();
+
+  function buildHeadingMap(body) {
+    headingTextMap.clear();
+    if (!body) return;
+    const headings = body.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    for (let i = 0; i < headings.length; i++) {
+      const h = headings[i];
+      if (!h.id) h.id = 'heading-' + i;
+
+      const clone = h.cloneNode(true);
+      clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
+      const rawText = clone.textContent.trim();
+      const cleanText = rawText.replace(/^【/, '').replace(/】$/, '').trim();
+
+      if (rawText && !headingTextMap.has(rawText)) {
+        headingTextMap.set(rawText, h);
+      }
+      if (cleanText && !headingTextMap.has(cleanText)) {
+        headingTextMap.set(cleanText, h);
+      }
+      if (h.id && !headingTextMap.has(h.id)) {
+        headingTextMap.set(h.id, h);
+      }
+    }
+  }
+
   /**
    * Scroll to a heading whose ID or text matches the anchor text.
-   * Fast O(1) ID lookup first, followed by heading textContent match.
+   * O(1) Instant Map Lookup replacing expensive N-node DOM scans.
    */
   function scrollToHeadingByText(text) {
     if (!text) return;
@@ -1179,18 +1208,24 @@
     const body = $('markdownBody');
     if (!body) return;
 
-    // 1. O(1) Fast ID Lookup
-    let targetEl = document.getElementById(targetText) || document.getElementById(encodeURIComponent(targetText));
-    if (!targetEl) {
-      // 2. Heading textContent match
-      const cleanText = targetText.replace(/^【/, '').replace(/】$/, '').trim();
-      const headings = $$('h1, h2, h3, h4, h5, h6', body);
-      for (const h of headings) {
-        const hText = h.textContent.trim();
-        const hCleanText = hText.replace(/^【/, '').replace(/】$/, '').trim();
+    // Populate O(1) Map index if empty
+    if (headingTextMap.size === 0) {
+      buildHeadingMap(body);
+    }
 
-        if (hText === targetText || hCleanText === cleanText || hText.includes(cleanText) || (cleanText.length > 1 && cleanText.includes(hText))) {
-          targetEl = h;
+    const cleanText = targetText.replace(/^【/, '').replace(/】$/, '').trim();
+
+    // 1. O(1) Instant Map & ID Lookup
+    let targetEl = headingTextMap.get(targetText) ||
+                   headingTextMap.get(cleanText) ||
+                   document.getElementById(targetText) ||
+                   document.getElementById(encodeURIComponent(targetText));
+
+    // 2. Fallback to fuzzy substring match if exact key missed
+    if (!targetEl) {
+      for (const [key, el] of headingTextMap.entries()) {
+        if (key.includes(cleanText) || (cleanText.length > 1 && cleanText.includes(key))) {
+          targetEl = el;
           break;
         }
       }
