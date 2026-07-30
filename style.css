@@ -2745,8 +2745,8 @@ kbd {
 }
 
 .log-entry {
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 16px;
   font-family: inherit;
 }
@@ -2755,21 +2755,29 @@ kbd {
   border-bottom: none;
 }
 
+.log-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
 .log-time {
   color: #8b949e;
   font-size: 14px;
-  margin-right: 8px;
 }
 
 .log-badge {
-  display: inline-block;
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
   border-radius: 4px;
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.5px;
-  margin-right: 8px;
   font-family: inherit;
+  line-height: 1.2;
 }
 
 .log-badge.INFO {
@@ -2800,12 +2808,15 @@ kbd {
   color: #bc8cff;
   font-weight: 600;
   font-size: 15px;
-  margin-right: 8px;
 }
 
 .log-msg {
   color: #e6edf3;
   font-size: 16px;
+  line-height: 1.6;
+  padding-left: 2px;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 

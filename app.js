@@ -2873,12 +2873,7 @@
     const html = filtered.map(item => {
       const timeStr = item.timestamp ? item.timestamp.replace('T', ' ').replace('Z', '') : '';
       const levelClass = item.level || 'INFO';
-      return `<div class="log-entry">
-        <span class="log-time">[${escHtml(timeStr)}]</span>
-        <span class="log-badge ${escHtml(levelClass)}">${escHtml(item.level)}</span>
-        <span class="log-tag">[${escHtml(item.tag)}]</span>
-        <span class="log-msg">${escHtml(item.message)}</span>
-      </div>`;
+      return `<div class="log-entry"><div class="log-meta"><span class="log-time">[${escHtml(timeStr)}]</span><span class="log-badge ${escHtml(levelClass)}">${escHtml(item.level)}</span><span class="log-tag">[${escHtml(item.tag)}]</span></div><div class="log-msg">${escHtml(item.message)}</div></div>`;
     }).join('');
 
     viewer.innerHTML = html;
