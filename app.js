@@ -1358,6 +1358,13 @@
           toggleSubtreeVisibility(rows, idx, isCollapsed);
         } else {
           safeScrollToElement(h, $('content'), 'start');
+          if (isMobileBrowser()) {
+            const sidebar = $('sidebar');
+            if (sidebar && !sidebar.classList.contains('collapsed')) {
+              sidebar.classList.add('collapsed');
+              state.sidebarCollapsed = true;
+            }
+          }
         }
       });
 
