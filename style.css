@@ -119,9 +119,9 @@ body {
 
 /* ── Theme 3: Solarized ────────────────────────────────────── */
 [data-theme="solarized"] {
-  --bg-primary: #002b36;
-  --bg-secondary: #073642;
-  --bg-tertiary: #094151;
+  --bg-primary: #073642;
+  --bg-secondary: #002b36;
+  --bg-tertiary: #05232c;
   --bg-elevated: #1a5a6a;
   --text-primary: #93a1a1;
   --text-secondary: #839496;
@@ -131,11 +131,11 @@ body {
   --accent-hover: #cb4b16;
   --border: #2a4f5a;
   --border-subtle: #0a4050;
-  --sidebar-bg: rgba(7, 54, 66, 0.92);
+  --sidebar-bg: rgba(0, 43, 54, 0.92);
   --sidebar-blur: 16px;
   --hover-bg: rgba(88, 110, 117, 0.2);
   --active-bg: rgba(181, 137, 0, 0.12);
-  --scrollbar-track: #073642;
+  --scrollbar-track: #002b36;
   --scrollbar-thumb: #2a4f5a;
   --scrollbar-thumb-hover: #586e75;
   --search-highlight: rgba(181, 137, 0, 0.3);
@@ -144,16 +144,16 @@ body {
   --h2-color: #268bd2;
   --h3-color: #2aa198;
   --link-color: #268bd2;
-  --code-bg: rgba(7, 54, 66, 0.8);
+  --code-bg: rgba(0, 43, 54, 0.8);
   --blockquote-border: #b58900;
   --blockquote-bg: rgba(181, 137, 0, 0.05);
-  --table-header-bg: rgba(7, 54, 66, 0.7);
+  --table-header-bg: rgba(0, 43, 54, 0.7);
   --table-stripe: rgba(9, 65, 81, 0.3);
   --shadow-color: rgba(0, 0, 0, 0.35);
-  --header-bg: rgba(7, 54, 66, 0.95);
-  --input-bg: #094151;
+  --header-bg: rgba(0, 43, 54, 0.95);
+  --input-bg: #05232c;
   --badge-bg: #2a4f5a;
-  --loading-bg: rgba(0, 43, 54, 0.85);
+  --loading-bg: rgba(7, 54, 66, 0.85);
 }
 
 /* ── Theme 4: 禪風 Zen ─────────────────────────────────────── */
