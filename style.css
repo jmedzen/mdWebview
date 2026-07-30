@@ -2008,7 +2008,8 @@ kbd {
 }
 
 .modal-card.settings-card {
-  max-width: 580px;
+  width: 92vw;
+  max-width: 960px;
 }
 
 .modal-header {
