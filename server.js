@@ -572,26 +572,29 @@ async function handleMedia(req, res, query) {
   const mdRoot = getMdRoot();
   let resolvedPath = null;
 
-  // Candidate paths to check in order of priority
+  // Candidate paths to check in order of priority (Climb from docFolder up to mdRoot)
   const candidates = [];
 
-  // 1. Direct path inside vault if relative subpath specified
-  if (rawPath.includes('/')) {
-    candidates.push(path.join(mdRoot, rawPath));
+  let currFolder = docFolder;
+  while (true) {
+    if (currFolder && currFolder !== '.') {
+      candidates.push(path.join(mdRoot, currFolder, rawPath));
+      candidates.push(path.join(mdRoot, currFolder, baseName));
+      candidates.push(path.join(mdRoot, currFolder, 'z-附件', baseName));
+      candidates.push(path.join(mdRoot, currFolder, 'attachments', baseName));
+      candidates.push(path.join(mdRoot, currFolder, 'media', baseName));
+    } else {
+      candidates.push(path.join(mdRoot, rawPath));
+      candidates.push(path.join(mdRoot, baseName));
+      candidates.push(path.join(mdRoot, 'z-附件', baseName));
+      candidates.push(path.join(mdRoot, 'attachments', baseName));
+      candidates.push(path.join(mdRoot, 'media', baseName));
+    }
+    if (!currFolder || currFolder === '.' || currFolder === '/' || currFolder === '') break;
+    const parent = path.dirname(currFolder);
+    if (parent === currFolder) break;
+    currFolder = (parent === '.' || parent === '/') ? '' : parent;
   }
-  // 2. Folder relative to current document
-  if (docFolder) {
-    candidates.push(path.join(mdRoot, docFolder, rawPath));
-    candidates.push(path.join(mdRoot, docFolder, baseName));
-    candidates.push(path.join(mdRoot, docFolder, 'attachments', baseName));
-    candidates.push(path.join(mdRoot, docFolder, 'media', baseName));
-    candidates.push(path.join(mdRoot, docFolder, 'z-附件', baseName));
-  }
-  // 3. Vault root + baseName & common subfolders
-  candidates.push(path.join(mdRoot, baseName));
-  candidates.push(path.join(mdRoot, 'attachments', baseName));
-  candidates.push(path.join(mdRoot, 'media', baseName));
-  candidates.push(path.join(mdRoot, 'z-附件', baseName));
 
   for (const cand of candidates) {
     try {
