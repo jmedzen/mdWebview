@@ -2862,7 +2862,7 @@
 
     const countEl = $('adminLogsCount');
     if (countEl) {
-      countEl.textContent = `共 ${filtered.length} 條日誌紀錄 (最多顯示最近 250 條)`;
+      countEl.textContent = `共 ${filtered.length} 條日誌紀錄 (最多顯示最近 5000 條)`;
     }
 
     if (filtered.length === 0) {
