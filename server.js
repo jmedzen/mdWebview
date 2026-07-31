@@ -554,24 +554,6 @@ function handleFile(req, res, query) {
 }
 
 // ── API: Media & Image File Server ───────────────────────────
-async function findMediaFileAsync(targetName, dir) {
-  const cleanTarget = targetName.toLowerCase();
-  try {
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue;
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const found = await findMediaFileAsync(targetName, fullPath);
-        if (found) return found;
-      } else if (entry.name.toLowerCase() === cleanTarget) {
-        return fullPath;
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
 async function handleMedia(req, res, query) {
   let rawPath = query.path ? decodeURIComponent(query.path).trim() : '';
   if (!rawPath) {
@@ -603,12 +585,13 @@ async function handleMedia(req, res, query) {
     candidates.push(path.join(mdRoot, docFolder, baseName));
     candidates.push(path.join(mdRoot, docFolder, 'attachments', baseName));
     candidates.push(path.join(mdRoot, docFolder, 'media', baseName));
-    candidates.push(path.join(mdRoot, docFolder, '999 backup', baseName));
+    candidates.push(path.join(mdRoot, docFolder, 'z-附件', baseName));
   }
   // 3. Vault root + baseName & common subfolders
   candidates.push(path.join(mdRoot, baseName));
   candidates.push(path.join(mdRoot, 'attachments', baseName));
   candidates.push(path.join(mdRoot, 'media', baseName));
+  candidates.push(path.join(mdRoot, 'z-附件', baseName));
 
   for (const cand of candidates) {
     try {
@@ -618,11 +601,6 @@ async function handleMedia(req, res, query) {
         break;
       }
     } catch (_) {}
-  }
-
-  // 4. Smart recursive search fallback if standalone filename
-  if (!resolvedPath) {
-    resolvedPath = await findMediaFileAsync(baseName, mdRoot);
   }
 
   if (!resolvedPath) {
