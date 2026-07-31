@@ -153,16 +153,16 @@ function flushQueue() {
   if (jobQueue.length === 0) return;
   const freeWorker = workerPool.find(w => w.idle);
   if (!freeWorker) return;
-  const { jobId, body, resolve, reject } = jobQueue.shift();
+  const { jobId, body, filePath, resolve, reject } = jobQueue.shift();
   jobCallbacks.set(jobId, { resolve, reject });
   freeWorker.currentJobId = jobId;
   freeWorker.idle = false;
-  freeWorker.postMessage({ jobId, body });
+  freeWorker.postMessage({ jobId, body, filePath });
 }
 
 const JOB_TIMEOUT_MS = 30000; // 30 seconds
 
-function renderWithWorker(body) {
+function renderWithWorker(body, filePath) {
   return new Promise((resolve, reject) => {
     const jobId = ++jobIdSeq;
     const timer = setTimeout(() => {
@@ -181,10 +181,10 @@ function renderWithWorker(body) {
       jobCallbacks.set(jobId, { resolve: wrappedResolve, reject: wrappedReject });
       freeWorker.currentJobId = jobId;
       freeWorker.idle = false;
-      freeWorker.postMessage({ jobId, body });
+      freeWorker.postMessage({ jobId, body, filePath });
     } else {
       // All workers busy — queue the job
-      jobQueue.push({ jobId, body, resolve: wrappedResolve, reject: wrappedReject });
+      jobQueue.push({ jobId, body, filePath, resolve: wrappedResolve, reject: wrappedReject });
     }
   });
 }
@@ -553,6 +553,137 @@ function handleFile(req, res, query) {
     });
 }
 
+// ── API: Media & Image File Server ───────────────────────────
+async function findMediaFileAsync(targetName, dir) {
+  const cleanTarget = targetName.toLowerCase();
+  try {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = await findMediaFileAsync(targetName, fullPath);
+        if (found) return found;
+      } else if (entry.name.toLowerCase() === cleanTarget) {
+        return fullPath;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function handleMedia(req, res, query) {
+  let rawPath = query.path ? decodeURIComponent(query.path).trim() : '';
+  if (!rawPath) {
+    res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Missing path parameter');
+  }
+
+  // Normalize Windows path separators
+  if (rawPath.includes('\\')) {
+    rawPath = rawPath.replace(/\\/g, '/');
+  }
+  const baseName = path.basename(rawPath);
+  const docPath = query.doc ? decodeURIComponent(query.doc).trim() : '';
+  const docFolder = docPath ? path.dirname(docPath) : '';
+
+  const mdRoot = getMdRoot();
+  let resolvedPath = null;
+
+  // Candidate paths to check in order of priority
+  const candidates = [];
+
+  // 1. Direct path inside vault if relative subpath specified
+  if (rawPath.includes('/')) {
+    candidates.push(path.join(mdRoot, rawPath));
+  }
+  // 2. Folder relative to current document
+  if (docFolder) {
+    candidates.push(path.join(mdRoot, docFolder, rawPath));
+    candidates.push(path.join(mdRoot, docFolder, baseName));
+    candidates.push(path.join(mdRoot, docFolder, 'attachments', baseName));
+    candidates.push(path.join(mdRoot, docFolder, 'media', baseName));
+    candidates.push(path.join(mdRoot, docFolder, '999 backup', baseName));
+  }
+  // 3. Vault root + baseName & common subfolders
+  candidates.push(path.join(mdRoot, baseName));
+  candidates.push(path.join(mdRoot, 'attachments', baseName));
+  candidates.push(path.join(mdRoot, 'media', baseName));
+
+  for (const cand of candidates) {
+    try {
+      const stat = await fs.promises.stat(cand);
+      if (stat.isFile()) {
+        resolvedPath = cand;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  // 4. Smart recursive search fallback if standalone filename
+  if (!resolvedPath) {
+    resolvedPath = await findMediaFileAsync(baseName, mdRoot);
+  }
+
+  if (!resolvedPath) {
+    res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Media not found');
+  }
+
+  // Security check: ensure resolvedPath stays within mdRoot
+  const relative = path.relative(mdRoot, resolvedPath);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  if (!isSafe) {
+    res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Access denied');
+  }
+
+  const ext = path.extname(resolvedPath).toLowerCase();
+  const MIME_TYPES = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.bmp': 'image/bmp',
+    '.pdf': 'application/pdf'
+  };
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+  try {
+    const stat = await fs.promises.stat(resolvedPath);
+    const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'public, max-age=86400' }, SECURITY_HEADERS));
+      return res.end();
+    }
+
+    if (req.method === 'HEAD') {
+      res.writeHead(200, Object.assign({
+        'Content-Type': contentType,
+        'Content-Length': stat.size,
+        'ETag': etag,
+        'Cache-Control': 'public, max-age=86400'
+      }, SECURITY_HEADERS));
+      return res.end();
+    }
+
+    const stream = fs.createReadStream(resolvedPath);
+    res.writeHead(200, Object.assign({
+      'Content-Type': contentType,
+      'Content-Length': stat.size,
+      'ETag': etag,
+      'Cache-Control': 'public, max-age=86400'
+    }, SECURITY_HEADERS));
+    stream.pipe(res);
+  } catch (err) {
+    res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    res.end('Error serving media');
+  }
+}
+
 
 async function handleRender(req, res, query) {
   const filePath = query.path;
@@ -602,7 +733,7 @@ async function handleRender(req, res, query) {
     }
 
     // Offload CPU-bound rendering to worker thread pool
-    const html = await renderWithWorker(raw);
+    const html = await renderWithWorker(raw, filePath);
 
     // Encode frontmatter as base64 in response header (avoids JSON wrapping the HTML)
     const metaHeader = Buffer.from(JSON.stringify(frontmatter), 'utf-8').toString('base64');
@@ -1118,6 +1249,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/file' && req.method === 'GET') {
     return handleFile(req, res, query);
+  }
+  if (pathname === '/api/media' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleMedia(req, res, query);
   }
   if (pathname === '/api/render' && req.method === 'GET') {
     return handleRender(req, res, query);

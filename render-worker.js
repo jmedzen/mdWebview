@@ -8,9 +8,9 @@ const { marked } = require('marked');
 
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 
-parentPort.on('message', ({ jobId, body }) => {
+parentPort.on('message', ({ jobId, body, filePath }) => {
   try {
-    const html = renderMarkdownSSR(body);
+    const html = renderMarkdownSSR(body, filePath);
     parentPort.postMessage({ jobId, html });
   } catch (err) {
     parentPort.postMessage({ jobId, error: err.message });
@@ -35,9 +35,56 @@ function preprocessObsidianFormatting(text) {
   return text;
 }
 
-function renderMarkdownSSR(body) {
+function convertObsidianImages(text, currentFilePath) {
+  if (!text) return '';
+
+  // 1. Match Obsidian double bracket image embeds: ![[image.png]] or ![[image.png|300]] or ![[image.png|300x200]]
+  text = text.replace(/!\[\[([^\]\n]+?\.(?:png|jpg|jpeg|gif|svg|webp|ico|bmp))(?:\|([^\]\n]+))?\]\]/gi, (match, imgPath, options) => {
+    imgPath = imgPath.trim();
+    let styleAttr = '';
+    let altAttr = escapeHtml(imgPath);
+
+    if (options) {
+      options = options.trim();
+      if (/^\d+$/.test(options)) {
+        styleAttr = ` style="width:${options}px; max-width:100%; height:auto;"`;
+      } else if (/^\d+x\d+$/i.test(options)) {
+        const [w, h] = options.toLowerCase().split('x');
+        styleAttr = ` style="width:${w}px; height:${h}px; max-width:100%;"`;
+      } else {
+        altAttr = escapeHtml(options);
+      }
+    }
+
+    const src = `/api/media?path=${encodeURIComponent(imgPath)}&doc=${encodeURIComponent(currentFilePath || '')}`;
+    return `<img class="markdown-img" src="${src}" alt="${altAttr}"${styleAttr} loading="lazy" />`;
+  });
+
+  // 2. Match Obsidian shorthand single bracket image embeds: ![image.png] (not followed by '(')
+  text = text.replace(/!\[([^\]\n]+\.(?:png|jpg|jpeg|gif|svg|webp|ico|bmp))\](?!\()/gi, (match, imgPath) => {
+    imgPath = imgPath.trim();
+    const src = `/api/media?path=${encodeURIComponent(imgPath)}&doc=${encodeURIComponent(currentFilePath || '')}`;
+    return `<img class="markdown-img" src="${src}" alt="${escapeHtml(imgPath)}" loading="lazy" />`;
+  });
+
+  return text;
+}
+
+function normalizeImageSrcs(html, currentFilePath) {
+  if (!html || !html.includes('<img')) return html;
+  return html.replace(/<img\s+([^>]*?)src=["']([^"']+)["']([^>]*?)>/gi, (match, p1, src, p2) => {
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:') || src.startsWith('/api/media')) {
+      return match;
+    }
+    const newSrc = `/api/media?path=${encodeURIComponent(src)}&doc=${encodeURIComponent(currentFilePath || '')}`;
+    return `<img ${p1}src="${newSrc}"${p2}>`;
+  });
+}
+
+function renderMarkdownSSR(body, filePath) {
   if (!body) return '';
   body = preprocessObsidianFormatting(body);
+  body = convertObsidianImages(body, filePath);
 
   // 1. Extract footnote definitions (O(N) single pass)
   const lines = body.split('\n');
@@ -87,6 +134,7 @@ function renderMarkdownSSR(body) {
   // 3. Parse main body to HTML
   let html = marked.parse(annotatedLines.join('\n'));
   html = sanitizeDangerousTags(html);
+  html = normalizeImageSrcs(html, filePath);
 
   // 4. Convert Obsidian-style [[wikilinks]] on HTML output
   if (html.includes('[[')) {
