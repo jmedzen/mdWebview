@@ -1595,28 +1595,6 @@
     }
 
     container.innerHTML = parts.join('');
-
-    // Event delegation: single click handler for all search result interactions
-    container.addEventListener('click', (e) => {
-      // Collapse toggle on file header click
-      const fileEl = e.target.closest('.search-result-file');
-      if (fileEl) {
-        const body = fileEl.nextElementSibling;
-        const chevron = fileEl.querySelector('.search-result-file-chevron');
-        if (body) {
-          body.classList.toggle('collapsed');
-          if (chevron) chevron.classList.toggle('collapsed');
-        }
-        return;
-      }
-      // Open-file click on result items — pass line number for auto-scrolling
-      const itemEl = e.target.closest('.search-result-item');
-      if (itemEl) {
-        const file = itemEl.getAttribute('data-file');
-        const line = itemEl.getAttribute('data-line');
-        openFile(file, line ? parseInt(line, 10) : null);
-      }
-    });
   }
 
   function searchCollapseAll() {
@@ -2355,27 +2333,58 @@
     const fontInc = $('fontIncrease');
     if (fontInc) fontInc.addEventListener('click', () => applyFontSize(state.fontSize + 1));
 
-    // ── Global search ──
-    const debouncedSearch = debounce(performGlobalSearch, 400);
-    $('globalSearchInput').addEventListener('input', (e) => {
-      debouncedSearch(e.target.value);
-    });
-    $('globalSearchInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        performGlobalSearch(e.target.value);
-      }
-    });
-    $('globalSearchBtn').addEventListener('click', () => {
-      performGlobalSearch($('globalSearchInput').value);
-    });
+    // ── Global search (Triggers ONLY on Enter key or Search button click) ──
+    const searchInput = $('globalSearchInput');
+    const searchBtn = $('globalSearchBtn');
 
-    const searchFolderSelect = $('searchFolderSelect');
-    if (searchFolderSelect) {
-      searchFolderSelect.addEventListener('change', () => {
-        const query = $('globalSearchInput').value.trim();
-        if (query) {
-          performGlobalSearch(query);
+    if (searchInput) {
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          performGlobalSearch(searchInput.value);
+        }
+      });
+    }
+
+    if (searchBtn) {
+      searchBtn.addEventListener('click', () => {
+        if (searchInput) {
+          performGlobalSearch(searchInput.value);
+        }
+      });
+    }
+
+    // ── Search results container click event delegation (bound ONCE) ──
+    const searchResultsContainer = $('searchResults');
+    if (searchResultsContainer) {
+      searchResultsContainer.addEventListener('click', (e) => {
+        // Toggle / Expand file header node
+        const fileEl = e.target.closest('.search-result-file');
+        if (fileEl) {
+          const groupEl = fileEl.closest('.search-result-group');
+          const body = groupEl ? groupEl.querySelector('.search-result-group-body') : fileEl.nextElementSibling;
+          const chevron = fileEl.querySelector('.search-result-file-chevron');
+          if (body) {
+            const isCollapsed = body.classList.contains('collapsed');
+            if (isCollapsed) {
+              // Expand sub nodes
+              body.classList.remove('collapsed');
+              if (chevron) chevron.classList.remove('collapsed');
+            } else {
+              // Collapse sub nodes
+              body.classList.add('collapsed');
+              if (chevron) chevron.classList.add('collapsed');
+            }
+          }
+          return;
+        }
+
+        // Open-file click on result item — pass line number for auto-scrolling
+        const itemEl = e.target.closest('.search-result-item');
+        if (itemEl) {
+          const file = itemEl.getAttribute('data-file');
+          const line = itemEl.getAttribute('data-line');
+          openFile(file, line ? parseInt(line, 10) : null);
         }
       });
     }

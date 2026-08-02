@@ -927,8 +927,8 @@ async function handleSearch(req, res, query) {
     }
 
     const isSingleFile = files.length === 1;
-    const MAX_RESULTS = isSingleFile ? 1000 : 300;
-    const MAX_FILE_MATCHES = isSingleFile ? 1000 : 50;
+    const MAX_RESULTS = isSingleFile ? 5000 : 1500;
+    const MAX_FILE_MATCHES = isSingleFile ? 5000 : 250;
 
     const limit = 10;
     let fileIdx = 0;
