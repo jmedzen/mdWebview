@@ -400,7 +400,9 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
 };
 
 let rawIndexHtml = null;
@@ -1285,7 +1287,32 @@ function generateSessionToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+function verifySameOrigin(req) {
+  const origin = req.headers['origin'];
+  const referer = req.headers['referer'];
+  const host = req.headers['host'];
+  if (!host) return true;
+
+  if (origin) {
+    try {
+      const originHost = new URL(origin).host;
+      if (originHost !== host) return false;
+    } catch (_) {
+      return false;
+    }
+  } else if (referer) {
+    try {
+      const refererHost = new URL(referer).host;
+      if (refererHost !== host) return false;
+    } catch (_) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function isAuthenticated(req) {
+  if (!verifySameOrigin(req)) return false;
   const token = req.headers['x-admin-token'];
   if (!token) return false;
   const session = sessions.get(token);

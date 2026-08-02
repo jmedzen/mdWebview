@@ -3162,3 +3162,129 @@ details.callout[open] > summary .callout-fold-icon {
 .callout-content p:empty {
   display: none !important;
 }
+
+/* ── Theme Overrides for Callouts (Light & Zen Modes Contrast Fix) ─────── */
+
+/* Obsidian Light Theme Callouts */
+[data-theme="obsidian-light"] .callout {
+  --callout-color: #5c5f77;
+  --callout-bg: rgba(0, 0, 0, 0.04);
+  --callout-border: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="obsidian-light"] .callout[data-callout="quote"],
+[data-theme="obsidian-light"] .callout[data-callout="cite"] {
+  --callout-color: #5c5f77;
+  --callout-bg: rgba(0, 0, 0, 0.04);
+  --callout-border: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="obsidian-light"] .callout[data-callout="note"],
+[data-theme="obsidian-light"] .callout[data-callout="info"],
+[data-theme="obsidian-light"] .callout[data-callout="todo"] {
+  --callout-color: #1e66f5;
+  --callout-bg: rgba(30, 102, 245, 0.07);
+  --callout-border: rgba(30, 102, 245, 0.22);
+}
+
+[data-theme="obsidian-light"] .callout[data-callout="abstract"],
+[data-theme="obsidian-light"] .callout[data-callout="summary"],
+[data-theme="obsidian-light"] .callout[data-callout="tldr"],
+[data-theme="obsidian-light"] .callout[data-callout="tip"],
+[data-theme="obsidian-light"] .callout[data-callout="hint"],
+[data-theme="obsidian-light"] .callout[data-callout="important"] {
+  --callout-color: #179299;
+  --callout-bg: rgba(23, 146, 153, 0.07);
+  --callout-border: rgba(23, 146, 153, 0.22);
+}
+
+[data-theme="obsidian-light"] .callout[data-callout="success"],
+[data-theme="obsidian-light"] .callout[data-callout="check"],
+[data-theme="obsidian-light"] .callout[data-callout="done"] {
+  --callout-color: #40a02b;
+  --callout-bg: rgba(64, 160, 43, 0.07);
+  --callout-border: rgba(64, 160, 43, 0.22);
+}
+
+[data-theme="obsidian-light"] .callout[data-callout="question"],
+[data-theme="obsidian-light"] .callout[data-callout="help"],
+[data-theme="obsidian-light"] .callout[data-callout="faq"],
+[data-theme="obsidian-light"] .callout[data-callout="warning"],
+[data-theme="obsidian-light"] .callout[data-callout="caution"],
+[data-theme="obsidian-light"] .callout[data-callout="attention"] {
+  --callout-color: #df8e1d;
+  --callout-bg: rgba(223, 142, 29, 0.07);
+  --callout-border: rgba(223, 142, 29, 0.22);
+}
+
+[data-theme="obsidian-light"] .callout[data-callout="failure"],
+[data-theme="obsidian-light"] .callout[data-callout="fail"],
+[data-theme="obsidian-light"] .callout[data-callout="missing"],
+[data-theme="obsidian-light"] .callout[data-callout="danger"],
+[data-theme="obsidian-light"] .callout[data-callout="error"] {
+  --callout-color: #d20f39;
+  --callout-bg: rgba(210, 15, 57, 0.07);
+  --callout-border: rgba(210, 15, 57, 0.22);
+}
+
+/* 禪風 Zen Theme Callouts */
+[data-theme="zen"] .callout {
+  --callout-color: #6d5a42;
+  --callout-bg: rgba(90, 78, 62, 0.06);
+  --callout-border: rgba(90, 78, 62, 0.18);
+}
+
+[data-theme="zen"] .callout[data-callout="quote"],
+[data-theme="zen"] .callout[data-callout="cite"] {
+  --callout-color: #6d5a42;
+  --callout-bg: rgba(90, 78, 62, 0.06);
+  --callout-border: rgba(90, 78, 62, 0.18);
+}
+
+[data-theme="zen"] .callout[data-callout="note"],
+[data-theme="zen"] .callout[data-callout="info"],
+[data-theme="zen"] .callout[data-callout="todo"] {
+  --callout-color: #4a6b82;
+  --callout-bg: rgba(74, 107, 130, 0.08);
+  --callout-border: rgba(74, 107, 130, 0.22);
+}
+
+[data-theme="zen"] .callout[data-callout="abstract"],
+[data-theme="zen"] .callout[data-callout="summary"],
+[data-theme="zen"] .callout[data-callout="tldr"],
+[data-theme="zen"] .callout[data-callout="tip"],
+[data-theme="zen"] .callout[data-callout="hint"],
+[data-theme="zen"] .callout[data-callout="important"] {
+  --callout-color: #4a8274;
+  --callout-bg: rgba(74, 130, 116, 0.08);
+  --callout-border: rgba(74, 130, 116, 0.22);
+}
+
+[data-theme="zen"] .callout[data-callout="success"],
+[data-theme="zen"] .callout[data-callout="check"],
+[data-theme="zen"] .callout[data-callout="done"] {
+  --callout-color: #537a44;
+  --callout-bg: rgba(83, 122, 68, 0.08);
+  --callout-border: rgba(83, 122, 68, 0.22);
+}
+
+[data-theme="zen"] .callout[data-callout="question"],
+[data-theme="zen"] .callout[data-callout="help"],
+[data-theme="zen"] .callout[data-callout="faq"],
+[data-theme="zen"] .callout[data-callout="warning"],
+[data-theme="zen"] .callout[data-callout="caution"],
+[data-theme="zen"] .callout[data-callout="attention"] {
+  --callout-color: #8c6d3b;
+  --callout-bg: rgba(140, 109, 59, 0.08);
+  --callout-border: rgba(140, 109, 59, 0.22);
+}
+
+[data-theme="zen"] .callout[data-callout="failure"],
+[data-theme="zen"] .callout[data-callout="fail"],
+[data-theme="zen"] .callout[data-callout="missing"],
+[data-theme="zen"] .callout[data-callout="danger"],
+[data-theme="zen"] .callout[data-callout="error"] {
+  --callout-color: #9e4848;
+  --callout-bg: rgba(158, 72, 72, 0.08);
+  --callout-border: rgba(158, 72, 72, 0.22);
+}

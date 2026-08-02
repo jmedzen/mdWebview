@@ -209,10 +209,15 @@ function renderMarkdownSSR(body, filePath) {
 
 function sanitizeDangerousTags(html) {
   if (!html) return '';
-  // Strip dangerous inline scripts and event handlers from rendered HTML output
   return html
+    // Strip script tags and content
     .replace(/<script\b[^<]*([\s\S]*?)<\/script>/gi, '')
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    // Strip dangerous iframe, embed, object, frame, frameset tags
+    .replace(/<\/?(?:iframe|embed|object|frame|frameset)\b[^>]*>/gi, '')
+    // Strip inline event handlers (onerror=, onload=, onclick=, etc.)
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // Neutralize javascript: pseudo-protocol in href or src
+    .replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, '$1="#"');
 }
 
 /**

@@ -160,6 +160,7 @@ function parseMarkdown(body, filePath) {
 
   // ── 3. Parse main markdown body to HTML ─────────────────────
   let html = marked.parse(annotatedLines.join('\n'));
+  html = sanitizeDangerousTags(html);
   html = normalizeImageSrcs(html, filePath);
 
   // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
@@ -259,6 +260,19 @@ function convertWikilinks(html) {
 
     return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="javascript:void(0)" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
   });
+}
+
+function sanitizeDangerousTags(html) {
+  if (!html) return '';
+  return html
+    // Strip script tags and content
+    .replace(/<script\b[^<]*([\s\S]*?)<\/script>/gi, '')
+    // Strip dangerous iframe, embed, object, frame, frameset tags
+    .replace(/<\/?(?:iframe|embed|object|frame|frameset)\b[^>]*>/gi, '')
+    // Strip inline event handlers (onerror=, onload=, onclick=, etc.)
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // Neutralize javascript: pseudo-protocol in href or src
+    .replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, '$1="#"');
 }
 
 function escapeHtml(s) {
