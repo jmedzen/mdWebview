@@ -9,12 +9,13 @@ RUN npm install --production
 # Copy all essential application files
 COPY server.js app.js index.html style.css render-worker.js md-worker.js marked.min.js ./
 
-# Create data and md directory
-RUN mkdir -p /data /app/md
+# Create data, logs, and md directory
+RUN mkdir -p /data /data/logs /app/md
 
 # Default environment variables
 ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
+    LOG_DIR=/data/logs \
     MD_ROOT=/data/md
 
 # Expose default port

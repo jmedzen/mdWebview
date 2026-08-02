@@ -13,6 +13,8 @@ services:
     volumes:
       # Mount local ./data folder for config persistence
       - ./data:/data
+      # Mount local ./logs folder for 90-day log persistence
+      - ./logs:/data/logs
       # Mount local ./md directory so markdown files are directly accessible inside container
       - ./md:/data/md
     restart: unless-stopped

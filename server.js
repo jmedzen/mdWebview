@@ -17,7 +17,7 @@ const MAX_LOG_BUFFER = 5000;
 const systemLogBuffer = [];
 
 // ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
-const LOG_DIR = path.join(process.cwd(), 'logs');
+const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
 try {
   if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true });
