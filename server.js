@@ -921,71 +921,90 @@ async function handleSearch(req, res, query) {
     }
     let files = flattenTreeToFiles(cachedTree, getMdRoot());
 
+    const isFilenameOnly = targetFolder === '__FILENAME_ONLY__';
+    const folderFilter = isFilenameOnly ? '' : targetFolder;
+
     // Filter files by target directory or specific file path if specified
-    if (targetFolder) {
-      files = files.filter(f => f.relPath === targetFolder || f.relPath.startsWith(targetFolder + '/'));
+    if (folderFilter) {
+      files = files.filter(f => f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
     }
 
     const isSingleFile = files.length === 1;
     const MAX_RESULTS = isSingleFile ? 5000 : 1500;
     const MAX_FILE_MATCHES = isSingleFile ? 5000 : 250;
 
-    const limit = 10;
-    let fileIdx = 0;
-
-    async function worker() {
-      while (fileIdx < files.length && results.length < MAX_RESULTS) {
-        const file = files[fileIdx++];
-        if (!file) break;
-        try {
-          const content = await fs.promises.readFile(file.fullPath, 'utf-8');
-          // Fast check to avoid splitting the file if it has no match
-          if (!content.includes(q)) continue;
-
-          let pos = 0;
-          let lineNum = 1;
-          let fileMatches = 0;
-          while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
-            const matchIdx = content.indexOf(q, pos);
-            if (matchIdx === -1) break;
-            
-            // Count newlines from pos to matchIdx to get line number
-            for (let j = pos; j < matchIdx; j++) {
-              if (content.charCodeAt(j) === 10) lineNum++;
-            }
-            
-            // Extract snippet around match
-            const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
-            let lineEnd = content.indexOf('\n', matchIdx);
-            if (lineEnd === -1) lineEnd = content.length;
-            const lineText = content.substring(lineStart, lineEnd);
-            const idxInLine = matchIdx - lineStart;
-            const start = Math.max(0, idxInLine - SNIPPET_RADIUS);
-            const end = Math.min(lineText.length, idxInLine + q.length + SNIPPET_RADIUS);
-            let snippet = lineText.substring(start, end).trim();
-            if (start > 0) snippet = '…' + snippet;
-            if (end < lineText.length) snippet = snippet + '…';
-            
-            results.push({
-              file: file.relPath,
-              fileName: file.name.replace(/\.md$/, ''),
-              line: lineNum,
-              snippet: snippet,
-            });
-            fileMatches++;
-            pos = matchIdx + q.length;
-          }
-        } catch (err) {
-          // ignore
+    if (isFilenameOnly) {
+      const qLower = q.toLowerCase();
+      for (const file of files) {
+        if (results.length >= MAX_RESULTS) break;
+        const cleanName = file.name.replace(/\.md$/, '');
+        if (cleanName.toLowerCase().includes(qLower) || file.relPath.toLowerCase().includes(qLower)) {
+          results.push({
+            file: file.relPath,
+            fileName: cleanName,
+            line: 1,
+            snippet: `📄 檔名對比匹配: "${file.relPath}"`,
+          });
         }
       }
-    }
+    } else {
+      const limit = 10;
+      let fileIdx = 0;
 
-    const workers = [];
-    for (let i = 0; i < limit; i++) {
-      workers.push(worker());
+      async function worker() {
+        while (fileIdx < files.length && results.length < MAX_RESULTS) {
+          const file = files[fileIdx++];
+          if (!file) break;
+          try {
+            const content = await fs.promises.readFile(file.fullPath, 'utf-8');
+            // Fast check to avoid splitting the file if it has no match
+            if (!content.includes(q)) continue;
+
+            let pos = 0;
+            let lineNum = 1;
+            let fileMatches = 0;
+            while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
+              const matchIdx = content.indexOf(q, pos);
+              if (matchIdx === -1) break;
+              
+              // Count newlines from pos to matchIdx to get line number
+              for (let j = pos; j < matchIdx; j++) {
+                if (content.charCodeAt(j) === 10) lineNum++;
+              }
+              
+              // Extract snippet around match
+              const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
+              let lineEnd = content.indexOf('\n', matchIdx);
+              if (lineEnd === -1) lineEnd = content.length;
+              const lineText = content.substring(lineStart, lineEnd);
+              const idxInLine = matchIdx - lineStart;
+              const start = Math.max(0, idxInLine - SNIPPET_RADIUS);
+              const end = Math.min(lineText.length, idxInLine + q.length + SNIPPET_RADIUS);
+              let snippet = lineText.substring(start, end).trim();
+              if (start > 0) snippet = '…' + snippet;
+              if (end < lineText.length) snippet = snippet + '…';
+              
+              results.push({
+                file: file.relPath,
+                fileName: file.name.replace(/\.md$/, ''),
+                line: lineNum,
+                snippet: snippet,
+              });
+              fileMatches++;
+              pos = matchIdx + q.length;
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
+      }
+
+      const workers = [];
+      for (let i = 0; i < limit; i++) {
+        workers.push(worker());
+      }
+      await Promise.all(workers);
     }
-    await Promise.all(workers);
 
     const searchData = { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS };
     if (searchCache.size >= SEARCH_CACHE_MAX) {

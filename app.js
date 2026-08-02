@@ -511,6 +511,7 @@
     folders.sort((a, b) => a.path.localeCompare(b.path, 'zh-TW'));
 
     let html = '<option value="">📁 所有資料夾 (全庫搜尋)</option>';
+    html += '<option value="__FILENAME_ONLY__">🏷️ 全庫檔名搜尋 (僅比對檔名)</option>';
     html += '<option value="__CURRENT_FILE__">📄 本頁搜尋 (僅限目前開啟檔案)</option>';
     folders.forEach(f => {
       const depth = (f.path.match(/\//g) || []).length;
