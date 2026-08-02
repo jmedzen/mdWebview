@@ -4,6 +4,8 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const os = require('os');
+const net = require('net');
+const readline = require('readline');
 const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
 
@@ -89,13 +91,27 @@ function pushToLogBuffer(level, tag, msg, ip = '127.0.0.1', extra = {}) {
   let messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
   messageStr = safeDecodeURI(messageStr);
 
+  // Security & Performance: truncate oversized messages to prevent DoS / log bloat
+  if (messageStr.length > 2000) {
+    messageStr = messageStr.substring(0, 2000) + '… [truncated]';
+  }
+
+  const safeIp = (ip && typeof ip === 'string' && net.isIP(ip.trim())) ? ip.trim() : '127.0.0.1';
+
+  let safePath = extra.path;
+  if (safePath && typeof safePath === 'string' && safePath.length > 500) {
+    safePath = safePath.substring(0, 500) + '…';
+  }
+
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     tag,
-    ip: ip || '127.0.0.1',
+    ip: safeIp,
     message: messageStr,
-    ...extra
+    ...(safePath ? { path: safePath } : {}),
+    ...(extra.query ? { query: String(extra.query).substring(0, 300) } : {}),
+    ...(extra.durationMs ? { durationMs: extra.durationMs } : {})
   };
 
   systemLogBuffer.push(entry);
@@ -1131,11 +1147,28 @@ const LOCK_DURATION = 15 * 60 * 1000; // 15 minutes lockout
 const MAX_LOGIN_ENTRIES = 10000;
 
 function getClientIP(req) {
+  let ip = '';
   const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
+  if (forwarded && typeof forwarded === 'string') {
+    ip = forwarded.split(',')[0].trim();
   }
-  return req.socket.remoteAddress || 'unknown';
+  if (!ip || !net.isIP(ip)) {
+    const realIp = req.headers['x-real-ip'];
+    if (realIp && typeof realIp === 'string' && net.isIP(realIp.trim())) {
+      ip = realIp.trim();
+    }
+  }
+  if (!ip || !net.isIP(ip)) {
+    ip = req.socket ? (req.socket.remoteAddress || '127.0.0.1') : '127.0.0.1';
+  }
+  // Remove IPv6 mapped IPv4 prefix if present (::ffff:127.0.0.1 -> 127.0.0.1)
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
+  if (!net.isIP(ip)) {
+    ip = '127.0.0.1';
+  }
+  return ip.substring(0, 45);
 }
 
 // ── Global API Rate Limiter (Sliding Window per IP: max 30 req/sec) ─────────
@@ -1306,8 +1339,27 @@ const server = http.createServer((req, res) => {
   }
 
 // ── Analytics Aggregator & Data Exporter ────────────────────────────────────
+const analyticsCache = new Map();
+const ANALYTICS_CACHE_TTL = 60000; // 60s in-memory cache
+
+function sanitizeCsvField(val) {
+  if (val === null || val === undefined) return '""';
+  let str = String(val);
+  // Neutralize CSV Formula Injection characters (=, +, -, @, tab, CR)
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
 async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
+  const cacheKey = `${rangeDays}d-${requestedTz}`;
+  const cached = analyticsCache.get(cacheKey);
   const now = Date.now();
+  if (cached && (now - cached.timestamp) < ANALYTICS_CACHE_TTL) {
+    return cached.data;
+  }
+
   const cutoffTime = now - (rangeDays * 24 * 60 * 60 * 1000);
 
   let files = [];
@@ -1324,9 +1376,11 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
       const stats = await fs.promises.stat(filePath);
       if (stats.mtimeMs < cutoffTime - (24 * 60 * 60 * 1000)) continue;
 
-      const content = await fs.promises.readFile(filePath, 'utf-8');
-      const lines = content.split('\n');
-      for (const line of lines) {
+      // Stream line-by-line to prevent Event Loop freezing and OOM memory crashes
+      const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+      for await (const line of rl) {
         if (!line.trim()) continue;
         try {
           const item = JSON.parse(line);
@@ -1456,7 +1510,7 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  return {
+  const resultData = {
     range: `${rangeDays}d`,
     tz: requestedTz,
     summary: {
@@ -1470,6 +1524,9 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
     dailyTrend,
     ipDistribution
   };
+
+  analyticsCache.set(cacheKey, { timestamp: now, data: resultData });
+  return resultData;
 }
 
 async function handleAnalytics(req, res, query) {
@@ -1483,7 +1540,15 @@ async function handleAnalytics(req, res, query) {
 }
 
 async function handleAnalyticsExport(req, res, query) {
-  if (!isAuthenticated(req)) {
+  const token = query.token || req.headers['x-admin-token'];
+  let authorized = isAuthenticated(req);
+  if (!authorized && token && sessions.has(token)) {
+    const session = sessions.get(token);
+    if (session && Date.now() < session.expiry) {
+      authorized = true;
+    }
+  }
+  if (!authorized) {
     return sendJSON(res, 401, { error: 'Unauthorized' });
   }
 
@@ -1495,7 +1560,7 @@ async function handleAnalyticsExport(req, res, query) {
     let csv = '\uFEFF';
     csv += '排名,文章標題/檔名,文章路徑,總點閱數,獨立IP數,最後閱讀時間\n';
     data.topFiles.forEach((f, idx) => {
-      csv += `${idx + 1},"${f.fileName.replace(/"/g, '""')}","${f.path.replace(/"/g, '""')}",${f.views},${f.uniqueIps},"${f.lastAccess}"\n`;
+      csv += `${idx + 1},${sanitizeCsvField(f.fileName)},${sanitizeCsvField(f.path)},${f.views},${f.uniqueIps},${sanitizeCsvField(f.lastAccess)}\n`;
     });
 
     res.writeHead(200, Object.assign({
