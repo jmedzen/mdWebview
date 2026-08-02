@@ -3004,4 +3004,161 @@ kbd {
 }
 
 
+/* ── Obsidian Callouts Styling (Obsidian Native Aesthetic) ────────────────── */
+.callout {
+  --callout-color: #9e978e;
+  --callout-bg: rgba(255, 255, 255, 0.04);
+  --callout-border: rgba(255, 255, 255, 0.12);
 
+  margin: 1.2rem 0;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--callout-border);
+  background-color: var(--callout-bg);
+  overflow: hidden;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* Callout Color Themes by Type */
+.callout[data-callout="note"],
+.callout[data-callout="info"],
+.callout[data-callout="todo"] {
+  --callout-color: #58a6ff;
+  --callout-bg: rgba(56, 139, 253, 0.06);
+  --callout-border: rgba(56, 139, 253, 0.2);
+}
+
+.callout[data-callout="abstract"],
+.callout[data-callout="summary"],
+.callout[data-callout="tldr"],
+.callout[data-callout="tip"],
+.callout[data-callout="hint"],
+.callout[data-callout="important"] {
+  --callout-color: #39c5bb;
+  --callout-bg: rgba(57, 197, 187, 0.06);
+  --callout-border: rgba(57, 197, 187, 0.2);
+}
+
+.callout[data-callout="success"],
+.callout[data-callout="check"],
+.callout[data-callout="done"] {
+  --callout-color: #3fb950;
+  --callout-bg: rgba(63, 185, 80, 0.06);
+  --callout-border: rgba(63, 185, 80, 0.2);
+}
+
+.callout[data-callout="question"],
+.callout[data-callout="help"],
+.callout[data-callout="faq"],
+.callout[data-callout="warning"],
+.callout[data-callout="caution"],
+.callout[data-callout="attention"] {
+  --callout-color: #d29922;
+  --callout-bg: rgba(210, 153, 34, 0.06);
+  --callout-border: rgba(210, 153, 34, 0.2);
+}
+
+.callout[data-callout="failure"],
+.callout[data-callout="fail"],
+.callout[data-callout="missing"],
+.callout[data-callout="danger"],
+.callout[data-callout="error"] {
+  --callout-color: #f85149;
+  --callout-bg: rgba(248, 81, 73, 0.06);
+  --callout-border: rgba(248, 81, 73, 0.2);
+}
+
+.callout[data-callout="bug"] {
+  --callout-color: #db61a2;
+  --callout-bg: rgba(219, 97, 162, 0.06);
+  --callout-border: rgba(219, 97, 162, 0.2);
+}
+
+.callout[data-callout="example"] {
+  --callout-color: #a371f7;
+  --callout-bg: rgba(163, 113, 247, 0.06);
+  --callout-border: rgba(163, 113, 247, 0.2);
+}
+
+.callout[data-callout="quote"],
+.callout[data-callout="cite"] {
+  --callout-color: #9e978e;
+  --callout-bg: rgba(255, 255, 255, 0.04);
+  --callout-border: rgba(255, 255, 255, 0.12);
+}
+
+/* Header bar */
+.callout-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 4px 16px;
+  font-weight: 600;
+  font-size: calc(var(--content-font-size) * 0.96);
+  color: var(--callout-color);
+  background: transparent;
+  user-select: none;
+}
+
+details.callout > summary.callout-title {
+  cursor: pointer;
+  list-style: none;
+}
+details.callout > summary.callout-title::-webkit-details-marker {
+  display: none;
+}
+
+.callout-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.callout-title-inner {
+  flex: 1;
+  word-break: break-word;
+}
+
+.callout-fold-icon {
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+  color: var(--callout-color);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+details.callout[open] > summary .callout-fold-icon {
+  transform: rotate(90deg);
+}
+
+/* Body Content */
+.callout-content {
+  padding: 0 16px 12px 16px;
+  font-size: var(--content-font-size);
+  color: var(--text-normal);
+  line-height: 1.7;
+}
+
+.callout-content p {
+  margin: 0.35em 0 !important;
+}
+
+.callout-content > :first-child,
+.callout-content > p:first-child {
+  margin-top: 0 !important;
+}
+
+.callout-content > :last-child,
+.callout-content > p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.callout-content p:empty {
+  display: none !important;
+}

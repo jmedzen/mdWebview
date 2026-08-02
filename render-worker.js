@@ -117,13 +117,32 @@ function renderMarkdownSSR(body, filePath) {
   // 2. Inject line-number anchors
   const annotatedLines = [];
   let prevWasBlank = true;
+  let inBlockquote = false;
+
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i];
     const lineNum = i + 1;
     const trimmed = line.trim();
+    const isQuoteLine = /^>/.test(trimmed);
+
+    if (isQuoteLine) {
+      if (!inBlockquote) {
+        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+        annotatedLines.push(line);
+      } else {
+        const quoteContent = line.replace(/^>\s?/, '');
+        annotatedLines.push(`> <span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${quoteContent}`);
+      }
+      inBlockquote = true;
+      prevWasBlank = false;
+      continue;
+    } else {
+      inBlockquote = false;
+    }
+
     const isBlockStart =
       /^#{1,6}\s/.test(trimmed) || /^[-*+]\s/.test(trimmed) ||
-      /^\d+\.\s/.test(trimmed) || /^>/.test(trimmed) || /^```/.test(trimmed) ||
+      /^\d+\.\s/.test(trimmed) || /^```/.test(trimmed) ||
       (prevWasBlank && trimmed.length > 0);
     if (isBlockStart)
       annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
@@ -139,6 +158,11 @@ function renderMarkdownSSR(body, filePath) {
   // 4. Convert Obsidian-style [[wikilinks]] on HTML output
   if (html.includes('[[')) {
     html = convertWikilinks(html);
+  }
+
+  // 4.5. Convert Obsidian Callouts ([!NOTE], [!WARNING], etc.)
+  if (html.includes('[!')) {
+    html = convertObsidianCallouts(html);
   }
 
   // 5. Process footnote references
@@ -228,4 +252,81 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const CALLOUT_ICONS = {
+  quote: '”', cite: '”',
+  note: 'ℹ', info: 'ℹ', todo: '☑',
+  abstract: '📋', summary: '📋', tldr: '📋',
+  tip: '💡', hint: '💡', important: '💡',
+  success: '✓', check: '✓', done: '✓',
+  question: '?', help: '?', faq: '?',
+  warning: '⚠️', caution: '⚠️', attention: '⚠️',
+  failure: '✕', fail: '✕', missing: '✕',
+  danger: '⚡', error: '⚡',
+  bug: '🪲',
+  example: '🧪'
+};
+
+function convertObsidianCallouts(html) {
+  if (!html || !html.includes('[!')) return html;
+
+  let prevHtml;
+  let iterations = 0;
+
+  do {
+    prevHtml = html;
+    html = html.replace(/<blockquote>\s*(?:<p>)?\s*(?:(<span[^>]*class="line-anchor"[^>]*><\/span>)\s*)?\[!([a-zA-Z0-9_-]+)\]([+-])?(?:[ \t]+([^\n<]+))?(?:<\/p>)?([\s\S]*?)<\/blockquote>/gi, (match, lineAnchor = '', rawType, foldSign, customTitle, bodyContent) => {
+      const type = rawType.toLowerCase();
+      const icon = CALLOUT_ICONS[type] || 'ℹ';
+
+      let titleText = customTitle ? customTitle.trim() : (type.charAt(0).toUpperCase() + type.slice(1));
+      titleText = titleText.replace(/<\/p>$/i, '').trim();
+
+      let cleanBody = bodyContent ? bodyContent.trim() : '';
+
+      // Strip leading <br> tags, leading/trailing empty <p> tags, and redundant line-anchor wrappers
+      cleanBody = cleanBody
+        .replace(/^(?:\s*<br\s*\/?>\s*)+/gi, '')
+        .replace(/^(?:\s*<p>\s*(?:<span[^>]*class="line-anchor"[^>]*><\/span>|<br\s*\/?>|\s*)*<\/p>\s*)+/gi, (m) => {
+          const anchors = m.match(/<span[^>]*class="line-anchor"[^>]*><\/span>/g);
+          return anchors ? anchors.join('') : '';
+        })
+        .replace(/(?:\s*<p>\s*(?:<span[^>]*class="line-anchor"[^>]*><\/span>|<br\s*\/?>|\s*)*<\/p>\s*)+$/gi, (m) => {
+          const anchors = m.match(/<span[^>]*class="line-anchor"[^>]*><\/span>/g);
+          return anchors ? anchors.join('') : '';
+        })
+        .replace(/<p>\s*(?:<span[^>]*class="line-anchor"[^>]*><\/span>|\s*)*<\/p>/gi, (m) => {
+          const anchors = m.match(/<span[^>]*class="line-anchor"[^>]*><\/span>/g);
+          return anchors ? anchors.join('') : '';
+        })
+        .trim()
+        .replace(/^(?:\s*<br\s*\/?>\s*)+/gi, '');
+
+      const isFoldable = foldSign === '+' || foldSign === '-';
+      const isExpanded = foldSign === '+';
+
+      if (isFoldable) {
+        return `${lineAnchor}<details class="callout" data-callout="${type}"${isExpanded ? ' open' : ''}>
+  <summary class="callout-title">
+    <span class="callout-icon">${icon}</span>
+    <span class="callout-title-inner">${titleText}</span>
+    <span class="callout-fold-icon">›</span>
+  </summary>
+  <div class="callout-content">${cleanBody}</div>
+</details>`;
+      } else {
+        return `${lineAnchor}<div class="callout" data-callout="${type}">
+  <div class="callout-title">
+    <span class="callout-icon">${icon}</span>
+    <span class="callout-title-inner">${titleText}</span>
+  </div>
+  <div class="callout-content">${cleanBody}</div>
+</div>`;
+      }
+    });
+    iterations++;
+  } while (html !== prevHtml && iterations < 5 && html.includes('[!'));
+
+  return html;
 }

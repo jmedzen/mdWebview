@@ -1338,7 +1338,8 @@ const server = http.createServer((req, res) => {
   res.end = function(...args) {
     origEnd.apply(res, args);
     const duration = Date.now() - reqStart;
-    if (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50) {
+    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/render';
+    if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
       Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
       Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
@@ -1470,7 +1471,7 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
     daily.views++;
     daily.ips.add(ip);
 
-    if (entry.tag === 'Render' || entry.tag === 'ShareLink' || (entry.tag === 'HTTP' && entry.message.includes('/api/render'))) {
+    if (entry.tag === 'Render' || entry.tag === 'ShareLink') {
       let docPath = entry.path;
       if (!docPath && entry.message) {
         const match = entry.message.match(/path=([^&\s]+)/);
@@ -1497,8 +1498,12 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
       }
     }
 
-    if (entry.tag === 'Search' || (entry.tag === 'HTTP' && entry.message.includes('/api/search'))) {
+    if (entry.tag === 'Search') {
       let q = entry.query;
+      if (!q && entry.message) {
+        const match = entry.message.match(/Query: "([^"]+)"/);
+        if (match) q = match[1];
+      }
       if (!q && entry.message) {
         const match = entry.message.match(/q=([^&\s]+)/);
         if (match) q = decodeURIComponent(match[1]);
