@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.7.5">
+  <link rel="stylesheet" href="style.css?v=1.8.0">
 </head>
 <body>
   <div class="app">
@@ -441,6 +441,7 @@
       <div class="admin-tabs-nav" id="adminTabsNav">
         <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
+        <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
       </div>
 
       <!-- Tab 1: Config Form -->
@@ -508,7 +509,15 @@
         <div class="admin-logs-header">
           <span class="admin-logs-count" id="adminLogsCount">最近 5000 條系統日誌紀錄</span>
           <div class="admin-logs-actions">
-            <input type="text" id="adminLogSearchInput" class="admin-log-search" placeholder="搜尋 Log (如: HTTP, Error, Search)...">
+            <select id="adminLogTimezoneSelect" class="admin-tz-select" title="選擇時間顯示時區">
+              <option value="auto">🌐 自動偵測時區</option>
+              <option value="Asia/Taipei">🌏 台北 / 香港 (UTC+8)</option>
+              <option value="UTC">🌐 協調世界時 (UTC+0)</option>
+              <option value="Asia/Tokyo">🇯🇵 東京 (UTC+9)</option>
+              <option value="America/New_York">🇺🇸 紐約 (UTC-4/-5)</option>
+              <option value="Europe/London">🇪🇺 倫敦 (UTC+0/+1)</option>
+            </select>
+            <input type="text" id="adminLogSearchInput" class="admin-log-search" placeholder="搜尋 (如: IP, HTTP, Error)...">
             <button type="button" id="adminLogRefreshBtn" class="modal-btn submit-btn small-btn">🔄 重新整理</button>
           </div>
         </div>
@@ -516,12 +525,130 @@
           <div class="search-loading"><div class="spinner"></div><span>載入日誌中…</span></div>
         </div>
       </div>
+
+      <!-- Tab 3: Analytics Dashboard -->
+      <div class="admin-tab-pane" id="adminPaneAnalytics" style="display: none;">
+        <div class="analytics-header">
+          <div class="analytics-range-nav" id="analyticsRangeNav">
+            <button type="button" class="analytics-range-btn active" data-range="7d">7 天</button>
+            <button type="button" class="analytics-range-btn" data-range="30d">30 天</button>
+            <button type="button" class="analytics-range-btn" data-range="90d">90 天</button>
+          </div>
+          <div class="analytics-actions">
+            <select id="analyticsTimezoneSelect" class="admin-tz-select" title="統計對齊時區">
+              <option value="auto">🌐 自動偵測時區</option>
+              <option value="Asia/Taipei">🌏 台北 / 香港 (UTC+8)</option>
+              <option value="UTC">🌐 協調世界時 (UTC+0)</option>
+              <option value="Asia/Tokyo">🇯🇵 東京 (UTC+9)</option>
+              <option value="America/New_York">🇺🇸 紐約 (UTC-4/-5)</option>
+              <option value="Europe/London">🇪🇺 倫敦 (UTC+0/+1)</option>
+            </select>
+            <button type="button" id="analyticsExportCsvBtn" class="modal-btn submit-btn small-btn">📥 導出 CSV</button>
+            <button type="button" id="analyticsExportJsonBtn" class="modal-btn cancel-btn small-btn">📥 導出 JSON</button>
+          </div>
+        </div>
+
+        <div class="analytics-body" id="analyticsBody">
+          <!-- Summary Cards -->
+          <div class="analytics-cards-grid">
+            <div class="analytics-card">
+              <div class="analytics-card-icon">📖</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsTotalViews">0</div>
+                <div class="analytics-card-label">總閱讀點閱量 (Total Views)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <div class="analytics-card-icon">👥</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsUniqueIps">0</div>
+                <div class="analytics-card-label">獨立訪客 IP (Unique IPs)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <div class="analytics-card-icon">📚</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsActiveFiles">0</div>
+                <div class="analytics-card-label">被閱讀文章數 (Active Docs)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <div class="analytics-card-icon">🔍</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsTotalSearches">0</div>
+                <div class="analytics-card-label">全文搜尋總次數 (Searches)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Popular Files Table -->
+          <div class="analytics-section">
+            <h3 class="analytics-section-title">🔥 熱門閱讀筆記 Top 50 (Popular Articles)</h3>
+            <div class="analytics-table-wrapper">
+              <table class="analytics-table">
+                <thead>
+                  <tr>
+                    <th style="width: 50px; text-align: center;">排名</th>
+                    <th>文章標題 / 檔名</th>
+                    <th>路徑</th>
+                    <th style="width: 100px; text-align: right;">點閱數</th>
+                    <th style="width: 100px; text-align: right;">獨立 IP</th>
+                    <th style="width: 180px;">最後閱讀時間</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsTopFilesTable">
+                  <tr><td colspan="6" class="analytics-empty">載入數據中…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Top Searches & Top IPs Grid -->
+          <div class="analytics-grid-two">
+            <div class="analytics-section">
+              <h3 class="analytics-section-title">🔍 熱門搜尋關鍵字 (Top Searches)</h3>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px; text-align: center;">排名</th>
+                      <th>關鍵字</th>
+                      <th style="width: 100px; text-align: right;">搜尋次數</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analyticsTopSearchesTable">
+                    <tr><td colspan="3" class="analytics-empty">無關鍵字紀錄</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="analytics-section">
+              <h3 class="analytics-section-title">🌐 訪客 IP 存取統計 (Top IPs)</h3>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px; text-align: center;">排名</th>
+                      <th>IP 位址</th>
+                      <th style="width: 100px; text-align: right;">請求數</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analyticsTopIpsTable">
+                    <tr><td colspan="3" class="analytics-empty">無 IP 紀錄</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.7.5" defer></script>
-  <script src="app.js?v=1.7.5" defer></script>
+  <script src="marked.min.js?v=1.8.0" defer></script>
+  <script src="app.js?v=1.8.0" defer></script>
 </body>
 </html>

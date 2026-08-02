@@ -14,6 +14,62 @@ marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 const MAX_LOG_BUFFER = 5000;
 const systemLogBuffer = [];
 
+// ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
+const LOG_DIR = path.join(process.cwd(), 'logs');
+try {
+  if (!fs.existsSync(LOG_DIR)) {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.error('Failed to create logs directory:', e);
+}
+
+function getLogFilePath(dateObj = new Date()) {
+  const yyyy = dateObj.getUTCFullYear();
+  const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+  return path.join(LOG_DIR, `access-${yyyy}-${mm}-${dd}.jsonl`);
+}
+
+function appendToPersistentLog(logEntry) {
+  try {
+    const filePath = getLogFilePath(new Date(logEntry.timestamp));
+    const line = JSON.stringify(logEntry) + '\n';
+    fs.appendFile(filePath, line, (err) => {
+      if (err) console.error('Error writing to persistent log file:', err);
+    });
+  } catch (err) {
+    console.error('Error formatting persistent log entry:', err);
+  }
+}
+
+// 90-Day Retention Auto Cleanup Job
+const RETENTION_DAYS = 90;
+const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+function cleanOldLogsJob() {
+  fs.readdir(LOG_DIR, (err, files) => {
+    if (err || !files) return;
+    const now = Date.now();
+    files.forEach((file) => {
+      if (!file.endsWith('.jsonl') && !file.endsWith('.log')) return;
+      const filePath = path.join(LOG_DIR, file);
+      fs.stat(filePath, (statErr, stats) => {
+        if (statErr || !stats) return;
+        if (now - stats.mtimeMs > RETENTION_MS) {
+          fs.unlink(filePath, (unlinkErr) => {
+            if (!unlinkErr) console.log(`[LogRetention] Cleaned up log file older than 90 days: ${file}`);
+          });
+        }
+      });
+    });
+  });
+}
+
+// Run cleanup on startup and schedule every 24h
+cleanOldLogsJob();
+setInterval(cleanOldLogsJob, 24 * 60 * 60 * 1000);
+
 function safeDecodeURI(str) {
   if (typeof str !== 'string' || !str.includes('%')) return str;
   try {
@@ -29,18 +85,26 @@ function safeDecodeURI(str) {
   }
 }
 
-function pushToLogBuffer(level, tag, msg) {
+function pushToLogBuffer(level, tag, msg, ip = '127.0.0.1', extra = {}) {
   let messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
   messageStr = safeDecodeURI(messageStr);
-  systemLogBuffer.push({
+
+  const entry = {
     timestamp: new Date().toISOString(),
     level,
     tag,
-    message: messageStr
-  });
+    ip: ip || '127.0.0.1',
+    message: messageStr,
+    ...extra
+  };
+
+  systemLogBuffer.push(entry);
   if (systemLogBuffer.length > MAX_LOG_BUFFER) {
     systemLogBuffer.shift();
   }
+
+  // Persist asynchronously to disk
+  appendToPersistentLog(entry);
 }
 
 // ── Logger Utility ──────────────────────────────────────────────────────────
@@ -48,26 +112,26 @@ const Logger = {
   formatTimestamp() {
     return new Date().toISOString();
   },
-  info(tag, msg) {
+  info(tag, msg, ip = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
-    pushToLogBuffer('INFO', tag, decoded);
-    console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] ${decoded}`);
+    pushToLogBuffer('INFO', tag, decoded, ip, extra);
+    console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] [IP:${ip}] ${decoded}`);
   },
-  warn(tag, msg) {
+  warn(tag, msg, ip = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
-    pushToLogBuffer('WARN', tag, decoded);
-    console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] ${decoded}`);
+    pushToLogBuffer('WARN', tag, decoded, ip, extra);
+    console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] [IP:${ip}] ${decoded}`);
   },
-  error(tag, msg, err) {
+  error(tag, msg, err, ip = '127.0.0.1', extra = {}) {
     const decodedMsg = safeDecodeURI(err ? `${msg}: ${err.message || err}` : msg);
-    pushToLogBuffer('ERROR', tag, decodedMsg);
-    console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] ${decodedMsg}`, err ? (err.stack || err) : '');
+    pushToLogBuffer('ERROR', tag, decodedMsg, ip, extra);
+    console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] [IP:${ip}] ${decodedMsg}`, err ? (err.stack || err) : '');
   },
-  debug(tag, msg) {
+  debug(tag, msg, ip = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
-    pushToLogBuffer('DEBUG', tag, decoded);
+    pushToLogBuffer('DEBUG', tag, decoded, ip, extra);
     if (process.env.DEBUG) {
-      console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] ${decoded}`);
+      console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] [IP:${ip}] ${decoded}`);
     }
   }
 };
@@ -1241,6 +1305,213 @@ const server = http.createServer((req, res) => {
     return handleSearch(req, res, query);
   }
 
+// ── Analytics Aggregator & Data Exporter ────────────────────────────────────
+async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
+  const now = Date.now();
+  const cutoffTime = now - (rangeDays * 24 * 60 * 60 * 1000);
+
+  let files = [];
+  try {
+    files = await fs.promises.readdir(LOG_DIR);
+  } catch (_) {}
+
+  const logEntries = [];
+
+  for (const file of files) {
+    if (!file.endsWith('.jsonl')) continue;
+    const filePath = path.join(LOG_DIR, file);
+    try {
+      const stats = await fs.promises.stat(filePath);
+      if (stats.mtimeMs < cutoffTime - (24 * 60 * 60 * 1000)) continue;
+
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const item = JSON.parse(line);
+          const t = new Date(item.timestamp).getTime();
+          if (t >= cutoffTime) {
+            logEntries.push(item);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  // Merge in-memory buffer items
+  for (const memItem of systemLogBuffer) {
+    const t = new Date(memItem.timestamp).getTime();
+    if (t >= cutoffTime && !logEntries.some(e => e.timestamp === memItem.timestamp && e.message === memItem.message)) {
+      logEntries.push(memItem);
+    }
+  }
+
+  const fileMap = new Map();
+  const searchMap = new Map();
+  const ipMap = new Map();
+  const dailyMap = new Map();
+
+  let totalViews = 0;
+  let totalSearches = 0;
+  const globalUniqueIps = new Set();
+
+  for (const entry of logEntries) {
+    const ip = entry.ip || '127.0.0.1';
+    globalUniqueIps.add(ip);
+
+    let ipStat = ipMap.get(ip);
+    if (!ipStat) {
+      ipStat = { ip, requests: 0, lastAccess: entry.timestamp };
+      ipMap.set(ip, ipStat);
+    }
+    ipStat.requests++;
+    if (new Date(entry.timestamp) > new Date(ipStat.lastAccess)) {
+      ipStat.lastAccess = entry.timestamp;
+    }
+
+    const dObj = new Date(entry.timestamp);
+    const dateStr = dObj.toISOString().split('T')[0];
+    let daily = dailyMap.get(dateStr);
+    if (!daily) {
+      daily = { date: dateStr, views: 0, ips: new Set() };
+      dailyMap.set(dateStr, daily);
+    }
+    daily.views++;
+    daily.ips.add(ip);
+
+    if (entry.tag === 'Render' || entry.tag === 'ShareLink' || (entry.tag === 'HTTP' && entry.message.includes('/api/render'))) {
+      let docPath = entry.path;
+      if (!docPath && entry.message) {
+        const match = entry.message.match(/path=([^&\s]+)/);
+        if (match) docPath = decodeURIComponent(match[1]);
+      }
+      if (!docPath && entry.message && entry.message.includes('Access file:')) {
+        const match = entry.message.match(/Access file: "([^"]+)"/);
+        if (match) docPath = match[1];
+      }
+
+      if (docPath) {
+        totalViews++;
+        let fStat = fileMap.get(docPath);
+        if (!fStat) {
+          const fileName = docPath.split('/').pop().replace(/\.md$/, '');
+          fStat = { path: docPath, fileName, views: 0, ips: new Set(), lastAccess: entry.timestamp };
+          fileMap.set(docPath, fStat);
+        }
+        fStat.views++;
+        fStat.ips.add(ip);
+        if (new Date(entry.timestamp) > new Date(fStat.lastAccess)) {
+          fStat.lastAccess = entry.timestamp;
+        }
+      }
+    }
+
+    if (entry.tag === 'Search' || (entry.tag === 'HTTP' && entry.message.includes('/api/search'))) {
+      let q = entry.query;
+      if (!q && entry.message) {
+        const match = entry.message.match(/q=([^&\s]+)/);
+        if (match) q = decodeURIComponent(match[1]);
+      }
+      if (q && q.trim().length > 0) {
+        totalSearches++;
+        const cleanQ = q.trim();
+        let sStat = searchMap.get(cleanQ);
+        if (!sStat) {
+          sStat = { query: cleanQ, count: 0, lastSearch: entry.timestamp };
+          searchMap.set(cleanQ, sStat);
+        }
+        sStat.count++;
+        if (new Date(entry.timestamp) > new Date(sStat.lastSearch)) {
+          sStat.lastSearch = entry.timestamp;
+        }
+      }
+    }
+  }
+
+  const topFiles = Array.from(fileMap.values())
+    .map(f => ({
+      path: f.path,
+      fileName: f.fileName,
+      views: f.views,
+      uniqueIps: f.ips.size,
+      lastAccess: f.lastAccess
+    }))
+    .sort((a, b) => b.views - a.views)
+    .slice(0, 50);
+
+  const topSearches = Array.from(searchMap.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 30);
+
+  const ipDistribution = Array.from(ipMap.values())
+    .sort((a, b) => b.requests - a.requests)
+    .slice(0, 20);
+
+  const dailyTrend = Array.from(dailyMap.values())
+    .map(d => ({
+      date: d.date,
+      views: d.views,
+      uniqueIps: d.ips.size
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    range: `${rangeDays}d`,
+    tz: requestedTz,
+    summary: {
+      totalViews,
+      uniqueIps: globalUniqueIps.size,
+      totalSearches,
+      activeFiles: fileMap.size
+    },
+    topFiles,
+    topSearches,
+    dailyTrend,
+    ipDistribution
+  };
+}
+
+async function handleAnalytics(req, res, query) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+
+  const rangeDays = parseInt(query.range, 10) || 30;
+  const data = await getAnalyticsData(rangeDays, query.tz || 'auto');
+  return sendJSON(res, 200, data);
+}
+
+async function handleAnalyticsExport(req, res, query) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+
+  const format = query.format === 'csv' ? 'csv' : 'json';
+  const rangeDays = parseInt(query.range, 10) || 30;
+  const data = await getAnalyticsData(rangeDays, query.tz || 'auto');
+
+  if (format === 'csv') {
+    let csv = '\uFEFF';
+    csv += '排名,文章標題/檔名,文章路徑,總點閱數,獨立IP數,最後閱讀時間\n';
+    data.topFiles.forEach((f, idx) => {
+      csv += `${idx + 1},"${f.fileName.replace(/"/g, '""')}","${f.path.replace(/"/g, '""')}",${f.views},${f.uniqueIps},"${f.lastAccess}"\n`;
+    });
+
+    res.writeHead(200, Object.assign({
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="analytics-report-${rangeDays}d.csv"`
+    }, SECURITY_HEADERS));
+    return res.end(csv);
+  } else {
+    res.writeHead(200, Object.assign({
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="analytics-report-${rangeDays}d.json"`
+    }, SECURITY_HEADERS));
+    return res.end(JSON.stringify(data, null, 2));
+  }
+}
+
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
     return sendJSON(res, 200, {
@@ -1248,6 +1519,12 @@ const server = http.createServer((req, res) => {
       isAuthenticated: isAuthenticated(req),
       settings: config.settings
     });
+  }
+  if (pathname === '/api/admin/analytics' && req.method === 'GET') {
+    return handleAnalytics(req, res, query);
+  }
+  if (pathname === '/api/admin/analytics/export' && req.method === 'GET') {
+    return handleAnalyticsExport(req, res, query);
   }
   if (pathname === '/api/admin/logs' && req.method === 'GET') {
     if (!isAuthenticated(req)) {

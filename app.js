@@ -2827,6 +2827,40 @@
   // ── Admin Logs Tab Logic ─────────────────────────────────
   let stateAdminLogs = [];
 
+  // Timezone Formatting Helper
+  function getEffectiveTimezone(selectId = 'adminLogTimezoneSelect') {
+    const sel = $(selectId);
+    const val = sel ? sel.value : 'auto';
+    if (val && val !== 'auto') return val;
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Taipei';
+    } catch (_) {
+      return 'Asia/Taipei';
+    }
+  }
+
+  function formatTimestampWithTZ(isoStr, tz) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      const targetTz = (tz === 'auto' || !tz) ? getEffectiveTimezone() : tz;
+      const formatter = new Intl.DateTimeFormat('zh-TW', {
+        timeZone: targetTz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      return formatter.format(d).replace(/\//g, '-');
+    } catch (_) {
+      return isoStr.replace('T', ' ').replace('Z', '');
+    }
+  }
+
   async function fetchAdminLogs() {
     const viewer = $('adminLogViewer');
     if (!viewer) return;
@@ -2852,10 +2886,12 @@
     const filterText = searchInput ? searchInput.value.trim().toLowerCase() : '';
     if (!viewer) return;
 
+    const currentTz = getEffectiveTimezone('adminLogTimezoneSelect');
+
     let filtered = stateAdminLogs;
     if (filterText) {
       filtered = stateAdminLogs.filter(item => {
-        const text = `${item.timestamp} ${item.level} ${item.tag} ${item.message}`.toLowerCase();
+        const text = `${item.timestamp} ${item.level} ${item.tag} ${item.ip || ''} ${item.message}`.toLowerCase();
         return text.includes(filterText);
       });
     }
@@ -2871,37 +2907,200 @@
     }
 
     const html = filtered.map(item => {
-      const timeStr = item.timestamp ? item.timestamp.replace('T', ' ').replace('Z', '') : '';
+      const formattedTime = formatTimestampWithTZ(item.timestamp, currentTz);
       const levelClass = item.level || 'INFO';
-      return `<div class="log-entry"><div class="log-meta"><span class="log-time">[${escHtml(timeStr)}]</span><span class="log-badge ${escHtml(levelClass)}">${escHtml(item.level)}</span><span class="log-tag">[${escHtml(item.tag)}]</span></div><div class="log-msg">${escHtml(item.message)}</div></div>`;
+      const ipStr = item.ip || '127.0.0.1';
+      return `<div class="log-entry"><div class="log-meta"><span class="log-time">[${escHtml(formattedTime)}]</span><span class="log-badge ${escHtml(levelClass)}">${escHtml(item.level)}</span><span class="log-tag">[${escHtml(item.tag)}]</span><span class="log-ip" data-ip="${escHtml(ipStr)}" title="點擊以此 IP 篩選">[IP: ${escHtml(ipStr)}]</span></div><div class="log-msg">${escHtml(item.message)}</div></div>`;
     }).join('');
 
     viewer.innerHTML = html;
     viewer.scrollTop = viewer.scrollHeight;
+
+    viewer.querySelectorAll('.log-ip').forEach(el => {
+      el.addEventListener('click', (e) => {
+        const targetIp = e.currentTarget.getAttribute('data-ip');
+        if (targetIp && searchInput) {
+          searchInput.value = targetIp;
+          renderAdminLogs();
+        }
+      });
+    });
+  }
+
+  // Analytics Dashboard Logic
+  let stateAnalyticsRange = '7d';
+
+  async function loadAdminAnalytics() {
+    const tableBody = $('analyticsTopFilesTable');
+    if (tableBody) {
+      tableBody.innerHTML = '<tr><td colspan="6" class="analytics-empty">載入數據中…</td></tr>';
+    }
+    try {
+      const headers = {};
+      if (state.adminToken) {
+        headers['X-Admin-Token'] = state.adminToken;
+      }
+      const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+      const res = await fetch(`/api/admin/analytics?range=${stateAnalyticsRange}&tz=${encodeURIComponent(tz)}`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderAdminAnalytics(data);
+    } catch (err) {
+      if (tableBody) {
+        tableBody.innerHTML = `<tr><td colspan="6" class="analytics-empty">⚠️ 載入失敗: ${escHtml(err.message)}</td></tr>`;
+      }
+    }
+  }
+
+  function renderAdminAnalytics(data) {
+    if (!data) return;
+    const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+
+    const totalViewsEl = $('analyticsTotalViews');
+    const uniqueIpsEl = $('analyticsUniqueIps');
+    const activeFilesEl = $('analyticsActiveFiles');
+    const totalSearchesEl = $('analyticsTotalSearches');
+
+    if (totalViewsEl) totalViewsEl.textContent = (data.summary?.totalViews || 0).toLocaleString();
+    if (uniqueIpsEl) uniqueIpsEl.textContent = (data.summary?.uniqueIps || 0).toLocaleString();
+    if (activeFilesEl) activeFilesEl.textContent = (data.summary?.activeFiles || 0).toLocaleString();
+    if (totalSearchesEl) totalSearchesEl.textContent = (data.summary?.totalSearches || 0).toLocaleString();
+
+    const topFilesTable = $('analyticsTopFilesTable');
+    if (topFilesTable) {
+      if (!data.topFiles || data.topFiles.length === 0) {
+        topFilesTable.innerHTML = '<tr><td colspan="6" class="analytics-empty">尚無瀏覽紀錄數據</td></tr>';
+      } else {
+        topFilesTable.innerHTML = data.topFiles.map((file, idx) => {
+          const formattedTime = formatTimestampWithTZ(file.lastAccess, tz);
+          return `<tr>
+            <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
+            <td><a href="#" class="analytics-file-link" data-path="${escHtml(file.path)}" style="color: var(--accent); font-weight: 600; text-decoration: none;">${escHtml(file.fileName)}</a></td>
+            <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(file.path)}</td>
+            <td style="text-align: right; font-weight: 700; color: #58a6ff;">${file.views.toLocaleString()}</td>
+            <td style="text-align: right; font-weight: 600;">${file.uniqueIps.toLocaleString()}</td>
+            <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(formattedTime)}</td>
+          </tr>`;
+        }).join('');
+
+        topFilesTable.querySelectorAll('.analytics-file-link').forEach(link => {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const filePath = e.currentTarget.getAttribute('data-path');
+            if (filePath) {
+              const modal = $('adminSettingsOverlay');
+              if (modal) modal.style.display = 'none';
+              openFile(filePath);
+            }
+          });
+        });
+      }
+    }
+
+    const topSearchesTable = $('analyticsTopSearchesTable');
+    if (topSearchesTable) {
+      if (!data.topSearches || data.topSearches.length === 0) {
+        topSearchesTable.innerHTML = '<tr><td colspan="3" class="analytics-empty">尚無搜尋紀錄</td></tr>';
+      } else {
+        topSearchesTable.innerHTML = data.topSearches.map((item, idx) => `<tr>
+          <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
+          <td style="font-weight: 600;">${escHtml(item.query)}</td>
+          <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>
+        </tr>`).join('');
+      }
+    }
+
+    const topIpsTable = $('analyticsTopIpsTable');
+    if (topIpsTable) {
+      if (!data.ipDistribution || data.ipDistribution.length === 0) {
+        topIpsTable.innerHTML = '<tr><td colspan="3" class="analytics-empty">尚無 IP 紀錄</td></tr>';
+      } else {
+        topIpsTable.innerHTML = data.ipDistribution.map((item, idx) => `<tr>
+          <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
+          <td><span class="log-ip">${escHtml(item.ip)}</span></td>
+          <td style="text-align: right; font-weight: 700; color: #79c0ff;">${item.requests.toLocaleString()}</td>
+        </tr>`).join('');
+      }
+    }
   }
 
   function setupAdminTabEvents() {
     const tabConfigBtn = $('adminTabConfigBtn');
     const tabLogsBtn = $('adminTabLogsBtn');
+    const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
     const paneConfig = $('adminPaneConfig');
     const paneLogs = $('adminPaneLogs');
+    const paneAnalytics = $('adminPaneAnalytics');
     const refreshBtn = $('adminLogRefreshBtn');
     const searchInput = $('adminLogSearchInput');
+    const logTzSelect = $('adminLogTimezoneSelect');
+    const analyticsTzSelect = $('analyticsTimezoneSelect');
 
-    if (tabConfigBtn && tabLogsBtn) {
+    function hideAllPanes() {
+      [paneConfig, paneLogs, paneAnalytics].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabLogsBtn, tabAnalyticsBtn].forEach(b => { if (b) b.classList.remove('active'); });
+    }
+
+    if (tabConfigBtn) {
       tabConfigBtn.addEventListener('click', () => {
+        hideAllPanes();
         tabConfigBtn.classList.add('active');
-        tabLogsBtn.classList.remove('active');
-        paneConfig.style.display = 'block';
-        paneLogs.style.display = 'none';
+        if (paneConfig) paneConfig.style.display = 'block';
       });
+    }
 
+    if (tabLogsBtn) {
       tabLogsBtn.addEventListener('click', () => {
+        hideAllPanes();
         tabLogsBtn.classList.add('active');
-        tabConfigBtn.classList.remove('active');
-        paneLogs.style.display = 'block';
-        paneConfig.style.display = 'none';
+        if (paneLogs) paneLogs.style.display = 'block';
         fetchAdminLogs();
+      });
+    }
+
+    if (tabAnalyticsBtn) {
+      tabAnalyticsBtn.addEventListener('click', () => {
+        hideAllPanes();
+        tabAnalyticsBtn.classList.add('active');
+        if (paneAnalytics) paneAnalytics.style.display = 'block';
+        loadAdminAnalytics();
+      });
+    }
+
+    if (logTzSelect) {
+      logTzSelect.addEventListener('change', () => renderAdminLogs());
+    }
+
+    if (analyticsTzSelect) {
+      analyticsTzSelect.addEventListener('change', () => loadAdminAnalytics());
+    }
+
+    const rangeNav = $('analyticsRangeNav');
+    if (rangeNav) {
+      rangeNav.querySelectorAll('.analytics-range-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          rangeNav.querySelectorAll('.analytics-range-btn').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          stateAnalyticsRange = e.currentTarget.getAttribute('data-range') || '30d';
+          loadAdminAnalytics();
+        });
+      });
+    }
+
+    const csvExportBtn = $('analyticsExportCsvBtn');
+    const jsonExportBtn = $('analyticsExportJsonBtn');
+
+    if (csvExportBtn) {
+      csvExportBtn.addEventListener('click', () => {
+        const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=csv&tz=${encodeURIComponent(tz)}`, '_blank');
+      });
+    }
+
+    if (jsonExportBtn) {
+      jsonExportBtn.addEventListener('click', () => {
+        const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=json&tz=${encodeURIComponent(tz)}`, '_blank');
       });
     }
 
