@@ -87,7 +87,19 @@ function safeDecodeURI(str) {
   }
 }
 
-function pushToLogBuffer(level, tag, msg, ip = '127.0.0.1', extra = {}) {
+function extractIpFromParam(reqOrIp) {
+  if (!reqOrIp) return '127.0.0.1';
+  if (typeof reqOrIp === 'string') {
+    const clean = reqOrIp.startsWith('::ffff:') ? reqOrIp.substring(7) : reqOrIp;
+    return net.isIP(clean) ? clean.substring(0, 45) : '127.0.0.1';
+  }
+  if (typeof reqOrIp === 'object' && (reqOrIp.headers || reqOrIp.socket)) {
+    return getClientIP(reqOrIp);
+  }
+  return '127.0.0.1';
+}
+
+function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
   let messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
   messageStr = safeDecodeURI(messageStr);
 
@@ -96,7 +108,7 @@ function pushToLogBuffer(level, tag, msg, ip = '127.0.0.1', extra = {}) {
     messageStr = messageStr.substring(0, 2000) + '… [truncated]';
   }
 
-  const safeIp = (ip && typeof ip === 'string' && net.isIP(ip.trim())) ? ip.trim() : '127.0.0.1';
+  const clientIp = extractIpFromParam(reqOrIp);
 
   let safePath = extra.path;
   if (safePath && typeof safePath === 'string' && safePath.length > 500) {
@@ -107,7 +119,7 @@ function pushToLogBuffer(level, tag, msg, ip = '127.0.0.1', extra = {}) {
     timestamp: new Date().toISOString(),
     level,
     tag,
-    ip: safeIp,
+    ip: clientIp,
     message: messageStr,
     ...(safePath ? { path: safePath } : {}),
     ...(extra.query ? { query: String(extra.query).substring(0, 300) } : {}),
@@ -128,23 +140,27 @@ const Logger = {
   formatTimestamp() {
     return new Date().toISOString();
   },
-  info(tag, msg, ip = '127.0.0.1', extra = {}) {
+  info(tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
+    const ip = extractIpFromParam(reqOrIp);
     pushToLogBuffer('INFO', tag, decoded, ip, extra);
     console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] [IP:${ip}] ${decoded}`);
   },
-  warn(tag, msg, ip = '127.0.0.1', extra = {}) {
+  warn(tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
+    const ip = extractIpFromParam(reqOrIp);
     pushToLogBuffer('WARN', tag, decoded, ip, extra);
     console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] [IP:${ip}] ${decoded}`);
   },
-  error(tag, msg, err, ip = '127.0.0.1', extra = {}) {
+  error(tag, msg, err, reqOrIp = '127.0.0.1', extra = {}) {
     const decodedMsg = safeDecodeURI(err ? `${msg}: ${err.message || err}` : msg);
+    const ip = extractIpFromParam(reqOrIp);
     pushToLogBuffer('ERROR', tag, decodedMsg, ip, extra);
     console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] [IP:${ip}] ${decodedMsg}`, err ? (err.stack || err) : '');
   },
-  debug(tag, msg, ip = '127.0.0.1', extra = {}) {
+  debug(tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
+    const ip = extractIpFromParam(reqOrIp);
     pushToLogBuffer('DEBUG', tag, decoded, ip, extra);
     if (process.env.DEBUG) {
       console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] [IP:${ip}] ${decoded}`);
@@ -795,6 +811,7 @@ async function handleRender(req, res, query) {
 
     // Offload CPU-bound rendering to worker thread pool
     const html = await renderWithWorker(raw, filePath);
+    Logger.info('Render', `Loaded document: "${filePath}" (${Date.now() - renderStart}ms)`, req, { path: filePath });
 
     // Encode frontmatter as base64 in response header (avoids JSON wrapping the HTML)
     const metaHeader = Buffer.from(JSON.stringify(frontmatter), 'utf-8').toString('base64');
@@ -889,7 +906,7 @@ async function handleSearch(req, res, query) {
   const cacheKey = `${targetFolder}::${q}`;
   const cached = searchCache.get(cacheKey);
   if (cached && (Date.now() - cached.time) < 60000) {
-    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} (Cache Hit) -> ${cached.data.results.length} matches (0ms)`);
+    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} (Cache Hit) -> ${cached.data.results.length} matches (0ms)`, req, { query: q });
     return sendJSON(res, 200, cached.data);
   }
 
@@ -977,10 +994,10 @@ async function handleSearch(req, res, query) {
     }
     searchCache.set(cacheKey, { time: Date.now(), data: searchData });
 
-    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} -> ${results.length} matches in ${Date.now() - searchStart}ms`);
+    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} -> ${results.length} matches in ${Date.now() - searchStart}ms`, req, { query: q });
     sendJSON(res, 200, searchData);
   } catch (err) {
-    Logger.error('Search', `Search failed for query "${q}"`, err);
+    Logger.error('Search', `Search failed for query "${q}"`, err, req);
     sendJSON(res, 500, { error: err.message });
   }
 }
@@ -1303,15 +1320,15 @@ const server = http.createServer((req, res) => {
     origEnd.apply(res, args);
     const duration = Date.now() - reqStart;
     if (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50) {
-      Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`);
+      Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
-      Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`);
+      Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     }
   };
 
   // Log share link access if present
   if ((pathname === '/' || pathname === '') && query.file) {
-    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`);
+    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`, req, { path: query.file });
   }
 
   // Global API Rate Limiting Check (30 req/sec max)
