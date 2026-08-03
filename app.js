@@ -495,7 +495,7 @@
 
       const icon = document.createElement('span');
       icon.className = 'suggest-item-icon';
-      icon.textContent = item.type === 'hot' ? '🔥' : '📌';
+      icon.textContent = item.type === 'hot' ? '✨' : '🪷';
 
       const name = document.createElement('span');
       name.className = 'suggest-item-name';
