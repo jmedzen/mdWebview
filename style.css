@@ -1295,7 +1295,7 @@ body,
 
 /* ── Suggest List (Homepage Recommend & Hot) ───────────────── */
 .suggest-list-container {
-  margin: 16px auto 0;
+  margin: 16px auto 28px;
   width: 100%;
   max-width: 520px;
   background: var(--bg-secondary);
