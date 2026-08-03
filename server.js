@@ -299,7 +299,13 @@ let config = {
     enableVersion: process.env.ENABLE_VERSION ? process.env.ENABLE_VERSION === 'true' : false,
     version: process.env.VERSION || '',
     enableDownload: process.env.ENABLE_DOWNLOAD ? process.env.ENABLE_DOWNLOAD === 'true' : false,
-    downloadUrl: process.env.DOWNLOAD_URL || ''
+    downloadUrl: process.env.DOWNLOAD_URL || '',
+    suggestList: {
+      adminList: [],
+      adminPickCount: 3,
+      blackList: [],
+      hotPickCount: 5
+    }
   }
 };
 
@@ -1597,6 +1603,138 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
   return resultData;
 }
 
+async function buildHotList(blackList) {
+  const blackSet = new Set((blackList || []).map(p => p.trim().replace(/\\/g, '/')));
+  const now = Date.now();
+
+  // Collect top files for 7d, 30d, 90d windows
+  const windows = [7, 30, 90];
+  const windowMaps = windows.map(() => new Map());
+
+  let files = [];
+  try { files = await fs.promises.readdir(LOG_DIR); } catch (_) {}
+
+  const maxCutoff = now - (90 * 24 * 60 * 60 * 1000);
+
+  for (const file of files) {
+    if (!file.endsWith('.jsonl')) continue;
+    const filePath = path.join(LOG_DIR, file);
+    try {
+      const stats = await fs.promises.stat(filePath);
+      if (stats.mtimeMs < maxCutoff - (24 * 60 * 60 * 1000)) continue;
+
+      const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+      for await (const line of rl) {
+        if (!line.trim()) continue;
+        try {
+          const item = JSON.parse(line);
+          if (item.tag !== 'Render' && item.tag !== 'ShareLink') continue;
+
+          let docPath = item.path;
+          if (!docPath && item.message) {
+            const m1 = item.message.match(/Access file: "([^"]+)"/);
+            if (m1) docPath = m1[1];
+          }
+          if (!docPath) continue;
+          docPath = docPath.trim().replace(/\\/g, '/');
+          if (blackSet.has(docPath)) continue;
+
+          const t = new Date(item.timestamp).getTime();
+          windows.forEach((days, idx) => {
+            if (t >= now - (days * 24 * 60 * 60 * 1000)) {
+              const m = windowMaps[idx];
+              const fileName = docPath.split('/').pop().replace(/\.md$/, '');
+              let stat = m.get(docPath);
+              if (!stat) { stat = { path: docPath, fileName, views: 0 }; m.set(docPath, stat); }
+              stat.views++;
+            }
+          });
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  // Also scan in-memory buffer
+  for (const item of systemLogBuffer) {
+    if (item.tag !== 'Render' && item.tag !== 'ShareLink') continue;
+    let docPath = item.path;
+    if (!docPath && item.message) {
+      const m1 = item.message.match(/Access file: "([^"]+)"/);
+      if (m1) docPath = m1[1];
+    }
+    if (!docPath) continue;
+    docPath = docPath.trim().replace(/\\/g, '/');
+    if (blackSet.has(docPath)) continue;
+    const t = new Date(item.timestamp).getTime();
+    windows.forEach((days, idx) => {
+      if (t >= now - (days * 24 * 60 * 60 * 1000)) {
+        const m = windowMaps[idx];
+        const fileName = docPath.split('/').pop().replace(/\.md$/, '');
+        let stat = m.get(docPath);
+        if (!stat) { stat = { path: docPath, fileName, views: 0 }; m.set(docPath, stat); }
+        stat.views++;
+      }
+    });
+  }
+
+  // Merge: 7d top5 -> 30d top5 -> 90d top5, deduplicated
+  const seen = new Set();
+  const result = [];
+  for (let idx = 0; idx < windows.length; idx++) {
+    const top5 = Array.from(windowMaps[idx].values())
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 5);
+    for (const item of top5) {
+      if (!seen.has(item.path)) {
+        seen.add(item.path);
+        result.push({ path: item.path, fileName: item.fileName, views: item.views, source: `${windows[idx]}d` });
+      }
+    }
+  }
+  return result;
+}
+
+async function handleSuggestList(req, res) {
+  try {
+    const sl = config.settings.suggestList || {};
+    const adminList = Array.isArray(sl.adminList) ? sl.adminList : [];
+    const adminPickCount = Math.max(0, parseInt(sl.adminPickCount) || 3);
+    const hotPickCount = Math.max(0, parseInt(sl.hotPickCount) || 5);
+    const blackList = Array.isArray(sl.blackList) ? sl.blackList : [];
+    const blackSet = new Set(blackList.map(p => p.trim().replace(/\\/g, '/')));
+
+    // Admin picks: filter blacklist then shuffle and pick adminPickCount
+    const validAdmin = adminList
+      .map(p => p.trim().replace(/\\/g, '/'))
+      .filter(p => p && !blackSet.has(p));
+    // Shuffle admin list for variety
+    for (let i = validAdmin.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [validAdmin[i], validAdmin[j]] = [validAdmin[j], validAdmin[i]];
+    }
+    const adminPicks = validAdmin.slice(0, adminPickCount).map(p => ({
+      path: p,
+      fileName: p.split('/').pop().replace(/\.md$/, ''),
+      type: 'admin'
+    }));
+
+    // Hot picks: from log analysis
+    const hotRaw = await buildHotList(blackList);
+    const adminPathSet = new Set(adminPicks.map(a => a.path));
+    const hotPicks = hotRaw
+      .filter(h => !adminPathSet.has(h.path))
+      .slice(0, hotPickCount)
+      .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source }));
+
+    const items = [...adminPicks, ...hotPicks];
+    sendJSON(res, 200, { items, adminPickCount, hotPickCount });
+  } catch (err) {
+    sendJSON(res, 500, { error: err.message });
+  }
+}
+
 async function handleAnalytics(req, res, query) {
   if (!isAuthenticated(req)) {
     return sendJSON(res, 401, { error: 'Unauthorized' });
@@ -1764,7 +1902,7 @@ async function handleAnalyticsExport(req, res, query) {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
@@ -1797,6 +1935,16 @@ async function handleAnalyticsExport(req, res, query) {
         if (downloadUrl !== undefined) {
           config.settings.downloadUrl = String(downloadUrl).trim();
         }
+        if (suggestList !== undefined && typeof suggestList === 'object') {
+          const sl = suggestList;
+          const existing = config.settings.suggestList || {};
+          config.settings.suggestList = {
+            adminList: Array.isArray(sl.adminList) ? sl.adminList.map(String).filter(p => p.trim()) : existing.adminList || [],
+            adminPickCount: Number.isFinite(parseInt(sl.adminPickCount)) ? Math.max(0, parseInt(sl.adminPickCount)) : (existing.adminPickCount ?? 3),
+            blackList: Array.isArray(sl.blackList) ? sl.blackList.map(String).filter(p => p.trim()) : existing.blackList || [],
+            hotPickCount: Number.isFinite(parseInt(sl.hotPickCount)) ? Math.max(0, parseInt(sl.hotPickCount)) : (existing.hotPickCount ?? 5)
+          };
+        }
         saveConfig();
         return sendJSON(res, 200, { success: true, settings: config.settings });
       };
@@ -1824,6 +1972,11 @@ async function handleAnalyticsExport(req, res, query) {
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
     });
+  }
+
+  // Public suggest-list API (no auth required)
+  if (pathname === '/api/suggest-list' && req.method === 'GET') {
+    return handleSuggestList(req, res);
   }
 
   // Static files

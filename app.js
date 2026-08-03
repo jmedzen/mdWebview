@@ -171,6 +171,7 @@
     updateWelcomeFooter(appConfig);
     setupEventListeners();
     await loadTree();
+    fetchSuggestList(); // Load recommend & hot list for homepage
 
     // Open file from URL query or hash on first load; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
@@ -463,6 +464,59 @@
         <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
       `;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // SUGGEST LIST (Homepage Recommend & Hot)
+  // ═══════════════════════════════════════════════════════════
+
+  async function fetchSuggestList() {
+    try {
+      const res = await fetch('/api/suggest-list');
+      if (!res.ok) return;
+      const data = await res.json();
+      renderSuggestList(data.items || []);
+    } catch (_) {}
+  }
+
+  function renderSuggestList(items) {
+    const container = $('suggestListContainer');
+    const list = $('suggestList');
+    if (!container || !list) return;
+    if (!items || items.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.className = 'suggest-item';
+      li.title = item.path || '';
+
+      const icon = document.createElement('span');
+      icon.className = 'suggest-item-icon';
+      icon.textContent = item.type === 'hot' ? '🔥' : '📌';
+
+      const name = document.createElement('span');
+      name.className = 'suggest-item-name';
+      name.textContent = item.fileName || item.path;
+
+      const badge = document.createElement('span');
+      badge.className = 'suggest-item-badge ' + (item.type === 'hot' ? 'suggest-badge-hot' : 'suggest-badge-admin');
+      badge.textContent = item.type === 'hot' ? '熱門' : '推薦';
+
+      li.appendChild(icon);
+      li.appendChild(name);
+      li.appendChild(badge);
+
+      li.addEventListener('click', () => {
+        if (item.path) openFile(item.path);
+      });
+      frag.appendChild(li);
+    }
+    list.innerHTML = '';
+    list.appendChild(frag);
+    container.style.display = 'block';
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -3038,17 +3092,19 @@
     const tabConfigBtn = $('adminTabConfigBtn');
     const tabLogsBtn = $('adminTabLogsBtn');
     const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
+    const tabSuggestBtn = $('adminTabSuggestBtn');
     const paneConfig = $('adminPaneConfig');
     const paneLogs = $('adminPaneLogs');
     const paneAnalytics = $('adminPaneAnalytics');
+    const paneSuggest = $('adminPaneSuggest');
     const refreshBtn = $('adminLogRefreshBtn');
     const searchInput = $('adminLogSearchInput');
     const logTzSelect = $('adminLogTimezoneSelect');
     const analyticsTzSelect = $('analyticsTimezoneSelect');
 
     function hideAllPanes() {
-      [paneConfig, paneLogs, paneAnalytics].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabLogsBtn, tabAnalyticsBtn].forEach(b => { if (b) b.classList.remove('active'); });
+      [paneConfig, paneLogs, paneAnalytics, paneSuggest].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
     if (tabConfigBtn) {
@@ -3074,6 +3130,15 @@
         tabAnalyticsBtn.classList.add('active');
         if (paneAnalytics) paneAnalytics.style.display = 'block';
         loadAdminAnalytics();
+      });
+    }
+
+    if (tabSuggestBtn) {
+      tabSuggestBtn.addEventListener('click', () => {
+        hideAllPanes();
+        tabSuggestBtn.classList.add('active');
+        if (paneSuggest) paneSuggest.style.display = 'block';
+        loadSuggestSettings();
       });
     }
 
@@ -3121,6 +3186,102 @@
     if (searchInput) {
       searchInput.addEventListener('input', debounce(() => renderAdminLogs(), 200));
     }
+
+    // Suggest form events (only once)
+    setupSuggestFormEvents();
+  }
+
+  let _suggestFormEventsSetup = false;
+  function setupSuggestFormEvents() {
+    if (_suggestFormEventsSetup) return;
+    _suggestFormEventsSetup = true;
+
+    const form = $('adminSuggestForm');
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = $('suggestErrorMsg');
+      const successEl = $('suggestSuccessMsg');
+      if (errorEl) errorEl.style.display = 'none';
+      if (successEl) successEl.style.display = 'none';
+
+      const adminListRaw = ($('suggestAdminList') || {}).value || '';
+      const blackListRaw = ($('suggestBlackList') || {}).value || '';
+      const adminPickCount = parseInt(($('suggestAdminPickCount') || {}).value || '3');
+      const hotPickCount = parseInt(($('suggestHotPickCount') || {}).value || '5');
+
+      // Parse textarea lines
+      const adminList = adminListRaw.split('\n').map(l => l.trim()).filter(Boolean);
+      const blackList = blackListRaw.split('\n').map(l => l.trim()).filter(Boolean);
+
+      try {
+        // Fetch current settings to preserve other fields
+        const getRes = await fetch('/api/admin/settings', {
+          headers: { 'X-Admin-Token': state.adminToken }
+        });
+        if (!getRes.ok) throw new Error('Unable to load settings');
+        const current = await getRes.json();
+        const s = current.settings || {};
+
+        const res = await fetch('/api/admin/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Token': state.adminToken
+          },
+          body: JSON.stringify({
+            settings: {
+              mdRoot: s.mdRoot,
+              defaultFontSize: s.defaultFontSize,
+              defaultTheme: s.defaultTheme,
+              siteName: s.siteName,
+              enableVersion: s.enableVersion,
+              version: s.version,
+              enableDownload: s.enableDownload,
+              downloadUrl: s.downloadUrl,
+              suggestList: { adminList, adminPickCount, blackList, hotPickCount }
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '儲存失敗');
+
+        if (successEl) {
+          successEl.textContent = '推薦設定已儲存';
+          successEl.style.display = 'block';
+          setTimeout(() => { successEl.style.display = 'none'; }, 3000);
+        }
+        // Refresh the homepage suggest list
+        fetchSuggestList();
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = err.message;
+          errorEl.style.display = 'block';
+        }
+      }
+    });
+  }
+
+  async function loadSuggestSettings() {
+    try {
+      const res = await fetch('/api/admin/settings', {
+        headers: { 'X-Admin-Token': state.adminToken }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const sl = (data.settings && data.settings.suggestList) || {};
+
+      const adminListEl = $('suggestAdminList');
+      const blackListEl = $('suggestBlackList');
+      const adminPickEl = $('suggestAdminPickCount');
+      const hotPickEl = $('suggestHotPickCount');
+
+      if (adminListEl) adminListEl.value = (sl.adminList || []).join('\n');
+      if (blackListEl) blackListEl.value = (sl.blackList || []).join('\n');
+      if (adminPickEl) adminPickEl.value = sl.adminPickCount ?? 3;
+      if (hotPickEl) hotPickEl.value = sl.hotPickCount ?? 5;
+    } catch (_) {}
   }
 
   // ═══════════════════════════════════════════════════════════
