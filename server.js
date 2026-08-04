@@ -18,6 +18,12 @@ const systemLogBuffer = [];
 
 // ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
+const ANALYTICS_STORE_PATH = path.join(LOG_DIR, 'analytics-aggregates.json');
+const ANALYTICS_STORE_VERSION = 1;
+let analyticsStore = null;
+let analyticsStoreReady = null;
+let analyticsStoreWrite = Promise.resolve();
+let analyticsStoreInitialized = false;
 try {
   if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -45,6 +51,155 @@ function appendToPersistentLog(logEntry) {
   }
 }
 
+function createEmptyAnalyticsStore() {
+  return {
+    version: ANALYTICS_STORE_VERSION,
+    updatedAt: new Date(0).toISOString(),
+    lifetime: { requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {} },
+    daily: {},
+    processedIds: {}
+  };
+}
+
+function getAnalyticsEventId(entry) {
+  const identity = JSON.stringify({
+    timestamp: entry.timestamp, level: entry.level, tag: entry.tag, ip: entry.ip,
+    message: entry.message, path: entry.path || '', query: entry.query || '', durationMs: entry.durationMs || 0
+  });
+  return crypto.createHash('sha256').update(identity).digest('hex');
+}
+
+function extractAnalyticsPath(entry) {
+  if (entry.path) return entry.path;
+  if (!entry.message) return '';
+  const access = entry.message.match(/Access file: "([^"]+)"/);
+  if (access) return access[1];
+  const pathMatch = entry.message.match(/path=([^&\\s]+)/);
+  if (!pathMatch) return '';
+  try { return decodeURIComponent(pathMatch[1]); } catch (_) { return pathMatch[1]; }
+}
+
+function extractAnalyticsQuery(entry) {
+  if (entry.query) return String(entry.query).trim();
+  if (!entry.message) return '';
+  const queryMatch = entry.message.match(/Query: "([^"]+)"/);
+  if (queryMatch) return queryMatch[1].trim();
+  const paramMatch = entry.message.match(/q=([^&\\s]+)/);
+  if (!paramMatch) return '';
+  try { return decodeURIComponent(paramMatch[1]).trim(); } catch (_) { return paramMatch[1].trim(); }
+}
+
+function updateLatest(stat, timestamp, field = 'lastAccess') {
+  if (!stat[field] || new Date(timestamp) > new Date(stat[field])) stat[field] = timestamp;
+}
+
+function updateAnalyticsStoreEntry(store, entry) {
+  const timestamp = new Date(entry.timestamp);
+  if (Number.isNaN(timestamp.getTime())) return false;
+  const id = entry.id || getAnalyticsEventId(entry);
+  if (store.processedIds[id]) return false;
+  store.processedIds[id] = timestamp.toISOString();
+
+  const ip = entry.ip || '127.0.0.1';
+  const dateKey = timestamp.toISOString().split('T')[0];
+  const bucket = store.daily[dateKey] || (store.daily[dateKey] = {
+    requests: 0, views: 0, searches: 0, ips: {}, files: {}, searches: {}
+  });
+  const lifetime = store.lifetime;
+  lifetime.requests++;
+  bucket.requests++;
+
+  const ipStat = lifetime.ips[ip] || (lifetime.ips[ip] = { requests: 0, lastAccess: entry.timestamp });
+  ipStat.requests++;
+  updateLatest(ipStat, entry.timestamp);
+  const bucketIp = bucket.ips[ip] || (bucket.ips[ip] = { requests: 0, lastAccess: entry.timestamp });
+  bucketIp.requests++;
+  updateLatest(bucketIp, entry.timestamp);
+
+  if (entry.tag === 'Render' || entry.tag === 'ShareLink') {
+    const docPath = extractAnalyticsPath(entry);
+    if (docPath) {
+      lifetime.views++;
+      bucket.views++;
+      const file = lifetime.files[docPath] || (lifetime.files[docPath] = { views: 0, ips: {}, lastAccess: entry.timestamp });
+      file.views++;
+      file.ips[ip] = true;
+      updateLatest(file, entry.timestamp);
+      const bucketFile = bucket.files[docPath] || (bucket.files[docPath] = { views: 0, ips: {}, lastAccess: entry.timestamp });
+      bucketFile.views++;
+      bucketFile.ips[ip] = true;
+      updateLatest(bucketFile, entry.timestamp);
+    }
+  }
+
+  if (entry.tag === 'Search') {
+    const query = extractAnalyticsQuery(entry);
+    if (query) {
+      lifetime.searchCount++;
+      bucket.searches++;
+      const search = lifetime.searches[query] || (lifetime.searches[query] = { count: 0, lastSearch: entry.timestamp });
+      search.count++;
+      updateLatest(search, entry.timestamp, 'lastSearch');
+      const bucketSearch = bucket.searches[query] || (bucket.searches[query] = { count: 0, lastSearch: entry.timestamp });
+      bucketSearch.count++;
+      updateLatest(bucketSearch, entry.timestamp, 'lastSearch');
+    }
+  }
+  return true;
+}
+
+async function saveAnalyticsStore() {
+  if (!analyticsStore) return;
+  analyticsStore.updatedAt = new Date().toISOString();
+  const tempPath = `${ANALYTICS_STORE_PATH}.tmp-${process.pid}`;
+  await fs.promises.writeFile(tempPath, JSON.stringify(analyticsStore), 'utf-8');
+  await fs.promises.rename(tempPath, ANALYTICS_STORE_PATH);
+}
+
+function queueAnalyticsStoreEntry(entry) {
+  analyticsStoreWrite = analyticsStoreWrite.then(async () => {
+    if (!analyticsStoreInitialized) return;
+    if (updateAnalyticsStoreEntry(analyticsStore, entry)) await saveAnalyticsStore();
+  }).catch(err => console.error('Error updating analytics aggregate:', err));
+  return analyticsStoreWrite;
+}
+
+async function readAnalyticsFile(filePath, onEntry) {
+  const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    try { onEntry(JSON.parse(line)); } catch (_) {}
+  }
+}
+
+async function initializeAnalyticsStore() {
+  if (analyticsStoreReady) return analyticsStoreReady;
+  analyticsStoreReady = (async () => {
+    let loaded = null;
+    try { loaded = JSON.parse(await fs.promises.readFile(ANALYTICS_STORE_PATH, 'utf-8')); } catch (_) {}
+    analyticsStore = loaded && loaded.version === ANALYTICS_STORE_VERSION ? loaded : createEmptyAnalyticsStore();
+    if (!analyticsStore.lifetime || !analyticsStore.daily || !analyticsStore.processedIds) analyticsStore = createEmptyAnalyticsStore();
+
+    const files = await fs.promises.readdir(LOG_DIR).catch(() => []);
+    for (const file of files) {
+      if (!file.endsWith('.jsonl')) continue;
+      await readAnalyticsFile(path.join(LOG_DIR, file), entry => {
+        if (!entry.id) entry.id = getAnalyticsEventId(entry);
+        updateAnalyticsStoreEntry(analyticsStore, entry);
+      });
+    }
+    await saveAnalyticsStore();
+    analyticsStoreInitialized = true;
+    return analyticsStore;
+  })().catch(err => {
+    analyticsStoreReady = null;
+    console.error('Failed to initialize analytics aggregate:', err);
+    throw err;
+  });
+  return analyticsStoreReady;
+}
+
 // 90-Day Retention Auto Cleanup Job
 const RETENTION_DAYS = 90;
 const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -68,9 +223,11 @@ function cleanOldLogsJob() {
   });
 }
 
-// Run cleanup on startup and schedule every 24h
-cleanOldLogsJob();
-setInterval(cleanOldLogsJob, 24 * 60 * 60 * 1000);
+// Backfill aggregate data before any raw log cleanup can occur.
+initializeAnalyticsStore().then(() => {
+  cleanOldLogsJob();
+  setInterval(cleanOldLogsJob, 24 * 60 * 60 * 1000);
+}).catch(() => {});
 
 function safeDecodeURI(str) {
   if (typeof str !== 'string' || !str.includes('%')) return str;
@@ -116,6 +273,7 @@ function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
   }
 
   const entry = {
+    id: '',
     timestamp: new Date().toISOString(),
     level,
     tag,
@@ -125,6 +283,7 @@ function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     ...(extra.query ? { query: String(extra.query).substring(0, 300) } : {}),
     ...(extra.durationMs ? { durationMs: extra.durationMs } : {})
   };
+  entry.id = getAnalyticsEventId(entry);
 
   systemLogBuffer.push(entry);
   if (systemLogBuffer.length > MAX_LOG_BUFFER) {
@@ -133,6 +292,7 @@ function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
 
   // Persist asynchronously to disk
   appendToPersistentLog(entry);
+  queueAnalyticsStoreEntry(entry);
 }
 
 // ── Logger Utility ──────────────────────────────────────────────────────────
@@ -304,7 +464,8 @@ let config = {
       adminList: [],
       adminPickCount: 3,
       blackList: [],
-      hotPickCount: 5
+      hotPickCount: 5,
+      enabled: true
     }
   }
 };
@@ -1422,8 +1583,66 @@ function sanitizeCsvField(val) {
   return `"${str.replace(/"/g, '""')}"`;
 }
 
-async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
-  const cacheKey = `${rangeDays}d-${requestedTz}`;
+function parseAnalyticsRange(value) {
+  const key = value || '30d';
+  if (!['1d', '7d', '30d', '90d', 'allTime'].includes(key)) {
+    throw new Error('Invalid analytics range');
+  }
+  return key;
+}
+
+function buildAggregateAnalyticsData(requestedTz, rangeKey) {
+  const store = analyticsStore || createEmptyAnalyticsStore();
+  const lifetime = store.lifetime;
+  const fileEntries = Object.entries(lifetime.files || {});
+  const searchEntries = Object.entries(lifetime.searches || {});
+  const ipEntries = Object.entries(lifetime.ips || {});
+  const dailyTrend = Object.entries(store.daily || {}).map(([date, bucket]) => ({
+    date,
+    views: bucket.views || 0,
+    uniqueIps: Object.keys(bucket.ips || {}).length
+  })).sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    range: rangeKey,
+    tz: requestedTz,
+    summary: {
+      totalViews: lifetime.views || 0,
+      uniqueIps: ipEntries.length,
+      totalSearches: lifetime.searchCount || 0,
+      activeFiles: fileEntries.length
+    },
+    topFiles: fileEntries.map(([filePath, stat]) => ({
+      path: filePath,
+      fileName: filePath.split('/').pop().replace(/\\.md$/, ''),
+      views: stat.views || 0,
+      uniqueIps: Object.keys(stat.ips || {}).length,
+      lastAccess: stat.lastAccess
+    })).sort((a, b) => b.views - a.views).slice(0, 50),
+    topSearches: searchEntries.map(([query, stat]) => ({ query, count: stat.count || 0, lastSearch: stat.lastSearch }))
+      .sort((a, b) => b.count - a.count).slice(0, 30),
+    dailyTrend,
+    ipDistribution: ipEntries.map(([ip, stat]) => ({ ip, requests: stat.requests || 0, lastAccess: stat.lastAccess }))
+      .sort((a, b) => b.requests - a.requests).slice(0, 20)
+  };
+}
+
+async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
+  rangeKey = parseAnalyticsRange(rangeKey);
+  await initializeAnalyticsStore();
+  await analyticsStoreWrite;
+  if (rangeKey === 'allTime') {
+    const cacheKey = `${rangeKey}-${requestedTz}`;
+    const cached = analyticsCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && (now - cached.timestamp) < ANALYTICS_CACHE_TTL) return cached.data;
+    const data = buildAggregateAnalyticsData(requestedTz, rangeKey);
+    analyticsCache.set(cacheKey, { timestamp: now, data });
+    return data;
+  }
+
+  const rangeDays = Number.parseInt(rangeKey, 10);
+  const cacheKey = `${rangeKey}-${requestedTz}`;
   const cached = analyticsCache.get(cacheKey);
   const now = Date.now();
   if (cached && (now - cached.timestamp) < ANALYTICS_CACHE_TTL) {
@@ -1585,7 +1804,7 @@ async function getAnalyticsData(rangeDays = 30, requestedTz = 'auto') {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const resultData = {
-    range: `${rangeDays}d`,
+    range: rangeKey,
     tz: requestedTz,
     summary: {
       totalViews,
@@ -1703,6 +1922,9 @@ async function handleSuggestList(req, res) {
     const adminPickCount = Math.max(0, parseInt(sl.adminPickCount) || 3);
     const hotPickCount = Math.max(0, parseInt(sl.hotPickCount) || 5);
     const blackList = Array.isArray(sl.blackList) ? sl.blackList : [];
+    if (sl.enabled === false) {
+      return sendJSON(res, 200, { items: [], adminPickCount, hotPickCount, enabled: false });
+    }
     const blackSet = new Set(blackList.map(p => p.trim().replace(/\\/g, '/')));
 
     // Admin picks: filter blacklist then shuffle and pick adminPickCount
@@ -1740,9 +1962,12 @@ async function handleAnalytics(req, res, query) {
     return sendJSON(res, 401, { error: 'Unauthorized' });
   }
 
-  const rangeDays = parseInt(query.range, 10) || 30;
-  const data = await getAnalyticsData(rangeDays, query.tz || 'auto');
-  return sendJSON(res, 200, data);
+  try {
+    const data = await getAnalyticsData(parseAnalyticsRange(query.range), query.tz || 'auto');
+    return sendJSON(res, 200, data);
+  } catch (err) {
+    return sendJSON(res, 400, { error: err.message });
+  }
 }
 
 async function handleAnalyticsExport(req, res, query) {
@@ -1759,8 +1984,9 @@ async function handleAnalyticsExport(req, res, query) {
   }
 
   const format = query.format === 'csv' ? 'csv' : 'json';
-  const rangeDays = parseInt(query.range, 10) || 30;
-  const data = await getAnalyticsData(rangeDays, query.tz || 'auto');
+  let rangeKey;
+  try { rangeKey = parseAnalyticsRange(query.range); } catch (err) { return sendJSON(res, 400, { error: err.message }); }
+  const data = await getAnalyticsData(rangeKey, query.tz || 'auto');
 
   if (format === 'csv') {
     let csv = '\uFEFF';
@@ -1771,13 +1997,13 @@ async function handleAnalyticsExport(req, res, query) {
 
     res.writeHead(200, Object.assign({
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="analytics-report-${rangeDays}d.csv"`
+      'Content-Disposition': `attachment; filename="analytics-report-${rangeKey}.csv"`
     }, SECURITY_HEADERS));
     return res.end(csv);
   } else {
     res.writeHead(200, Object.assign({
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': `attachment; filename="analytics-report-${rangeDays}d.json"`
+      'Content-Disposition': `attachment; filename="analytics-report-${rangeKey}.json"`
     }, SECURITY_HEADERS));
     return res.end(JSON.stringify(data, null, 2));
   }
@@ -1942,7 +2168,8 @@ async function handleAnalyticsExport(req, res, query) {
             adminList: Array.isArray(sl.adminList) ? sl.adminList.map(String).filter(p => p.trim()) : existing.adminList || [],
             adminPickCount: Number.isFinite(parseInt(sl.adminPickCount)) ? Math.max(0, parseInt(sl.adminPickCount)) : (existing.adminPickCount ?? 3),
             blackList: Array.isArray(sl.blackList) ? sl.blackList.map(String).filter(p => p.trim()) : existing.blackList || [],
-            hotPickCount: Number.isFinite(parseInt(sl.hotPickCount)) ? Math.max(0, parseInt(sl.hotPickCount)) : (existing.hotPickCount ?? 5)
+            hotPickCount: Number.isFinite(parseInt(sl.hotPickCount)) ? Math.max(0, parseInt(sl.hotPickCount)) : (existing.hotPickCount ?? 5),
+            enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled !== false)
           };
         }
         saveConfig();

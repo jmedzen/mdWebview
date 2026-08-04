@@ -475,6 +475,11 @@
       const res = await fetch('/api/suggest-list');
       if (!res.ok) return;
       const data = await res.json();
+      if (data.enabled === false) {
+        const container = $('suggestListContainer');
+        if (container) container.style.display = 'none';
+        return;
+      }
       renderSuggestList(data.items || []);
     } catch (_) {}
   }
@@ -3156,7 +3161,7 @@
         btn.addEventListener('click', (e) => {
           rangeNav.querySelectorAll('.analytics-range-btn').forEach(b => b.classList.remove('active'));
           e.currentTarget.classList.add('active');
-          stateAnalyticsRange = e.currentTarget.getAttribute('data-range') || '30d';
+          stateAnalyticsRange = e.currentTarget.getAttribute('data-range') || '7d';
           loadAdminAnalytics();
         });
       });
@@ -3210,6 +3215,7 @@
       const blackListRaw = ($('suggestBlackList') || {}).value || '';
       const adminPickCount = parseInt(($('suggestAdminPickCount') || {}).value || '3');
       const hotPickCount = parseInt(($('suggestHotPickCount') || {}).value || '5');
+      const enabled = !!(($('suggestEnabled') || {}).checked);
 
       // Parse textarea lines
       const adminList = adminListRaw.split('\n').map(l => l.trim()).filter(Boolean);
@@ -3240,7 +3246,7 @@
               version: s.version,
               enableDownload: s.enableDownload,
               downloadUrl: s.downloadUrl,
-              suggestList: { adminList, adminPickCount, blackList, hotPickCount }
+              suggestList: { adminList, adminPickCount, blackList, hotPickCount, enabled }
             }
           })
         });
@@ -3276,11 +3282,13 @@
       const blackListEl = $('suggestBlackList');
       const adminPickEl = $('suggestAdminPickCount');
       const hotPickEl = $('suggestHotPickCount');
+      const enabledEl = $('suggestEnabled');
 
       if (adminListEl) adminListEl.value = (sl.adminList || []).join('\n');
       if (blackListEl) blackListEl.value = (sl.blackList || []).join('\n');
       if (adminPickEl) adminPickEl.value = sl.adminPickCount ?? 3;
       if (hotPickEl) hotPickEl.value = sl.hotPickCount ?? 5;
+      if (enabledEl) enabledEl.checked = sl.enabled !== false;
     } catch (_) {}
   }
 

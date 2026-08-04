@@ -1396,25 +1396,96 @@ body,
 
 /* ── Admin Suggest Pane ─────────────────────────────────────── */
 .suggest-admin-form {
-  padding: 8px 4px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
-.suggest-admin-section {
-  margin-bottom: 20px;
-  padding: 14px 16px;
+/* Two-column layout */
+.suggest-layout {
+  display: grid;
+  grid-template-columns: 1fr 0.85fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.suggest-col-left,
+.suggest-col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* Each section */
+.suggest-section {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 8px;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
 
-.suggest-admin-section-title {
-  font-size: 13px;
+.suggest-section-hot {
+  flex: 1;
+}
+
+/* Section header: title + count control side by side */
+.suggest-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.suggest-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
   font-weight: 700;
   color: var(--accent);
-  margin-bottom: 12px;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 
+.suggest-section-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Compact count input control */
+.suggest-count-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.suggest-count-control input[type="number"] {
+  width: 46px;
+  padding: 2px 6px;
+  font-size: 12px;
+  text-align: center;
+  background: var(--input-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.suggest-count-control input[type="number"]:focus {
+  border-color: var(--accent);
+}
+
+/* Textarea */
 .suggest-textarea {
   width: 100%;
   box-sizing: border-box;
@@ -1422,12 +1493,14 @@ body,
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 12px;
   font-family: 'Inter', monospace;
-  padding: 10px 12px;
+  padding: 8px 10px;
   resize: vertical;
   outline: none;
   line-height: 1.6;
+  flex: 1;
+  min-height: 80px;
   transition: border-color 0.15s ease;
 }
 
@@ -1435,15 +1508,74 @@ body,
   border-color: var(--accent);
 }
 
-.suggest-admin-info {
-  margin-top: 8px;
-  padding: 8px 12px;
+/* Hint text */
+.suggest-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Hot info block */
+.suggest-hot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
   background: var(--accent-dim);
   border-radius: 6px;
+  flex: 1;
+}
+
+/* Algorithm flow badges */
+.suggest-algo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.suggest-algo-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.suggest-algo-7d {
+  background: rgba(239, 128, 45, 0.18);
+  color: #ef802d;
+  border: 1px solid rgba(239, 128, 45, 0.35);
+}
+
+.suggest-algo-30d {
+  background: rgba(100, 181, 246, 0.15);
+  color: #64b5f6;
+  border: 1px solid rgba(100, 181, 246, 0.3);
+}
+
+.suggest-algo-90d {
+  background: rgba(156, 204, 101, 0.15);
+  color: #8bc34a;
+  border: 1px solid rgba(156, 204, 101, 0.3);
+}
+
+.suggest-algo-arrow {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.suggest-algo-desc {
   font-size: 11.5px;
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.6;
+  margin: 0;
 }
+
+
 
 kbd {
   display: inline-block;
@@ -3010,6 +3142,7 @@ kbd {
 .analytics-range-nav {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
   background: var(--bg-secondary);
   padding: 3px;
   border-radius: 8px;

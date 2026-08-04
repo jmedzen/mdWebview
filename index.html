@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.9.5">
+  <link rel="stylesheet" href="style.css?v=1.9.6">
 </head>
 <body>
   <div class="app">
@@ -447,10 +447,10 @@
 
       <!-- Admin Tabs Navigation -->
       <div class="admin-tabs-nav" id="adminTabsNav">
-        <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
-        <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
-        <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
+            <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
         <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
+        <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
+        <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
       </div>
 
       <!-- Tab 1: Config Form -->
@@ -539,9 +539,11 @@
       <div class="admin-tab-pane" id="adminPaneAnalytics" style="display: none;">
         <div class="analytics-header">
           <div class="analytics-range-nav" id="analyticsRangeNav">
-            <button type="button" class="analytics-range-btn active" data-range="7d">7 天</button>
+            <button type="button" class="analytics-range-btn active" data-range="1d">1 天</button>
+            <button type="button" class="analytics-range-btn" data-range="7d">7 天</button>
             <button type="button" class="analytics-range-btn" data-range="30d">30 天</button>
             <button type="button" class="analytics-range-btn" data-range="90d">90 天</button>
+            <button type="button" class="analytics-range-btn" data-range="allTime">全部</button>
           </div>
           <div class="analytics-actions">
             <select id="analyticsTimezoneSelect" class="admin-tz-select" title="統計對齊時區">
@@ -655,43 +657,87 @@
 
       <!-- Tab 4: Suggest List Settings -->
       <div class="admin-tab-pane" id="adminPaneSuggest" style="display: none;">
-        <form id="adminSuggestForm" class="modal-form suggest-admin-form">
-          <div class="suggest-admin-section">
-            <div class="suggest-admin-section-title">📌 管理員推薦列表</div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="suggestAdminPickCount">顯示數量</label>
-                <input type="number" id="suggestAdminPickCount" min="0" max="20" value="3" style="width:80px">
-                <span class="field-hint">從 Admin List 中隨機挑選顯示的項目數量</span>
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="suggestAdminList">Admin 推薦路徑列表</label>
-              <textarea id="suggestAdminList" class="suggest-textarea" rows="8" placeholder="每行輸入一個相對路徑，例如：&#10;05-新標藏經/辯中邊論/辯中邊論述記科句.md&#10;10-玅境長老/解深密經/長老-分別瑜伽品.md"></textarea>
-              <span class="field-hint">相對於 Vault 根目錄的路徑（.md 副檔名可省略）。每行一個。</span>
-            </div>
-          </div>
+        <form id="adminSuggestForm" class="suggest-admin-form">
 
-          <div class="suggest-admin-section">
-            <div class="suggest-admin-section-title">🔥 熱門閱讀 (Log 分析)</div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="suggestHotPickCount">顯示數量</label>
-                <input type="number" id="suggestHotPickCount" min="0" max="20" value="5" style="width:80px">
-                <span class="field-hint">從 7/30/90 天 Top5 合併熱門列表中顯示的數量</span>
-              </div>
-            </div>
-            <div class="suggest-admin-info">
-              <span>Hot List 演算法：7天 Top5 → 30天 Top5 → 90天 Top5，按順序合併去重，自動排除黑名單。</span>
-            </div>
-          </div>
+          <!-- Two-column layout: left = Admin + Blacklist, right = Hot info -->
+          <div class="suggest-layout">
 
-          <div class="suggest-admin-section">
-            <div class="suggest-admin-section-title">🚫 黑名單 (Black List)</div>
-            <div class="form-group">
-              <label for="suggestBlackList">過濾路徑列表</label>
-              <textarea id="suggestBlackList" class="suggest-textarea" rows="5" placeholder="每行輸入一個要排除的路徑，例如：&#10;20-辭典/佛光辭典.md"></textarea>
-              <span class="field-hint">此列表中的檔案不會出現在任何推薦或熱門項目中。</span>
+            <!-- Left Column -->
+            <div class="suggest-col-left">
+
+              <div class="suggest-section">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">⚙️</span>
+                    顯示設定
+                  </div>
+                </div>
+                <label class="setting-checkbox-label" for="suggestEnabled">
+                  <input type="checkbox" id="suggestEnabled" checked>
+                  <span>在首頁顯示推薦閱讀</span>
+                </label>
+                <span class="suggest-hint">關閉後，首頁不會顯示推薦與熱門閱讀清單。</span>
+              </div>
+
+              <!-- Admin Picks -->
+              <div class="suggest-section">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">📌</span>
+                    管理員推薦
+                  </div>
+                  <div class="suggest-count-control">
+                    <label for="suggestAdminPickCount">顯示</label>
+                    <input type="number" id="suggestAdminPickCount" min="0" max="20" value="3">
+                    <span>筆</span>
+                  </div>
+                </div>
+                <textarea id="suggestAdminList" class="suggest-textarea" rows="7" placeholder="每行一個相對路徑，例如：&#10;05-新標藏經/辯中邊論/辯中邊論述記科句.md&#10;10-玅境長老/解深密經/長老-分別瑜伽品.md"></textarea>
+                <span class="suggest-hint">相對 Vault 路徑（.md 副檔名可省略），每行一個。</span>
+              </div>
+
+              <!-- Blacklist -->
+              <div class="suggest-section">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">🚫</span>
+                    黑名單
+                  </div>
+                </div>
+                <textarea id="suggestBlackList" class="suggest-textarea" rows="4" placeholder="每行一個要排除的路徑，例如：&#10;20-辭典/佛光辭典.md"></textarea>
+                <span class="suggest-hint">此列表中的檔案不會出現在任何推薦或熱門項目中。</span>
+              </div>
+
+            </div>
+
+            <!-- Right Column -->
+            <div class="suggest-col-right">
+
+              <!-- Hot Articles -->
+              <div class="suggest-section suggest-section-hot">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">🔥</span>
+                    熱門閱讀
+                  </div>
+                  <div class="suggest-count-control">
+                    <label for="suggestHotPickCount">顯示</label>
+                    <input type="number" id="suggestHotPickCount" min="0" max="20" value="5">
+                    <span>筆</span>
+                  </div>
+                </div>
+                <div class="suggest-hot-info">
+                  <div class="suggest-algo-row">
+                    <span class="suggest-algo-badge suggest-algo-7d">7天 Top5</span>
+                    <span class="suggest-algo-arrow">→</span>
+                    <span class="suggest-algo-badge suggest-algo-30d">30天 Top5</span>
+                    <span class="suggest-algo-arrow">→</span>
+                    <span class="suggest-algo-badge suggest-algo-90d">90天 Top5</span>
+                  </div>
+                  <p class="suggest-algo-desc">以上順序合併去重，自動排除黑名單後依序顯示。熱門數據來源為系統 Log 分析，每次開啟「推薦閱讀」Tab 時即時更新。</p>
+                </div>
+              </div>
+
             </div>
           </div>
 
@@ -709,7 +755,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.9.0" defer></script>
-  <script src="app.js?v=1.9.5" defer></script>
+  <script src="marked.min.js?v=1.9.6" defer></script>
+  <script src="app.js?v=1.9.6" defer></script>
 </body>
 </html>
