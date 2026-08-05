@@ -1884,7 +1884,7 @@
   // ═══════════════════════════════════════════════════════════
 
   function applyFontSize(size, saveToLocalStorage = true) {
-    size = Math.max(12, Math.min(28, size));
+    size = Math.max(12, Math.min(32, size));
     state.fontSize = size;
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
     const display = $('fontSizeDisplay');

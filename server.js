@@ -2204,7 +2204,7 @@ async function handleAnalyticsExport(req, res, query) {
           resetTreeWatcher();
         }
         if (defaultFontSize) {
-          config.settings.defaultFontSize = Math.max(12, Math.min(28, parseInt(defaultFontSize)));
+          config.settings.defaultFontSize = Math.max(12, Math.min(32, parseInt(defaultFontSize)));
         }
         if (defaultTheme) {
           config.settings.defaultTheme = defaultTheme;
