@@ -1297,7 +1297,7 @@ body,
 .suggest-list-container {
   margin: 20px auto 32px;
   width: 100%;
-  max-width: 580px;
+  max-width: 460px;
   background: transparent;
   border: none;
   border-radius: 0;
