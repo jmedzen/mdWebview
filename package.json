@@ -1,6 +1,6 @@
 {
   "name": "mdWebview",
-  "version": "1.10.5",
+  "version": "1.10.6",
   "description": "Web-based Obsidian-like Markdown Reader for Buddhist Sutra Commentaries",
   "main": "server.js",
   "scripts": {

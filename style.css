@@ -1317,11 +1317,11 @@ body,
 }
 
 .suggest-list-label {
+  font-family: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
-  letter-spacing: 2px;
-  text-transform: uppercase;
+  letter-spacing: 1px;
   position: relative;
   display: inline-block;
   opacity: 0.9;
