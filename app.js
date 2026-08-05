@@ -198,8 +198,13 @@
   function getFileFromURL() {
     // 1. Try query parameters first (server readable)
     const searchParams = new URLSearchParams(window.location.search);
-    const searchFile = searchParams.get('file');
+    let searchFile = searchParams.get('file');
+    if (!searchFile) {
+      const match = window.location.search.match(/[?&]file=([^&]+)/);
+      if (match) searchFile = match[1];
+    }
     if (searchFile) {
+      searchFile = decodeURIComponent(searchFile);
       const searchLine = searchParams.get('line') ? parseInt(searchParams.get('line')) : null;
       return { file: searchFile, line: searchLine };
     }
@@ -211,7 +216,7 @@
         const params = new URLSearchParams(hash.slice(1));
         const file = params.get('file');
         const line = params.get('line') ? parseInt(params.get('line')) : null;
-        return file ? { file, line } : null;
+        return file ? { file: decodeURIComponent(file), line } : null;
       } catch (e) {
         return null;
       }
@@ -766,13 +771,12 @@
       }
     }
 
-    // Update URL search parameters — preserve line param if provided
-    const params = new URLSearchParams();
-    params.set('file', filePath);
-    if (scrollToLineNum) params.set('line', scrollToLineNum);
-    const newSearch = '?' + params.toString();
-    if (window.location.search !== newSearch) {
-      // Clear hash if any, and set search query parameters
+    // Update URL search parameters — preserve line param if provided using unencoded Chinese URL
+    const cleanFile = filePath.split('&').join('%26').split('#').join('%23');
+    let newSearch = `?file=${cleanFile}`;
+    if (scrollToLineNum) newSearch += `&line=${scrollToLineNum}`;
+
+    if (decodeURIComponent(window.location.search) !== decodeURIComponent(newSearch)) {
       const newUrl = window.location.pathname + newSearch;
       history.pushState(null, '', newUrl);
     }
@@ -995,7 +999,7 @@
     const lbl = header.querySelector('#copyLinkLabel');
     if (btn) {
       btn.addEventListener('click', () => {
-        const url = window.location.href;
+        const url = decodeURIComponent(window.location.href);
         const doConfirm = () => {
           lbl.textContent = '✓ 已複製';
           btn.classList.add('copied');
@@ -2368,8 +2372,30 @@
       });
     }
 
-    // ── Footnotes Click Delegation ──
+    // ── Footnotes & Line Anchor Click Delegation ──
     $('markdownBody').addEventListener('click', (e) => {
+      // ── Line Anchor / Line Link Click ──
+      const lineEl = e.target.closest('.line-anchor, [data-line]');
+      if (lineEl && !e.target.closest('a, button, input, select, textarea')) {
+        const lineVal = lineEl.getAttribute('data-line') || (lineEl.id && lineEl.id.replace(/^L/, ''));
+        const lineNum = lineVal ? parseInt(lineVal, 10) : null;
+        if (lineNum && state.currentFile) {
+          const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
+          const lineSearch = `?file=${cleanFile}&line=${lineNum}`;
+          const newUrl = window.location.pathname + lineSearch;
+          history.pushState(null, '', newUrl);
+
+          const fullLineUrl = window.location.origin + window.location.pathname + lineSearch;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(fullLineUrl);
+          } else {
+            fallbackCopy(fullLineUrl);
+          }
+          showToast(`✓ 已複製第 ${lineNum} 行分享連結`);
+          scrollToLine(lineNum);
+        }
+      }
+
       // ── Wikilink Click Delegation ──
       const wikilink = e.target.closest('.wikilink');
       if (wikilink) {
