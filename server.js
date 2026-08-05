@@ -932,13 +932,26 @@ async function handleMedia(req, res, query) {
 
 
 async function handleRender(req, res, query) {
-  const filePath = query.path;
+  let filePath = query.path;
   if (!filePath || filePath.includes('\0')) {
     return sendJSON(res, 400, { error: 'Invalid path' });
   }
 
-  const fullPath = path.join(getMdRoot(), filePath);
-  const resolved = path.resolve(fullPath);
+  // Normalize path segments (remove spaces around slashes)
+  filePath = filePath.replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/');
+
+  let fullPath = path.join(getMdRoot(), filePath);
+  let resolved = path.resolve(fullPath);
+
+  // Fallback: if resolved file doesn't exist directly, try with .md extension
+  if (!fs.existsSync(resolved) && !filePath.endsWith('.md')) {
+    const mdCandidate = path.resolve(path.join(getMdRoot(), filePath + '.md'));
+    if (fs.existsSync(mdCandidate)) {
+      resolved = mdCandidate;
+      filePath = filePath + '.md';
+    }
+  }
+
   const relative = path.relative(getMdRoot(), resolved);
   const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
   if (!isSafe) return sendJSON(res, 403, { error: 'Access denied' });
@@ -1970,18 +1983,22 @@ async function handleSuggestList(req, res) {
 
     // Admin picks: filter blacklist then shuffle and pick adminPickCount
     const validAdmin = adminList
-      .map(p => p.trim().replace(/\\/g, '/'))
+      .map(p => p.replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/'))
       .filter(p => p && !isBlacklisted(p));
     // Shuffle admin list for variety
     for (let i = validAdmin.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [validAdmin[i], validAdmin[j]] = [validAdmin[j], validAdmin[i]];
     }
-    const adminPicks = validAdmin.slice(0, adminPickCount).map(p => ({
-      path: p,
-      fileName: p.split('/').pop().replace(/\.md$/, ''),
-      type: 'admin'
-    }));
+    const adminPicks = validAdmin.slice(0, adminPickCount).map(p => {
+      const cleanNoExt = p.replace(/\.md$/i, '').trim();
+      const fileName = cleanNoExt.split('/').pop().trim();
+      return {
+        path: p,
+        fileName: fileName || p,
+        type: 'admin'
+      };
+    });
 
     // Hot picks: from log analysis
     const hotRaw = await buildHotList(blackList);

@@ -484,6 +484,36 @@
     } catch (_) {}
   }
 
+  function resolveSuggestPath(rawPath) {
+    if (!rawPath) return '';
+    // Normalize slashes and trim spaces around path segments
+    const cleanPath = rawPath
+      .replace(/\\/g, '/')
+      .split('/')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join('/');
+
+    if (!cleanPath) return '';
+
+    const cleanNoExt = cleanPath.replace(/\.md$/i, '').trim();
+    const baseName = cleanNoExt.split('/').pop().trim();
+
+    // Try lookup in wikilinkIndex
+    const resolved =
+      wikilinkIndex.get(cleanPath) ||
+      wikilinkIndex.get(cleanPath.toLowerCase()) ||
+      wikilinkIndex.get(cleanNoExt) ||
+      wikilinkIndex.get(cleanNoExt.toLowerCase()) ||
+      wikilinkIndex.get(baseName) ||
+      wikilinkIndex.get(baseName.toLowerCase());
+
+    if (resolved) return resolved;
+
+    // Fallback: append .md if missing
+    return cleanPath.endsWith('.md') ? cleanPath : cleanPath + '.md';
+  }
+
   function renderSuggestList(items) {
     const container = $('suggestListContainer');
     const list = $('suggestList');
@@ -496,7 +526,8 @@
     for (const item of items) {
       const li = document.createElement('li');
       li.className = 'suggest-item';
-      li.title = item.path || '';
+      const targetPath = resolveSuggestPath(item.path);
+      li.title = targetPath || item.path || '';
 
       const icon = document.createElement('span');
       icon.className = 'suggest-item-icon';
@@ -515,7 +546,8 @@
       li.appendChild(badge);
 
       li.addEventListener('click', () => {
-        if (item.path) openFile(item.path);
+        const pathToOpen = resolveSuggestPath(item.path);
+        if (pathToOpen) openFile(pathToOpen);
       });
       frag.appendChild(li);
     }
