@@ -1293,16 +1293,16 @@ body,
   text-decoration: underline;
 }
 
-/* ── Suggest List (Homepage Recommend & Hot) ───────────────── */
+/* ── Suggest List (Zen Pill & Minimalist Ethereal B+E Style) ─ */
 .suggest-list-container {
-  margin: 16px auto 28px;
+  margin: 20px auto 32px;
   width: 100%;
-  max-width: 520px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 4px 16px var(--shadow-color);
+  max-width: 580px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none;
   animation: fadeIn 0.5s ease 0.2s both;
 }
 
@@ -1310,54 +1310,69 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+  gap: 8px;
+  padding: 0 0 12px 0;
+  border-bottom: none;
+  background: transparent;
 }
 
 .suggest-list-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--accent);
-  letter-spacing: 1px;
+  letter-spacing: 2px;
   text-transform: uppercase;
+  position: relative;
+  display: inline-block;
+  opacity: 0.9;
 }
 
 .suggest-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .suggest-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 16px;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
   cursor: pointer;
-  transition: background 0.15s ease, padding-left 0.15s ease;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: left;
-}
-
-.suggest-item:last-child {
-  border-bottom: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 .suggest-item:hover {
-  background: var(--hover-bg);
-  padding-left: 20px;
+  background: var(--active-bg);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px var(--shadow-color);
+  padding-left: 22px;
 }
 
 .suggest-item-icon {
-  font-size: 13px;
+  font-size: 14px;
   flex-shrink: 0;
-  opacity: 0.85;
+  opacity: 0.9;
+  transition: transform 0.2s ease;
+}
+
+.suggest-item:hover .suggest-item-icon {
+  transform: scale(1.15);
 }
 
 .suggest-item-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1367,31 +1382,36 @@ body,
 
 .suggest-item-badge {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 10px;
-  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  letter-spacing: 0.5px;
+  transition: all 0.2s ease;
 }
 
 .suggest-badge-admin {
   background: var(--accent-dim);
   color: var(--accent);
+  border: 1px solid rgba(254, 128, 25, 0.2);
 }
 
 .suggest-badge-hot {
   background: rgba(255, 80, 50, 0.12);
   color: #ff6b47;
+  border: 1px solid rgba(255, 80, 50, 0.2);
 }
 
 [data-theme="obsidian-light"] .suggest-badge-hot {
-  background: rgba(210, 60, 30, 0.12);
+  background: rgba(210, 60, 30, 0.1);
   color: #c0392b;
+  border-color: rgba(210, 60, 30, 0.2);
 }
 
 [data-theme="zen"] .suggest-badge-hot {
-  background: rgba(180, 80, 40, 0.12);
+  background: rgba(180, 80, 40, 0.1);
   color: #a8522e;
+  border-color: rgba(180, 80, 40, 0.2);
 }
 
 /* ── Admin Suggest Pane ─────────────────────────────────────── */
