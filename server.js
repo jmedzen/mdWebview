@@ -12,8 +12,8 @@ const { marked } = require('marked');  // Still needed for inline fallback
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 
-// ── System Log Buffer (Recent 5000 logs) ────────────────────────────────────
-const MAX_LOG_BUFFER = 5000;
+// ── System Log Buffer (Recent 600 logs) ────────────────────────────────────
+const MAX_LOG_BUFFER = 600;
 const systemLogBuffer = [];
 
 // ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
