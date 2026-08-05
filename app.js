@@ -3288,7 +3288,7 @@
       if (blackListEl) blackListEl.value = (sl.blackList || []).join('\n');
       if (adminPickEl) adminPickEl.value = sl.adminPickCount ?? 3;
       if (hotPickEl) hotPickEl.value = sl.hotPickCount ?? 5;
-      if (enabledEl) enabledEl.checked = sl.enabled !== false;
+      if (enabledEl) enabledEl.checked = sl.enabled === true;
     } catch (_) {}
   }
 

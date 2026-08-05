@@ -465,7 +465,7 @@ let config = {
       adminPickCount: 3,
       blackList: [],
       hotPickCount: 5,
-      enabled: true
+      enabled: false
     }
   }
 };
@@ -1922,7 +1922,7 @@ async function handleSuggestList(req, res) {
     const adminPickCount = Math.max(0, parseInt(sl.adminPickCount) || 3);
     const hotPickCount = Math.max(0, parseInt(sl.hotPickCount) || 5);
     const blackList = Array.isArray(sl.blackList) ? sl.blackList : [];
-    if (sl.enabled === false) {
+    if (sl.enabled !== true) {
       return sendJSON(res, 200, { items: [], adminPickCount, hotPickCount, enabled: false });
     }
     const blackSet = new Set(blackList.map(p => p.trim().replace(/\\/g, '/')));
@@ -2169,7 +2169,7 @@ async function handleAnalyticsExport(req, res, query) {
             adminPickCount: Number.isFinite(parseInt(sl.adminPickCount)) ? Math.max(0, parseInt(sl.adminPickCount)) : (existing.adminPickCount ?? 3),
             blackList: Array.isArray(sl.blackList) ? sl.blackList.map(String).filter(p => p.trim()) : existing.blackList || [],
             hotPickCount: Number.isFinite(parseInt(sl.hotPickCount)) ? Math.max(0, parseInt(sl.hotPickCount)) : (existing.hotPickCount ?? 5),
-            enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled !== false)
+            enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true)
           };
         }
         saveConfig();
