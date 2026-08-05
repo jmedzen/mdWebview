@@ -3396,6 +3396,7 @@
     const shareBtn = $('selectionShareBtn');
     const shareLabel = $('selectionShareLabel');
     let currentShareUrl = '';
+    let currentLineNum = null;
 
     document.addEventListener('mouseup', () => {
       // Small timeout to let selection clear/update
@@ -3439,13 +3440,11 @@
         popup.style.top = `${Math.max(0, top)}px`;
         popup.style.left = `${Math.max(0, left)}px`;
 
-        // Update share link
-        // Construct the URL using query parameters: ?file=...&line=...
+        // Update share link using unencoded Chinese URL
         const baseUrl = window.location.origin + window.location.pathname;
-        const params = new URLSearchParams();
-        params.set('file', state.currentFile);
-        params.set('line', lineNum);
-        currentShareUrl = `${baseUrl}?${params.toString()}`;
+        const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
+        currentLineNum = lineNum;
+        currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
 
         // Reset label
         shareLabel.textContent = `分享第 ${lineNum} 行`;
@@ -3461,20 +3460,33 @@
 
     shareBtn.addEventListener('click', () => {
       if (!currentShareUrl) return;
-      navigator.clipboard.writeText(currentShareUrl).then(() => {
+      const rawUrl = decodeURIComponent(currentShareUrl);
+
+      // Update address bar to unencoded Chinese URL with line number
+      if (state.currentFile && currentLineNum) {
+        const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
+        const searchStr = `?file=${cleanFile}&line=${currentLineNum}`;
+        history.pushState(null, '', window.location.pathname + searchStr);
+        scrollToLine(currentLineNum);
+      }
+
+      const doCopySuccess = () => {
         shareLabel.textContent = '✓ 已複製';
         shareBtn.classList.add('copied');
         setTimeout(() => {
           popup.classList.remove('visible');
         }, 1500);
-      }).catch(() => {
-        fallbackCopy(currentShareUrl);
-        shareLabel.textContent = '✓ 已複製';
-        shareBtn.classList.add('copied');
-        setTimeout(() => {
-          popup.classList.remove('visible');
-        }, 1500);
-      });
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(rawUrl).then(doCopySuccess).catch(() => {
+          fallbackCopy(rawUrl);
+          doCopySuccess();
+        });
+      } else {
+        fallbackCopy(rawUrl);
+        doCopySuccess();
+      }
     });
 
     // Close popup on mousedown anywhere else
