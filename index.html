@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.9.9">
+  <link rel="stylesheet" href="style.css?v=2.0.0">
 </head>
 <body>
   <div class="app">
@@ -704,8 +704,8 @@
                     黑名單
                   </div>
                 </div>
-                <textarea id="suggestBlackList" class="suggest-textarea" rows="4" placeholder="每行一個要排除的路徑，例如：&#10;20-辭典/佛光辭典.md"></textarea>
-                <span class="suggest-hint">此列表中的檔案不會出現在任何推薦或熱門項目中。</span>
+                <textarea id="suggestBlackList" class="suggest-textarea" rows="4" placeholder="每行一個要排除的路徑，支援萬用字元 *，例如：&#10;20-辭典/*&#10;20-辭典/佛光辭典.md"></textarea>
+                <span class="suggest-hint">此列表中的檔案不會出現在任何推薦或熱門項目中（支援萬用字元 * 匹配子目錄與檔名）。</span>
               </div>
 
             </div>
@@ -755,7 +755,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.9.9" defer></script>
-  <script src="app.js?v=1.9.9" defer></script>
+  <script src="marked.min.js?v=2.0.0" defer></script>
+  <script src="app.js?v=2.0.0" defer></script>
 </body>
 </html>

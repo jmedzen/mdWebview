@@ -1822,8 +1822,49 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
   return resultData;
 }
 
+function createBlacklistChecker(blackList) {
+  if (!Array.isArray(blackList) || blackList.length === 0) {
+    return () => false;
+  }
+
+  const rules = blackList
+    .map(p => String(p).trim().replace(/\\/g, '/'))
+    .filter(Boolean);
+
+  if (rules.length === 0) return () => false;
+
+  const matchers = rules.map(rule => {
+    if (rule.includes('*') || rule.includes('?')) {
+      const regexStr = '^' + rule
+        .replace(/([.+^${}()|[\]\\])/g, '\\$1')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.') + '$';
+      const regex = new RegExp(regexStr, 'i');
+      return (path) => regex.test(path) || regex.test(path.replace(/\.md$/, ''));
+    }
+
+    if (rule.endsWith('/')) {
+      return (path) => path.startsWith(rule);
+    }
+
+    const ruleWithMd = rule.endsWith('.md') ? rule : rule + '.md';
+    const ruleWithoutMd = rule.endsWith('.md') ? rule.slice(0, -3) : rule;
+
+    return (path) => {
+      const pathWithoutMd = path.endsWith('.md') ? path.slice(0, -3) : path;
+      return path === rule || path === ruleWithMd || pathWithoutMd === ruleWithoutMd;
+    };
+  });
+
+  return function isBlacklisted(path) {
+    if (!path) return false;
+    const normPath = String(path).trim().replace(/\\/g, '/');
+    return matchers.some(matcher => matcher(normPath));
+  };
+}
+
 async function buildHotList(blackList) {
-  const blackSet = new Set((blackList || []).map(p => p.trim().replace(/\\/g, '/')));
+  const isBlacklisted = createBlacklistChecker(blackList);
   const now = Date.now();
 
   // Collect top files for 7d, 30d, 90d windows
@@ -1858,7 +1899,7 @@ async function buildHotList(blackList) {
           }
           if (!docPath) continue;
           docPath = docPath.trim().replace(/\\/g, '/');
-          if (blackSet.has(docPath)) continue;
+          if (isBlacklisted(docPath)) continue;
 
           const t = new Date(item.timestamp).getTime();
           windows.forEach((days, idx) => {
@@ -1885,7 +1926,7 @@ async function buildHotList(blackList) {
     }
     if (!docPath) continue;
     docPath = docPath.trim().replace(/\\/g, '/');
-    if (blackSet.has(docPath)) continue;
+    if (isBlacklisted(docPath)) continue;
     const t = new Date(item.timestamp).getTime();
     windows.forEach((days, idx) => {
       if (t >= now - (days * 24 * 60 * 60 * 1000)) {
@@ -1925,12 +1966,12 @@ async function handleSuggestList(req, res) {
     if (sl.enabled !== true) {
       return sendJSON(res, 200, { items: [], adminPickCount, hotPickCount, enabled: false });
     }
-    const blackSet = new Set(blackList.map(p => p.trim().replace(/\\/g, '/')));
+    const isBlacklisted = createBlacklistChecker(blackList);
 
     // Admin picks: filter blacklist then shuffle and pick adminPickCount
     const validAdmin = adminList
       .map(p => p.trim().replace(/\\/g, '/'))
-      .filter(p => p && !blackSet.has(p));
+      .filter(p => p && !isBlacklisted(p));
     // Shuffle admin list for variety
     for (let i = validAdmin.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -1951,7 +1992,7 @@ async function handleSuggestList(req, res) {
       .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source }));
 
     const items = [...adminPicks, ...hotPicks];
-    sendJSON(res, 200, { items, adminPickCount, hotPickCount });
+    sendJSON(res, 200, { items, adminPickCount, hotPickCount, enabled: true });
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
   }
