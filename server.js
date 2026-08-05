@@ -1992,6 +1992,11 @@ async function handleSuggestList(req, res) {
       .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source }));
 
     const items = [...adminPicks, ...hotPicks];
+    // Randomly shuffle combined items so admin and hot picks interleave
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
     sendJSON(res, 200, { items, adminPickCount, hotPickCount, enabled: true });
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
