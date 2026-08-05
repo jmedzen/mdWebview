@@ -1319,7 +1319,7 @@ body,
 .suggest-list-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--text-muted);
   letter-spacing: 2px;
   text-transform: uppercase;
   position: relative;
