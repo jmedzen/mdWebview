@@ -708,11 +708,12 @@ function setupTreeWatcher() {
         cachedTree = null;
         searchCache.clear();
         searchIndex.ready = false;
+        Logger.info('Index', `Vault file changed: "${filename || 'unknown'}" (${eventType}). Rebuilding Bigram Index...`);
         buildSearchIndexAsync().catch(() => {});
       });
     }
   } catch (err) {
-    console.error('Error setting up tree watcher:', err);
+    Logger.error('Index', 'Error setting up tree watcher', err);
   }
 }
 
@@ -726,6 +727,7 @@ function resetTreeWatcher() {
   cachedTree = null;
   searchCache.clear();
   searchIndex.ready = false;
+  Logger.info('Index', 'Vault configuration changed: Resetting tree watcher and Bigram Index');
 }
 
 async function scanDirAsync(dir, relativePath) {
@@ -1111,6 +1113,7 @@ async function buildSearchIndexAsync() {
   if (searchIndex.building) return;
   searchIndex.building = true;
   const indexStart = Date.now();
+  Logger.info('Index', 'Starting Full-text Bigram Inverted Index build...');
 
   try {
     if (!cachedTree) {
@@ -1174,7 +1177,7 @@ async function buildSearchIndexAsync() {
     Logger.info('Index', `Full-text Bigram Index built for ${fileList.length} files (${bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
   } catch (err) {
     searchIndex.building = false;
-    console.error('Error building search index:', err);
+    Logger.error('Index', 'Failed to build Bigram search index', err);
   }
 }
 
