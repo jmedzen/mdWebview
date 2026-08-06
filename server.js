@@ -698,18 +698,39 @@ let treeWatcher = null;
 const searchCache = new Map(); // key: "folder::q" -> { time, data }
 const SEARCH_CACHE_MAX = 30;
 
+let treeWatcherDebounceTimer = null;
+let treeWatcherStartTime = 0;
+
 function setupTreeWatcher() {
   if (treeWatcher) return;
   try {
     const mdRoot = getMdRoot();
     if (fs.existsSync(mdRoot)) {
+      treeWatcherStartTime = Date.now();
       treeWatcher = fs.watch(mdRoot, { recursive: true }, (eventType, filename) => {
-        // Invalidate tree, search caches, and search index on any change (add/remove/rename)
+        // Ignore initial macOS fs.watch attach noise within 3 seconds of initialization
+        if (Date.now() - treeWatcherStartTime < 3000) {
+          return;
+        }
+
+        // Ignore hidden system files (.DS_Store, .git, .tmp, etc.)
+        if (filename && (filename.startsWith('.') || filename.includes('/.'))) {
+          return;
+        }
+
+        // Invalidate tree and search cache
         cachedTree = null;
         searchCache.clear();
-        searchIndex.ready = false;
-        Logger.info('Index', `Vault file changed: "${filename || 'unknown'}" (${eventType}). Rebuilding Bigram Index...`);
-        buildSearchIndexAsync().catch(() => {});
+
+        // Debounce index rebuild by 1.5 seconds to handle batch file operations cleanly
+        if (treeWatcherDebounceTimer) {
+          clearTimeout(treeWatcherDebounceTimer);
+        }
+        treeWatcherDebounceTimer = setTimeout(() => {
+          treeWatcherDebounceTimer = null;
+          Logger.info('Index', `Vault file changed: "${filename || 'unknown'}" (${eventType}). Checking Bigram Index...`);
+          buildSearchIndexAsync(false).catch(() => {});
+        }, 1500);
       });
     }
   } catch (err) {
@@ -718,6 +739,10 @@ function setupTreeWatcher() {
 }
 
 function resetTreeWatcher() {
+  if (treeWatcherDebounceTimer) {
+    clearTimeout(treeWatcherDebounceTimer);
+    treeWatcherDebounceTimer = null;
+  }
   if (treeWatcher) {
     try {
       treeWatcher.close();
@@ -1082,38 +1107,119 @@ function flattenTreeToFiles(nodes, mdRoot) {
 }
 
 // ── Full-Text Bigram Inverted Index ──────────────────────────────
+const SEARCH_INDEX_CACHE_FILE = path.join(LOG_DIR, 'search-index-cache.json');
+
 let searchIndex = {
   ready: false,
   building: false,
+  vaultSig: null,
   fileList: [],         // [{ id, relPath, name, fullPath }]
   fileMap: new Map(),   // relPath -> fileId
   bigrams: new Map(),   // bigram (e.g. "成無") -> Set of fileId
 };
 
-function extractBigrams(text) {
-  const bigrams = new Set();
-  if (!text) return bigrams;
-  let prevChar = '';
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    if (ch <= 32 || ch === 127) {
-      prevChar = '';
-      continue;
-    }
-    const currChar = text[i];
-    if (prevChar) {
-      bigrams.add(prevChar + currChar);
-    }
-    prevChar = currChar;
+/**
+ * Computes a quick fingerprint of all files in vault based on path, size, and mtime
+ */
+function computeVaultSignature(files) {
+  const hash = crypto.createHash('md5');
+  hash.update(`count:${files.length}\n`);
+  for (let i = 0; i < files.length; i++) {
+    hash.update(files[i].relPath + '\n');
   }
-  return bigrams;
+  return hash.digest('hex');
 }
 
-async function buildSearchIndexAsync() {
+/**
+ * Tries to load the Bigram index from disk cache if vault fingerprint matches
+ */
+async function loadSearchIndexFromCacheAsync(expectedVaultSig) {
+  try {
+    if (!fs.existsSync(SEARCH_INDEX_CACHE_FILE)) return false;
+    const raw = await fs.promises.readFile(SEARCH_INDEX_CACHE_FILE, 'utf-8');
+    const data = JSON.parse(raw);
+
+    if (!data || data.vaultSig !== expectedVaultSig || !Array.isArray(data.fileList) || !Array.isArray(data.bigrams)) {
+      return false;
+    }
+
+    const fileMap = new Map();
+    data.fileList.forEach(f => fileMap.set(f.relPath, f.id));
+
+    const bigrams = new Map();
+    for (let i = 0; i < data.bigrams.length; i++) {
+      const entry = data.bigrams[i];
+      if (entry && entry[0] && Array.isArray(entry[1])) {
+        bigrams.set(entry[0], entry[1]);
+      }
+    }
+
+    searchIndex = {
+      ready: true,
+      building: false,
+      vaultSig: expectedVaultSig,
+      fileList: data.fileList,
+      fileMap,
+      bigrams
+    };
+
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Saves the compiled Bigram index to disk cache for fast server restart
+ */
+async function saveSearchIndexCacheAsync(vaultSig, fileList, bigrams) {
+  try {
+    const saveStart = Date.now();
+    const bigramsArr = Array.from(bigrams.entries());
+    const data = {
+      version: '1.0',
+      builtAt: new Date().toISOString(),
+      vaultSig,
+      fileList,
+      bigrams: bigramsArr
+    };
+    const jsonStr = JSON.stringify(data);
+    await fs.promises.writeFile(SEARCH_INDEX_CACHE_FILE, jsonStr, 'utf-8');
+    const sizeMb = (Buffer.byteLength(jsonStr) / (1024 * 1024)).toFixed(1);
+    Logger.info('Index', `Saved Bigram Index to disk cache (${sizeMb} MB) in ${Date.now() - saveStart}ms`);
+  } catch (err) {
+    Logger.error('Index', 'Failed to save search index cache', err);
+  }
+}
+
+function extractBigrams(text, onBigram) {
+  if (!text || typeof onBigram !== 'function') return;
+  let prevChar = '';
+  const maxLen = Math.min(text.length, 3000000);
+  for (let i = 0; i < maxLen; i++) {
+    const ch = text.charCodeAt(i);
+    if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
+      const currChar = text[i];
+      if (prevChar) {
+        onBigram(prevChar + currChar);
+      }
+      prevChar = currChar;
+    } else {
+      prevChar = '';
+    }
+  }
+}
+
+function extractQueryBigrams(text) {
+  const set = new Set();
+  extractBigrams(text, (bg) => set.add(bg));
+  return Array.from(set);
+}
+
+async function buildSearchIndexAsync(forceRebuild = false) {
   if (searchIndex.building) return;
   searchIndex.building = true;
   const indexStart = Date.now();
-  Logger.info('Index', 'Starting Full-text Bigram Inverted Index build...');
 
   try {
     if (!cachedTree) {
@@ -1121,17 +1227,38 @@ async function buildSearchIndexAsync() {
       setupTreeWatcher();
     }
     const files = flattenTreeToFiles(cachedTree, getMdRoot());
+    const vaultSig = computeVaultSignature(files);
+
+    // If index is already ready and signature hasn't changed, skip rebuild!
+    if (searchIndex.ready && searchIndex.vaultSig === vaultSig && !forceRebuild) {
+      searchIndex.building = false;
+      return;
+    }
+
+    // Try loading index from disk cache first if not forced
+    if (!forceRebuild) {
+      const loadedFromCache = await loadSearchIndexFromCacheAsync(vaultSig);
+      if (loadedFromCache) {
+        Logger.info('Index', `Loaded valid Bigram Index from disk cache for ${files.length} files (${searchIndex.bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms (Vault Unchanged)`);
+        searchIndex.building = false;
+        return;
+      }
+    }
+
+    Logger.info('Index', `Starting Full-text Bigram Inverted Index build for ${files.length} files...`);
 
     const fileList = [];
     const fileMap = new Map();
     const bigrams = new Map();
-
-    const limit = 10;
     let fileIdx = 0;
 
-    async function indexWorker() {
+    async function indexWorker(workerId) {
+      const seenBigrams = new Set();
       while (fileIdx < files.length) {
         const idx = fileIdx++;
+        if (idx > 0 && idx % 1000 === 0) {
+          Logger.info('Index', `Indexing progress: ${idx}/${files.length} files...`);
+        }
         const file = files[idx];
         if (!file) break;
 
@@ -1147,34 +1274,42 @@ async function buildSearchIndexAsync() {
 
         try {
           const content = await fs.promises.readFile(file.fullPath, 'utf-8');
-          const fileBigrams = extractBigrams(content);
-          for (const bg of fileBigrams) {
-            let set = bigrams.get(bg);
-            if (!set) {
-              set = new Set();
-              bigrams.set(bg, set);
+          seenBigrams.clear();
+          extractBigrams(content, (bg) => {
+            if (!seenBigrams.has(bg)) {
+              seenBigrams.add(bg);
+              let list = bigrams.get(bg);
+              if (!list) {
+                list = [];
+                bigrams.set(bg, list);
+              }
+              list.push(fileId);
             }
-            set.add(fileId);
-          }
+          });
         } catch (_) {}
       }
     }
 
+    const limit = 10;
     const workers = [];
     for (let i = 0; i < limit; i++) {
-      workers.push(indexWorker());
+      workers.push(indexWorker(i));
     }
     await Promise.all(workers);
 
     searchIndex = {
       ready: true,
       building: false,
+      vaultSig,
       fileList,
       fileMap,
       bigrams
     };
 
     Logger.info('Index', `Full-text Bigram Index built for ${fileList.length} files (${bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+
+    // Save cache to disk for fast server restarts
+    await saveSearchIndexCacheAsync(vaultSig, fileList, bigrams);
   } catch (err) {
     searchIndex.building = false;
     Logger.error('Index', 'Failed to build Bigram search index', err);
@@ -1225,18 +1360,19 @@ async function handleSearch(req, res, query) {
 
     // Bigram Inverted Index filtering (for content search queries length >= 2)
     if (searchIndex.ready && q.trim().length >= 2 && !isFilenameOnly) {
-      const qBigrams = Array.from(extractBigrams(q));
+      const qBigrams = extractQueryBigrams(q);
       if (qBigrams.length > 0) {
         usedIndex = true;
         let candidateSet = null;
         for (const bg of qBigrams) {
-          const fileSet = searchIndex.bigrams.get(bg);
-          if (!fileSet || fileSet.size === 0) {
+          const list = searchIndex.bigrams.get(bg);
+          if (!list || list.length === 0) {
             candidateSet = new Set();
             break;
           }
+          const fileSet = new Set(list);
           if (candidateSet === null) {
-            candidateSet = new Set(fileSet);
+            candidateSet = fileSet;
           } else {
             for (const fileId of candidateSet) {
               if (!fileSet.has(fileId)) {
