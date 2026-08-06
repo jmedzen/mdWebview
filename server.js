@@ -704,9 +704,11 @@ function setupTreeWatcher() {
     const mdRoot = getMdRoot();
     if (fs.existsSync(mdRoot)) {
       treeWatcher = fs.watch(mdRoot, { recursive: true }, (eventType, filename) => {
-        // Invalidate tree and search caches on any change (add/remove/rename)
+        // Invalidate tree, search caches, and search index on any change (add/remove/rename)
         cachedTree = null;
         searchCache.clear();
+        searchIndex.ready = false;
+        buildSearchIndexAsync().catch(() => {});
       });
     }
   } catch (err) {
@@ -723,6 +725,7 @@ function resetTreeWatcher() {
   }
   cachedTree = null;
   searchCache.clear();
+  searchIndex.ready = false;
 }
 
 async function scanDirAsync(dir, relativePath) {
@@ -1076,6 +1079,105 @@ function flattenTreeToFiles(nodes, mdRoot) {
   return files;
 }
 
+// ── Full-Text Bigram Inverted Index ──────────────────────────────
+let searchIndex = {
+  ready: false,
+  building: false,
+  fileList: [],         // [{ id, relPath, name, fullPath }]
+  fileMap: new Map(),   // relPath -> fileId
+  bigrams: new Map(),   // bigram (e.g. "成無") -> Set of fileId
+};
+
+function extractBigrams(text) {
+  const bigrams = new Set();
+  if (!text) return bigrams;
+  let prevChar = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch <= 32 || ch === 127) {
+      prevChar = '';
+      continue;
+    }
+    const currChar = text[i];
+    if (prevChar) {
+      bigrams.add(prevChar + currChar);
+    }
+    prevChar = currChar;
+  }
+  return bigrams;
+}
+
+async function buildSearchIndexAsync() {
+  if (searchIndex.building) return;
+  searchIndex.building = true;
+  const indexStart = Date.now();
+
+  try {
+    if (!cachedTree) {
+      cachedTree = await scanDirAsync(getMdRoot(), '');
+      setupTreeWatcher();
+    }
+    const files = flattenTreeToFiles(cachedTree, getMdRoot());
+
+    const fileList = [];
+    const fileMap = new Map();
+    const bigrams = new Map();
+
+    const limit = 10;
+    let fileIdx = 0;
+
+    async function indexWorker() {
+      while (fileIdx < files.length) {
+        const idx = fileIdx++;
+        const file = files[idx];
+        if (!file) break;
+
+        const fileId = idx;
+        const entry = {
+          id: fileId,
+          relPath: file.relPath,
+          name: file.name,
+          fullPath: file.fullPath
+        };
+        fileList[fileId] = entry;
+        fileMap.set(file.relPath, fileId);
+
+        try {
+          const content = await fs.promises.readFile(file.fullPath, 'utf-8');
+          const fileBigrams = extractBigrams(content);
+          for (const bg of fileBigrams) {
+            let set = bigrams.get(bg);
+            if (!set) {
+              set = new Set();
+              bigrams.set(bg, set);
+            }
+            set.add(fileId);
+          }
+        } catch (_) {}
+      }
+    }
+
+    const workers = [];
+    for (let i = 0; i < limit; i++) {
+      workers.push(indexWorker());
+    }
+    await Promise.all(workers);
+
+    searchIndex = {
+      ready: true,
+      building: false,
+      fileList,
+      fileMap,
+      bigrams
+    };
+
+    Logger.info('Index', `Full-text Bigram Index built for ${fileList.length} files (${bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+  } catch (err) {
+    searchIndex.building = false;
+    console.error('Error building search index:', err);
+  }
+}
+
 // ── API: Full-text Search ────────────────────────────────────
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
@@ -1101,14 +1203,57 @@ async function handleSearch(req, res, query) {
       cachedTree = await scanDirAsync(getMdRoot(), '');
       setupTreeWatcher();
     }
-    let files = flattenTreeToFiles(cachedTree, getMdRoot());
+    // Ensure Bigram Index build is triggered in background if not ready
+    if (!searchIndex.ready && !searchIndex.building) {
+      buildSearchIndexAsync().catch(() => {});
+    }
 
+    let files = flattenTreeToFiles(cachedTree, getMdRoot());
     const isFilenameOnly = targetFolder === '__FILENAME_ONLY__';
     const folderFilter = isFilenameOnly ? '' : targetFolder;
 
     // Filter files by target directory or specific file path if specified
     if (folderFilter) {
       files = files.filter(f => f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
+    }
+
+    const initialFileCount = files.length;
+    let usedIndex = false;
+
+    // Bigram Inverted Index filtering (for content search queries length >= 2)
+    if (searchIndex.ready && q.trim().length >= 2 && !isFilenameOnly) {
+      const qBigrams = Array.from(extractBigrams(q));
+      if (qBigrams.length > 0) {
+        usedIndex = true;
+        let candidateSet = null;
+        for (const bg of qBigrams) {
+          const fileSet = searchIndex.bigrams.get(bg);
+          if (!fileSet || fileSet.size === 0) {
+            candidateSet = new Set();
+            break;
+          }
+          if (candidateSet === null) {
+            candidateSet = new Set(fileSet);
+          } else {
+            for (const fileId of candidateSet) {
+              if (!fileSet.has(fileId)) {
+                candidateSet.delete(fileId);
+              }
+            }
+            if (candidateSet.size === 0) break;
+          }
+        }
+
+        if (candidateSet) {
+          files = Array.from(candidateSet)
+            .map(id => searchIndex.fileList[id])
+            .filter(Boolean);
+
+          if (folderFilter) {
+            files = files.filter(f => f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
+          }
+        }
+      }
     }
 
     const isSingleFile = files.length === 1;
@@ -1195,7 +1340,8 @@ async function handleSearch(req, res, query) {
     }
     searchCache.set(cacheKey, { time: Date.now(), data: searchData });
 
-    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} -> ${results.length} matches in ${Date.now() - searchStart}ms`, req, { query: q });
+    const indexInfo = usedIndex ? ` (Index Candidates: ${files.length}/${initialFileCount})` : '';
+    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''}${indexInfo} -> ${results.length} matches in ${Date.now() - searchStart}ms`, req, { query: q });
     sendJSON(res, 200, searchData);
   } catch (err) {
     Logger.error('Search', `Search failed for query "${q}"`, err, req);
@@ -2282,4 +2428,7 @@ server.listen(PORT, () => {
   console.log(`  Local:   http://localhost:${PORT}`);
   console.log(`  Vault:   ${getMdRoot()}`);
   console.log('');
+
+  // Eagerly build Bigram Inverted Index in background on boot
+  buildSearchIndexAsync().catch(() => {});
 });
