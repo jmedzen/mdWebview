@@ -2944,8 +2944,15 @@
       $('settingsEnableVersion').checked = !!data.settings.enableVersion;
       $('settingsVersion').value = data.settings.version || '';
       $('settingsEnableDownload').checked = !!data.settings.enableDownload;
-      $('settingsDownloadUrl').value = data.settings.downloadUrl || '';
       $('adminSettingsOverlay').style.display = 'flex';
+
+      // Preload data for all admin tabs (Suggest, Analytics, Logs) so that
+      // all 4 tabs and data analytics tables are populated immediately upon login/open
+      Promise.all([
+        loadSuggestSettings().catch(() => {}),
+        loadAdminAnalytics().catch(() => {}),
+        fetchAdminLogs().catch(() => {})
+      ]);
     } catch (err) {
       console.error('Error fetching settings:', err);
     }
@@ -3055,7 +3062,7 @@
   }
 
   // Analytics Dashboard Logic
-  let stateAnalyticsRange = '7d';
+  let stateAnalyticsRange = '1d';
 
   async function loadAdminAnalytics() {
     const tableBody = $('analyticsTopFilesTable');
@@ -3152,6 +3159,9 @@
   }
 
   function setupAdminTabEvents() {
+    if (state._adminTabEventsSetup) return;
+    state._adminTabEventsSetup = true;
+
     const tabConfigBtn = $('adminTabConfigBtn');
     const tabLogsBtn = $('adminTabLogsBtn');
     const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
