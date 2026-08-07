@@ -273,6 +273,7 @@
       <!-- Settings Tabs Navigation (Pinned at top) -->
       <div class="settings-tabs-nav" id="userSettingsTabsNav">
         <button type="button" class="settings-tab-btn active" data-tab="appearance">🎨 視覺排版</button>
+        <button type="button" class="settings-tab-btn" data-tab="recommended">🪷 推薦經論</button>
         <button type="button" class="settings-tab-btn" data-tab="progress">📖 閱讀紀錄</button>
         <button type="button" class="settings-tab-btn" data-tab="bookmarks">🔖 書籤最愛</button>
         <button type="button" class="settings-tab-btn" data-tab="system">🔒 系統管理</button>
@@ -347,6 +348,14 @@
               <button type="button" class="segment-btn" data-value="1000px">1000px</button>
             </div>
           </div>
+        </div>
+
+        <!-- Tab 2: 推薦經論 (Recommended & Hot) -->
+        <div class="settings-tab-pane" id="pane-recommended" style="display: none;">
+          <div class="setting-section-header">
+            <span>📖 成多聞慧，成無漏慧（熱門與推薦經論）</span>
+          </div>
+          <ul class="suggest-list recommended-menu-list" id="menuSuggestList"></ul>
         </div>
 
         <!-- Tab 2: 閱讀紀錄 (Progress & Recent) -->
@@ -447,8 +456,8 @@
 
       <!-- Admin Tabs Navigation -->
       <div class="admin-tabs-nav" id="adminTabsNav">
-        <button type="button" class="admin-tab-btn" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
-        <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 熱門＋推薦閱讀</button>
+            <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
+        <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
       </div>
@@ -734,16 +743,7 @@
                     <span class="suggest-algo-arrow">→</span>
                     <span class="suggest-algo-badge suggest-algo-90d">90天 Top5</span>
                   </div>
-                  <p class="suggest-algo-desc">以上順序合併去重，自動排除黑名單後依序顯示。熱門數據來源為系統 Log 分析，每次開啟「熱門＋推薦閱讀」Tab 時即時更新。</p>
-                  
-                  <div class="suggest-preview-container">
-                    <div class="suggest-preview-header">
-                      <span>👀 當前熱門＋推薦閱讀清單預覽</span>
-                    </div>
-                    <div id="suggestLivePreview" class="suggest-live-preview">
-                      <div class="suggest-loading"><div class="spinner"></div><span>載入預覽中…</span></div>
-                    </div>
-                  </div>
+                  <p class="suggest-algo-desc">以上順序合併去重，自動排除黑名單後依序顯示。熱門數據來源為系統 Log 分析，每次開啟「推薦閱讀」Tab 時即時更新。</p>
                 </div>
               </div>
 

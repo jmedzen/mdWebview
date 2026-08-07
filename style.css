@@ -1595,59 +1595,6 @@ body,
   margin: 0;
 }
 
-.suggest-preview-container {
-  margin-top: 8px;
-  border-top: 1px dashed var(--border-color);
-  padding-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.suggest-preview-header {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-heading);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.suggest-live-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 220px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.suggest-preview-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  font-size: 13px;
-}
-
-.suggest-preview-item:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  transform: translateX(2px);
-}
-
-.suggest-preview-empty {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
-  padding: 8px;
-}
-
 
 
 kbd {
@@ -2746,6 +2693,12 @@ kbd {
   flex-direction: column;
   gap: 16px;
   padding-top: 8px;
+}
+
+.recommended-menu-list {
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .setting-item-row {

@@ -520,11 +520,20 @@
   }
 
   function renderSuggestList(items) {
+    state._cachedSuggestItems = items || [];
+    renderSuggestListToElement($('suggestList'), items, false);
+    renderSuggestListToElement($('menuSuggestList'), items, true);
+
     const container = $('suggestListContainer');
-    const list = $('suggestList');
-    if (!container || !list) return;
+    if (container) {
+      container.style.display = (!items || items.length === 0) ? 'none' : 'block';
+    }
+  }
+
+  function renderSuggestListToElement(list, items, closeOverlayOnClick = false) {
+    if (!list) return;
     if (!items || items.length === 0) {
-      container.style.display = 'none';
+      list.innerHTML = '<div class="list-empty-hint">尚無推薦或熱門經論</div>';
       return;
     }
     const frag = document.createDocumentFragment();
@@ -552,13 +561,18 @@
 
       li.addEventListener('click', () => {
         const pathToOpen = resolveSuggestPath(item.path);
-        if (pathToOpen) openFile(pathToOpen);
+        if (pathToOpen) {
+          openFile(pathToOpen);
+          if (closeOverlayOnClick) {
+            const overlay = $('userSettingsOverlay');
+            if (overlay) overlay.style.display = 'none';
+          }
+        }
       });
       frag.appendChild(li);
     }
     list.innerHTML = '';
     list.appendChild(frag);
-    container.style.display = 'block';
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2891,6 +2905,11 @@
     renderMaxWidthControl();
     renderRecentFilesList();
     renderBookmarksList();
+    if (state._cachedSuggestItems && state._cachedSuggestItems.length > 0) {
+      renderSuggestListToElement($('menuSuggestList'), state._cachedSuggestItems, true);
+    } else {
+      loadSuggestList();
+    }
 
     const statusText = $('adminStatusText');
     const loginBtn = $('menuOpenAdminLoginBtn');
@@ -3326,9 +3345,8 @@
           successEl.style.display = 'block';
           setTimeout(() => { successEl.style.display = 'none'; }, 3000);
         }
-        // Refresh the homepage suggest list & tab live preview
+        // Refresh the homepage suggest list
         fetchSuggestList();
-        renderSuggestPreview();
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message;
@@ -3338,47 +3356,7 @@
     });
   }
 
-  async function renderSuggestPreview() {
-    const previewEl = $('suggestLivePreview');
-    if (!previewEl) return;
-    try {
-      const res = await fetch('/api/suggest-list');
-      if (!res.ok) throw new Error('無法載入預覽');
-      const data = await res.json();
-      if (!data.items || data.items.length === 0) {
-        previewEl.innerHTML = '<div class="suggest-preview-empty">（目前無符合黑名單篩選的推薦或熱門筆記）</div>';
-        return;
-      }
-      previewEl.innerHTML = data.items.map((item) => {
-        const isHot = item.type === 'hot';
-        const badgeLabel = isHot ? (item.source ? `🔥 熱門 ${item.source}` : '🔥 熱門') : '📌 推薦';
-        const badgeClass = isHot ? 'suggest-badge-hot' : 'suggest-badge-admin';
-        return `
-          <div class="suggest-preview-item" data-path="${escHtml(item.path)}" title="點擊直接開啟檔案: ${escHtml(item.path)}">
-            <span class="suggest-item-icon">${isHot ? '🔥' : '📌'}</span>
-            <span class="suggest-item-name">${escHtml(item.fileName)}</span>
-            <span class="suggest-item-badge ${badgeClass}">${badgeLabel}</span>
-          </div>
-        `;
-      }).join('');
-
-      previewEl.querySelectorAll('.suggest-preview-item').forEach(el => {
-        el.addEventListener('click', () => {
-          const path = el.getAttribute('data-path');
-          if (path) {
-            const overlay = $('adminSettingsOverlay');
-            if (overlay) overlay.style.display = 'none';
-            openFile(path);
-          }
-        });
-      });
-    } catch (err) {
-      previewEl.innerHTML = `<div class="suggest-preview-empty">無法載入預覽：${escHtml(err.message)}</div>`;
-    }
-  }
-
   async function loadSuggestSettings() {
-    renderSuggestPreview();
     try {
       const res = await fetch('/api/admin/settings', {
         headers: { 'X-Admin-Token': state.adminToken }
