@@ -2845,8 +2845,8 @@
         if (data.settings) {
           if (data.settings.defaultFontSize) {
             state.defaultFontSize = parseInt(data.settings.defaultFontSize);
-            localStorage.removeItem('mdWebview-user-fontsize');
-            applyFontSize(data.settings.defaultFontSize, false);
+            const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
+            applyFontSize(userSavedFont ? parseInt(userSavedFont) : state.defaultFontSize, !!userSavedFont);
           }
           if (data.settings.defaultTheme) {
             localStorage.removeItem('mdWebview-user-theme');
