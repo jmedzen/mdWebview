@@ -2297,9 +2297,6 @@ async function handleSuggestList(req, res) {
     const adminPickCount = Math.max(0, parseInt(sl.adminPickCount) || 3);
     const hotPickCount = Math.max(0, parseInt(sl.hotPickCount) || 5);
     const blackList = Array.isArray(sl.blackList) ? sl.blackList : [];
-    if (sl.enabled !== true) {
-      return sendJSON(res, 200, { items: [], adminPickCount, hotPickCount, enabled: false });
-    }
     const isBlacklisted = createBlacklistChecker(blackList);
 
     // Admin picks: filter blacklist then shuffle and pick adminPickCount
@@ -2335,7 +2332,7 @@ async function handleSuggestList(req, res) {
       const j = Math.floor(Math.random() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
     }
-    sendJSON(res, 200, { items, adminPickCount, hotPickCount, enabled: true });
+    sendJSON(res, 200, { items, adminPickCount, hotPickCount, enabled: sl.enabled !== false });
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
   }

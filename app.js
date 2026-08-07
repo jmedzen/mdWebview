@@ -482,11 +482,7 @@
       const data = await res.json();
       const items = data.items || [];
       state._cachedSuggestItems = items;
-      renderSuggestList(items);
-      if (data.enabled === false) {
-        const container = $('suggestListContainer');
-        if (container) container.style.display = 'none';
-      }
+      renderSuggestList(items, data.enabled !== false);
     } catch (_) {}
   }
 
@@ -520,14 +516,14 @@
     return cleanPath.endsWith('.md') ? cleanPath : cleanPath + '.md';
   }
 
-  function renderSuggestList(items) {
+  function renderSuggestList(items, showOnHomepage = true) {
     state._cachedSuggestItems = items || [];
     renderSuggestListToElement($('suggestList'), items, false);
     renderSuggestListToElement($('menuSuggestList'), items, true);
 
     const container = $('suggestListContainer');
     if (container) {
-      container.style.display = (!items || items.length === 0) ? 'none' : 'block';
+      container.style.display = (showOnHomepage && items && items.length > 0) ? 'block' : 'none';
     }
   }
 
