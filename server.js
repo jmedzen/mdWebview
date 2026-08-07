@@ -1134,6 +1134,7 @@ function flattenTreeToFiles(nodes, mdRoot) {
 
 // ── Full-Text Bigram Inverted Index ──────────────────────────────
 const SEARCH_INDEX_CACHE_FILE = path.join(LOG_DIR, 'search-index-cache.json');
+const SEARCH_INDEX_CACHE_BIN = path.join(LOG_DIR, 'search-index-cache.bin');
 
 let searchIndex = {
   ready: false,
@@ -1141,7 +1142,7 @@ let searchIndex = {
   vaultSig: null,
   fileList: [],         // [{ id, relPath, name, fullPath }]
   fileMap: new Map(),   // relPath -> fileId
-  bigrams: new Map(),   // bigram (e.g. "成無") -> Set of fileId
+  bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array
 };
 
 /**
@@ -1157,9 +1158,164 @@ function computeVaultSignature(files) {
 }
 
 /**
+ * Loads Bigram Index from binary disk cache (.bin) for ultra-fast startup and minimal RAM allocation
+ */
+async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
+  try {
+    if (!fs.existsSync(SEARCH_INDEX_CACHE_BIN)) return false;
+    const binBuf = await fs.promises.readFile(SEARCH_INDEX_CACHE_BIN);
+    if (binBuf.length < 10) return false;
+
+    let readPos = 0;
+    const magic = binBuf.readUInt32BE(readPos); readPos += 4;
+    if (magic !== 0x42475831) return false;
+
+    const sigLen = binBuf.readUInt16BE(readPos); readPos += 2;
+    const vaultSig = binBuf.toString('utf-8', readPos, readPos + sigLen); readPos += sigLen;
+
+    if (vaultSig !== expectedVaultSig) return false;
+
+    const fileCount = binBuf.readUInt32BE(readPos); readPos += 4;
+    const bigramCount = binBuf.readUInt32BE(readPos); readPos += 4;
+
+    const fileList = new Array(fileCount);
+    const fileMap = new Map();
+    for (let i = 0; i < fileCount; i++) {
+      const id = binBuf.readUInt32BE(readPos); readPos += 4;
+
+      const relLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const relPath = binBuf.toString('utf-8', readPos, readPos + relLen); readPos += relLen;
+
+      const nameLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const name = binBuf.toString('utf-8', readPos, readPos + nameLen); readPos += nameLen;
+
+      const fullLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const fullPath = binBuf.toString('utf-8', readPos, readPos + fullLen); readPos += fullLen;
+
+      const fileObj = { id, relPath, name, fullPath };
+      fileList[i] = fileObj;
+      fileMap.set(relPath, id);
+    }
+
+    const bigrams = new Map();
+    const useUint16 = fileCount < 65536;
+    for (let i = 0; i < bigramCount; i++) {
+      const bgLen = binBuf.readUInt8(readPos); readPos += 1;
+      const bgStr = binBuf.toString('utf-8', readPos, readPos + bgLen); readPos += bgLen;
+      const count = binBuf.readUInt32BE(readPos); readPos += 4;
+
+      if (count === 1) {
+        const singleId = binBuf.readUInt32BE(readPos); readPos += 4;
+        bigrams.set(bgStr, singleId); // Primitive number (0 bytes V8 Heap overhead!)
+      } else {
+        const arr = useUint16 ? new Uint16Array(count) : new Uint32Array(count);
+        for (let j = 0; j < count; j++) {
+          arr[j] = binBuf.readUInt32BE(readPos); readPos += 4;
+        }
+        bigrams.set(bgStr, arr);
+      }
+    }
+
+    searchIndex = {
+      ready: true,
+      building: false,
+      vaultSig: expectedVaultSig,
+      fileList,
+      fileMap,
+      bigrams
+    };
+
+    binBuf = null;
+    if (global.gc) global.gc();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Saves Bigram index as compact binary cache file (.bin)
+ */
+async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
+  try {
+    const saveStart = Date.now();
+    let totalBytes = 4 + 2 + Buffer.byteLength(vaultSig || '') + 4 + 4;
+
+    for (const f of fileList) {
+      totalBytes += 4 + 2 + Buffer.byteLength(f.relPath) + 2 + Buffer.byteLength(f.name) + 2 + Buffer.byteLength(f.fullPath);
+    }
+
+    const entries = Array.from(bigrams.entries());
+    for (const entry of entries) {
+      const bg = entry[0];
+      const val = entry[1];
+      const count = typeof val === 'number' ? 1 : val.length;
+      totalBytes += 1 + Buffer.byteLength(bg) + 4 + (count * 4);
+    }
+
+    const buf = Buffer.allocUnsafe(totalBytes);
+    let pos = 0;
+
+    buf.writeUInt32BE(0x42475831, pos); pos += 4;
+    const sigBuf = Buffer.from(vaultSig || '');
+    buf.writeUInt16BE(sigBuf.length, pos); pos += 2;
+    sigBuf.copy(buf, pos); pos += sigBuf.length;
+
+    buf.writeUInt32BE(fileList.length, pos); pos += 4;
+    buf.writeUInt32BE(entries.length, pos); pos += 4;
+
+    for (const f of fileList) {
+      buf.writeUInt32BE(f.id, pos); pos += 4;
+
+      const relB = Buffer.from(f.relPath);
+      buf.writeUInt16BE(relB.length, pos); pos += 2;
+      relB.copy(buf, pos); pos += relB.length;
+
+      const nameB = Buffer.from(f.name);
+      buf.writeUInt16BE(nameB.length, pos); pos += 2;
+      nameB.copy(buf, pos); pos += nameB.length;
+
+      const fullB = Buffer.from(f.fullPath);
+      buf.writeUInt16BE(fullB.length, pos); pos += 2;
+      fullB.copy(buf, pos); pos += fullB.length;
+    }
+
+    for (const entry of entries) {
+      const bgB = Buffer.from(entry[0]);
+      const val = entry[1];
+      const isSingle = typeof val === 'number';
+      const count = isSingle ? 1 : val.length;
+
+      buf.writeUInt8(bgB.length, pos); pos += 1;
+      bgB.copy(buf, pos); pos += bgB.length;
+
+      buf.writeUInt32BE(count, pos); pos += 4;
+      if (isSingle) {
+        buf.writeUInt32BE(val, pos); pos += 4;
+      } else {
+        for (let j = 0; j < count; j++) {
+          buf.writeUInt32BE(val[j], pos); pos += 4;
+        }
+      }
+    }
+
+    await fs.promises.writeFile(SEARCH_INDEX_CACHE_BIN, buf);
+    const sizeMb = (buf.length / (1024 * 1024)).toFixed(1);
+    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB) in ${Date.now() - saveStart}ms`);
+  } catch (err) {
+    Logger.error('Index', 'Failed to save binary search index cache', err);
+  }
+}
+
+/**
  * Tries to load the Bigram index from disk cache if vault fingerprint matches
  */
 async function loadSearchIndexFromCacheAsync(expectedVaultSig) {
+  // Prefer ultra-fast binary cache first
+  if (await loadSearchIndexFromBinCacheAsync(expectedVaultSig)) {
+    return true;
+  }
+
   try {
     if (!fs.existsSync(SEARCH_INDEX_CACHE_FILE)) return false;
     const raw = await fs.promises.readFile(SEARCH_INDEX_CACHE_FILE, 'utf-8');
@@ -1173,10 +1329,16 @@ async function loadSearchIndexFromCacheAsync(expectedVaultSig) {
     data.fileList.forEach(f => fileMap.set(f.relPath, f.id));
 
     const bigrams = new Map();
+    const useUint16 = data.fileList.length < 65536;
     for (let i = 0; i < data.bigrams.length; i++) {
       const entry = data.bigrams[i];
       if (entry && entry[0] && Array.isArray(entry[1])) {
-        bigrams.set(entry[0], entry[1]);
+        const list = entry[1];
+        if (list.length === 1) {
+          bigrams.set(entry[0], list[0]); // Primitive number
+        } else {
+          bigrams.set(entry[0], useUint16 ? new Uint16Array(list) : new Uint32Array(list));
+        }
       }
     }
 
@@ -1189,6 +1351,7 @@ async function loadSearchIndexFromCacheAsync(expectedVaultSig) {
       bigrams
     };
 
+    if (global.gc) global.gc();
     return true;
   } catch (err) {
     return false;
@@ -1341,19 +1504,31 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       return;
     }
 
+    // Convert raw JS Arrays to Primitive Numbers (0 bytes overhead for single ID) and TypedArrays
+    const compactBigrams = new Map();
+    const useUint16 = fileList.length < 65536;
+    for (const [bg, list] of bigrams.entries()) {
+      if (list.length === 1) {
+        compactBigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
+      } else {
+        compactBigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list));
+      }
+    }
+
     searchIndex = {
       ready: true,
       building: false,
       vaultSig,
       fileList,
       fileMap,
-      bigrams
+      bigrams: compactBigrams
     };
 
-    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files (${bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files (${compactBigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
 
-    // Save cache to disk for fast server restarts
-    await saveSearchIndexCacheAsync(vaultSig, fileList, bigrams);
+    // Save binary cache to disk for ultra-fast server restarts
+    await saveSearchIndexBinCacheAsync(vaultSig, fileList, compactBigrams);
+    if (global.gc) global.gc();
   } catch (err) {
     if (buildId === activeIndexBuildId) {
       searchIndex.building = false;
@@ -1411,21 +1586,34 @@ async function handleSearch(req, res, query) {
         usedIndex = true;
         let candidateSet = null;
         for (const bg of qBigrams) {
-          const list = searchIndex.bigrams.get(bg);
-          if (!list || list.length === 0) {
+          const val = searchIndex.bigrams.get(bg);
+          if (val === undefined || val === null) {
             candidateSet = new Set();
             break;
           }
-          const fileSet = new Set(list);
-          if (candidateSet === null) {
-            candidateSet = fileSet;
-          } else {
-            for (const fileId of candidateSet) {
-              if (!fileSet.has(fileId)) {
-                candidateSet.delete(fileId);
+          if (typeof val === 'number') {
+            if (candidateSet === null) {
+              candidateSet = new Set([val]);
+            } else {
+              if (!candidateSet.has(val)) {
+                candidateSet.clear();
+                break;
+              } else {
+                candidateSet = new Set([val]);
               }
             }
-            if (candidateSet.size === 0) break;
+          } else {
+            const fileSet = new Set(val);
+            if (candidateSet === null) {
+              candidateSet = fileSet;
+            } else {
+              for (const fileId of candidateSet) {
+                if (!fileSet.has(fileId)) {
+                  candidateSet.delete(fileId);
+                }
+              }
+              if (candidateSet.size === 0) break;
+            }
           }
         }
 
