@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.12.0">
+  <link rel="stylesheet" href="style.css?v=1.11.5">
 </head>
 <body>
   <div class="app">
@@ -550,6 +550,15 @@
             </div>
             <div class="hardware-card-body">
               <div class="hardware-metric-value" id="hwCpuModel">載入中…</div>
+              <div class="progress-bar-row" style="margin-top: 8px;">
+                <div class="progress-bar-label">
+                  <span>實時 CPU 使用率</span>
+                  <span id="hwCpuUsageText">0.0%</span>
+                </div>
+                <div class="progress-bar-track">
+                  <div class="progress-bar-fill fill-accent" id="hwCpuUsageFill" style="width: 0%;"></div>
+                </div>
+              </div>
               <div class="hardware-sub-metrics">
                 <div class="sub-metric">
                   <span class="sub-label">核心數</span>
@@ -909,7 +918,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.12.0" defer></script>
-  <script src="app.js?v=1.12.0" defer></script>
+  <script src="marked.min.js?v=1.11.5" defer></script>
+  <script src="app.js?v=1.11.5" defer></script>
 </body>
 </html>

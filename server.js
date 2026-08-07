@@ -2377,11 +2377,49 @@ async function getDirSizeAsync(dirPath) {
   return size;
 }
 
+let lastCpuTimes = null;
+
+function getCpuUsagePct() {
+  const cpus = os.cpus();
+  if (!cpus || cpus.length === 0) return 0;
+  let totalIdle = 0;
+  let totalTick = 0;
+  for (const cpu of cpus) {
+    for (const type in cpu.times) {
+      totalTick += cpu.times[type];
+    }
+    totalIdle += cpu.times.idle;
+  }
+  if (!lastCpuTimes) {
+    lastCpuTimes = { idle: totalIdle, total: totalTick };
+    return 0;
+  }
+  const idleDelta = totalIdle - lastCpuTimes.idle;
+  const totalDelta = totalTick - lastCpuTimes.total;
+  lastCpuTimes = { idle: totalIdle, total: totalTick };
+  if (totalDelta <= 0) return 0;
+  const usedPct = 100 - (idleDelta / totalDelta) * 100;
+  return parseFloat(Math.min(100, Math.max(0, usedPct)).toFixed(1));
+}
+
+function isDockerContainer() {
+  try {
+    if (fs.existsSync('/.dockerenv') || fs.existsSync('/run/.containerenv')) return true;
+    if (fs.existsSync('/proc/1/cgroup')) {
+      const content = fs.readFileSync('/proc/1/cgroup', 'utf-8');
+      if (content.includes('docker') || content.includes('containerd') || content.includes('kubepods')) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 async function getSystemHardwareStats() {
   const cpus = os.cpus() || [];
   const loadAvg = os.loadavg() || [0, 0, 0];
   const containerMemLimit = await getDockerMemoryLimit();
   const processMem = process.memoryUsage();
+  const cpuUsagePct = getCpuUsagePct();
+  const isDocker = isDockerContainer();
 
   let storageStats = { total: 0, free: 0, available: 0, used: 0, usagePct: 0 };
   try {
@@ -2405,11 +2443,6 @@ async function getSystemHardwareStats() {
   try { analyticsStoreSize = (await fs.promises.stat(ANALYTICS_STORE_PATH)).size; } catch (_) {}
   const logsDirSize = await getDirSizeAsync(LOG_DIR);
 
-  let isDocker = false;
-  try {
-    isDocker = fs.existsSync('/.dockerenv') || fs.existsSync('/run/.containerenv');
-  } catch (_) {}
-
   return {
     timestamp: new Date().toISOString(),
     system: {
@@ -2423,6 +2456,7 @@ async function getSystemHardwareStats() {
     cpu: {
       model: cpus.length > 0 ? cpus[0].model : 'Unknown CPU',
       cores: cpus.length,
+      usagePct: cpuUsagePct,
       loadAvg: [
         parseFloat(loadAvg[0].toFixed(2)),
         parseFloat(loadAvg[1].toFixed(2)),

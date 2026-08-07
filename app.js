@@ -2982,6 +2982,15 @@
     const cpuCores = $('hwCpuCores');
     if (cpuCores) cpuCores.textContent = `${data.cpu.cores} 核心`;
 
+    const cpuUsageText = $('hwCpuUsageText');
+    const cpuUsageFill = $('hwCpuUsageFill');
+    if (cpuUsageText) cpuUsageText.textContent = `${data.cpu.usagePct || 0}%`;
+    if (cpuUsageFill) {
+      const cpuPct = Math.min(100, Math.max(0, data.cpu.usagePct || 0));
+      cpuUsageFill.style.width = `${cpuPct}%`;
+      cpuUsageFill.className = 'progress-bar-fill' + (cpuPct > 80 ? ' danger' : cpuPct > 50 ? ' warning' : ' fill-accent');
+    }
+
     const load1m = $('hwLoad1m');
     const load5m = $('hwLoad5m');
     const load15m = $('hwLoad15m');
