@@ -1901,7 +1901,9 @@
   function applyFontSize(size, saveToLocalStorage = true) {
     size = Math.max(12, Math.min(32, size));
     state.fontSize = size;
+    const scale = (size / 16).toFixed(4);
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
+    document.documentElement.style.setProperty('--font-scale', scale);
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
     if (saveToLocalStorage) {
