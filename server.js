@@ -452,6 +452,18 @@ function renderWithWorker(body, filePath) {
       if (cb) {
         jobCallbacks.delete(jobId);
         cb.reject(new Error('Worker render timeout after 30s'));
+
+        // Terminate and respawn worker thread if stuck on this jobId
+        const stuckWorker = workerPool.find(w => w.currentJobId === jobId);
+        if (stuckWorker) {
+          Logger.warn('WorkerPool', `[Worker #${stuckWorker.index}] Timed out on job #${jobId}. Terminating & respawning worker...`);
+          try { stuckWorker.terminate(); } catch (_) {}
+          const idx = workerPool.indexOf(stuckWorker);
+          if (idx !== -1) workerPool.splice(idx, 1);
+          const newWorker = createWorker(stuckWorker.index);
+          workerPool.push(newWorker);
+          flushQueue();
+        }
       }
     }, JOB_TIMEOUT_MS);
     
@@ -1877,6 +1889,16 @@ function serveStatic(req, res, pathname) {
 const sessions = new Map();
 const SESSION_DURATION = 2 * 60 * 60 * 1000; // 2 hours session expiry
 
+// Periodic background cleanup of expired session tokens (every 15 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (session.expiry && now > session.expiry) {
+      sessions.delete(token);
+    }
+  }
+}, 15 * 60 * 1000);
+
 // Rate limiting / brute-force protection map: ip -> { attempts: count, lockUntil: timestamp }
 const loginAttempts = new Map();
 const MAX_ATTEMPTS = 5;
@@ -2104,6 +2126,7 @@ const server = http.createServer((req, res) => {
 // ── Analytics Aggregator & Data Exporter ────────────────────────────────────
 const analyticsCache = new Map();
 const ANALYTICS_CACHE_TTL = 60000; // 60s in-memory cache
+const ANALYTICS_CACHE_MAX = 20;
 
 function sanitizeCsvField(val) {
   if (val === null || val === undefined) return '""';
@@ -2340,6 +2363,10 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     ipDistribution
   };
 
+  if (analyticsCache.size >= ANALYTICS_CACHE_MAX) {
+    const oldestKey = analyticsCache.keys().next().value;
+    analyticsCache.delete(oldestKey);
+  }
   analyticsCache.set(cacheKey, { timestamp: now, data: resultData });
   return resultData;
 }

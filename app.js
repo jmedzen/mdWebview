@@ -2863,7 +2863,7 @@
         await loadTree();
 
         if (closeAfterSave) {
-          $('adminSettingsOverlay').style.display = 'none';
+          closeAdminModal();
         } else {
           successEl.textContent = '設定已成功儲存';
           successEl.style.display = 'block';
@@ -2893,11 +2893,11 @@
     }
 
     $('settingsCancelBtn').addEventListener('click', () => {
-      $('adminSettingsOverlay').style.display = 'none';
+      closeAdminModal();
     });
 
     $('settingsCloseBtn').addEventListener('click', () => {
-      $('adminSettingsOverlay').style.display = 'none';
+      closeAdminModal();
     });
 
     // ── Logout ──
@@ -2912,7 +2912,7 @@
       }
       state.adminToken = null;
       localStorage.removeItem('mdWebview-admin-token');
-      $('adminSettingsOverlay').style.display = 'none';
+      closeAdminModal();
     });
   }
 
@@ -2941,6 +2941,15 @@
 
   // ── Helper functions for admin panels ──
   let hwAutoRefreshTimer = null;
+
+  function closeAdminModal() {
+    const overlay = $('adminSettingsOverlay');
+    if (overlay) overlay.style.display = 'none';
+    if (hwAutoRefreshTimer) {
+      clearInterval(hwAutoRefreshTimer);
+      hwAutoRefreshTimer = null;
+    }
+  }
 
   function formatBytes(bytes) {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -3146,7 +3155,7 @@
         // Token invalid/expired
         state.adminToken = null;
         localStorage.removeItem('mdWebview-admin-token');
-        $('adminSettingsOverlay').style.display = 'none';
+        closeAdminModal();
         openLoginOverlay();
         return;
       }
