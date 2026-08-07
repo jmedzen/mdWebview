@@ -2925,6 +2925,181 @@
   }
 
   // ── Helper functions for admin panels ──
+  let hwAutoRefreshTimer = null;
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = (bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0);
+    return `${val} ${units[i]}`;
+  }
+
+  function formatUptime(seconds) {
+    if (!seconds || seconds <= 0) return '0 秒';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    const parts = [];
+    if (days > 0) parts.push(`${days}天`);
+    if (hours > 0) parts.push(`${hours}時`);
+    if (mins > 0) parts.push(`${mins}分`);
+    if (parts.length === 0 || secs > 0) parts.push(`${secs}秒`);
+    return parts.join(' ');
+  }
+
+  async function loadHardwareStats() {
+    try {
+      const res = await fetch('/api/admin/hardware', {
+        headers: { 'X-Admin-Token': state.adminToken }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      renderHardwareDashboard(data);
+    } catch (err) {
+      console.error('Failed to load hardware stats:', err);
+    }
+  }
+
+  function renderHardwareDashboard(data) {
+    if (!data) return;
+
+    // Header & Docker badge
+    const dockerBadge = $('hwDockerBadge');
+    if (dockerBadge) {
+      dockerBadge.textContent = data.system.isDocker ? '🐳 Docker 容器環境' : '💻 原生主機環境';
+      dockerBadge.className = data.system.isDocker ? 'hardware-badge-docker' : 'hardware-badge-docker host-env';
+    }
+    const uptimeText = $('hwUptimeText');
+    if (uptimeText) {
+      uptimeText.textContent = `容器運行時間: ${formatUptime(data.system.processUptime)} (主機: ${formatUptime(data.system.sysUptime)})`;
+    }
+
+    // CPU Card
+    const cpuModel = $('hwCpuModel');
+    if (cpuModel) cpuModel.textContent = `${data.cpu.model} (${data.system.arch})`;
+    const cpuCores = $('hwCpuCores');
+    if (cpuCores) cpuCores.textContent = `${data.cpu.cores} 核心`;
+
+    const load1m = $('hwLoad1m');
+    const load5m = $('hwLoad5m');
+    const load15m = $('hwLoad15m');
+    if (load1m) load1m.textContent = data.cpu.loadAvg[0];
+    if (load5m) load5m.textContent = data.cpu.loadAvg[1];
+    if (load15m) load15m.textContent = data.cpu.loadAvg[2];
+
+    const cpuBadge = $('hwCpuStatusBadge');
+    if (cpuBadge) {
+      const loadRatio = data.cpu.loadAvg[0] / (data.cpu.cores || 1);
+      if (loadRatio > 1.5) {
+        cpuBadge.textContent = '高負載';
+        cpuBadge.className = 'metric-status-badge danger';
+      } else if (loadRatio > 0.9) {
+        cpuBadge.textContent = '上升中';
+        cpuBadge.className = 'metric-status-badge warning';
+      } else {
+        cpuBadge.textContent = '良好';
+        cpuBadge.className = 'metric-status-badge';
+      }
+    }
+
+    // Memory Card
+    const rssText = $('hwRssText');
+    const rssFill = $('hwRssFill');
+    if (rssText) rssText.textContent = `${formatBytes(data.memory.rss)} / ${formatBytes(data.memory.containerLimit)}`;
+    if (rssFill) {
+      const rssPct = Math.min(100, Math.max(0, data.memory.rssUsagePct || 0));
+      rssFill.style.width = `${rssPct}%`;
+      rssFill.className = 'progress-bar-fill' + (rssPct > 85 ? ' danger' : rssPct > 65 ? ' warning' : '');
+    }
+
+    const heapText = $('hwHeapText');
+    const heapFill = $('hwHeapFill');
+    if (heapText) heapText.textContent = `${formatBytes(data.memory.heapUsed)} / ${formatBytes(data.memory.heapTotal)}`;
+    if (heapFill) {
+      const heapPct = Math.min(100, Math.max(0, data.memory.heapUsagePct || 0));
+      heapFill.style.width = `${heapPct}%`;
+    }
+
+    const memBadge = $('hwMemStatusBadge');
+    if (memBadge) {
+      if (data.memory.rssUsagePct > 85) {
+        memBadge.textContent = '緊繃';
+        memBadge.className = 'metric-status-badge danger';
+      } else if (data.memory.rssUsagePct > 65) {
+        memBadge.textContent = '偏高';
+        memBadge.className = 'metric-status-badge warning';
+      } else {
+        memBadge.textContent = '健康';
+        memBadge.className = 'metric-status-badge';
+      }
+    }
+
+    // Storage Card
+    const diskText = $('hwDiskText');
+    const diskFill = $('hwDiskFill');
+    const fs = data.storage.vaultFs;
+    if (diskText) diskText.textContent = `${formatBytes(fs.used)} / ${formatBytes(fs.total)} (${fs.usagePct}%)`;
+    if (diskFill) {
+      diskFill.style.width = `${fs.usagePct || 0}%`;
+    }
+
+    const cacheSize = $('hwCacheSize');
+    if (cacheSize) cacheSize.textContent = formatBytes(data.storage.cacheSizeBytes);
+    const analyticsSize = $('hwAnalyticsSize');
+    if (analyticsSize) analyticsSize.textContent = formatBytes(data.storage.analyticsStoreSizeBytes);
+    const logsSize = $('hwLogsSize');
+    if (logsSize) logsSize.textContent = formatBytes(data.storage.logsDirSizeBytes);
+
+    // Runtime & Index Card
+    const nodeVer = $('hwNodeVer');
+    if (nodeVer) nodeVer.textContent = `${data.system.nodeVersion}`;
+    const platform = $('hwPlatform');
+    if (platform) platform.textContent = `${data.system.platform} (${data.system.arch})`;
+    const workerStatus = $('hwWorkerStatus');
+    if (workerStatus) workerStatus.textContent = `${data.workers.idle}/${data.workers.count} 就緒`;
+
+    const indexStatus = $('hwIndexStatus');
+    if (indexStatus) {
+      if (data.index.building) {
+        indexStatus.textContent = '建置中 ⏳';
+      } else if (data.index.ready) {
+        indexStatus.textContent = '就緒 ✅';
+      } else {
+        indexStatus.textContent = '未建置 ⚠️';
+      }
+    }
+
+    const bigramCount = $('hwBigramCount');
+    if (bigramCount) {
+      bigramCount.textContent = `${(data.index.uniqueBigrams || 0).toLocaleString()} 筆 (檔案: ${data.index.totalFiles} 個)`;
+    }
+  }
+
+  function setupHardwareAutoRefresh() {
+    const refreshBtn = $('hwRefreshBtn');
+    const select = $('hwAutoRefreshSelect');
+
+    if (refreshBtn) {
+      refreshBtn.onclick = () => loadHardwareStats();
+    }
+
+    if (select) {
+      select.onchange = () => {
+        if (hwAutoRefreshTimer) clearInterval(hwAutoRefreshTimer);
+        const interval = parseInt(select.value, 10);
+        if (interval > 0) {
+          hwAutoRefreshTimer = setInterval(loadHardwareStats, interval);
+        }
+      };
+      const initialInterval = parseInt(select.value, 10);
+      if (initialInterval > 0 && !hwAutoRefreshTimer) {
+        hwAutoRefreshTimer = setInterval(loadHardwareStats, initialInterval);
+      }
+    }
+  }
+
   function openLoginOverlay() {
     $('loginUsername').value = '';
     $('loginPassword').value = '';
@@ -3178,10 +3353,12 @@
     state._adminTabEventsSetup = true;
 
     const tabConfigBtn = $('adminTabConfigBtn');
+    const tabHardwareBtn = $('adminTabHardwareBtn');
     const tabLogsBtn = $('adminTabLogsBtn');
     const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
     const tabSuggestBtn = $('adminTabSuggestBtn');
     const paneConfig = $('adminPaneConfig');
+    const paneHardware = $('adminPaneHardware');
     const paneLogs = $('adminPaneLogs');
     const paneAnalytics = $('adminPaneAnalytics');
     const paneSuggest = $('adminPaneSuggest');
@@ -3191,8 +3368,12 @@
     const analyticsTzSelect = $('analyticsTimezoneSelect');
 
     function hideAllPanes() {
-      [paneConfig, paneLogs, paneAnalytics, paneSuggest].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
+      if (hwAutoRefreshTimer) {
+        clearInterval(hwAutoRefreshTimer);
+        hwAutoRefreshTimer = null;
+      }
+      [paneConfig, paneHardware, paneLogs, paneAnalytics, paneSuggest].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
     if (tabConfigBtn) {
@@ -3200,6 +3381,16 @@
         hideAllPanes();
         tabConfigBtn.classList.add('active');
         if (paneConfig) paneConfig.style.display = 'block';
+      });
+    }
+
+    if (tabHardwareBtn) {
+      tabHardwareBtn.addEventListener('click', () => {
+        hideAllPanes();
+        tabHardwareBtn.classList.add('active');
+        if (paneHardware) paneHardware.style.display = 'block';
+        loadHardwareStats();
+        setupHardwareAutoRefresh();
       });
     }
 

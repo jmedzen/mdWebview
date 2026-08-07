@@ -2338,6 +2338,142 @@ async function handleSuggestList(req, res) {
   }
 }
 
+async function getDockerMemoryLimit() {
+  try {
+    const raw = await fs.promises.readFile('/sys/fs/cgroup/memory.max', 'utf-8');
+    const val = raw.trim();
+    if (val && val !== 'max') {
+      const bytes = parseInt(val, 10);
+      if (Number.isFinite(bytes) && bytes > 0) return bytes;
+    }
+  } catch (_) {}
+
+  try {
+    const raw = await fs.promises.readFile('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf-8');
+    const val = raw.trim();
+    if (val) {
+      const bytes = parseInt(val, 10);
+      if (Number.isFinite(bytes) && bytes > 0 && bytes < 9007199254740991) return bytes;
+    }
+  } catch (_) {}
+
+  return os.totalmem();
+}
+
+async function getDirSizeAsync(dirPath) {
+  let size = 0;
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        size += await getDirSizeAsync(full);
+      } else if (entry.isFile()) {
+        const s = await fs.promises.stat(full).catch(() => null);
+        if (s) size += s.size;
+      }
+    }
+  } catch (_) {}
+  return size;
+}
+
+async function getSystemHardwareStats() {
+  const cpus = os.cpus() || [];
+  const loadAvg = os.loadavg() || [0, 0, 0];
+  const containerMemLimit = await getDockerMemoryLimit();
+  const processMem = process.memoryUsage();
+
+  let storageStats = { total: 0, free: 0, available: 0, used: 0, usagePct: 0 };
+  try {
+    const sf = await fs.promises.statfs(getMdRoot());
+    const total = sf.blocks * sf.bsize;
+    const free = sf.bfree * sf.bsize;
+    const avail = sf.bavail * sf.bsize;
+    const used = total - free;
+    storageStats = {
+      total,
+      free,
+      available: avail,
+      used,
+      usagePct: total > 0 ? parseFloat(((used / total) * 100).toFixed(1)) : 0
+    };
+  } catch (_) {}
+
+  let cacheSize = 0;
+  try { cacheSize = (await fs.promises.stat(SEARCH_INDEX_CACHE_FILE)).size; } catch (_) {}
+  let analyticsStoreSize = 0;
+  try { analyticsStoreSize = (await fs.promises.stat(ANALYTICS_STORE_PATH)).size; } catch (_) {}
+  const logsDirSize = await getDirSizeAsync(LOG_DIR);
+
+  let isDocker = false;
+  try {
+    isDocker = fs.existsSync('/.dockerenv') || fs.existsSync('/run/.containerenv');
+  } catch (_) {}
+
+  return {
+    timestamp: new Date().toISOString(),
+    system: {
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
+      isDocker,
+      sysUptime: Math.floor(os.uptime()),
+      processUptime: Math.floor(process.uptime())
+    },
+    cpu: {
+      model: cpus.length > 0 ? cpus[0].model : 'Unknown CPU',
+      cores: cpus.length,
+      loadAvg: [
+        parseFloat(loadAvg[0].toFixed(2)),
+        parseFloat(loadAvg[1].toFixed(2)),
+        parseFloat(loadAvg[2].toFixed(2))
+      ]
+    },
+    memory: {
+      containerLimit: containerMemLimit,
+      hostTotal: os.totalmem(),
+      hostFree: os.freemem(),
+      rss: processMem.rss,
+      heapTotal: processMem.heapTotal,
+      heapUsed: processMem.heapUsed,
+      external: processMem.external,
+      arrayBuffers: processMem.arrayBuffers,
+      rssUsagePct: parseFloat(((processMem.rss / containerMemLimit) * 100).toFixed(1)),
+      heapUsagePct: parseFloat(((processMem.heapUsed / processMem.heapTotal) * 100).toFixed(1))
+    },
+    storage: {
+      vaultPath: getMdRoot(),
+      vaultFs: storageStats,
+      cacheSizeBytes: cacheSize,
+      analyticsStoreSizeBytes: analyticsStoreSize,
+      logsDirSizeBytes: logsDirSize
+    },
+    index: {
+      ready: searchIndex.ready,
+      building: searchIndex.building,
+      totalFiles: searchIndex.fileList ? searchIndex.fileList.length : 0,
+      uniqueBigrams: searchIndex.bigrams ? searchIndex.bigrams.size : 0,
+      vaultSig: searchIndex.vaultSig || ''
+    },
+    workers: {
+      count: workerPool.length,
+      idle: workerPool.filter(w => w.idle).length
+    }
+  };
+}
+
+async function handleHardwareStats(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+  try {
+    const stats = await getSystemHardwareStats();
+    return sendJSON(res, 200, stats);
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
 async function handleAnalytics(req, res, query) {
   if (!isAuthenticated(req)) {
     return sendJSON(res, 401, { error: 'Unauthorized' });
@@ -2580,6 +2716,11 @@ async function handleAnalyticsExport(req, res, query) {
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
     });
+  }
+
+  // Admin hardware status API
+  if (pathname === '/api/admin/hardware' && req.method === 'GET') {
+    return handleHardwareStats(req, res);
   }
 
   // Public suggest-list API (no auth required)

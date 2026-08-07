@@ -3596,6 +3596,190 @@ details.callout[open] > summary .callout-fold-icon {
 [data-theme="zen"] .callout[data-callout="missing"],
 [data-theme="zen"] .callout[data-callout="danger"],
 [data-theme="zen"] .callout[data-callout="error"] {
+  --callout-color: #924d45;
+  --callout-bg: rgba(146, 77, 69, 0.08);
+  --callout-border: rgba(146, 77, 69, 0.22);
+}
+
+/* ── Hardware Dashboard ─────────────────────────────────── */
+.hardware-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.hardware-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hardware-badge-docker {
+  background: rgba(30, 144, 255, 0.15);
+  color: #1e90ff;
+  border: 1px solid rgba(30, 144, 255, 0.3);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hardware-title-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.hardware-refresh-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compact-select {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.hardware-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .hardware-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hardware-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.hardware-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.metric-status-badge {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+}
+
+.metric-status-badge.warning {
+  background: rgba(241, 196, 15, 0.15);
+  color: #f1c40f;
+}
+
+.metric-status-badge.danger {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+}
+
+.hardware-metric-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hardware-sub-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.hardware-sub-metrics.grid-2col {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.sub-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sub-metric.full-width {
+  grid-column: span 2;
+}
+
+.sub-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.sub-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.progress-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.progress-bar-track {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: #2ecc71;
+  border-radius: 4px;
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+.progress-bar-fill.fill-accent {
+  background: var(--accent);
+}
+
+.progress-bar-fill.fill-blue {
+  background: #3498db;
+}
+
+.progress-bar-fill.warning {
+  background: #f1c40f;
+}
+
+.progress-bar-fill.danger {
+  background: #e74c3c;
+}
+[data-theme="zen"] .callout[data-callout="danger"],
+[data-theme="zen"] .callout[data-callout="error"] {
   --callout-color: #9e4848;
   --callout-bg: rgba(158, 72, 72, 0.08);
   --callout-border: rgba(158, 72, 72, 0.22);

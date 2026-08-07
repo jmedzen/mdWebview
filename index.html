@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.11.3">
+  <link rel="stylesheet" href="style.css?v=1.12.0">
 </head>
 <body>
   <div class="app">
@@ -456,7 +456,8 @@
 
       <!-- Admin Tabs Navigation -->
       <div class="admin-tabs-nav" id="adminTabsNav">
-            <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
+        <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
+        <button type="button" class="admin-tab-btn" data-tab="hardware" id="adminTabHardwareBtn">🖥️ 硬體監控</button>
         <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
@@ -520,6 +521,150 @@
             </div>
           </div>
         </form>
+      </div>
+
+      <!-- Tab: Hardware Status Monitor -->
+      <div class="admin-tab-pane" id="adminPaneHardware" style="display: none;">
+        <div class="hardware-header-row">
+          <div class="hardware-title-group">
+            <span class="hardware-badge-docker" id="hwDockerBadge">🐳 Docker 容器環境</span>
+            <span class="hardware-title-hint" id="hwUptimeText">系統已運作: 載入中…</span>
+          </div>
+          <div class="hardware-refresh-controls">
+            <button type="button" class="action-btn text-action-btn" id="hwRefreshBtn" title="刷新狀態">🔄 實時刷新</button>
+            <select id="hwAutoRefreshSelect" class="setting-select compact-select">
+              <option value="5000">自動刷新: 5秒</option>
+              <option value="10000" selected>自動刷新: 10秒</option>
+              <option value="0">手動刷新</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hardware-dashboard-grid">
+          <!-- Card 1: CPU & Load -->
+          <div class="hardware-card">
+            <div class="hardware-card-header">
+              <span class="card-icon">⚡</span>
+              <span class="card-title">CPU 核心與負載</span>
+              <span class="metric-status-badge" id="hwCpuStatusBadge">正常</span>
+            </div>
+            <div class="hardware-card-body">
+              <div class="hardware-metric-value" id="hwCpuModel">載入中…</div>
+              <div class="hardware-sub-metrics">
+                <div class="sub-metric">
+                  <span class="sub-label">核心數</span>
+                  <span class="sub-val" id="hwCpuCores">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">1分負載</span>
+                  <span class="sub-val" id="hwLoad1m">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">5分負載</span>
+                  <span class="sub-val" id="hwLoad5m">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">15分負載</span>
+                  <span class="sub-val" id="hwLoad15m">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Memory & Container Limit -->
+          <div class="hardware-card">
+            <div class="hardware-card-header">
+              <span class="card-icon">🧠</span>
+              <span class="card-title">記憶體佔用 (Memory)</span>
+              <span class="metric-status-badge" id="hwMemStatusBadge">正常</span>
+            </div>
+            <div class="hardware-card-body">
+              <div class="progress-bar-row">
+                <div class="progress-bar-label">
+                  <span>容器常駐記憶體 (RSS)</span>
+                  <span id="hwRssText">-- / --</span>
+                </div>
+                <div class="progress-bar-track">
+                  <div class="progress-bar-fill" id="hwRssFill" style="width: 0%;"></div>
+                </div>
+              </div>
+              <div class="progress-bar-row">
+                <div class="progress-bar-label">
+                  <span>V8 Heap 堆疊記憶體</span>
+                  <span id="hwHeapText">-- / --</span>
+                </div>
+                <div class="progress-bar-track">
+                  <div class="progress-bar-fill fill-accent" id="hwHeapFill" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 3: Storage & Filesystem -->
+          <div class="hardware-card">
+            <div class="hardware-card-header">
+              <span class="card-icon">💾</span>
+              <span class="card-title">經文庫與磁碟空間</span>
+            </div>
+            <div class="hardware-card-body">
+              <div class="progress-bar-row">
+                <div class="progress-bar-label">
+                  <span>Vault 磁碟空間</span>
+                  <span id="hwDiskText">-- / --</span>
+                </div>
+                <div class="progress-bar-track">
+                  <div class="progress-bar-fill fill-blue" id="hwDiskFill" style="width: 0%;"></div>
+                </div>
+              </div>
+              <div class="hardware-sub-metrics">
+                <div class="sub-metric">
+                  <span class="sub-label">索引快取檔</span>
+                  <span class="sub-val" id="hwCacheSize">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">分析庫檔案</span>
+                  <span class="sub-val" id="hwAnalyticsSize">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">Log 目錄總量</span>
+                  <span class="sub-val" id="hwLogsSize">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 4: Runtime & Index Status -->
+          <div class="hardware-card">
+            <div class="hardware-card-header">
+              <span class="card-icon">🪷</span>
+              <span class="card-title">服務與全文索引狀態</span>
+            </div>
+            <div class="hardware-card-body">
+              <div class="hardware-sub-metrics grid-2col">
+                <div class="sub-metric">
+                  <span class="sub-label">Node.js 版本</span>
+                  <span class="sub-val" id="hwNodeVer">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">作業系統平台</span>
+                  <span class="sub-val" id="hwPlatform">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">渲染 Worker 執行緒</span>
+                  <span class="sub-val" id="hwWorkerStatus">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">全文索引狀態</span>
+                  <span class="sub-val" id="hwIndexStatus">--</span>
+                </div>
+                <div class="sub-metric full-width">
+                  <span class="sub-label">索引 Bigram 總筆數</span>
+                  <span class="sub-val" id="hwBigramCount">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Tab 2: System Logs -->
@@ -764,7 +909,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.11.3" defer></script>
-  <script src="app.js?v=1.11.3" defer></script>
+  <script src="marked.min.js?v=1.12.0" defer></script>
+  <script src="app.js?v=1.12.0" defer></script>
 </body>
 </html>
