@@ -93,12 +93,22 @@ function updateLatest(stat, timestamp, field = 'lastAccess') {
   if (!stat[field] || new Date(timestamp) > new Date(stat[field])) stat[field] = timestamp;
 }
 
+const MAX_PROCESSED_IDS = 10000;
+
 function updateAnalyticsStoreEntry(store, entry) {
   const timestamp = new Date(entry.timestamp);
   if (Number.isNaN(timestamp.getTime())) return false;
   const id = entry.id || getAnalyticsEventId(entry);
   if (store.processedIds[id]) return false;
   store.processedIds[id] = timestamp.toISOString();
+
+  // Prune oldest processedIds if exceeding capacity
+  const pKeys = Object.keys(store.processedIds);
+  if (pKeys.length > MAX_PROCESSED_IDS) {
+    for (let i = 0; i < pKeys.length - MAX_PROCESSED_IDS; i++) {
+      delete store.processedIds[pKeys[i]];
+    }
+  }
 
   const ip = entry.ip || '127.0.0.1';
   const dateKey = timestamp.toISOString().split('T')[0];
@@ -156,12 +166,18 @@ async function saveAnalyticsStore() {
   await fs.promises.rename(tempPath, ANALYTICS_STORE_PATH);
 }
 
+let analyticsStoreSaveTimer = null;
+
 function queueAnalyticsStoreEntry(entry) {
-  analyticsStoreWrite = analyticsStoreWrite.then(async () => {
-    if (!analyticsStoreInitialized) return;
-    if (updateAnalyticsStoreEntry(analyticsStore, entry)) await saveAnalyticsStore();
-  }).catch(err => console.error('Error updating analytics aggregate:', err));
-  return analyticsStoreWrite;
+  if (!analyticsStoreInitialized || !analyticsStore) return;
+  if (updateAnalyticsStoreEntry(analyticsStore, entry)) {
+    if (!analyticsStoreSaveTimer) {
+      analyticsStoreSaveTimer = setTimeout(() => {
+        analyticsStoreSaveTimer = null;
+        saveAnalyticsStore().catch(err => console.error('Error saving analytics aggregate:', err));
+      }, 30000);
+    }
+  }
 }
 
 async function readAnalyticsFile(filePath, onEntry) {
@@ -221,6 +237,16 @@ function cleanOldLogsJob() {
       });
     });
   });
+
+  // Purge daily store buckets older than 90 days
+  if (analyticsStore && analyticsStore.daily) {
+    const cutoffDateStr = new Date(Date.now() - RETENTION_MS).toISOString().split('T')[0];
+    for (const dateKey of Object.keys(analyticsStore.daily)) {
+      if (dateKey < cutoffDateStr) {
+        delete analyticsStore.daily[dateKey];
+      }
+    }
+  }
 }
 
 // Backfill aggregate data before any raw log cleanup can occur.
@@ -728,8 +754,8 @@ function setupTreeWatcher() {
         }
         treeWatcherDebounceTimer = setTimeout(() => {
           treeWatcherDebounceTimer = null;
-          Logger.info('Index', `Vault file changed: "${filename || 'unknown'}" (${eventType}). Checking Bigram Index...`);
-          buildSearchIndexAsync(false).catch(() => {});
+          Logger.info('Index', `Vault file changed: "${filename || 'unknown'}" (${eventType}). Aborting active build & restarting Bigram Index build...`);
+          buildSearchIndexAsync(true).catch(() => {});
         }, 1500);
       });
     }
@@ -1216,16 +1242,25 @@ function extractQueryBigrams(text) {
   return Array.from(set);
 }
 
+let activeIndexBuildId = 0;
+
 async function buildSearchIndexAsync(forceRebuild = false) {
-  if (searchIndex.building) return;
+  if (searchIndex.building && !forceRebuild) return;
+
+  const buildId = ++activeIndexBuildId;
   searchIndex.building = true;
   const indexStart = Date.now();
 
   try {
-    if (!cachedTree) {
+    if (!cachedTree || forceRebuild) {
       cachedTree = await scanDirAsync(getMdRoot(), '');
       setupTreeWatcher();
     }
+    if (buildId !== activeIndexBuildId) {
+      Logger.info('Index', `[Build #${buildId}] Aborted during initial directory scan.`);
+      return;
+    }
+
     const files = flattenTreeToFiles(cachedTree, getMdRoot());
     const vaultSig = computeVaultSignature(files);
 
@@ -1238,6 +1273,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     // Try loading index from disk cache first if not forced
     if (!forceRebuild) {
       const loadedFromCache = await loadSearchIndexFromCacheAsync(vaultSig);
+      if (buildId !== activeIndexBuildId) return;
       if (loadedFromCache) {
         Logger.info('Index', `Loaded valid Bigram Index from disk cache for ${files.length} files (${searchIndex.bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms (Vault Unchanged)`);
         searchIndex.building = false;
@@ -1245,7 +1281,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       }
     }
 
-    Logger.info('Index', `Starting Full-text Bigram Inverted Index build for ${files.length} files...`);
+    Logger.info('Index', `Starting Full-text Bigram Inverted Index build #${buildId} for ${files.length} files...`);
 
     const fileList = [];
     const fileMap = new Map();
@@ -1255,9 +1291,11 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     async function indexWorker(workerId) {
       const seenBigrams = new Set();
       while (fileIdx < files.length) {
+        if (buildId !== activeIndexBuildId) return;
+
         const idx = fileIdx++;
         if (idx > 0 && idx % 1000 === 0) {
-          Logger.info('Index', `Indexing progress: ${idx}/${files.length} files...`);
+          Logger.info('Index', `Indexing progress (build #${buildId}): ${idx}/${files.length} files...`);
         }
         const file = files[idx];
         if (!file) break;
@@ -1274,6 +1312,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
 
         try {
           const content = await fs.promises.readFile(file.fullPath, 'utf-8');
+          if (buildId !== activeIndexBuildId) return;
           seenBigrams.clear();
           extractBigrams(content, (bg) => {
             if (!seenBigrams.has(bg)) {
@@ -1297,6 +1336,11 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     }
     await Promise.all(workers);
 
+    if (buildId !== activeIndexBuildId) {
+      Logger.info('Index', `[Build #${buildId}] Aborted: Vault files modified during indexing.`);
+      return;
+    }
+
     searchIndex = {
       ready: true,
       building: false,
@@ -1306,13 +1350,15 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       bigrams
     };
 
-    Logger.info('Index', `Full-text Bigram Index built for ${fileList.length} files (${bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files (${bigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
 
     // Save cache to disk for fast server restarts
     await saveSearchIndexCacheAsync(vaultSig, fileList, bigrams);
   } catch (err) {
-    searchIndex.building = false;
-    Logger.error('Index', 'Failed to build Bigram search index', err);
+    if (buildId === activeIndexBuildId) {
+      searchIndex.building = false;
+    }
+    Logger.error('Index', `Failed to build Bigram search index #${buildId}`, err);
   }
 }
 
@@ -1954,50 +2000,18 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     files = await fs.promises.readdir(LOG_DIR);
   } catch (_) {}
 
-  const logEntries = [];
-
-  for (const file of files) {
-    if (!file.endsWith('.jsonl')) continue;
-    const filePath = path.join(LOG_DIR, file);
-    try {
-      const stats = await fs.promises.stat(filePath);
-      if (stats.mtimeMs < cutoffTime - (24 * 60 * 60 * 1000)) continue;
-
-      // Stream line-by-line to prevent Event Loop freezing and OOM memory crashes
-      const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
-      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
-
-      for await (const line of rl) {
-        if (!line.trim()) continue;
-        try {
-          const item = JSON.parse(line);
-          const t = new Date(item.timestamp).getTime();
-          if (t >= cutoffTime) {
-            logEntries.push(item);
-          }
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
-  // Merge in-memory buffer items
-  for (const memItem of systemLogBuffer) {
-    const t = new Date(memItem.timestamp).getTime();
-    if (t >= cutoffTime && !logEntries.some(e => e.timestamp === memItem.timestamp && e.message === memItem.message)) {
-      logEntries.push(memItem);
-    }
-  }
-
   const fileMap = new Map();
   const searchMap = new Map();
   const ipMap = new Map();
   const dailyMap = new Map();
-
   let totalViews = 0;
   let totalSearches = 0;
   const globalUniqueIps = new Set();
 
-  for (const entry of logEntries) {
+  function processEntry(entry) {
+    const t = new Date(entry.timestamp).getTime();
+    if (Number.isNaN(t) || t < cutoffTime) return;
+
     const ip = entry.ip || '127.0.0.1';
     globalUniqueIps.add(ip);
 
@@ -2072,6 +2086,28 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
         }
       }
     }
+  }
+
+  for (const file of files) {
+    if (!file.endsWith('.jsonl')) continue;
+    const filePath = path.join(LOG_DIR, file);
+    try {
+      const stats = await fs.promises.stat(filePath);
+      if (stats.mtimeMs < cutoffTime - (24 * 60 * 60 * 1000)) continue;
+
+      const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+      for await (const line of rl) {
+        if (!line.trim()) continue;
+        try { processEntry(JSON.parse(line)); } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  // Merge in-memory buffer items directly
+  for (const memItem of systemLogBuffer) {
+    processEntry(memItem);
   }
 
   const topFiles = Array.from(fileMap.values())
