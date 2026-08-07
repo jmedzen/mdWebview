@@ -3326,8 +3326,9 @@
           successEl.style.display = 'block';
           setTimeout(() => { successEl.style.display = 'none'; }, 3000);
         }
-        // Refresh the homepage suggest list
+        // Refresh the homepage suggest list & tab live preview
         fetchSuggestList();
+        renderSuggestPreview();
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message;
@@ -3337,7 +3338,47 @@
     });
   }
 
+  async function renderSuggestPreview() {
+    const previewEl = $('suggestLivePreview');
+    if (!previewEl) return;
+    try {
+      const res = await fetch('/api/suggest-list');
+      if (!res.ok) throw new Error('無法載入預覽');
+      const data = await res.json();
+      if (!data.items || data.items.length === 0) {
+        previewEl.innerHTML = '<div class="suggest-preview-empty">（目前無符合黑名單篩選的推薦或熱門筆記）</div>';
+        return;
+      }
+      previewEl.innerHTML = data.items.map((item) => {
+        const isHot = item.type === 'hot';
+        const badgeLabel = isHot ? (item.source ? `🔥 熱門 ${item.source}` : '🔥 熱門') : '📌 推薦';
+        const badgeClass = isHot ? 'suggest-badge-hot' : 'suggest-badge-admin';
+        return `
+          <div class="suggest-preview-item" data-path="${escHtml(item.path)}" title="點擊直接開啟檔案: ${escHtml(item.path)}">
+            <span class="suggest-item-icon">${isHot ? '🔥' : '📌'}</span>
+            <span class="suggest-item-name">${escHtml(item.fileName)}</span>
+            <span class="suggest-item-badge ${badgeClass}">${badgeLabel}</span>
+          </div>
+        `;
+      }).join('');
+
+      previewEl.querySelectorAll('.suggest-preview-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const path = el.getAttribute('data-path');
+          if (path) {
+            const overlay = $('adminSettingsOverlay');
+            if (overlay) overlay.style.display = 'none';
+            openFile(path);
+          }
+        });
+      });
+    } catch (err) {
+      previewEl.innerHTML = `<div class="suggest-preview-empty">無法載入預覽：${escHtml(err.message)}</div>`;
+    }
+  }
+
   async function loadSuggestSettings() {
+    renderSuggestPreview();
     try {
       const res = await fetch('/api/admin/settings', {
         headers: { 'X-Admin-Token': state.adminToken }

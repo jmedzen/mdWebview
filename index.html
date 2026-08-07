@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.11.0">
+  <link rel="stylesheet" href="style.css?v=1.11.1">
 </head>
 <body>
   <div class="app">
@@ -447,8 +447,8 @@
 
       <!-- Admin Tabs Navigation -->
       <div class="admin-tabs-nav" id="adminTabsNav">
-            <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
-        <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
+        <button type="button" class="admin-tab-btn" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
+        <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 熱門＋推薦閱讀</button>
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
       </div>
@@ -734,7 +734,16 @@
                     <span class="suggest-algo-arrow">→</span>
                     <span class="suggest-algo-badge suggest-algo-90d">90天 Top5</span>
                   </div>
-                  <p class="suggest-algo-desc">以上順序合併去重，自動排除黑名單後依序顯示。熱門數據來源為系統 Log 分析，每次開啟「推薦閱讀」Tab 時即時更新。</p>
+                  <p class="suggest-algo-desc">以上順序合併去重，自動排除黑名單後依序顯示。熱門數據來源為系統 Log 分析，每次開啟「熱門＋推薦閱讀」Tab 時即時更新。</p>
+                  
+                  <div class="suggest-preview-container">
+                    <div class="suggest-preview-header">
+                      <span>👀 當前熱門＋推薦閱讀清單預覽</span>
+                    </div>
+                    <div id="suggestLivePreview" class="suggest-live-preview">
+                      <div class="suggest-loading"><div class="spinner"></div><span>載入預覽中…</span></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -755,7 +764,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.11.0" defer></script>
-  <script src="app.js?v=1.11.0" defer></script>
+  <script src="marked.min.js?v=1.11.1" defer></script>
+  <script src="app.js?v=1.11.1" defer></script>
 </body>
 </html>
