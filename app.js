@@ -45,7 +45,8 @@
   const state = {
     currentFile: null,
     currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
-    fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize || 16),
+    defaultFontSize: appConfig.defaultFontSize ? parseInt(appConfig.defaultFontSize) : 16,
+    fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize ? parseInt(appConfig.defaultFontSize) : 16),
     textAlign: userAlign || (isMobile ? 'left' : 'justify'),
     lineHeight: userLineHeight || '1.8',
     maxWidth: userMaxWidth || (isMobile ? '100%' : '800px'),
@@ -338,6 +339,9 @@
       // If client doesn't have custom user font size / theme settings saved in localStorage,
       // load default settings configured by the server.
       if (data.settings) {
+        if (data.settings.defaultFontSize) {
+          state.defaultFontSize = parseInt(data.settings.defaultFontSize);
+        }
         const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
         if (userSavedFont) {
           applyFontSize(parseInt(userSavedFont), true);
@@ -1903,8 +1907,13 @@
     state.fontSize = size;
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
 
-    // UI elements scale by 0.5x ratio relative to 16px default base
-    const uiScale = 1 + (size - 16) / 32;
+    // Default base is configured by admin in settings (default 16px)
+    const defaultBase = state.defaultFontSize || 16;
+    const delta = size - defaultBase;
+
+    // UI elements scale by 0.5x ratio relative to defaultBase
+    // uiScale = 1 + (delta / (defaultBase * 2))
+    const uiScale = 1 + (delta / (defaultBase * 2));
     document.documentElement.style.setProperty('--ui-font-scale', uiScale);
 
     const display = $('fontSizeDisplay');
@@ -2835,6 +2844,7 @@
 
         if (data.settings) {
           if (data.settings.defaultFontSize) {
+            state.defaultFontSize = parseInt(data.settings.defaultFontSize);
             localStorage.removeItem('mdWebview-user-fontsize');
             applyFontSize(data.settings.defaultFontSize, false);
           }

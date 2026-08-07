@@ -2668,7 +2668,7 @@ kbd {
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   font-weight: 500;
   padding: 8px 12px;
   border-radius: 6px;
@@ -2722,13 +2722,13 @@ kbd {
 }
 
 .setting-title {
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .setting-desc {
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
 
@@ -2738,7 +2738,7 @@ kbd {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 6px 12px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   outline: none;
   cursor: pointer;
 }
@@ -2972,7 +2972,7 @@ kbd {
   border: none;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   font-weight: 500;
   padding: 6px 12px;
   border-radius: 6px;
