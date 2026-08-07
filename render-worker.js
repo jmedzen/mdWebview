@@ -7,6 +7,23 @@ const { parentPort } = require('worker_threads');
 const { marked } = require('marked');
 
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
+marked.use({
+  tokenizer: {
+    del(src) {
+      // Standard GFM double tildes strikethrough only (prevent single tildes ~P11~P12~ range syntax from trigger del)
+      const cap = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~/.exec(src);
+      if (cap) {
+        return {
+          type: 'del',
+          raw: cap[0],
+          text: cap[1],
+          tokens: this.lexer.inlineTokens(cap[1])
+        };
+      }
+      return undefined;
+    }
+  }
+});
 
 parentPort.on('message', ({ jobId, body, filePath }) => {
   try {

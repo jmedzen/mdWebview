@@ -157,6 +157,23 @@
   async function init() {
     // Configure marked once at startup (not on every render)
     marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
+    marked.use({
+      tokenizer: {
+        del(src) {
+          // Standard GFM double tildes strikethrough only (prevent single tildes ~P11~P12~ range syntax from trigger del)
+          const cap = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~/.exec(src);
+          if (cap) {
+            return {
+              type: 'del',
+              raw: cap[0],
+              text: cap[1],
+              tokens: this.lexer.inlineTokens(cap[1])
+            };
+          }
+          return undefined;
+        }
+      }
+    });
     // Pre-warm the Web Worker so first file open has no startup delay
     getMdWorker();
 
