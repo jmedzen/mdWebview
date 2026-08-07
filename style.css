@@ -14,7 +14,7 @@ html {
   font-size: calc(16px * var(--ui-font-scale, 1));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --sidebar-font-size: calc(13px * var(--ui-font-scale, 1));
+  --sidebar-font-size: calc(var(--content-font-size, 16px) * 0.8125);
   --content-text-align: justify;
   --content-line-height: 1.8;
   --content-max-width: 800px;
