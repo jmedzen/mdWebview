@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.12.2">
+  <link rel="stylesheet" href="style.css?v=1.13.0">
 </head>
 <body>
   <div class="app">
@@ -466,50 +466,68 @@
       <!-- Tab 1: Config Form -->
       <div class="admin-tab-pane active" id="adminPaneConfig">
         <form id="adminSettingsForm" class="modal-form">
-          <div class="form-group">
-            <label for="settingsSiteName">網站名稱 (Website Name)</label>
-            <input type="text" id="settingsSiteName" placeholder="例如: mdWebview" required>
-            <span class="field-hint">取代網頁標題、Logo 與歡迎畫面中 "mdWebview" 的字串。</span>
-          </div>
-          <div class="form-group">
-            <label for="settingsMdRoot">開啟檔案的目錄路徑 (Vault Path)</label>
-            <input type="text" id="settingsMdRoot" placeholder="例如: /path/to/mdWebview/md" required>
-            <span class="field-hint">伺服器端存放 Markdown 經典檔案的絕對路徑。</span>
-          </div>
-          <div class="form-row">
-            <div class="form-group half">
-              <label for="settingsFontSize">預設字體大小 (px)</label>
-              <input type="number" id="settingsFontSize" min="12" max="32" required>
-              <span class="field-hint">新讀者首次造訪時的字體大小。</span>
+          <div class="admin-form-section">
+            <h3 class="admin-form-section-title">🏷️ 網站標識與儲存庫</h3>
+            <div class="form-group">
+              <label for="settingsSiteName">網站名稱 (Website Name)</label>
+              <input type="text" id="settingsSiteName" placeholder="例如: mdWebview" required>
+              <span class="field-hint">取代網頁標題、Logo 與歡迎畫面中 "mdWebview" 的字串。</span>
             </div>
-            <div class="form-group half">
-              <label for="settingsTheme">預設主題</label>
-              <select id="settingsTheme" class="theme-select-inline">
-                <option value="obsidian-dark">🌙 暗色 Dark</option>
-                <option value="obsidian-light">☀️ 亮色 Light</option>
-                <option value="solarized">🔆 Solarized</option>
-                <option value="zen">🍵 禪風 Zen</option>
-                <option value="gruvbox">🍂 Gruvbox</option>
-              </select>
-              <span class="field-hint">新讀者首次造訪時的主題。</span>
+            <div class="form-group">
+              <label for="settingsMdRoot">開啟檔案的目錄路徑 (Vault Path)</label>
+              <input type="text" id="settingsMdRoot" placeholder="例如: /path/to/mdWebview/md" required>
+              <span class="field-hint">伺服器端存放 Markdown 經典檔案的絕對路徑。</span>
             </div>
           </div>
-          <div class="form-group-setting">
-            <label class="setting-checkbox-label" for="settingsEnableVersion">
-              <input type="checkbox" id="settingsEnableVersion">
-              <span>顯示版本號</span>
-            </label>
-            <input type="text" id="settingsVersion" placeholder="例如: v1.0.0">
-            <span class="field-hint">勾選並填寫後，將在首頁最後一行顯示「版本：...」。</span>
+
+          <div class="admin-form-section">
+            <h3 class="admin-form-section-title">🎨 預設閱讀體驗設定</h3>
+            <div class="form-row">
+              <div class="form-group half">
+                <label for="settingsFontSize">預設字體大小 (px)</label>
+                <input type="number" id="settingsFontSize" min="12" max="32" required>
+                <span class="field-hint">新讀者首次造訪時的字體大小 (同時作為 0.5x UI 縮放基準)。</span>
+              </div>
+              <div class="form-group half">
+                <label for="settingsTheme">預設主題</label>
+                <select id="settingsTheme" class="theme-select-inline">
+                  <option value="obsidian-dark">🌙 暗色 Dark</option>
+                  <option value="obsidian-light">☀️ 亮色 Light</option>
+                  <option value="solarized">🔆 Solarized</option>
+                  <option value="zen">🍵 禪風 Zen</option>
+                  <option value="gruvbox">🍂 Gruvbox</option>
+                </select>
+                <span class="field-hint">新讀者首次造訪時的主題。</span>
+              </div>
+            </div>
           </div>
-          <div class="form-group-setting">
-            <label class="setting-checkbox-label" for="settingsEnableDownload">
-              <input type="checkbox" id="settingsEnableDownload">
-              <span>顯示下載連結</span>
-            </label>
-            <input type="text" id="settingsDownloadUrl" placeholder="例如: https://example.com/download.zip">
-            <span class="field-hint">勾選並填寫後，將在首頁最後一行顯示「下載：離線閱讀完整版」。</span>
+
+          <div class="admin-form-section">
+            <h3 class="admin-form-section-title">📌 首頁頁尾顯示選項</h3>
+            <div class="form-group-setting">
+              <div class="toggle-switch-wrapper">
+                <label class="toggle-switch-label" for="settingsEnableVersion">
+                  <input type="checkbox" id="settingsEnableVersion">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">顯示版本號</span>
+              </div>
+              <input type="text" id="settingsVersion" placeholder="例如: v1.0.0">
+              <span class="field-hint">開啟並填寫後，將在首頁最後一行顯示「版本：...」。</span>
+            </div>
+            <div class="form-group-setting">
+              <div class="toggle-switch-wrapper">
+                <label class="toggle-switch-label" for="settingsEnableDownload">
+                  <input type="checkbox" id="settingsEnableDownload">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">顯示下載連結</span>
+              </div>
+              <input type="text" id="settingsDownloadUrl" placeholder="例如: https://example.com/download.zip">
+              <span class="field-hint">開啟並填寫後，將在首頁最後一行顯示「下載：離線閱讀完整版」。</span>
+            </div>
           </div>
+
           <div id="settingsErrorMsg" class="form-error" style="display: none;"></div>
           <div id="settingsSuccessMsg" class="form-success" style="display: none;"></div>
           <div class="modal-actions">
@@ -918,7 +936,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.12.2" defer></script>
-  <script src="app.js?v=1.12.2" defer></script>
+  <script src="marked.min.js?v=1.13.0" defer></script>
+  <script src="app.js?v=1.13.0" defer></script>
 </body>
 </html>
