@@ -11,10 +11,10 @@
 }
 
 html {
-  font-size: 16px;
+  font-size: calc(16px * var(--ui-font-scale, 1));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --sidebar-font-size: calc(var(--content-font-size, 16px) * 0.8125);
+  --sidebar-font-size: calc(13px * var(--ui-font-scale, 1));
   --content-text-align: justify;
   --content-line-height: 1.8;
   --content-max-width: 800px;
@@ -1229,7 +1229,7 @@ body,
 
 .welcome-title {
   font-family: 'Inter', sans-serif;
-  font-size: 36px;
+  font-size: calc(36px * var(--ui-font-scale, 1));
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -1px;
@@ -1238,7 +1238,7 @@ body,
 
 .welcome-subtitle {
   font-family: 'Noto Serif TC', serif;
-  font-size: 16px;
+  font-size: calc(16px * var(--ui-font-scale, 1));
   color: var(--text-muted);
   letter-spacing: 4px;
 }
@@ -1251,7 +1251,7 @@ body,
 }
 
 .welcome-hint {
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   color: var(--text-muted);
   margin-bottom: 24px;
 }
@@ -1262,7 +1262,7 @@ body,
 }
 
 .shortcut-item {
-  font-size: 11px;
+  font-size: calc(11px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
 
@@ -1272,7 +1272,7 @@ body,
   justify-content: center;
   gap: 10px;
   margin-top: 24px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-muted);
   flex-wrap: wrap;
 }
@@ -1371,7 +1371,7 @@ body,
 
 .suggest-item-name {
   flex: 1;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -2844,7 +2844,7 @@ kbd {
 }
 
 .list-item-title {
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   color: var(--text-primary);
   font-weight: 500;
   white-space: normal;
@@ -2856,7 +2856,7 @@ kbd {
 }
 
 .list-item-time {
-  font-size: 11px;
+  font-size: calc(11px * var(--ui-font-scale, 1));
   color: var(--text-muted);
   margin-left: 10px;
 }

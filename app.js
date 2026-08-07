@@ -1902,6 +1902,11 @@
     size = Math.max(12, Math.min(32, size));
     state.fontSize = size;
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
+
+    // UI elements scale by 0.5x ratio relative to 16px default base
+    const uiScale = 1 + (size - 16) / 32;
+    document.documentElement.style.setProperty('--ui-font-scale', uiScale);
+
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
     if (saveToLocalStorage) {
