@@ -2696,6 +2696,7 @@ kbd {
 }
 
 .recommended-menu-list {
+  width: 100%;
   max-height: 380px;
   overflow-y: auto;
   padding-right: 4px;

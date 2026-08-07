@@ -480,12 +480,13 @@
       const res = await fetch('/api/suggest-list');
       if (!res.ok) return;
       const data = await res.json();
+      const items = data.items || [];
+      state._cachedSuggestItems = items;
+      renderSuggestList(items);
       if (data.enabled === false) {
         const container = $('suggestListContainer');
         if (container) container.style.display = 'none';
-        return;
       }
-      renderSuggestList(data.items || []);
     } catch (_) {}
   }
 
@@ -2614,6 +2615,9 @@
         $$('.settings-tab-pane', $('userSettingsOverlay')).forEach(pane => {
           pane.style.display = pane.id === `pane-${tab}` ? 'flex' : 'none';
         });
+        if (tab === 'recommended') {
+          fetchSuggestList();
+        }
       });
     });
 
@@ -2905,11 +2909,7 @@
     renderMaxWidthControl();
     renderRecentFilesList();
     renderBookmarksList();
-    if (state._cachedSuggestItems && state._cachedSuggestItems.length > 0) {
-      renderSuggestListToElement($('menuSuggestList'), state._cachedSuggestItems, true);
-    } else {
-      loadSuggestList();
-    }
+    fetchSuggestList();
 
     const statusText = $('adminStatusText');
     const loginBtn = $('menuOpenAdminLoginBtn');
