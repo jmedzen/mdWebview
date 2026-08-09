@@ -191,9 +191,11 @@
     await loadTree();
     fetchSuggestList(); // Load recommend & hot list for homepage
 
-    // Open file from URL query or hash on first load; if none, attempt restoring last read progress
+    // Open file from URL query or hash on first load; if home/frontpage specified, show welcome screen; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
-    if (urlInfo) {
+    if (urlInfo && urlInfo.isHome) {
+      goHome(false);
+    } else if (urlInfo && urlInfo.file) {
       await openFile(urlInfo.file, urlInfo.line);
     } else {
       restoreReadProgress();
@@ -202,7 +204,9 @@
     // Handle browser back / forward
     const handleUrlChange = async () => {
       const info = getFileFromURL();
-      if (info && info.file !== state.currentFile) {
+      if (info && info.isHome) {
+        goHome(false);
+      } else if (info && info.file && info.file !== state.currentFile) {
         await openFile(info.file, info.line);
       } else if (info && info.line) {
         // Same file, different line
@@ -214,8 +218,19 @@
   }
 
   function getFileFromURL() {
-    // 1. Try query parameters first (server readable)
     const searchParams = new URLSearchParams(window.location.search);
+    
+    // Check for explicit frontpage / home URL parameters (e.g. ?home=1, ?frontpage=1, ?home, ?frontpage, ?page=home)
+    const pageVal = (searchParams.get('page') || '').toLowerCase();
+    const hasHomeParam = searchParams.has('home') || searchParams.has('frontpage') || pageVal === 'home' || pageVal === 'frontpage';
+    if (hasHomeParam) {
+      const homeVal = searchParams.get('home') || searchParams.get('frontpage');
+      if (homeVal !== 'false' && homeVal !== '0') {
+        return { isHome: true };
+      }
+    }
+
+    // 1. Try query parameters first (server readable)
     let searchFile = searchParams.get('file');
     if (!searchFile) {
       const match = window.location.search.match(/[?&]file=([^&]+)/);
@@ -239,6 +254,10 @@
         return null;
       }
     }
+    if (hash === '#home' || hash === '#frontpage') {
+      return { isHome: true };
+    }
+
     return null;
   }
 
@@ -419,21 +438,22 @@
     }
   }
   // ── Go Home: close reader, return to welcome screen ────────
-  function goHome() {
-    if (!state.currentFile) return; // already on home
+  function goHome(clearUrl = true) {
     state.currentFile = null;
 
     const welcome = $('welcomeScreen');
     const wrapper = $('contentWrapper');
     const loading = $('contentLoading');
 
-    welcome.style.display = 'flex';
-    wrapper.style.display = 'none';
-    loading.style.display = 'none';
+    if (welcome) welcome.style.display = 'flex';
+    if (wrapper) wrapper.style.display = 'none';
+    if (loading) loading.style.display = 'none';
 
-    // Clear URL query parameters
-    const cleanUrl = window.location.pathname;
-    history.pushState(null, '', cleanUrl);
+    if (clearUrl) {
+      // Clear URL query parameters
+      const cleanUrl = window.location.pathname;
+      history.pushState(null, '', cleanUrl);
+    }
 
     // Reset document title
     document.title = `${state.siteName} — 佛典經論閱讀器`;
