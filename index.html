@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.12.3">
+  <link rel="stylesheet" href="style.css?v=1.12.4">
 </head>
 <body>
   <div class="app">
@@ -285,8 +285,8 @@
           <!-- Theme -->
           <div class="setting-item-row">
             <div class="setting-item-label">
-              <span class="setting-title">閱讀主題 (Theme)</span>
-              <span class="setting-desc">切換專屬配色風格 (mdWebview-user-theme)</span>
+              <span class="setting-title">閱讀主題</span>
+              <span class="setting-desc">切換專屬配色風格 </span>
             </div>
             <select id="settingThemeSelect" class="setting-select">
               <option value="obsidian-dark">🌙 暗色 Dark</option>
@@ -300,8 +300,8 @@
           <!-- Font Size -->
           <div class="setting-item-row">
             <div class="setting-item-label">
-              <span class="setting-title">閱讀字型大小 (Font Size)</span>
-              <span class="setting-desc">調整經文區域基礎文字尺寸 (mdWebview-user-fontsize)</span>
+              <span class="setting-title">閱讀字型大小 </span>
+              <span class="setting-desc">調整經文區域基礎文字尺寸 </span>
             </div>
             <div class="font-size-setting-controls">
               <button id="fontDecrease" class="control-btn" title="縮小字型">A<span class="small-minus">−</span></button>
@@ -313,8 +313,8 @@
           <!-- Text Alignment -->
           <div class="setting-item-row">
             <div class="setting-item-label">
-              <span class="setting-title">文字對齊方式 (Text Alignment)</span>
-              <span class="setting-desc">內文對齊呈現方式 (mdWebview-user-textalign)</span>
+              <span class="setting-title">文字對齊方式</span>
+              <span class="setting-desc">內文對齊呈現方式</span>
             </div>
             <div class="segmented-control" id="settingTextAlignGroup">
               <button type="button" class="segment-btn active" data-value="justify">兩端對齊 (justify)</button>
@@ -325,8 +325,8 @@
           <!-- Line Height -->
           <div class="setting-item-row">
             <div class="setting-item-label">
-              <span class="setting-title">行高與間距 (Line Height)</span>
-              <span class="setting-desc">經文行與行之間的垂直間距 (mdWebview-user-lineheight)</span>
+              <span class="setting-title">行高與間距</span>
+              <span class="setting-desc">經文行與行之間的垂直間距</span>
             </div>
             <div class="segmented-control" id="settingLineHeightGroup">
               <button type="button" class="segment-btn" data-value="1.6">標準 (1.6)</button>
@@ -338,8 +338,8 @@
           <!-- Reading Max Width -->
           <div class="setting-item-row">
             <div class="setting-item-label">
-              <span class="setting-title">閱讀區最大寬度 (Max Width)</span>
-              <span class="setting-desc">控制閱讀內文最佳寬度 (mdWebview-user-maxwidth)</span>
+              <span class="setting-title">閱讀區最大寬度</span>
+              <span class="setting-desc">控制閱讀內文最佳寬度</span>
             </div>
             <div class="segmented-control" id="settingMaxWidthGroup">
               <button type="button" class="segment-btn" data-value="100%">100% 全寬</button>
@@ -363,7 +363,7 @@
           <div class="setting-item-row">
             <div class="setting-item-label">
               <span class="setting-title">自動恢復上次閱讀進度</span>
-              <span class="setting-desc">重新開啟網頁時，自動定位回上次未讀完的經文與行號 (mdWebview-user-readprogress)</span>
+              <span class="setting-desc">重新開啟網頁時，自動定位回上次未讀完的經文與行號</span>
             </div>
             <label class="setting-checkbox-label" for="settingAutoReadProgressCheck">
               <input type="checkbox" id="settingAutoReadProgressCheck" checked>
@@ -403,7 +403,7 @@
             </div>
             <div class="admin-action-buttons">
               <button type="button" id="menuOpenAdminLoginBtn" class="modal-btn submit-btn">管理員登入</button>
-              <button type="button" id="menuOpenVaultSettingsBtn" class="modal-btn submit-btn" style="display: none;">開啟後台系統設定 (Vault Path)</button>
+              <button type="button" id="menuOpenVaultSettingsBtn" class="modal-btn submit-btn" style="display: none;">開啟後台系統設定</button>
             </div>
           </div>
         </div>
@@ -936,7 +936,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.12.3" defer></script>
-  <script src="app.js?v=1.12.3" defer></script>
+  <script src="marked.min.js?v=1.12.4" defer></script>
+  <script src="app.js?v=1.12.4" defer></script>
 </body>
 </html>

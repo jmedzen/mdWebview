@@ -2586,6 +2586,35 @@
 
     // ── Keyboard shortcuts ──
     document.addEventListener('keydown', (e) => {
+      // ESC key → Exit open modals / settings overlays / search bar
+      if (e.key === 'Escape') {
+        const adminOverlay = $('adminSettingsOverlay');
+        if (adminOverlay && adminOverlay.style.display !== 'none' && adminOverlay.style.display !== '') {
+          closeAdminModal();
+          return;
+        }
+        const userOverlay = $('userSettingsOverlay');
+        if (userOverlay && userOverlay.style.display !== 'none' && userOverlay.style.display !== '') {
+          closeUserSettingsModal();
+          return;
+        }
+        const loginOverlay = $('adminLoginOverlay');
+        if (loginOverlay && loginOverlay.style.display !== 'none' && loginOverlay.style.display !== '') {
+          loginOverlay.style.display = 'none';
+          return;
+        }
+        const setupOverlay = $('adminSetupOverlay');
+        if (setupOverlay && setupOverlay.style.display !== 'none' && setupOverlay.style.display !== '') {
+          setupOverlay.style.display = 'none';
+          return;
+        }
+        const pageSearch = $('pageSearchBar');
+        if (pageSearch && pageSearch.classList.contains('visible')) {
+          closePageSearch();
+          return;
+        }
+      }
+
       // Ctrl/Cmd + F → page search
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         if (state.currentFile) {
@@ -2602,6 +2631,24 @@
       if ((e.ctrlKey || e.metaKey) && e.key === '-') {
         e.preventDefault();
         applyFontSize(state.fontSize - 1);
+      }
+    });
+
+    // Modal backdrop click exit listener
+    ['userSettingsOverlay', 'adminSettingsOverlay', 'adminLoginOverlay', 'adminSetupOverlay'].forEach(id => {
+      const el = $(id);
+      if (el) {
+        el.addEventListener('click', (evt) => {
+          if (evt.target === el) {
+            if (id === 'adminSettingsOverlay') {
+              closeAdminModal();
+            } else if (id === 'userSettingsOverlay') {
+              closeUserSettingsModal();
+            } else {
+              el.style.display = 'none';
+            }
+          }
+        });
       }
     });
 
@@ -2720,10 +2767,10 @@
 
     // Modal Close
     $('userSettingsCloseBtn').addEventListener('click', () => {
-      $('userSettingsOverlay').style.display = 'none';
+      closeUserSettingsModal();
     });
     $('userSettingsDoneBtn').addEventListener('click', () => {
-      $('userSettingsOverlay').style.display = 'none';
+      closeUserSettingsModal();
     });
 
     // Menu Sub-Modals (Admin Login / Admin Vault Settings)
@@ -2956,8 +3003,13 @@
     $('userSettingsOverlay').style.display = 'flex';
   }
 
-  // ── Helper functions for admin panels ──
+  // ── Helper functions for admin & user panels ──
   let hwAutoRefreshTimer = null;
+
+  function closeUserSettingsModal() {
+    const overlay = $('userSettingsOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
 
   function closeAdminModal() {
     const overlay = $('adminSettingsOverlay');
