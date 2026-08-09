@@ -1026,38 +1026,8 @@
     }
     header.innerHTML = html;
 
-    // Wire up copy-link button
-    const btn = header.querySelector('#copyLinkBtn');
-    const lbl = header.querySelector('#copyLinkLabel');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        const url = decodeURIComponent(window.location.href);
-        const doConfirm = () => {
-          lbl.textContent = '✓ 已複製';
-          btn.classList.add('copied');
-          setTimeout(() => {
-            lbl.textContent = '連結';
-            btn.classList.remove('copied');
-          }, 2000);
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(doConfirm).catch(() => {
-            fallbackCopy(url); doConfirm();
-          });
-        } else {
-          fallbackCopy(url); doConfirm();
-        }
-      });
-    }
-
-    // Wire up bookmark button
-    const bkmBtn = header.querySelector('#bookmarkBtn');
-    if (bkmBtn) {
-      updateBookmarkButtonUI(filePath);
-      bkmBtn.addEventListener('click', () => {
-        toggleBookmark(filePath, (fm && fm.title) || fileName);
-      });
-    }
+    // Update bookmark button initial UI state
+    updateBookmarkButtonUI(filePath);
   }
 
   function fallbackCopy(text) {
@@ -2580,6 +2550,46 @@
           closePageSearch();
         } else {
           openPageSearch();
+        }
+      });
+    }
+
+    // ── Content Header Action Delegation (Copy-link & Bookmark) ──
+    const contentHeader = $('contentHeader');
+    if (contentHeader) {
+      contentHeader.addEventListener('click', (e) => {
+        const copyBtn = e.target.closest('#copyLinkBtn');
+        if (copyBtn) {
+          e.preventDefault();
+          const lbl = copyBtn.querySelector('#copyLinkLabel');
+          const url = decodeURIComponent(window.location.href);
+          const doConfirm = () => {
+            if (lbl) lbl.textContent = '✓ 已複製';
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+              if (lbl) lbl.textContent = '連結';
+              copyBtn.classList.remove('copied');
+            }, 2000);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(doConfirm).catch(() => {
+              fallbackCopy(url); doConfirm();
+            });
+          } else {
+            fallbackCopy(url); doConfirm();
+          }
+          return;
+        }
+
+        const bkmBtn = e.target.closest('#bookmarkBtn');
+        if (bkmBtn) {
+          e.preventDefault();
+          const currentFile = state.currentFile;
+          if (currentFile) {
+            const titleEl = contentHeader.querySelector('.file-title');
+            const title = titleEl ? titleEl.textContent : '';
+            toggleBookmark(currentFile, title);
+          }
         }
       });
     }

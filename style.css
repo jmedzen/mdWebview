@@ -1162,7 +1162,7 @@ body,
   line-height: 1.4;
 }
 
-/* Copy-link button */
+/* Copy-link button (permanently visible) */
 .copy-link-btn {
   display: inline-flex;
   align-items: center;
@@ -1177,11 +1177,6 @@ body,
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
-  opacity: 0;
-  pointer-events: none;
-}
-.content-header:hover .copy-link-btn,
-.copy-link-btn.copied {
   opacity: 1;
   pointer-events: auto;
 }
