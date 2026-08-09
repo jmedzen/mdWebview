@@ -233,40 +233,126 @@ async function initializeAnalyticsStore() {
   return analyticsStoreReady;
 }
 
-// 90-Day Retention Auto Cleanup Job
-const RETENTION_DAYS = 90;
-const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
+// ── 7-Day Log Pruning & Permanent Analytics Retention Job ────────────────────
+const LOG_PRUNE_AGE_DAYS = 7;
+const LOG_PRUNE_AGE_MS = LOG_PRUNE_AGE_DAYS * 24 * 60 * 60 * 1000;
 
-function cleanOldLogsJob() {
-  fs.readdir(LOG_DIR, (err, files) => {
-    if (err || !files) return;
-    const now = Date.now();
-    files.forEach((file) => {
-      if (!file.endsWith('.jsonl') && !file.endsWith('.log')) return;
-      const filePath = path.join(LOG_DIR, file);
-      fs.stat(filePath, (statErr, stats) => {
-        if (statErr || !stats) return;
-        if (now - stats.mtimeMs > RETENTION_MS) {
-          fs.unlink(filePath, (unlinkErr) => {
-            if (!unlinkErr) console.log(`[LogRetention] Cleaned up log file older than 90 days: ${file}`);
-          });
-        }
-      });
-    });
-  });
+function pruneAnalyticsLogEntry(entry) {
+  if (!entry || !entry.timestamp) return null;
 
-  // Purge daily store buckets older than 90 days
-  if (analyticsStore && analyticsStore.daily) {
-    const cutoffDateStr = new Date(Date.now() - RETENTION_MS).toISOString().split('T')[0];
-    for (const dateKey of Object.keys(analyticsStore.daily)) {
-      if (dateKey < cutoffDateStr) {
-        delete analyticsStore.daily[dateKey];
-      }
+  const tag = entry.tag || '';
+  if (tag === 'Index') return null;
+
+  if (entry.message) {
+    if (entry.message.includes('/favicon.ico') ||
+        entry.message.includes('/style.css') ||
+        entry.message.includes('/marked.min.js') ||
+        entry.message.includes('/apple-touch-icon') ||
+        entry.message.includes('Indexing progress')) {
+      return null;
     }
+  }
+
+  const docPath = extractAnalyticsPath(entry);
+  const query = extractAnalyticsQuery(entry);
+
+  if (tag === 'Render' || tag === 'ShareLink' || docPath) {
+    if (!docPath) return null;
+    return {
+      timestamp: entry.timestamp,
+      tag: 'Render',
+      ip: entry.ip || '127.0.0.1',
+      path: docPath,
+      pruned: true
+    };
+  }
+
+  if (tag === 'Search' || query) {
+    if (!query) return null;
+    return {
+      timestamp: entry.timestamp,
+      tag: 'Search',
+      ip: entry.ip || '127.0.0.1',
+      query: query,
+      pruned: true
+    };
+  }
+
+  if (entry.ip && entry.ip !== '127.0.0.1') {
+    return {
+      timestamp: entry.timestamp,
+      tag: tag || 'HTTP',
+      ip: entry.ip,
+      pruned: true
+    };
+  }
+
+  return null;
+}
+
+async function pruneLogFileAsync(filePath) {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    const now = Date.now();
+    if (now - stats.mtimeMs <= LOG_PRUNE_AGE_MS) return; // Keep full logs within 7 days
+
+    // Read first non-empty line to check if already pruned
+    const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    let alreadyPruned = false;
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed && parsed.pruned) alreadyPruned = true;
+      } catch (_) {}
+      break;
+    }
+    rl.close();
+    stream.destroy();
+
+    if (alreadyPruned) return;
+
+    // Perform pruning
+    const prunedEntries = [];
+    const readStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+    const readRl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
+
+    for await (const line of readRl) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+        const pruned = pruneAnalyticsLogEntry(parsed);
+        if (pruned) prunedEntries.push(JSON.stringify(pruned));
+      } catch (_) {}
+    }
+
+    const tempPath = `${filePath}.tmp-${process.pid}`;
+    const fileContent = prunedEntries.length > 0 ? prunedEntries.join('\n') + '\n' : '';
+    await fs.promises.writeFile(tempPath, fileContent, 'utf-8');
+    await fs.promises.rename(tempPath, filePath);
+
+    const newStats = await fs.promises.stat(filePath);
+    console.log(`[LogPruner] Pruned ${path.basename(filePath)}: reduced from ${(stats.size / 1024).toFixed(1)}KB to ${(newStats.size / 1024).toFixed(1)}KB (${prunedEntries.length} analytics entries retained)`);
+  } catch (err) {
+    console.error(`[LogPruner] Error pruning log file ${filePath}:`, err);
   }
 }
 
-// Backfill aggregate data before any raw log cleanup can occur.
+async function cleanOldLogsJob() {
+  try {
+    const files = await fs.promises.readdir(LOG_DIR);
+    for (const file of files) {
+      if (!file.endsWith('.jsonl')) continue;
+      const filePath = path.join(LOG_DIR, file);
+      await pruneLogFileAsync(filePath);
+    }
+  } catch (err) {
+    console.error('[LogPruner] Error scanning log directory:', err);
+  }
+}
+
+// Backfill aggregate data before log pruning job runs
 initializeAnalyticsStore().then(() => {
   cleanOldLogsJob();
   setInterval(cleanOldLogsJob, 24 * 60 * 60 * 1000);
