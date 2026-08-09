@@ -695,6 +695,20 @@
     });
   }
 
+  const ICON_COLLAPSE_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L8 8L13 4.5"/><path d="M3 11.5L8 8L13 11.5"/></svg>`;
+  const ICON_EXPAND_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7L8 3.5L13 7"/><path d="M3 9L8 12.5L13 9"/></svg>`;
+
+  function updateCollapseBtnUI(btn, isExpanded) {
+    if (!btn) return;
+    if (isExpanded) {
+      btn.innerHTML = ICON_COLLAPSE_ALL;
+      btn.title = '摺疊全部';
+    } else {
+      btn.innerHTML = ICON_EXPAND_ALL;
+      btn.title = '展開全部';
+    }
+  }
+
   function sortTreeNodes(nodes, sortMode) {
     if (!Array.isArray(nodes)) return [];
     // Deep-clone to avoid mutating original data
@@ -740,10 +754,10 @@
           const chevron = row.querySelector('.tree-chevron');
           if (chevron) chevron.classList.remove('expanded');
           const icon = row.querySelector('.tree-icon');
-          if (icon) icon.textContent = '\uD83D\uDCC1';
+          if (icon) icon.textContent = '📁';
         }
       });
-      btn.title = '\u5c55\u958b\u5168\u90e8';
+      updateCollapseBtnUI(btn, false);
     } else {
       // Expand all
       allFolders.forEach(el => {
@@ -753,10 +767,10 @@
           const chevron = row.querySelector('.tree-chevron');
           if (chevron) chevron.classList.add('expanded');
           const icon = row.querySelector('.tree-icon');
-          if (icon) icon.textContent = '\uD83D\uDCC2';
+          if (icon) icon.textContent = '📂';
         }
       });
-      btn.title = '\u647a\u758a\u5168\u90e8';
+      updateCollapseBtnUI(btn, true);
     }
   }
 
@@ -1518,7 +1532,7 @@
         r.classList.remove('collapsed');
         r.classList.remove('is-hidden');
       });
-      if (btn) btn.title = '摺疊全部';
+      updateCollapseBtnUI(btn, true);
     } else {
       // Collapse top parents
       const minLevel = Math.min(...Array.from(rows).map(r => parseInt(r.getAttribute('data-level'))));
@@ -1533,7 +1547,7 @@
           r.classList.add('is-hidden');
         }
       });
-      if (btn) btn.title = '展開全部';
+      updateCollapseBtnUI(btn, false);
     }
   }
 
@@ -1704,12 +1718,12 @@
       // Collapse all
       bodies.forEach(el => el.classList.add('collapsed'));
       $$('.search-result-file-chevron', $('searchResults')).forEach(el => el.classList.add('collapsed'));
-      btn.title = '\u5c55\u958b\u5168\u90e8';
+      updateCollapseBtnUI(btn, false);
     } else {
       // Expand all
       bodies.forEach(el => el.classList.remove('collapsed'));
       $$('.search-result-file-chevron', $('searchResults')).forEach(el => el.classList.remove('collapsed'));
-      btn.title = '\u647a\u758a\u5168\u90e8';
+      updateCollapseBtnUI(btn, true);
     }
   }
 
