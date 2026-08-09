@@ -1768,6 +1768,8 @@
       state.pageSearchIndex = 0;
       matches[0].classList.add('active');
       safeScrollToElement(matches[0], $('content'), 'center');
+    } else {
+      showToast(`🔍 未找到符合「${query}」的內容`, 'warning');
     }
 
     $('pageSearchCount').textContent = matches.length > 0 ? `1/${matches.length}` : '0/0';
@@ -1784,7 +1786,10 @@
 
     // Move index
     state.pageSearchIndex += direction;
-    if (state.pageSearchIndex >= matches.length) state.pageSearchIndex = 0;
+    if (state.pageSearchIndex >= matches.length) {
+      state.pageSearchIndex = 0;
+      showToast('ℹ️ 已搜尋至文末，回到第 1 筆結果', 'info');
+    }
     if (state.pageSearchIndex < 0) state.pageSearchIndex = matches.length - 1;
 
     // Set new active
@@ -1872,7 +1877,7 @@
   // THEME
   // ═══════════════════════════════════════════════════════════
 
-  function applyTheme(theme, saveToLocalStorage = true) {
+  function applyTheme(theme, saveToLocalStorage = true, notify = false) {
     document.documentElement.setAttribute('data-theme', theme);
     const select = $('themeSelect');
     if (select) select.value = theme;
@@ -1883,6 +1888,10 @@
       localStorage.setItem('mdWebview-user-theme', theme);
     }
     state.currentTheme = theme;
+    if (notify) {
+      const themeMap = { 'obsidian-dark': '🌙 暗色 Dark', 'obsidian-light': '☀️ 亮色 Light', 'solarized': '🔆 Solarized', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
+      showToast(`🎨 已切換閱讀主題為「${themeMap[theme] || theme}」`, 'info');
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2072,15 +2081,16 @@
 
   // ── Toast Notification ────────────────────────────────────
   let _toastTimer = null;
-  function showToast(msg) {
+  function showToast(msg, type = 'info', duration = 2200) {
     const el = $('toastNotification');
     if (!el) return;
     el.textContent = msg;
+    el.className = 'toast-notification' + (type !== 'info' ? ' toast-' + type : '');
     el.style.display = 'block';
     if (_toastTimer) clearTimeout(_toastTimer);
     _toastTimer = setTimeout(() => {
       el.style.display = 'none';
-    }, 2000);
+    }, duration);
   }
 
   // ── Bookmarks ──────────────────────────────────────────────
@@ -2380,7 +2390,7 @@
     const themeSel = $('themeSelect');
     if (themeSel) {
       themeSel.addEventListener('change', (e) => {
-        applyTheme(e.target.value);
+        applyTheme(e.target.value, true, true);
       });
     }
 
@@ -2566,6 +2576,7 @@
           const doConfirm = () => {
             if (lbl) lbl.textContent = '✓ 已複製';
             copyBtn.classList.add('copied');
+            showToast('🔗 已複製經文連結至剪貼簿', 'success');
             setTimeout(() => {
               if (lbl) lbl.textContent = '連結';
               copyBtn.classList.remove('copied');
@@ -2744,6 +2755,7 @@
           state.recentFiles = [];
           localStorage.removeItem('mdWebview-user-recentfiles');
           renderRecentFilesList();
+          showToast('🗑️ 已成功清除所有閱讀紀錄', 'info');
         }
       });
     }
@@ -2852,12 +2864,14 @@
         state.adminToken = data.token;
         localStorage.setItem('mdWebview-admin-token', data.token);
         $('adminLoginOverlay').style.display = 'none';
+        showToast('🔑 管理員登入成功', 'success');
         
         // Open settings panel
         await openSettingsOverlay();
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
+        showToast(`❌ 登入失敗：${err.message}`, 'error', 3500);
       }
     };
 
@@ -2935,6 +2949,7 @@
 
         // Reload the file tree and update UI with new paths
         await loadTree();
+        showToast('✅ 後台系統設定已成功儲存並生效', 'success');
 
         if (closeAfterSave) {
           closeAdminModal();
@@ -2987,6 +3002,7 @@
       state.adminToken = null;
       localStorage.removeItem('mdWebview-admin-token');
       closeAdminModal();
+      showToast('👋 管理員已順利登出', 'info');
     });
   }
 
@@ -3560,6 +3576,7 @@
       csvExportBtn.addEventListener('click', () => {
         const tz = getEffectiveTimezone('analyticsTimezoneSelect');
         window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=csv&tz=${encodeURIComponent(tz)}`, '_blank');
+        showToast('📥 已成功導出分析數據報告 (CSV)', 'success');
       });
     }
 
@@ -3567,11 +3584,15 @@
       jsonExportBtn.addEventListener('click', () => {
         const tz = getEffectiveTimezone('analyticsTimezoneSelect');
         window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=json&tz=${encodeURIComponent(tz)}`, '_blank');
+        showToast('📥 已成功導出分析數據報告 (JSON)', 'success');
       });
     }
 
     if (refreshBtn) {
-      refreshBtn.addEventListener('click', () => fetchAdminLogs());
+      refreshBtn.addEventListener('click', () => {
+        fetchAdminLogs();
+        showToast('🔄 系統日誌與狀態已更新', 'info');
+      });
     }
 
     if (searchInput) {

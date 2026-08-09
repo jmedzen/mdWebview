@@ -3014,19 +3014,52 @@ kbd {
 /* Toast Notification */
 .toast-notification {
   position: fixed;
-  bottom: 24px;
+  bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--accent);
-  padding: 10px 20px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  padding: 10px 22px;
+  border-radius: 24px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 550;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   z-index: 10000;
-  animation: toastFadeIn 0.25s ease-out;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: toastFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toast-notification.toast-success {
+  border-color: #2ecc71;
+  box-shadow: 0 4px 18px rgba(46, 204, 113, 0.25);
+}
+
+.toast-notification.toast-warning {
+  border-color: #f1c40f;
+  box-shadow: 0 4px 18px rgba(241, 196, 15, 0.25);
+}
+
+.toast-notification.toast-error {
+  border-color: #e74c3c;
+  box-shadow: 0 4px 18px rgba(231, 76, 60, 0.25);
+}
+
+@keyframes toastFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
 }
 
 /* ── Admin Tabs & Log Viewer ────────────────────────────── */
