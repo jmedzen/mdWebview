@@ -695,8 +695,8 @@
     });
   }
 
-  const ICON_COLLAPSE_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5L8 8L13 4.5"/><path d="M3 11.5L8 8L13 11.5"/></svg>`;
-  const ICON_EXPAND_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7L8 3.5L13 7"/><path d="M3 9L8 12.5L13 9"/></svg>`;
+  const ICON_COLLAPSE_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5L8 6.5L13 3.5"/><path d="M3 12.5L8 9.5L13 12.5"/></svg>`;
+  const ICON_EXPAND_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5L8 3.5L13 6.5"/><path d="M3 9.5L8 12.5L13 9.5"/></svg>`;
 
   function updateCollapseBtnUI(btn, isExpanded) {
     if (!btn) return;
