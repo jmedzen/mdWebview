@@ -1716,25 +1716,31 @@ async function handleSearch(req, res, query) {
             termCandidateSet = new Set();
             break;
           }
-          if (typeof val === 'number') {
-            if (termCandidateSet === null) {
+
+          if (termCandidateSet === null) {
+            if (typeof val === 'number') {
               termCandidateSet = new Set([val]);
-            } else if (!termCandidateSet.has(val)) {
-              termCandidateSet.clear();
-              break;
             } else {
-              termCandidateSet = new Set([val]);
+              termCandidateSet = new Set(val);
             }
           } else {
-            const fileSet = new Set(val);
-            if (termCandidateSet === null) {
-              termCandidateSet = fileSet;
+            // Perform true set intersection with val
+            if (typeof val === 'number') {
+              if (termCandidateSet.has(val)) {
+                termCandidateSet = new Set([val]);
+              } else {
+                termCandidateSet.clear();
+                break;
+              }
             } else {
+              const valSet = new Set(val);
+              const nextSet = new Set();
               for (const fileId of termCandidateSet) {
-                if (!termCandidateSet.has(fileId)) {
-                  termCandidateSet.delete(fileId);
+                if (valSet.has(fileId)) {
+                  nextSet.add(fileId);
                 }
               }
+              termCandidateSet = nextSet;
               if (termCandidateSet.size === 0) break;
             }
           }
@@ -1744,11 +1750,13 @@ async function handleSearch(req, res, query) {
           if (finalCandidateSet === null) {
             finalCandidateSet = termCandidateSet;
           } else {
+            const nextFinal = new Set();
             for (const id of finalCandidateSet) {
-              if (!termCandidateSet.has(id)) {
-                finalCandidateSet.delete(id);
+              if (termCandidateSet.has(id)) {
+                nextFinal.add(id);
               }
             }
+            finalCandidateSet = nextFinal;
             if (finalCandidateSet.size === 0) break;
           }
         }
@@ -1795,6 +1803,17 @@ async function handleSearch(req, res, query) {
       const limit = 10;
       let fileIdx = 0;
 
+      function getLineNumByBinarySearch(breaks, pos) {
+        if (!breaks || breaks.length === 0) return 1;
+        let low = 0, high = breaks.length - 1;
+        while (low <= high) {
+          const mid = (low + high) >> 1;
+          if (breaks[mid] < pos) low = mid + 1;
+          else high = mid - 1;
+        }
+        return low + 1;
+      }
+
       async function worker() {
         while (fileIdx < files.length && results.length < MAX_RESULTS) {
           const file = files[fileIdx++];
@@ -1804,18 +1823,22 @@ async function handleSearch(req, res, query) {
             if (!terms.every(term => content.includes(term))) continue;
 
             let fileMatches = 0;
+            let lineBreaks = null;
 
             if (terms.length === 1) {
               const singleTerm = terms[0];
               let pos = 0;
-              let lineNum = 1;
               while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
                 const matchIdx = content.indexOf(singleTerm, pos);
                 if (matchIdx === -1) break;
 
-                for (let j = pos; j < matchIdx; j++) {
-                  if (content.charCodeAt(j) === 10) lineNum++;
+                if (lineBreaks === null) {
+                  lineBreaks = [];
+                  for (let bIdx = 0; bIdx < content.length; bIdx++) {
+                    if (content.charCodeAt(bIdx) === 10) lineBreaks.push(bIdx);
+                  }
                 }
+                const lineNum = getLineNumByBinarySearch(lineBreaks, matchIdx);
 
                 const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
                 let lineEnd = content.indexOf('\n', matchIdx);
@@ -1882,10 +1905,13 @@ async function handleSearch(req, res, query) {
                 }
 
                 if (clusterValid) {
-                  let lineNum = 1;
-                  for (let j = 0; j < minPos; j++) {
-                    if (content.charCodeAt(j) === 10) lineNum++;
+                  if (lineBreaks === null) {
+                    lineBreaks = [];
+                    for (let bIdx = 0; bIdx < content.length; bIdx++) {
+                      if (content.charCodeAt(bIdx) === 10) lineBreaks.push(bIdx);
+                    }
                   }
+                  const lineNum = getLineNumByBinarySearch(lineBreaks, minPos);
 
                   const start = Math.max(0, minPos - SNIPPET_RADIUS);
                   const end = Math.min(content.length, maxPos + SNIPPET_RADIUS);
