@@ -1958,6 +1958,15 @@
       localStorage.setItem('mdWebview-user-theme', theme);
     }
     state.currentTheme = theme;
+
+    // Force Mobile WebKit/Chromium GPU composite layer repaint for active file pill
+    const activePill = $('headerActiveFile');
+    if (activePill) {
+      activePill.classList.add('theme-updating');
+      void activePill.offsetWidth; // Force reflow & style recalculation
+      setTimeout(() => activePill.classList.remove('theme-updating'), 60);
+    }
+
     if (notify) {
       const themeMap = { 'obsidian-dark': '🌙 暗色 Dark', 'obsidian-light': '☀️ 亮色 Light', 'solarized': '🔆 Solarized', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
       showToast(`🎨 已切換閱讀主題為「${themeMap[theme] || theme}」`, 'info');

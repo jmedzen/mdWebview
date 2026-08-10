@@ -298,14 +298,14 @@ body,
   gap: 6px;
   padding: 4px 12px;
   max-width: 420px;
-  background: var(--hover-bg, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
   font-size: 13px;
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
   cursor: default;
   user-select: none;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -315,9 +315,15 @@ body,
   min-width: 0;
 }
 
+.header-active-file.theme-updating,
+.header-active-file.theme-updating * {
+  transition: none !important;
+}
+
 .header-active-file .active-file-icon {
   font-size: 14px;
   flex-shrink: 0;
+  color: var(--text-secondary);
 }
 
 .header-active-file .active-file-title {
@@ -325,7 +331,7 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   flex-shrink: 1;
   min-width: 0;
 }
@@ -336,7 +342,7 @@ body,
   white-space: nowrap;
   font-weight: normal;
   font-size: 12px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
