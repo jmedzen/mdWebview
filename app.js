@@ -458,7 +458,8 @@
     // Reset document title
     document.title = `${state.siteName} — 佛典經論閱讀器`;
 
-    // Remove active file highlight in tree
+    // Clear active file indicator & tree highlight
+    updateActiveFileUI(null);
     $$('.tree-item-row.active').forEach(el => el.classList.remove('active'));
 
     // Close page search if open
@@ -794,8 +795,31 @@
     }
   }
 
-  function highlightActiveFile(path) {
+  function updateActiveFileUI(filePath, meta) {
+    const indicator = $('headerActiveFile');
+    if (!indicator) return;
+
+    if (!filePath) {
+      indicator.innerHTML = `<span class="active-file-icon">🏠</span><span class="active-file-text">首頁</span>`;
+      indicator.title = `首頁 (${escHtml(state.siteName || '大覺藏集')})`;
+    } else {
+      const parts = filePath.split('/');
+      const fileName = parts.pop().replace(/\.md$/, '');
+      const folderName = parts.length > 0 ? parts[parts.length - 1] : '';
+      const displayTitle = (meta && meta.title) ? meta.title : fileName;
+      const displayPath = folderName ? `[${folderName}] ${displayTitle}` : displayTitle;
+
+      indicator.innerHTML = `<span class="active-file-icon">📄</span><span class="active-file-text">${escHtml(displayPath)}</span>`;
+      indicator.title = `當前經論: ${filePath} (點擊平滑滾動回頂部)`;
+    }
+  }
+
+  function highlightActiveFile(path, meta) {
+    updateActiveFileUI(path, meta);
+
     $$('.tree-item-row.active').forEach((el) => el.classList.remove('active'));
+    if (!path) return;
+
     const target = document.querySelector(`.tree-file[data-path="${CSS.escape(path)}"]`);
     if (target) {
       target.classList.add('active');
@@ -813,6 +837,11 @@
         const grandparent = parent.parentElement;
         parent = grandparent ? grandparent.closest('.tree-children') : null;
       }
+
+      // Auto-scroll active file item into view in sidebar
+      setTimeout(() => {
+        target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 100);
     }
   }
 
@@ -1034,6 +1063,7 @@
   }
 
   function renderContentHeader(filePath, fm) {
+    updateActiveFileUI(filePath, fm);
     const header = $('contentHeader');
     const parts = filePath.split('/');
     const fileName = parts.pop().replace(/\.md$/, '');
@@ -2727,6 +2757,17 @@
     backToTop.addEventListener('click', () => {
       contentEl.scrollTo({ top: 0, behavior: 'smooth' });
     });
+
+    // ── Header Active File Click (Scroll to Top) ──
+    const headerActiveFile = $('headerActiveFile');
+    if (headerActiveFile) {
+      headerActiveFile.addEventListener('click', () => {
+        const contentEl = $('content');
+        if (contentEl) {
+          contentEl.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      });
+    }
 
     // ── Sidebar resize ──
     setupResizeHandle();

@@ -291,6 +291,61 @@ body,
   user-select: none;
 }
 
+/* ── Header Active File Indicator ──────────────────────────────── */
+.header-active-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  max-width: 420px;
+  background: var(--hover-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 16px;
+  font-size: 13px;
+  color: var(--text-secondary, #a0a0a0);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.header-active-file:hover {
+  background: var(--active-bg, rgba(255, 255, 255, 0.12));
+  border-color: var(--accent, #7aa2f7);
+  color: var(--text-primary, #fff);
+  transform: translateY(-1px);
+}
+
+.header-active-file .active-file-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.header-active-file .active-file-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .header-active-file {
+    max-width: 200px;
+    font-size: 12px;
+    padding: 3px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-active-file {
+    display: none;
+  }
+}
+
 .header-left {
   display: flex;
   align-items: center;
