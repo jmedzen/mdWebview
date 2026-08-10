@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.13.4">
+  <link rel="stylesheet" href="style.css?v=1.15.0">
 </head>
 <body>
   <div class="app">
@@ -590,6 +590,9 @@
                   <div class="progress-bar-fill fill-accent" id="hwCpuUsageFill" style="width: 0%;"></div>
                 </div>
               </div>
+              <div class="sparkline-wrapper">
+                <svg id="hwCpuSparkline" class="sparkline-svg" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
+              </div>
               <div class="hardware-sub-metrics">
                 <div class="sub-metric">
                   <span class="sub-label">核心數</span>
@@ -636,6 +639,9 @@
                 <div class="progress-bar-track">
                   <div class="progress-bar-fill fill-accent" id="hwHeapFill" style="width: 0%;"></div>
                 </div>
+              </div>
+              <div class="sparkline-wrapper">
+                <svg id="hwRamSparkline" class="sparkline-svg" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
               </div>
             </div>
           </div>
@@ -782,6 +788,30 @@
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsTotalSearches">0</div>
                 <div class="analytics-card-label">全文搜尋總次數 (Searches)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trend Chart Section -->
+          <div class="analytics-section">
+            <h3 class="analytics-section-title">📈 全站流量與檢索動態趨勢圖 (Traffic & Query Trends)</h3>
+            <div class="analytics-chart-wrapper" id="analyticsTrendChartWrapper">
+              <div class="search-loading"><div class="spinner"></div><span>繪製圖表中…</span></div>
+            </div>
+          </div>
+
+          <!-- Donut Chart & Category Distribution -->
+          <div class="analytics-section-row">
+            <div class="analytics-section half-section">
+              <h3 class="analytics-section-title">🥧 熱門經論類別占比 (Sutra Categories)</h3>
+              <div class="analytics-chart-wrapper donut-wrapper" id="analyticsDonutWrapper">
+                <div class="search-loading"><div class="spinner"></div><span>計算數據中…</span></div>
+              </div>
+            </div>
+            <div class="analytics-section half-section">
+              <h3 class="analytics-section-title">🔍 熱門檢索關鍵字 Top 30</h3>
+              <div id="analyticsTopSearchesContainer">
+                <div class="search-loading"><div class="spinner"></div><span>載入熱詞中…</span></div>
               </div>
             </div>
           </div>
@@ -949,7 +979,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.13.4" defer></script>
-  <script src="app.js?v=1.13.4" defer></script>
+  <script src="marked.min.js?v=1.15.0" defer></script>
+  <script src="app.js?v=1.15.0" defer></script>
 </body>
 </html>

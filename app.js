@@ -3150,6 +3150,195 @@
     return parts.join(' ');
   }
 
+  // ── SVG Visualizations & Chart Helpers ──────────────────────────
+  function renderSparkline(svgId, dataPoints, color = '#7aa2f7') {
+    const svg = $(svgId);
+    if (!svg || !Array.isArray(dataPoints) || dataPoints.length === 0) return;
+
+    const width = 300;
+    const height = 40;
+    const maxVal = 100;
+    const maxPoints = 30;
+
+    const points = dataPoints.map((val, i) => {
+      const x = (i / Math.max(1, maxPoints - 1)) * width;
+      const y = height - (Math.min(100, Math.max(0, val)) / maxVal) * (height - 6) - 3;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const pathD = `M ${points.join(' L ')}`;
+    const areaD = `M 0,${height} L ${points.join(' L ')} L ${width},${height} Z`;
+
+    const gradientId = `grad-${svgId}`;
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0.0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaD}" fill="url(#${gradientId})" />
+      <path d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+    `;
+  }
+
+  function renderAnalyticsTrendChart(dailyTrend) {
+    const wrapper = $('analyticsTrendChartWrapper');
+    if (!wrapper) return;
+
+    if (!Array.isArray(dailyTrend) || dailyTrend.length === 0) {
+      wrapper.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">📊</span><span>尚無趨勢數據</span></div>`;
+      return;
+    }
+
+    const width = 640;
+    const height = 180;
+    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+
+    const maxViews = Math.max(1, ...dailyTrend.map(d => d.views || 0));
+    const maxIps = Math.max(1, ...dailyTrend.map(d => d.uniqueIps || 0));
+    const maxY = Math.max(maxViews, maxIps);
+
+    const count = dailyTrend.length;
+    const getX = (i) => padding.left + (count === 1 ? chartW / 2 : (i / (count - 1)) * chartW);
+    const getY = (val) => padding.top + chartH - (val / maxY) * chartH;
+
+    const viewPoints = dailyTrend.map((d, i) => `${getX(i).toFixed(1)},${getY(d.views).toFixed(1)}`);
+    const ipPoints = dailyTrend.map((d, i) => `${getX(i).toFixed(1)},${getY(d.uniqueIps).toFixed(1)}`);
+
+    const viewPathD = `M ${viewPoints.join(' L ')}`;
+    const ipPathD = `M ${ipPoints.join(' L ')}`;
+    const viewAreaD = `M ${getX(0)},${padding.top + chartH} L ${viewPoints.join(' L ')} L ${getX(count - 1)},${padding.top + chartH} Z`;
+
+    let gridLines = '';
+    for (let i = 0; i <= 3; i++) {
+      const yVal = Math.round((maxY / 3) * i);
+      const yPos = getY(yVal);
+      gridLines += `<line x1="${padding.left}" y1="${yPos}" x2="${width - padding.right}" y2="${yPos}" stroke="var(--border-subtle, rgba(255,255,255,0.06))" stroke-dasharray="3,3" />`;
+      gridLines += `<text x="${padding.left - 8}" y="${yPos + 4}" font-size="10" fill="var(--text-muted)" text-anchor="end">${yVal}</text>`;
+    }
+
+    let xLabels = '';
+    const step = Math.max(1, Math.floor(count / 6));
+    dailyTrend.forEach((d, i) => {
+      if (i % step === 0 || i === count - 1) {
+        const xPos = getX(i);
+        const shortDate = d.date.length >= 10 ? d.date.substring(5) : d.date;
+        xLabels += `<text x="${xPos}" y="${height - 8}" font-size="10" fill="var(--text-muted)" text-anchor="middle">${shortDate}</text>`;
+      }
+    });
+
+    let dots = '';
+    dailyTrend.forEach((d, i) => {
+      const cx = getX(i);
+      const cyView = getY(d.views);
+      const cyIp = getY(d.uniqueIps);
+      dots += `<circle cx="${cx}" cy="${cyView}" r="4" fill="#7aa2f7" class="trend-dot" data-date="${d.date}" data-views="${d.views}" data-ips="${d.uniqueIps}" title="${d.date}: ${d.views} 點閱" />`;
+      dots += `<circle cx="${cx}" cy="${cyIp}" r="3" fill="#2ac3de" class="trend-dot" data-date="${d.date}" data-views="${d.views}" data-ips="${d.uniqueIps}" title="${d.date}: ${d.uniqueIps} 獨立 IP" />`;
+    });
+
+    wrapper.innerHTML = `
+      <svg viewBox="0 0 ${width} ${height}" class="analytics-trend-svg" style="width: 100%; height: auto; overflow: visible;">
+        <defs>
+          <linearGradient id="viewTrendGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#7aa2f7" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="#7aa2f7" stop-opacity="0.0"/>
+          </linearGradient>
+        </defs>
+        ${gridLines}
+        ${xLabels}
+        <path d="${viewAreaD}" fill="url(#viewTrendGrad)" />
+        <path d="${viewPathD}" fill="none" stroke="#7aa2f7" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+        <path d="${ipPathD}" fill="none" stroke="#2ac3de" stroke-width="2" stroke-dasharray="4,3" stroke-linejoin="round" stroke-linecap="round" />
+        ${dots}
+      </svg>
+      <div class="analytics-chart-legend" style="display: flex; justify-content: center; gap: 20px; margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+        <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 12px; height: 3px; background: #7aa2f7; border-radius: 2px;"></span> 閱讀點閱數 (Page Views)</span>
+        <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 12px; height: 2px; background: #2ac3de; border-style: dashed;"></span> 獨立訪客數 (Unique IPs)</span>
+      </div>
+    `;
+  }
+
+  function renderCategoryDonutChart(topFiles) {
+    const wrapper = $('analyticsDonutWrapper');
+    if (!wrapper) return;
+
+    if (!Array.isArray(topFiles) || topFiles.length === 0) {
+      wrapper.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">🥧</span><span>尚無經論分類統計數據</span></div>`;
+      return;
+    }
+
+    const catMap = new Map();
+    let grandTotalViews = 0;
+
+    topFiles.forEach(f => {
+      const parts = f.path.split('/');
+      const cat = parts.length > 1 ? parts[0] : '其他根目錄';
+      const cleanCat = cat.replace(/^\d+[-_]/, '');
+      const current = catMap.get(cleanCat) || 0;
+      catMap.set(cleanCat, current + f.views);
+      grandTotalViews += f.views;
+    });
+
+    const sortedCats = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+    const topCats = sortedCats.slice(0, 4);
+    const otherViews = sortedCats.slice(4).reduce((sum, item) => sum + item[1], 0);
+    if (otherViews > 0) {
+      topCats.push(['其他類別', otherViews]);
+    }
+
+    const colors = ['#7aa2f7', '#2ac3de', '#bb9af7', '#e0af68', '#9ece6a'];
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius; // ~251.32
+
+    let accumulatedOffset = 0;
+    let circlesSvg = '';
+    let legendHtml = '';
+
+    topCats.forEach((cat, idx) => {
+      const name = cat[0];
+      const views = cat[1];
+      const pct = grandTotalViews > 0 ? (views / grandTotalViews) : 0;
+      const dashLen = pct * circumference;
+      const gapLen = circumference - dashLen;
+      const color = colors[idx % colors.length];
+
+      circlesSvg += `
+        <circle r="${radius}" cx="50" cy="50" fill="transparent"
+          stroke="${color}" stroke-width="12"
+          stroke-dasharray="${dashLen.toFixed(1)} ${gapLen.toFixed(1)}"
+          stroke-dashoffset="${(-accumulatedOffset).toFixed(1)}"
+          transform="rotate(-90 50 50)" />
+      `;
+
+      accumulatedOffset += dashLen;
+
+      legendHtml += `
+        <div class="donut-legend-item">
+          <span class="donut-legend-color" style="background: ${color};"></span>
+          <span class="donut-legend-name" title="${escHtml(name)}">${escHtml(name)}</span>
+          <span class="donut-legend-pct">${(pct * 100).toFixed(1)}%</span>
+        </div>
+      `;
+    });
+
+    wrapper.innerHTML = `
+      <div class="svg-donut-container">
+        <svg viewBox="0 0 100 100" style="width: 130px; height: 130px; transform: rotate(0deg); overflow: visible;">
+          <circle r="${radius}" cx="50" cy="50" fill="transparent" stroke="var(--bg-tertiary)" stroke-width="12" />
+          ${circlesSvg}
+          <text x="50" y="47" font-size="12" font-weight="700" fill="var(--text-primary)" text-anchor="middle">${grandTotalViews.toLocaleString()}</text>
+          <text x="50" y="59" font-size="8" fill="var(--text-muted)" text-anchor="middle">總點閱數</text>
+        </svg>
+        <div class="donut-legend">
+          ${legendHtml}
+        </div>
+      </div>
+    `;
+  }
+
   async function loadHardwareStats() {
     try {
       const res = await fetch('/api/admin/hardware', {
@@ -3191,6 +3380,20 @@
       cpuUsageFill.style.width = `${cpuPct}%`;
       cpuUsageFill.className = 'progress-bar-fill' + (cpuPct > 80 ? ' danger' : cpuPct > 50 ? ' warning' : ' fill-accent');
     }
+
+    // Sparkline updates
+    state._cpuSparklineData = state._cpuSparklineData || [];
+    state._ramSparklineData = state._ramSparklineData || [];
+    const cpuPctVal = Math.min(100, Math.max(0, data.cpu.usagePct || 0));
+    state._cpuSparklineData.push(cpuPctVal);
+    if (state._cpuSparklineData.length > 30) state._cpuSparklineData.shift();
+    renderSparkline('hwCpuSparkline', state._cpuSparklineData, '#7aa2f7');
+
+    const rssMb = data.memory?.processRss ? (data.memory.processRss / (1024 * 1024)) : 0;
+    const rssPctVal = Math.min(100, Math.max(0, (data.memory?.rssPct || Math.min(100, (rssMb / 1024) * 100))));
+    state._ramSparklineData.push(rssPctVal);
+    if (state._ramSparklineData.length > 30) state._ramSparklineData.shift();
+    renderSparkline('hwRamSparkline', state._ramSparklineData, '#2ac3de');
 
     const load1m = $('hwLoad1m');
     const load5m = $('hwLoad5m');
@@ -3502,6 +3705,10 @@
     if (uniqueIpsEl) uniqueIpsEl.textContent = (data.summary?.uniqueIps || 0).toLocaleString();
     if (activeFilesEl) activeFilesEl.textContent = (data.summary?.activeFiles || 0).toLocaleString();
     if (totalSearchesEl) totalSearchesEl.textContent = (data.summary?.totalSearches || 0).toLocaleString();
+
+    // SVG Visualizations
+    renderAnalyticsTrendChart(data.dailyTrend || []);
+    renderCategoryDonutChart(data.topFiles || []);
 
     const topFilesTable = $('analyticsTopFilesTable');
     if (topFilesTable) {
