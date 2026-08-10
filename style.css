@@ -303,7 +303,7 @@ body,
   border-radius: 16px;
   font-size: 13px;
   color: var(--text-secondary, #a0a0a0);
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   transition: all 0.2s ease;
   white-space: nowrap;
@@ -311,13 +311,8 @@ body,
   text-overflow: ellipsis;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-}
-
-.header-active-file:hover {
-  background: var(--active-bg, rgba(255, 255, 255, 0.12));
-  border-color: var(--accent, #7aa2f7);
-  color: var(--text-primary, #fff);
-  transform: translateY(-1px);
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .header-active-file .active-file-icon {
@@ -334,15 +329,33 @@ body,
 
 @media (max-width: 768px) {
   .header-active-file {
-    max-width: 200px;
+    max-width: 240px;
     font-size: 12px;
-    padding: 3px 8px;
+    padding: 3px 10px;
   }
 }
 
-@media (max-width: 480px) {
-  .header-active-file {
+@media (max-width: 520px) {
+  .logo-text {
     display: none;
+  }
+  .header-left {
+    gap: 6px;
+  }
+  .header-right {
+    gap: 6px;
+  }
+  .header-active-file {
+    max-width: 160px;
+    font-size: 11px;
+    padding: 3px 8px;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 360px) {
+  .header-active-file {
+    max-width: 100px;
   }
 }
 

@@ -810,7 +810,7 @@
       const displayPath = folderName ? `[${folderName}] ${displayTitle}` : displayTitle;
 
       indicator.innerHTML = `<span class="active-file-icon">📄</span><span class="active-file-text">${escHtml(displayPath)}</span>`;
-      indicator.title = `當前經論: ${filePath} (點擊平滑滾動回頂部)`;
+      indicator.title = `當前經論: ${filePath}`;
     }
   }
 
