@@ -800,16 +800,20 @@
     if (!indicator) return;
 
     if (!filePath) {
-      indicator.innerHTML = `<span class="active-file-icon">🏠</span><span class="active-file-text">首頁</span>`;
+      indicator.innerHTML = `<span class="active-file-icon">🏠</span><span class="active-file-title">首頁</span>`;
       indicator.title = `首頁 (${escHtml(state.siteName || '大覺藏集')})`;
     } else {
       const parts = filePath.split('/');
       const fileName = parts.pop().replace(/\.md$/, '');
       const folderName = parts.length > 0 ? parts[parts.length - 1] : '';
       const displayTitle = (meta && meta.title) ? meta.title : fileName;
-      const displayPath = folderName ? `[${folderName}] ${displayTitle}` : displayTitle;
 
-      indicator.innerHTML = `<span class="active-file-icon">📄</span><span class="active-file-text">${escHtml(displayPath)}</span>`;
+      let html = `<span class="active-file-icon">📄</span><span class="active-file-title">${escHtml(displayTitle)}</span>`;
+      if (folderName) {
+        html += `<span class="active-file-folder">[${escHtml(folderName)}]</span>`;
+      }
+
+      indicator.innerHTML = html;
       indicator.title = `當前經論: ${filePath}`;
     }
   }
