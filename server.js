@@ -1264,10 +1264,11 @@ let searchIndex = {
  * Computes a quick fingerprint of all files in vault based on path, size, and mtime
  */
 function computeVaultSignature(files) {
+  const sortedPaths = files.map(f => f.relPath).sort();
   const hash = crypto.createHash('md5');
-  hash.update(`count:${files.length}\n`);
-  for (let i = 0; i < files.length; i++) {
-    hash.update(files[i].relPath + '\n');
+  hash.update(`count:${sortedPaths.length}\n`);
+  for (let i = 0; i < sortedPaths.length; i++) {
+    hash.update(sortedPaths[i] + '\n');
   }
   return hash.digest('hex');
 }
@@ -1278,17 +1279,23 @@ function computeVaultSignature(files) {
 async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
   try {
     if (!fs.existsSync(SEARCH_INDEX_CACHE_BIN)) return false;
+    Logger.info('Index', 'Loading Bigram Index from disk cache...');
+    const loadStart = Date.now();
     const binBuf = await fs.promises.readFile(SEARCH_INDEX_CACHE_BIN);
     if (binBuf.length < 10) return false;
 
     let readPos = 0;
     const magic = binBuf.readUInt32BE(readPos); readPos += 4;
-    if (magic !== 0x42475831) return false;
+    if (magic !== 0x42475831 && magic !== 0x42475832) return false;
+    const isUint16Format = (magic === 0x42475832);
 
     const sigLen = binBuf.readUInt16BE(readPos); readPos += 2;
     const vaultSig = binBuf.toString('utf-8', readPos, readPos + sigLen); readPos += sigLen;
 
-    if (vaultSig !== expectedVaultSig) return false;
+    if (vaultSig !== expectedVaultSig) {
+      Logger.info('Index', `Disk cache signature mismatch (Expected: ${expectedVaultSig.substring(0, 8)}, Cached: ${vaultSig.substring(0, 8)}), rebuilding...`);
+      return false;
+    }
 
     const fileCount = binBuf.readUInt32BE(readPos); readPos += 4;
     const bigramCount = binBuf.readUInt32BE(readPos); readPos += 4;
@@ -1320,12 +1327,19 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
       const count = binBuf.readUInt32BE(readPos); readPos += 4;
 
       if (count === 1) {
-        const singleId = binBuf.readUInt32BE(readPos); readPos += 4;
-        bigrams.set(bgStr, singleId); // Primitive number (0 bytes V8 Heap overhead!)
+        const singleId = isUint16Format ? binBuf.readUInt16BE(readPos) : binBuf.readUInt32BE(readPos);
+        readPos += isUint16Format ? 2 : 4;
+        bigrams.set(bgStr, singleId);
       } else {
         const arr = useUint16 ? new Uint16Array(count) : new Uint32Array(count);
-        for (let j = 0; j < count; j++) {
-          arr[j] = binBuf.readUInt32BE(readPos); readPos += 4;
+        if (isUint16Format) {
+          for (let j = 0; j < count; j++) {
+            arr[j] = binBuf.readUInt16BE(readPos); readPos += 2;
+          }
+        } else {
+          for (let j = 0; j < count; j++) {
+            arr[j] = binBuf.readUInt32BE(readPos); readPos += 4;
+          }
         }
         bigrams.set(bgStr, arr);
       }
@@ -1340,20 +1354,24 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
       bigrams
     };
 
-    binBuf = null;
     if (global.gc) global.gc();
     return true;
   } catch (err) {
+    Logger.error('Index', 'Failed to read binary search index cache', err);
     return false;
   }
 }
 
 /**
- * Saves Bigram index as compact binary cache file (.bin)
+ * Saves Bigram index as compact binary cache file (.bin) atomically (Crash-Safe)
  */
 async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
   try {
     const saveStart = Date.now();
+    const useUint16 = fileList.length < 65536;
+    const magic = useUint16 ? 0x42475832 : 0x42475831;
+    const bytesPerId = useUint16 ? 2 : 4;
+
     let totalBytes = 4 + 2 + Buffer.byteLength(vaultSig || '') + 4 + 4;
 
     for (const f of fileList) {
@@ -1365,13 +1383,13 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
       const bg = entry[0];
       const val = entry[1];
       const count = typeof val === 'number' ? 1 : val.length;
-      totalBytes += 1 + Buffer.byteLength(bg) + 4 + (count * 4);
+      totalBytes += 1 + Buffer.byteLength(bg) + 4 + (count * bytesPerId);
     }
 
     const buf = Buffer.allocUnsafe(totalBytes);
     let pos = 0;
 
-    buf.writeUInt32BE(0x42475831, pos); pos += 4;
+    buf.writeUInt32BE(magic, pos); pos += 4;
     const sigBuf = Buffer.from(vaultSig || '');
     buf.writeUInt16BE(sigBuf.length, pos); pos += 2;
     sigBuf.copy(buf, pos); pos += sigBuf.length;
@@ -1405,18 +1423,33 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
       bgB.copy(buf, pos); pos += bgB.length;
 
       buf.writeUInt32BE(count, pos); pos += 4;
-      if (isSingle) {
-        buf.writeUInt32BE(val, pos); pos += 4;
+
+      if (useUint16) {
+        if (isSingle) {
+          buf.writeUInt16BE(val, pos); pos += 2;
+        } else {
+          for (let j = 0; j < count; j++) {
+            buf.writeUInt16BE(val[j], pos); pos += 2;
+          }
+        }
       } else {
-        for (let j = 0; j < count; j++) {
-          buf.writeUInt32BE(val[j], pos); pos += 4;
+        if (isSingle) {
+          buf.writeUInt32BE(val, pos); pos += 4;
+        } else {
+          for (let j = 0; j < count; j++) {
+            buf.writeUInt32BE(val[j], pos); pos += 4;
+          }
         }
       }
     }
 
-    await fs.promises.writeFile(SEARCH_INDEX_CACHE_BIN, buf);
+    // Write to temporary file first and atomically rename for 100% crash-safe disk persistence
+    const tmpCacheFile = SEARCH_INDEX_CACHE_BIN + '.tmp';
+    await fs.promises.writeFile(tmpCacheFile, buf);
+    await fs.promises.rename(tmpCacheFile, SEARCH_INDEX_CACHE_BIN);
+
     const sizeMb = (buf.length / (1024 * 1024)).toFixed(1);
-    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB) in ${Date.now() - saveStart}ms`);
+    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB) atomically in ${Date.now() - saveStart}ms`);
   } catch (err) {
     Logger.error('Index', 'Failed to save binary search index cache', err);
   }
