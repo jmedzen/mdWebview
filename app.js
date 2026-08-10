@@ -3261,83 +3261,7 @@
     `;
   }
 
-  function renderCategoryDonutChart(topFiles) {
-    const wrapper = $('analyticsDonutWrapper');
-    if (!wrapper) return;
 
-    if (!Array.isArray(topFiles) || topFiles.length === 0) {
-      wrapper.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">🥧</span><span>尚無經論分類統計數據</span></div>`;
-      return;
-    }
-
-    const catMap = new Map();
-    let grandTotalViews = 0;
-
-    topFiles.forEach(f => {
-      const parts = f.path.split('/');
-      const cat = parts.length > 1 ? parts[0] : '其他根目錄';
-      const cleanCat = cat.replace(/^\d+[-_]/, '');
-      const current = catMap.get(cleanCat) || 0;
-      catMap.set(cleanCat, current + f.views);
-      grandTotalViews += f.views;
-    });
-
-    const sortedCats = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
-    const topCats = sortedCats.slice(0, 4);
-    const otherViews = sortedCats.slice(4).reduce((sum, item) => sum + item[1], 0);
-    if (otherViews > 0) {
-      topCats.push(['其他類別', otherViews]);
-    }
-
-    const colors = ['#7aa2f7', '#2ac3de', '#bb9af7', '#e0af68', '#9ece6a'];
-    const radius = 40;
-    const circumference = 2 * Math.PI * radius; // ~251.32
-
-    let accumulatedOffset = 0;
-    let circlesSvg = '';
-    let legendHtml = '';
-
-    topCats.forEach((cat, idx) => {
-      const name = cat[0];
-      const views = cat[1];
-      const pct = grandTotalViews > 0 ? (views / grandTotalViews) : 0;
-      const dashLen = pct * circumference;
-      const gapLen = circumference - dashLen;
-      const color = colors[idx % colors.length];
-
-      circlesSvg += `
-        <circle r="${radius}" cx="50" cy="50" fill="transparent"
-          stroke="${color}" stroke-width="12"
-          stroke-dasharray="${dashLen.toFixed(1)} ${gapLen.toFixed(1)}"
-          stroke-dashoffset="${(-accumulatedOffset).toFixed(1)}"
-          transform="rotate(-90 50 50)" />
-      `;
-
-      accumulatedOffset += dashLen;
-
-      legendHtml += `
-        <div class="donut-legend-item">
-          <span class="donut-legend-color" style="background: ${color};"></span>
-          <span class="donut-legend-name" title="${escHtml(name)}">${escHtml(name)}</span>
-          <span class="donut-legend-pct">${(pct * 100).toFixed(1)}%</span>
-        </div>
-      `;
-    });
-
-    wrapper.innerHTML = `
-      <div class="svg-donut-container">
-        <svg viewBox="0 0 100 100" style="width: 130px; height: 130px; transform: rotate(0deg); overflow: visible;">
-          <circle r="${radius}" cx="50" cy="50" fill="transparent" stroke="var(--bg-tertiary)" stroke-width="12" />
-          ${circlesSvg}
-          <text x="50" y="47" font-size="12" font-weight="700" fill="var(--text-primary)" text-anchor="middle">${grandTotalViews.toLocaleString()}</text>
-          <text x="50" y="59" font-size="8" fill="var(--text-muted)" text-anchor="middle">總點閱數</text>
-        </svg>
-        <div class="donut-legend">
-          ${legendHtml}
-        </div>
-      </div>
-    `;
-  }
 
   async function loadHardwareStats() {
     try {
@@ -3708,7 +3632,6 @@
 
     // SVG Visualizations
     renderAnalyticsTrendChart(data.dailyTrend || []);
-    renderCategoryDonutChart(data.topFiles || []);
 
     const topFilesTable = $('analyticsTopFilesTable');
     if (topFilesTable) {
