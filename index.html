@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.12.9">
+  <link rel="stylesheet" href="style.css?v=1.14.0">
 </head>
 <body>
   <div class="app">
@@ -503,6 +503,15 @@
           </div>
 
           <div class="admin-form-section">
+            <h3 class="admin-form-section-title">🔍 全文搜尋引擎設定</h3>
+            <div class="form-group">
+              <label for="settingsMaxProximityDistance">搜尋鄰近詞距上限 (字元)</label>
+              <input type="number" id="settingsMaxProximityDistance" min="20" max="2000" step="10" placeholder="150">
+              <span class="field-hint">使用空白分隔多關鍵詞 (AND 搜尋) 時，詞與詞之間允許的最大字元距離（預設 150 字元）。超出此距離將剔除該搜尋結果。</span>
+            </div>
+          </div>
+
+          <div class="admin-form-section">
             <h3 class="admin-form-section-title">📌 首頁頁尾顯示選項</h3>
             <div class="form-group-setting">
               <div class="toggle-switch-wrapper">
@@ -936,7 +945,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.12.9" defer></script>
-  <script src="app.js?v=1.12.9" defer></script>
+  <script src="marked.min.js?v=1.14.0" defer></script>
+  <script src="app.js?v=1.14.0" defer></script>
 </body>
 </html>

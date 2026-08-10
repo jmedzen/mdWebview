@@ -1705,8 +1705,10 @@
         break;
     }
 
-    const queryEscaped = escHtml(data.query || '');
-    const precompiledRegex = queryEscaped ? new RegExp(`(${escRegex(queryEscaped)})`, 'gi') : null;
+    const rawQuery = data.query || '';
+    const terms = rawQuery.trim().split(/\s+/).filter(Boolean);
+    const escapedTerms = terms.map(t => escRegex(escHtml(t)));
+    const precompiledRegex = escapedTerms.length > 0 ? new RegExp(`(${escapedTerms.join('|')})`, 'gi') : null;
 
     for (const [file, group] of sortedGroups) {
       parts.push(`<div class="search-result-group">`);
@@ -2935,6 +2937,7 @@
       const version = $('settingsVersion').value;
       const enableDownload = $('settingsEnableDownload').checked;
       const downloadUrl = $('settingsDownloadUrl').value;
+      const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const errorEl = $('settingsErrorMsg');
       const successEl = $('settingsSuccessMsg');
 
@@ -2948,7 +2951,7 @@
           body: JSON.stringify({
             settings: { 
               siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-              enableVersion, version, enableDownload, downloadUrl 
+              enableVersion, version, enableDownload, downloadUrl, maxProximityDistance 
             }
           })
         });
@@ -3296,6 +3299,9 @@
       $('settingsEnableVersion').checked = !!data.settings.enableVersion;
       $('settingsVersion').value = data.settings.version || '';
       $('settingsEnableDownload').checked = !!data.settings.enableDownload;
+      $('settingsDownloadUrl').value = data.settings.downloadUrl || '';
+      const proxEl = $('settingsMaxProximityDistance');
+      if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
       $('adminSettingsOverlay').style.display = 'flex';
 
       // Preload data for all admin tabs (Suggest, Analytics, Logs) so that

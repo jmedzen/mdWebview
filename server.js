@@ -1660,6 +1660,11 @@ async function handleSearch(req, res, query) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
 
+  const terms = q.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return sendJSON(res, 400, { error: 'Missing query parameter' });
+  }
+
   const targetFolder = query.folder ? query.folder.trim().replace(/^\/+|\/+$/g, '') : '';
   const cacheKey = `${targetFolder}::${q}`;
   const cached = searchCache.get(cacheKey);
@@ -1670,6 +1675,7 @@ async function handleSearch(req, res, query) {
 
   const results = [];
   const SNIPPET_RADIUS = 60;
+  const maxProximityDist = Math.max(10, parseInt(config.settings.maxProximityDistance) || 150);
 
   try {
     // Reuse cached tree to avoid redundant filesystem traversal
@@ -1695,51 +1701,67 @@ async function handleSearch(req, res, query) {
     let usedIndex = false;
 
     // Bigram Inverted Index filtering (for content search queries length >= 2)
-    if (searchIndex.ready && q.trim().length >= 2 && !isFilenameOnly) {
-      const qBigrams = extractQueryBigrams(q);
-      if (qBigrams.length > 0) {
-        usedIndex = true;
-        let candidateSet = null;
+    if (searchIndex.ready && terms.some(t => t.length >= 2) && !isFilenameOnly) {
+      let finalCandidateSet = null;
+
+      for (const term of terms) {
+        if (term.length < 2) continue;
+        const qBigrams = extractQueryBigrams(term);
+        if (qBigrams.length === 0) continue;
+
+        let termCandidateSet = null;
         for (const bg of qBigrams) {
           const val = searchIndex.bigrams.get(bg);
           if (val === undefined || val === null) {
-            candidateSet = new Set();
+            termCandidateSet = new Set();
             break;
           }
           if (typeof val === 'number') {
-            if (candidateSet === null) {
-              candidateSet = new Set([val]);
+            if (termCandidateSet === null) {
+              termCandidateSet = new Set([val]);
+            } else if (!termCandidateSet.has(val)) {
+              termCandidateSet.clear();
+              break;
             } else {
-              if (!candidateSet.has(val)) {
-                candidateSet.clear();
-                break;
-              } else {
-                candidateSet = new Set([val]);
-              }
+              termCandidateSet = new Set([val]);
             }
           } else {
             const fileSet = new Set(val);
-            if (candidateSet === null) {
-              candidateSet = fileSet;
+            if (termCandidateSet === null) {
+              termCandidateSet = fileSet;
             } else {
-              for (const fileId of candidateSet) {
-                if (!fileSet.has(fileId)) {
-                  candidateSet.delete(fileId);
+              for (const fileId of termCandidateSet) {
+                if (!termCandidateSet.has(fileId)) {
+                  termCandidateSet.delete(fileId);
                 }
               }
-              if (candidateSet.size === 0) break;
+              if (termCandidateSet.size === 0) break;
             }
           }
         }
 
-        if (candidateSet) {
-          files = Array.from(candidateSet)
-            .map(id => searchIndex.fileList[id])
-            .filter(Boolean);
-
-          if (folderFilter) {
-            files = files.filter(f => f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
+        if (termCandidateSet !== null) {
+          if (finalCandidateSet === null) {
+            finalCandidateSet = termCandidateSet;
+          } else {
+            for (const id of finalCandidateSet) {
+              if (!termCandidateSet.has(id)) {
+                finalCandidateSet.delete(id);
+              }
+            }
+            if (finalCandidateSet.size === 0) break;
           }
+        }
+      }
+
+      if (finalCandidateSet) {
+        usedIndex = true;
+        files = Array.from(finalCandidateSet)
+          .map(id => searchIndex.fileList[id])
+          .filter(Boolean);
+
+        if (folderFilter) {
+          files = files.filter(f => f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
         }
       }
     }
@@ -1749,11 +1771,18 @@ async function handleSearch(req, res, query) {
     const MAX_FILE_MATCHES = isSingleFile ? 5000 : 250;
 
     if (isFilenameOnly) {
-      const qLower = q.toLowerCase();
       for (const file of files) {
         if (results.length >= MAX_RESULTS) break;
         const cleanName = file.name.replace(/\.md$/, '');
-        if (cleanName.toLowerCase().includes(qLower) || file.relPath.toLowerCase().includes(qLower)) {
+        const cleanNameLower = cleanName.toLowerCase();
+        const relPathLower = file.relPath.toLowerCase();
+
+        const matchesAll = terms.every(term => {
+          const tLower = term.toLowerCase();
+          return cleanNameLower.includes(tLower) || relPathLower.includes(tLower);
+        });
+
+        if (matchesAll) {
           results.push({
             file: file.relPath,
             fileName: cleanName,
@@ -1772,41 +1801,107 @@ async function handleSearch(req, res, query) {
           if (!file) break;
           try {
             const content = await fs.promises.readFile(file.fullPath, 'utf-8');
-            // Fast check to avoid splitting the file if it has no match
-            if (!content.includes(q)) continue;
+            if (!terms.every(term => content.includes(term))) continue;
 
-            let pos = 0;
-            let lineNum = 1;
             let fileMatches = 0;
-            while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
-              const matchIdx = content.indexOf(q, pos);
-              if (matchIdx === -1) break;
-              
-              // Count newlines from pos to matchIdx to get line number
-              for (let j = pos; j < matchIdx; j++) {
-                if (content.charCodeAt(j) === 10) lineNum++;
+
+            if (terms.length === 1) {
+              const singleTerm = terms[0];
+              let pos = 0;
+              let lineNum = 1;
+              while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
+                const matchIdx = content.indexOf(singleTerm, pos);
+                if (matchIdx === -1) break;
+
+                for (let j = pos; j < matchIdx; j++) {
+                  if (content.charCodeAt(j) === 10) lineNum++;
+                }
+
+                const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
+                let lineEnd = content.indexOf('\n', matchIdx);
+                if (lineEnd === -1) lineEnd = content.length;
+                const lineText = content.substring(lineStart, lineEnd);
+                const idxInLine = matchIdx - lineStart;
+                const start = Math.max(0, idxInLine - SNIPPET_RADIUS);
+                const end = Math.min(lineText.length, idxInLine + singleTerm.length + SNIPPET_RADIUS);
+                let snippet = lineText.substring(start, end).trim();
+                if (start > 0) snippet = '…' + snippet;
+                if (end < lineText.length) snippet = snippet + '…';
+
+                results.push({
+                  file: file.relPath,
+                  fileName: file.name.replace(/\.md$/, ''),
+                  line: lineNum,
+                  snippet: snippet,
+                });
+                fileMatches++;
+                pos = matchIdx + singleTerm.length;
               }
-              
-              // Extract snippet around match
-              const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
-              let lineEnd = content.indexOf('\n', matchIdx);
-              if (lineEnd === -1) lineEnd = content.length;
-              const lineText = content.substring(lineStart, lineEnd);
-              const idxInLine = matchIdx - lineStart;
-              const start = Math.max(0, idxInLine - SNIPPET_RADIUS);
-              const end = Math.min(lineText.length, idxInLine + q.length + SNIPPET_RADIUS);
-              let snippet = lineText.substring(start, end).trim();
-              if (start > 0) snippet = '…' + snippet;
-              if (end < lineText.length) snippet = snippet + '…';
-              
-              results.push({
-                file: file.relPath,
-                fileName: file.name.replace(/\.md$/, ''),
-                line: lineNum,
-                snippet: snippet,
+            } else {
+              // Multi-term search with Proximity Distance Filtering
+              const termPositions = terms.map(term => {
+                const posList = [];
+                let p = 0;
+                while (p < content.length) {
+                  const idx = content.indexOf(term, p);
+                  if (idx === -1) break;
+                  posList.push(idx);
+                  p = idx + term.length;
+                }
+                return posList;
               });
-              fileMatches++;
-              pos = matchIdx + q.length;
+
+              if (termPositions.some(arr => arr.length === 0)) continue;
+
+              const p0List = termPositions[0];
+              for (const p0 of p0List) {
+                if (fileMatches >= MAX_FILE_MATCHES || results.length >= MAX_RESULTS) break;
+
+                let clusterValid = true;
+                let minPos = p0;
+                let maxPos = p0 + terms[0].length;
+
+                for (let tIdx = 1; tIdx < terms.length; tIdx++) {
+                  const tLen = terms[tIdx].length;
+                  const list = termPositions[tIdx];
+                  let foundClose = false;
+                  for (const p of list) {
+                    const potentialMin = Math.min(minPos, p);
+                    const potentialMax = Math.max(maxPos, p + tLen);
+                    if (potentialMax - potentialMin <= maxProximityDist) {
+                      minPos = potentialMin;
+                      maxPos = potentialMax;
+                      foundClose = true;
+                      break;
+                    }
+                  }
+                  if (!foundClose) {
+                    clusterValid = false;
+                    break;
+                  }
+                }
+
+                if (clusterValid) {
+                  let lineNum = 1;
+                  for (let j = 0; j < minPos; j++) {
+                    if (content.charCodeAt(j) === 10) lineNum++;
+                  }
+
+                  const start = Math.max(0, minPos - SNIPPET_RADIUS);
+                  const end = Math.min(content.length, maxPos + SNIPPET_RADIUS);
+                  let snippet = content.substring(start, end).replace(/\r?\n/g, ' ').trim();
+                  if (start > 0) snippet = '…' + snippet;
+                  if (end < content.length) snippet = snippet + '…';
+
+                  results.push({
+                    file: file.relPath,
+                    fileName: file.name.replace(/\.md$/, ''),
+                    line: lineNum,
+                    snippet: snippet,
+                  });
+                  fileMatches++;
+                }
+              }
             }
           } catch (err) {
             // ignore
@@ -2997,7 +3092,7 @@ async function handleAnalyticsExport(req, res, query) {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
@@ -3029,6 +3124,12 @@ async function handleAnalyticsExport(req, res, query) {
         }
         if (downloadUrl !== undefined) {
           config.settings.downloadUrl = String(downloadUrl).trim();
+        }
+        if (maxProximityDistance !== undefined) {
+          const dist = parseInt(maxProximityDistance);
+          if (!Number.isNaN(dist)) {
+            config.settings.maxProximityDistance = Math.max(10, Math.min(5000, dist));
+          }
         }
         if (suggestList !== undefined && typeof suggestList === 'object') {
           const sl = suggestList;
