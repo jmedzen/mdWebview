@@ -1652,13 +1652,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       return;
     }
 
-    // Convert raw JS Arrays to Primitive Numbers (0 bytes overhead for single ID) and TypedArrays
+    // Sort posting lists for O(n+m) sorted-merge intersection, then compact to TypedArrays
     const compactBigrams = new Map();
     const useUint16 = fileList.length < 65536;
     for (const [bg, list] of bigrams.entries()) {
       if (list.length === 1) {
         compactBigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
       } else {
+        list.sort((a, b) => a - b);
         compactBigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list));
       }
     }
@@ -1733,71 +1734,59 @@ async function handleSearch(req, res, query) {
     const initialFileCount = files.length;
     let usedIndex = false;
 
-    // Bigram Inverted Index filtering (for content search queries length >= 2)
+    // Bigram Inverted Index filtering using sorted-merge intersection (zero Set allocation)
     if (searchIndex.ready && terms.some(t => t.length >= 2) && !isFilenameOnly) {
-      let finalCandidateSet = null;
+      // Sorted merge intersection: O(n+m) with zero heap allocation
+      function intersectSorted(a, b) {
+        const result = [];
+        let i = 0, j = 0;
+        const aLen = a.length, bLen = b.length;
+        while (i < aLen && j < bLen) {
+          const av = a[i], bv = b[j];
+          if (av < bv) i++;
+          else if (av > bv) j++;
+          else { result.push(av); i++; j++; }
+        }
+        return result;
+      }
+
+      let finalCandidates = null; // sorted array of file IDs
 
       for (const term of terms) {
         if (term.length < 2) continue;
         const qBigrams = extractQueryBigrams(term);
         if (qBigrams.length === 0) continue;
 
-        let termCandidateSet = null;
+        let termCandidates = null; // sorted array of file IDs
         for (const bg of qBigrams) {
           const val = searchIndex.bigrams.get(bg);
           if (val === undefined || val === null) {
-            termCandidateSet = new Set();
+            termCandidates = [];
             break;
           }
 
-          if (termCandidateSet === null) {
-            if (typeof val === 'number') {
-              termCandidateSet = new Set([val]);
-            } else {
-              termCandidateSet = new Set(val);
-            }
+          if (termCandidates === null) {
+            termCandidates = typeof val === 'number' ? [val] : Array.from(val);
           } else {
-            // Perform true set intersection with val
-            if (typeof val === 'number') {
-              if (termCandidateSet.has(val)) {
-                termCandidateSet = new Set([val]);
-              } else {
-                termCandidateSet.clear();
-                break;
-              }
-            } else {
-              const valSet = new Set(val);
-              const nextSet = new Set();
-              for (const fileId of termCandidateSet) {
-                if (valSet.has(fileId)) {
-                  nextSet.add(fileId);
-                }
-              }
-              termCandidateSet = nextSet;
-              if (termCandidateSet.size === 0) break;
-            }
+            const posting = typeof val === 'number' ? [val] : val;
+            termCandidates = intersectSorted(termCandidates, posting);
+            if (termCandidates.length === 0) break;
           }
         }
 
-        if (termCandidateSet !== null) {
-          if (finalCandidateSet === null) {
-            finalCandidateSet = termCandidateSet;
+        if (termCandidates !== null) {
+          if (finalCandidates === null) {
+            finalCandidates = termCandidates;
           } else {
-            const nextFinal = new Set();
-            for (const id of finalCandidateSet) {
-              if (termCandidateSet.has(id)) {
-                nextFinal.add(id);
-              }
-            }
-            finalCandidateSet = nextFinal;
-            if (finalCandidateSet.size === 0) break;
+            finalCandidates = intersectSorted(finalCandidates, termCandidates);
+            if (finalCandidates.length === 0) break;
           }
         }
       }
 
-      if (finalCandidateSet) {
+      if (finalCandidates && finalCandidates.length > 0) {
         usedIndex = true;
-        files = Array.from(finalCandidateSet)
+        files = finalCandidates
           .map(id => searchIndex.fileList[id])
           .filter(Boolean);
 
@@ -1847,13 +1836,23 @@ async function handleSearch(req, res, query) {
         return low + 1;
       }
 
+      // Binary search: find first index in sorted arr where arr[idx] >= target
+      function lowerBound(arr, target) {
+        let lo = 0, hi = arr.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (arr[mid] < target) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      }
+
       async function worker() {
         while (fileIdx < files.length && results.length < MAX_RESULTS) {
           const file = files[fileIdx++];
           if (!file) break;
           try {
             const content = await fs.promises.readFile(file.fullPath, 'utf-8');
-            if (!terms.every(term => content.includes(term))) continue;
 
             let fileMatches = 0;
             let lineBreaks = null;
@@ -1895,7 +1894,14 @@ async function handleSearch(req, res, query) {
               }
             } else {
               // Multi-term search with Proximity Distance Filtering
-              const termPositions = terms.map(term => {
+              // Fast native C++ pre-filter: reject non-matching files before building position arrays
+              if (!terms.every(term => content.includes(term))) continue;
+
+              // Build term positions with early exit
+              let allTermsFound = true;
+              const termPositions = [];
+              for (let tI = 0; tI < terms.length; tI++) {
+                const term = terms[tI];
                 const posList = [];
                 let p = 0;
                 while (p < content.length) {
@@ -1904,12 +1910,17 @@ async function handleSearch(req, res, query) {
                   posList.push(idx);
                   p = idx + term.length;
                 }
-                return posList;
-              });
+                if (posList.length === 0) {
+                  allTermsFound = false;
+                  break;
+                }
+                termPositions.push(posList);
+              }
 
-              if (termPositions.some(arr => arr.length === 0)) continue;
+              if (!allTermsFound) continue;
 
               const p0List = termPositions[0];
+              const fileRelPath = file.relPath;
               for (const p0 of p0List) {
                 if (fileMatches >= MAX_FILE_MATCHES || results.length >= MAX_RESULTS) break;
 
@@ -1921,7 +1932,17 @@ async function handleSearch(req, res, query) {
                   const tLen = terms[tIdx].length;
                   const list = termPositions[tIdx];
                   let foundClose = false;
-                  for (const p of list) {
+                  // Binary search: jump to the relevant proximity window
+                  const windowStart = minPos - maxProximityDist;
+                  let lo = 0, hi = list.length;
+                  while (lo < hi) {
+                    const mid = (lo + hi) >> 1;
+                    if (list[mid] < windowStart) lo = mid + 1;
+                    else hi = mid;
+                  }
+                  for (let k = lo; k < list.length; k++) {
+                    const p = list[k];
+                    if (p > maxPos + maxProximityDist) break;
                     const potentialMin = Math.min(minPos, p);
                     const potentialMax = Math.max(maxPos, p + tLen);
                     if (potentialMax - potentialMin <= maxProximityDist) {
@@ -1973,6 +1994,19 @@ async function handleSearch(req, res, query) {
         workers.push(worker());
       }
       await Promise.all(workers);
+
+      // Post-processing: deduplicate adjacent matches in same file (within 2 lines)
+      if (terms.length > 1 && results.length > 1) {
+        const deduped = [results[0]];
+        for (let di = 1; di < results.length; di++) {
+          const prev = deduped[deduped.length - 1];
+          const curr = results[di];
+          if (prev.file === curr.file && Math.abs(prev.line - curr.line) <= 2) continue;
+          deduped.push(curr);
+        }
+        results.length = 0;
+        for (const r of deduped) results.push(r);
+      }
     }
 
     const searchData = { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS };
