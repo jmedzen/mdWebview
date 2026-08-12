@@ -859,7 +859,6 @@
 
     addRecentFile(filePath);
     updateBookmarkButtonUI(filePath);
-    saveReadProgress(filePath);
 
     // If search selector is set to __CURRENT_FILE__, automatically update search results for newly opened file
     const searchFolderSelect = $('searchFolderSelect');
@@ -923,6 +922,7 @@
         wrapper.style.display = 'block';
         if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
         else content.scrollTop = 0;
+        setTimeout(() => saveReadProgress(filePath), 350);
         if (cachedMeta) {
           document.title = `${cachedMeta.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
         }
@@ -961,6 +961,7 @@
           } else {
             content.scrollTop = 0;
           }
+          setTimeout(() => saveReadProgress(filePath), 350);
           document.title = `${(cachedMeta && cachedMeta.title) || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
 
           // Defer TOC generation & line-anchor indexing to idle time
@@ -1015,6 +1016,7 @@
       } else {
         content.scrollTop = 0;
       }
+      setTimeout(() => saveReadProgress(filePath), 350);
 
       document.title = `${frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
 
@@ -2308,15 +2310,19 @@
     try {
       const data = JSON.parse(raw);
       if (data && data.filePath) {
+        // Pass line for server-side rendering hint, but primarily use scrollTop for precise restoration
         openFile(data.filePath, data.line).then(() => {
           const content = $('content');
           if (content && typeof data.scrollTop === 'number') {
+            // Restore precise scroll position (overrides the line-based scroll from openFile)
             setTimeout(() => {
               content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
-            }, 200);
+            }, 150);
             setTimeout(() => {
               content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
-            }, 400);
+              // Re-save after final scroll position is settled
+              saveReadProgress(data.filePath);
+            }, 500);
           }
         });
         return true;
