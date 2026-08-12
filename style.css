@@ -2464,6 +2464,137 @@ kbd {
   gap: 6px;
 }
 
+/* Compact Admin Config Card Grid */
+.admin-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.config-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.config-card:hover {
+  border-color: var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.config-card.full-width {
+  grid-column: span 2;
+}
+
+.config-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+  margin-bottom: 2px;
+}
+
+.config-card-icon {
+  font-size: 16px;
+}
+
+.config-card-title {
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.config-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compact-row {
+  display: flex;
+  gap: 10px;
+}
+
+.compact-row .form-group.half {
+  flex: 1;
+}
+
+/* Input with Unit Badge */
+.input-unit-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-unit-group input {
+  padding-right: 46px !important;
+  width: 100%;
+}
+
+.input-unit-group .unit-badge {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  border: 1px solid var(--border-color);
+}
+
+/* Footer Settings Grid */
+.footer-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.footer-setting-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: opacity 0.2s ease;
+}
+
+.compact-switch {
+  margin-bottom: 0;
+}
+
+.footer-input-wrap input {
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.footer-input-wrap input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--bg-primary);
+}
+
+@media (max-width: 768px) {
+  .admin-config-grid,
+  .footer-config-grid {
+    grid-template-columns: 1fr;
+  }
+  .config-card.full-width {
+    grid-column: span 1;
+  }
+}
+
 .admin-form-section {
   margin-bottom: 20px;
   padding-bottom: 16px;

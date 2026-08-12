@@ -2981,6 +2981,25 @@
       $('adminLoginOverlay').style.display = 'none';
     });
 
+    // ── Settings Form Toggle Interactions ──
+    function syncFooterToggleInputs() {
+      const versionToggle = $('settingsEnableVersion');
+      const versionInput = $('settingsVersion');
+      if (versionToggle && versionInput) {
+        versionInput.disabled = !versionToggle.checked;
+      }
+      const downloadToggle = $('settingsEnableDownload');
+      const downloadInput = $('settingsDownloadUrl');
+      if (downloadToggle && downloadInput) {
+        downloadInput.disabled = !downloadToggle.checked;
+      }
+    }
+
+    const versionToggleEl = $('settingsEnableVersion');
+    if (versionToggleEl) versionToggleEl.addEventListener('change', syncFooterToggleInputs);
+    const downloadToggleEl = $('settingsEnableDownload');
+    if (downloadToggleEl) downloadToggleEl.addEventListener('change', syncFooterToggleInputs);
+
     // ── Settings Form Submission ──
     async function performSaveSettings(createIfNotExists = false, closeAfterSave = false) {
       const siteName = $('settingsSiteName').value;
@@ -3483,6 +3502,7 @@
       $('settingsDownloadUrl').value = data.settings.downloadUrl || '';
       const proxEl = $('settingsMaxProximityDistance');
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
+      if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
 
       // Preload data for all admin tabs (Suggest, Analytics, Logs) so that
