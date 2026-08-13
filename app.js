@@ -1296,13 +1296,18 @@
     const v = state.virtual;
     if (!v || !v._tocRows || v._tocRows.length === 0) return;
     const ei = entryIndexForLine(line);
-    const rows = v._tocRows;
+    const row = v._tocRows[ei];
     const prev = v._activeTocRow;
-    if (prev && prev !== rows[ei]) prev.classList.remove('active');
-    const row = rows[ei];
+    // This runs on every scroll frame. Bail when the active entry is unchanged
+    // so classList/scrollIntoView only touch the DOM at entry boundaries — doing
+    // it per frame forced needless layout work during continuous scrolling.
+    if (row === prev) return;
+    if (prev) prev.classList.remove('active');
     if (row) {
       row.classList.add('active');
       v._activeTocRow = row;
+      // Only invoked when the highlighted row actually changes; 'nearest' keeps
+      // the (content-visibility) row in view without a full layout pass.
       row.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     }
   }
@@ -1391,25 +1396,14 @@
 
     const onScroll = () => {
       if (!isVirtualMode()) return;
-      // Topmost visible line: prefer a mounted anchor that actually overlaps the
-      // viewport; when the viewport sits inside a spacer (fast scrollbar jump),
-      // estimate from scrollTop so we still mount the right chunks.
-      let topLine = estimateLineFromScrollTop();
-      if (cachedLineAnchors.length) {
-        const rect = content.getBoundingClientRect();
-        let lo = 0, hi = cachedLineAnchors.length - 1, found = -1;
-        while (lo <= hi) {
-          const mid = (lo + hi) >> 1;
-          const r = cachedLineAnchors[mid].getBoundingClientRect();
-          if (r.bottom >= rect.top) { found = mid; hi = mid - 1; }
-          else lo = mid + 1;
-        }
-        if (found === -1) found = cachedLineAnchors.length - 1;
-        const ar = cachedLineAnchors[found].getBoundingClientRect();
-        if (ar.bottom >= rect.top && ar.top <= rect.bottom) {
-          topLine = parseInt(cachedLineAnchors[found].dataset.line || '1', 10);
-        }
-      }
+      // Topmost visible line, estimated arithmetically from scrollTop and the
+      // calibrated px-per-line. Deliberately no getBoundingClientRect()/
+      // offsetHeight here — those force a synchronous layout on every scroll
+      // frame and were the source of the mid-read UI freeze. The chunk-mount
+      // decision only needs entry-level accuracy (the mounted window already
+      // spans ±1 chunk), so an approximate line is sufficient; scroll-spy
+      // tolerates ±1 entry near boundaries.
+      const topLine = estimateLineFromScrollTop();
 
       const ci = chunkIndexForEntry(entryIndexForLine(topLine));
 
