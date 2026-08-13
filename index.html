@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.16.2">
+  <link rel="stylesheet" href="style.css?v=1.16.3">
 </head>
 <body>
   <div class="app">
@@ -588,6 +588,7 @@
           <div class="hardware-refresh-controls">
             <button type="button" class="action-btn text-action-btn" id="hwRefreshBtn" title="刷新狀態">🔄 實時刷新</button>
             <select id="hwAutoRefreshSelect" class="setting-select compact-select">
+              <option value="1000">自動刷新: 1秒</option>
               <option value="5000">自動刷新: 5秒</option>
               <option value="10000" selected>自動刷新: 10秒</option>
               <option value="0">手動刷新</option>
@@ -605,7 +606,7 @@
             </div>
             <div class="hardware-card-body">
               <div class="hardware-metric-value" id="hwCpuModel">載入中…</div>
-              <div class="progress-bar-row" style="margin-top: 8px;">
+              <div class="progress-bar-row" style="margin-top: 6px;">
                 <div class="progress-bar-label">
                   <span>實時 CPU 使用率</span>
                   <span id="hwCpuUsageText">0.0%</span>
@@ -613,9 +614,6 @@
                 <div class="progress-bar-track">
                   <div class="progress-bar-fill fill-accent" id="hwCpuUsageFill" style="width: 0%;"></div>
                 </div>
-              </div>
-              <div class="sparkline-wrapper">
-                <svg id="hwCpuSparkline" class="sparkline-svg" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
               </div>
               <div class="hardware-sub-metrics">
                 <div class="sub-metric">
@@ -664,9 +662,6 @@
                   <div class="progress-bar-fill fill-accent" id="hwHeapFill" style="width: 0%;"></div>
                 </div>
               </div>
-              <div class="sparkline-wrapper">
-                <svg id="hwRamSparkline" class="sparkline-svg" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
-              </div>
             </div>
           </div>
 
@@ -708,6 +703,7 @@
             <div class="hardware-card-header">
               <span class="card-icon">🪷</span>
               <span class="card-title">服務與全文索引狀態</span>
+              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
             </div>
             <div class="hardware-card-body">
               <div class="hardware-sub-metrics grid-2col">
@@ -727,9 +723,69 @@
                   <span class="sub-label">全文索引狀態</span>
                   <span class="sub-val" id="hwIndexStatus">--</span>
                 </div>
-                <div class="sub-metric full-width">
+                <div class="sub-metric">
                   <span class="sub-label">索引 Bigram 總筆數</span>
                   <span class="sub-val" id="hwBigramCount">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">索引檔案建立/修改時間</span>
+                  <span class="sub-val" id="hwIndexCreatedAt">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 5: Search Engine & Cache Performance -->
+          <div class="hardware-card">
+            <div class="hardware-card-header">
+              <span class="card-icon">🔍</span>
+              <span class="card-title">全文搜尋與快取效能</span>
+            </div>
+            <div class="hardware-card-body">
+              <div class="hardware-sub-metrics grid-2col">
+                <div class="sub-metric">
+                  <span class="sub-label">快取命中率</span>
+                  <span class="sub-val" id="hwSearchHitRate">0.0%</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">平均搜尋耗時</span>
+                  <span class="sub-val" id="hwSearchAvgTime">0.0 ms</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">熱門搜尋快取</span>
+                  <span class="sub-val" id="hwSearchCacheEntries">0 筆</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">檔庫 Markdown 總容量</span>
+                  <span class="sub-val" id="hwVaultTotalSize">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 6: Network & Request Metrics -->
+          <div class="hardware-card">
+            <div class="hardware-card-header">
+              <span class="card-icon">🌐</span>
+              <span class="card-title">網路流量與請求吞吐</span>
+            </div>
+            <div class="hardware-card-body">
+              <div class="hardware-sub-metrics grid-2col">
+                <div class="sub-metric">
+                  <span class="sub-label">實時吞吐量 (RPM)</span>
+                  <span class="sub-val" id="hwNetworkRpm">0 req/min</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">平均 HTTP 延遲</span>
+                  <span class="sub-val" id="hwNetworkAvgLatency">0.0 ms</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">累計 HTTP 請求</span>
+                  <span class="sub-val" id="hwNetworkTotalReqs">0 次</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">作用中 Admin Session</span>
+                  <span class="sub-val" id="hwActiveSessions">0 個</span>
                 </div>
               </div>
             </div>
@@ -979,7 +1035,7 @@
 
   <div id="toastNotification" class="toast-notification" style="display: none;"></div>
 
-  <script src="marked.min.js?v=1.16.2" defer></script>
-  <script src="app.js?v=1.16.2" defer></script>
+  <script src="marked.min.js?v=1.16.3" defer></script>
+  <script src="app.js?v=1.16.3" defer></script>
 </body>
 </html>

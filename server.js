@@ -839,6 +839,20 @@ let treeWatcher = null;
 const searchCache = new Map(); // key: "folder::q" -> { time, data }
 const SEARCH_CACHE_MAX = 30;
 
+const searchMetrics = {
+  totalQueries: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  totalSearchTimeMs: 0,
+  lastSearchTimeMs: 0
+};
+
+const httpMetrics = {
+  totalRequests: 0,
+  totalResponseTimeMs: 0,
+  recentRequestTimes: [] // Timestamps for 60s sliding window RPM
+};
+
 let treeWatcherDebounceTimer = null;
 let treeWatcherStartTime = 0;
 
@@ -923,10 +937,13 @@ async function scanDirAsync(dir, relativePath) {
         })
       );
     } else if (entry.name.endsWith('.md')) {
+      let fileSize = 0;
+      try { fileSize = fs.statSync(fullPath).size; } catch (_) {}
       result.push({
         name: entry.name.replace(/\.md$/, ''),
         path: relPath,
         type: 'file',
+        size: fileSize
       });
     }
   }
@@ -1238,7 +1255,8 @@ function flattenTreeToFiles(nodes, mdRoot) {
         files.push({
           fullPath: path.join(mdRoot, node.path),
           relPath: node.path,
-          name: node.name + '.md'
+          name: node.name + '.md',
+          size: node.size || 0
         });
       }
     }
@@ -1255,6 +1273,7 @@ let searchIndex = {
   ready: false,
   building: false,
   vaultSig: null,
+  createdAt: null,
   fileList: [],         // [{ id, relPath, name, fullPath }]
   fileMap: new Map(),   // relPath -> fileId
   bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array
@@ -1345,10 +1364,17 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
       }
     }
 
+    let createdAt = null;
+    try {
+      const stat = await fs.promises.stat(SEARCH_INDEX_CACHE_BIN);
+      createdAt = stat.mtime ? stat.mtime.toISOString() : null;
+    } catch (_) {}
+
     searchIndex = {
       ready: true,
       building: false,
       vaultSig: expectedVaultSig,
+      createdAt,
       fileList,
       fileMap,
       bigrams
@@ -1490,10 +1516,19 @@ async function loadSearchIndexFromCacheAsync(expectedVaultSig) {
       }
     }
 
+    let createdAt = data.builtAt || null;
+    if (!createdAt) {
+      try {
+        const stat = await fs.promises.stat(SEARCH_INDEX_CACHE_FILE);
+        createdAt = stat.mtime ? stat.mtime.toISOString() : null;
+      } catch (_) {}
+    }
+
     searchIndex = {
       ready: true,
       building: false,
       vaultSig: expectedVaultSig,
+      createdAt,
       fileList: data.fileList,
       fileMap,
       bigrams
@@ -1664,10 +1699,12 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       }
     }
 
+    const createdAt = new Date().toISOString();
     searchIndex = {
       ready: true,
       building: false,
       vaultSig,
+      createdAt,
       fileList,
       fileMap,
       bigrams: compactBigrams
@@ -1703,6 +1740,9 @@ async function handleSearch(req, res, query) {
   const cacheKey = `${targetFolder}::${q}`;
   const cached = searchCache.get(cacheKey);
   if (cached && (Date.now() - cached.time) < 60000) {
+    searchMetrics.totalQueries++;
+    searchMetrics.cacheHits++;
+    searchMetrics.lastSearchTimeMs = 0;
     Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} (Cache Hit) -> ${cached.data.results.length} matches (0ms)`, req, { query: q });
     return sendJSON(res, 200, cached.data);
   }
@@ -2009,6 +2049,12 @@ async function handleSearch(req, res, query) {
       }
     }
 
+    const searchDuration = Date.now() - searchStart;
+    searchMetrics.totalQueries++;
+    searchMetrics.cacheMisses++;
+    searchMetrics.totalSearchTimeMs += searchDuration;
+    searchMetrics.lastSearchTimeMs = searchDuration;
+
     const searchData = { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS };
     if (searchCache.size >= SEARCH_CACHE_MAX) {
       const oldestKey = searchCache.keys().next().value;
@@ -2017,7 +2063,7 @@ async function handleSearch(req, res, query) {
     searchCache.set(cacheKey, { time: Date.now(), data: searchData });
 
     const indexInfo = usedIndex ? ` (Index Candidates: ${files.length}/${initialFileCount})` : '';
-    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''}${indexInfo} -> ${results.length} matches in ${Date.now() - searchStart}ms`, req, { query: q });
+    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''}${indexInfo} -> ${results.length} matches in ${searchDuration}ms`, req, { query: q });
     sendJSON(res, 200, searchData);
   } catch (err) {
     Logger.error('Search', `Search failed for query "${q}"`, err, req);
@@ -2377,6 +2423,12 @@ const server = http.createServer((req, res) => {
   res.end = function(...args) {
     origEnd.apply(res, args);
     const duration = Date.now() - reqStart;
+    const now = Date.now();
+
+    httpMetrics.totalRequests++;
+    httpMetrics.totalResponseTimeMs += duration;
+    httpMetrics.recentRequestTimes.push(now);
+
     const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/render';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
       Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
@@ -2944,10 +2996,54 @@ async function getSystemHardwareStats() {
   } catch (_) {}
 
   let cacheSize = 0;
-  try { cacheSize = (await fs.promises.stat(SEARCH_INDEX_CACHE_FILE)).size; } catch (_) {}
+  try {
+    if (fs.existsSync(SEARCH_INDEX_CACHE_BIN)) {
+      cacheSize = fs.statSync(SEARCH_INDEX_CACHE_BIN).size;
+    } else if (fs.existsSync(SEARCH_INDEX_CACHE_FILE)) {
+      cacheSize = fs.statSync(SEARCH_INDEX_CACHE_FILE).size;
+    }
+  } catch (_) {}
+
   let analyticsStoreSize = 0;
   try { analyticsStoreSize = (await fs.promises.stat(ANALYTICS_STORE_PATH)).size; } catch (_) {}
   const logsDirSize = await getDirSizeAsync(LOG_DIR);
+
+  let indexFileMtime = searchIndex.createdAt || null;
+  try {
+    if (fs.existsSync(SEARCH_INDEX_CACHE_BIN)) {
+      const stat = fs.statSync(SEARCH_INDEX_CACHE_BIN);
+      indexFileMtime = stat.mtime ? stat.mtime.toISOString() : (stat.birthtime ? stat.birthtime.toISOString() : indexFileMtime);
+    } else if (fs.existsSync(SEARCH_INDEX_CACHE_FILE)) {
+      const stat = fs.statSync(SEARCH_INDEX_CACHE_FILE);
+      indexFileMtime = stat.mtime ? stat.mtime.toISOString() : (stat.birthtime ? stat.birthtime.toISOString() : indexFileMtime);
+    }
+  } catch (err) {
+    Logger.error('Hardware', 'Failed to stat search index cache file', err);
+  }
+
+  if (indexFileMtime) {
+    searchIndex.createdAt = indexFileMtime;
+  }
+
+  const now = Date.now();
+  const cutoff = now - 60000;
+  httpMetrics.recentRequestTimes = httpMetrics.recentRequestTimes.filter(t => t >= cutoff);
+  const requestsPerMin = httpMetrics.recentRequestTimes.length;
+  const avgResponseTimeMs = httpMetrics.totalRequests > 0 ? parseFloat((httpMetrics.totalResponseTimeMs / httpMetrics.totalRequests).toFixed(1)) : 0;
+  
+  let activeSessions = 0;
+  for (const [_, session] of sessions.entries()) {
+    if (session && session.expiry > now) {
+      activeSessions++;
+    }
+  }
+
+  const totalSearchQueries = searchMetrics.totalQueries;
+  const searchCacheHits = searchMetrics.cacheHits;
+  const searchCacheMisses = searchMetrics.cacheMisses;
+  const hitRatePct = totalSearchQueries > 0 ? parseFloat(((searchCacheHits / totalSearchQueries) * 100).toFixed(1)) : 0;
+  const avgSearchTimeMs = searchCacheMisses > 0 ? parseFloat((searchMetrics.totalSearchTimeMs / searchCacheMisses).toFixed(1)) : 0;
+  const vaultTotalSizeBytes = searchIndex.fileList ? searchIndex.fileList.reduce((acc, f) => acc + (f.size || 0), 0) : 0;
 
   return {
     timestamp: new Date().toISOString(),
@@ -2993,7 +3089,25 @@ async function getSystemHardwareStats() {
       building: searchIndex.building,
       totalFiles: searchIndex.fileList ? searchIndex.fileList.length : 0,
       uniqueBigrams: searchIndex.bigrams ? searchIndex.bigrams.size : 0,
-      vaultSig: searchIndex.vaultSig || ''
+      vaultSig: searchIndex.vaultSig || '',
+      createdAt: indexFileMtime,
+      lastModified: indexFileMtime
+    },
+    search: {
+      totalQueries: totalSearchQueries,
+      cacheHits: searchCacheHits,
+      cacheMisses: searchCacheMisses,
+      hitRatePct: hitRatePct,
+      avgSearchTimeMs: avgSearchTimeMs,
+      lastSearchTimeMs: searchMetrics.lastSearchTimeMs,
+      cacheEntries: searchCache.size,
+      vaultTotalSizeBytes: vaultTotalSizeBytes
+    },
+    network: {
+      totalRequests: httpMetrics.totalRequests,
+      requestsPerMin: requestsPerMin,
+      avgResponseTimeMs: avgResponseTimeMs,
+      activeSessions: activeSessions
     },
     workers: {
       count: workerPool.length,
@@ -3009,6 +3123,21 @@ async function handleHardwareStats(req, res) {
   try {
     const stats = await getSystemHardwareStats();
     return sendJSON(res, 200, stats);
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
+async function handleRebuildIndex(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+  try {
+    searchCache.clear();
+    buildSearchIndexAsync(true).catch(err => {
+      Logger.error('Index', 'Manual index rebuild error', err);
+    });
+    return sendJSON(res, 200, { success: true, message: 'Index rebuild initiated' });
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
   }
@@ -3267,6 +3396,11 @@ async function handleAnalyticsExport(req, res, query) {
   // Admin hardware status API
   if (pathname === '/api/admin/hardware' && req.method === 'GET') {
     return handleHardwareStats(req, res);
+  }
+
+  // Admin rebuild index API
+  if (pathname === '/api/admin/rebuild-index' && req.method === 'POST') {
+    return handleRebuildIndex(req, res);
   }
 
   // Public suggest-list API (no auth required)

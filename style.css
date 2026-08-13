@@ -2812,6 +2812,13 @@ kbd {
   filter: brightness(1.1);
 }
 
+.modal-btn:disabled, .action-btn:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: none !important;
+}
+
 .save-close-btn {
   background: var(--accent);
   color: var(--bg-primary);
@@ -3951,133 +3958,83 @@ details.callout[open] > summary .callout-fold-icon {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .hardware-title-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .hardware-badge-docker {
-  background: rgba(30, 144, 255, 0.15);
+  background: rgba(30, 144, 255, 0.12);
   color: #1e90ff;
-  border: 1px solid rgba(30, 144, 255, 0.3);
-  padding: 4px 10px;
+  border: 1px solid rgba(30, 144, 255, 0.25);
+  padding: 3px 10px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
+  letter-spacing: 0.2px;
 }
 
 .hardware-title-hint {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
 .hardware-refresh-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .compact-select {
   padding: 4px 8px;
   font-size: 12px;
+  border-radius: 6px;
+  height: 28px;
 }
 
 .hardware-dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 
 @media (max-width: 768px) {
   .hardware-dashboard-grid {
     grid-template-columns: 1fr;
   }
-  .modal-card.settings-card {
-    width: 100vw;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 16px;
-  }
-  .modal-card.settings-card .modal-header {
-    flex-shrink: 0;
-  }
-  .admin-tabs-nav {
-    flex-shrink: 0;
-    padding: 6px;
-  }
-  .admin-tab-btn {
-    min-height: 40px;
-    padding: 8px 14px;
-  }
-  .admin-tab-pane {
-    flex: 1;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 80px;
-  }
-  .modal-actions {
-    position: sticky;
-    bottom: 0;
-    background: var(--bg-primary);
-    padding: 12px 16px;
-    border-top: 1px solid var(--border-color);
-    z-index: 10;
-    margin: 0 -16px -16px -16px;
-  }
-  .hardware-sub-metrics {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-  .analytics-cards-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-  .analytics-grid-two {
-    grid-template-columns: 1fr !important;
-  }
-  .admin-logs-actions {
-    width: 100%;
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .admin-log-search {
-    width: 100% !important;
-  }
 }
 
 .hardware-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 8px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  gap: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .hardware-card-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 6px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .metric-status-badge {
   margin-left: auto;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 8px;
   font-weight: 600;
   background: rgba(46, 204, 113, 0.15);
   color: #2ecc71;
@@ -4094,7 +4051,7 @@ details.callout[open] > summary .callout-fold-icon {
 }
 
 .hardware-metric-value {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -4105,8 +4062,8 @@ details.callout[open] > summary .callout-fold-icon {
 .hardware-sub-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .hardware-sub-metrics.grid-2col {
@@ -4116,7 +4073,7 @@ details.callout[open] > summary .callout-fold-icon {
 .sub-metric {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .sub-metric.full-width {
@@ -4124,12 +4081,12 @@ details.callout[open] > summary .callout-fold-icon {
 }
 
 .sub-label {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
 .sub-val {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -4137,49 +4094,32 @@ details.callout[open] > summary .callout-fold-icon {
 .progress-bar-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .progress-bar-label {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-secondary);
 }
 
 .progress-bar-track {
-  height: 8px;
+  height: 6px;
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
 .progress-bar-fill {
   height: 100%;
   background: #2ecc71;
-  border-radius: 4px;
-  transition: width 0.4s ease, background-color 0.4s ease;
+  border-radius: 3px;
+  transition: width 0.3s ease, background-color 0.3s ease;
 }
 
 .progress-bar-fill.fill-accent {
   background: var(--accent);
-}
-
-/* ── SVG Charts & Hardware Visualizations ──────────────────────── */
-.sparkline-wrapper {
-  margin-top: 6px;
-  height: 32px;
-  width: 100%;
-  overflow: hidden;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.08);
-  padding: 2px 4px;
-}
-
-.sparkline-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
 }
 
 .analytics-chart-wrapper {

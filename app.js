@@ -3147,6 +3147,7 @@
 
   // ── Helper functions for admin & user panels ──
   let hwAutoRefreshTimer = null;
+  let indexRebuildPollingTimer = null;
 
   function closeUserSettingsModal() {
     const overlay = $('userSettingsOverlay');
@@ -3159,6 +3160,10 @@
     if (hwAutoRefreshTimer) {
       clearInterval(hwAutoRefreshTimer);
       hwAutoRefreshTimer = null;
+    }
+    if (indexRebuildPollingTimer) {
+      clearInterval(indexRebuildPollingTimer);
+      indexRebuildPollingTimer = null;
     }
   }
 
@@ -3185,36 +3190,6 @@
   }
 
   // ── SVG Visualizations & Chart Helpers ──────────────────────────
-  function renderSparkline(svgId, dataPoints, color = '#7aa2f7') {
-    const svg = $(svgId);
-    if (!svg || !Array.isArray(dataPoints) || dataPoints.length === 0) return;
-
-    const width = 300;
-    const height = 40;
-    const maxVal = 100;
-    const maxPoints = 30;
-
-    const points = dataPoints.map((val, i) => {
-      const x = (i / Math.max(1, maxPoints - 1)) * width;
-      const y = height - (Math.min(100, Math.max(0, val)) / maxVal) * (height - 6) - 3;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-
-    const pathD = `M ${points.join(' L ')}`;
-    const areaD = `M 0,${height} L ${points.join(' L ')} L ${width},${height} Z`;
-
-    const gradientId = `grad-${svgId}`;
-    svg.innerHTML = `
-      <defs>
-        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
-          <stop offset="100%" stop-color="${color}" stop-opacity="0.0"/>
-        </linearGradient>
-      </defs>
-      <path d="${areaD}" fill="url(#${gradientId})" />
-      <path d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-    `;
-  }
 
   function renderAnalyticsTrendChart(dailyTrend) {
     const wrapper = $('analyticsTrendChartWrapper');
@@ -3339,19 +3314,7 @@
       cpuUsageFill.className = 'progress-bar-fill' + (cpuPct > 80 ? ' danger' : cpuPct > 50 ? ' warning' : ' fill-accent');
     }
 
-    // Sparkline updates
-    state._cpuSparklineData = state._cpuSparklineData || [];
-    state._ramSparklineData = state._ramSparklineData || [];
-    const cpuPctVal = Math.min(100, Math.max(0, data.cpu.usagePct || 0));
-    state._cpuSparklineData.push(cpuPctVal);
-    if (state._cpuSparklineData.length > 30) state._cpuSparklineData.shift();
-    renderSparkline('hwCpuSparkline', state._cpuSparklineData, '#7aa2f7');
 
-    const rssMb = data.memory?.processRss ? (data.memory.processRss / (1024 * 1024)) : 0;
-    const rssPctVal = Math.min(100, Math.max(0, (data.memory?.rssPct || Math.min(100, (rssMb / 1024) * 100))));
-    state._ramSparklineData.push(rssPctVal);
-    if (state._ramSparklineData.length > 30) state._ramSparklineData.shift();
-    renderSparkline('hwRamSparkline', state._ramSparklineData, '#2ac3de');
 
     const load1m = $('hwLoad1m');
     const load5m = $('hwLoad5m');
@@ -3446,11 +3409,128 @@
     if (bigramCount) {
       bigramCount.textContent = `${(data.index.uniqueBigrams || 0).toLocaleString()} 筆 (檔案: ${data.index.totalFiles} 個)`;
     }
+
+    const indexCreatedAt = $('hwIndexCreatedAt');
+    if (indexCreatedAt) {
+      const mtime = data.index.createdAt || data.index.lastModified;
+      if (mtime) {
+        indexCreatedAt.textContent = formatTimestampWithTZ(mtime);
+      } else {
+        indexCreatedAt.textContent = '未建立';
+      }
+    }
+
+    const rebuildBtn = $('hwRebuildIndexBtn');
+    if (rebuildBtn) {
+      if (data.index.building) {
+        rebuildBtn.disabled = true;
+        rebuildBtn.textContent = '⏳ 重建中…';
+      } else if (!indexRebuildPollingTimer) {
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = '⚡ 手動重建索引';
+      }
+    }
+
+    // Search Engine & Cache Performance Card
+    if (data.search) {
+      const searchHitRate = $('hwSearchHitRate');
+      if (searchHitRate) searchHitRate.textContent = `${data.search.hitRatePct || 0}% (命中: ${data.search.cacheHits || 0}/${data.search.totalQueries || 0})`;
+      
+      const searchAvgTime = $('hwSearchAvgTime');
+      if (searchAvgTime) searchAvgTime.textContent = `${data.search.avgSearchTimeMs || 0} ms`;
+      
+      const searchCacheEntries = $('hwSearchCacheEntries');
+      if (searchCacheEntries) searchCacheEntries.textContent = `${data.search.cacheEntries || 0} 筆`;
+      
+      const vaultTotalSize = $('hwVaultTotalSize');
+      if (vaultTotalSize) vaultTotalSize.textContent = formatBytes(data.search.vaultTotalSizeBytes || 0);
+    }
+
+    // Network & Throughput Card
+    if (data.network) {
+      const networkRpm = $('hwNetworkRpm');
+      if (networkRpm) networkRpm.textContent = `${data.network.requestsPerMin || 0} req/min`;
+      
+      const networkAvgLatency = $('hwNetworkAvgLatency');
+      if (networkAvgLatency) networkAvgLatency.textContent = `${data.network.avgResponseTimeMs || 0} ms`;
+      
+      const networkTotalReqs = $('hwNetworkTotalReqs');
+      if (networkTotalReqs) networkTotalReqs.textContent = `${(data.network.totalRequests || 0).toLocaleString()} 次`;
+      
+      const activeSessions = $('hwActiveSessions');
+      if (activeSessions) activeSessions.textContent = `${data.network.activeSessions || 0} 個`;
+    }
+  }
+
+  function setupHardwareIndexRebuild() {
+    const rebuildBtn = $('hwRebuildIndexBtn');
+    if (!rebuildBtn || rebuildBtn.dataset.bound) return;
+    rebuildBtn.dataset.bound = 'true';
+
+    rebuildBtn.onclick = async () => {
+      if (rebuildBtn.disabled) return;
+
+      if (!confirm('確定要手動重建全文索引嗎？\n這將重新掃描經文檔庫並重建 Bigram 倒排索引。')) {
+        return;
+      }
+
+      try {
+        rebuildBtn.disabled = true;
+        rebuildBtn.textContent = '⏳ 重建中…';
+
+        const res = await fetch('/api/admin/rebuild-index', {
+          method: 'POST',
+          headers: { 'X-Admin-Token': state.adminToken }
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          showToast(`❌ 重建索引失敗: ${errData.error || res.statusText}`, 'error', 3500);
+          rebuildBtn.disabled = false;
+          rebuildBtn.textContent = '⚡ 手動重建索引';
+          return;
+        }
+
+        showToast('⏳ 已觸發全文索引重建，後台建置中…', 'info', 3000);
+
+        await loadHardwareStats();
+
+        if (indexRebuildPollingTimer) clearInterval(indexRebuildPollingTimer);
+        indexRebuildPollingTimer = setInterval(async () => {
+          try {
+            const statsRes = await fetch('/api/admin/hardware', {
+              headers: { 'X-Admin-Token': state.adminToken }
+            });
+            if (!statsRes.ok) return;
+            const data = await statsRes.json();
+            renderHardwareDashboard(data);
+
+            if (!data.index.building) {
+              clearInterval(indexRebuildPollingTimer);
+              indexRebuildPollingTimer = null;
+              rebuildBtn.disabled = false;
+              rebuildBtn.textContent = '⚡ 手動重建索引';
+              showToast('✅ 全文索引重建完成！', 'success', 3000);
+            }
+          } catch (err) {
+            console.error('Error polling hardware stats during rebuild:', err);
+          }
+        }, 1500);
+
+      } catch (err) {
+        console.error('Failed to rebuild search index:', err);
+        showToast(`❌ 重建索引失敗: ${err.message}`, 'error', 3500);
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = '⚡ 手動重建索引';
+      }
+    };
   }
 
   function setupHardwareAutoRefresh() {
     const refreshBtn = $('hwRefreshBtn');
     const select = $('hwAutoRefreshSelect');
+
+    setupHardwareIndexRebuild();
 
     if (refreshBtn) {
       refreshBtn.onclick = () => loadHardwareStats();
