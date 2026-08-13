@@ -1213,17 +1213,26 @@ body,
   display: none !important;
 }
 
-/* Virtualized large-file TOC: tens of thousands of flat rows. `content-visibility:
-   auto` skips layout/paint for off-screen rows so building the list stays cheap. */
+/* Virtualized large-file TOC: only a small window of rows is mounted at a time
+   (see renderVirtualTOC in app.js). Rows have a FIXED height so the mounted
+   window can be derived from tocList.scrollTop with exact arithmetic — building
+   all 32K rows at once was the source of the sidebar/TOC tab freeze. */
 .toc-item-row.virtual {
-  min-height: 26px;
-  padding-left: 10px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 26px;
+  height: 34px;
+  min-height: 34px;
+  max-height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  margin: 0;
+  line-height: 34px;
 }
 
 .toc-group-row {
-  padding: 6px 10px 4px 10px;
+  height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
   font-size: var(--sidebar-font-size);
   font-weight: 700;
   color: var(--text-primary);
@@ -1231,6 +1240,17 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: none;
+}
+
+/* Virtual-scroll spacers + mounted-row window for the virtualized TOC. */
+.toc-spacer {
+  display: block;
+  width: 100%;
+  height: 0;
+  pointer-events: none;
+}
+.toc-window {
+  display: block;
 }
 
 /* Virtualized content chunks */

@@ -1299,46 +1299,163 @@
     }
   }
 
+  // Virtualized TOC geometry. Each mounted row has a FIXED height so the mounted
+  // window can be derived from tocList.scrollTop with exact arithmetic; only a
+  // small window (~viewport + buffer) is ever in the DOM. Building all 32K rows
+  // at once was the source of the sidebar/TOC tab freeze.
+  const TOC_ROW_H = 34;         // px height of a virtualized TOC entry row
+  const TOC_GROUP_H = 30;       // px height of a virtualized TOC group header
+  const TOC_WINDOW_BUFFER = 12; // extra rows mounted above/below the viewport
+
   function updateVirtualScrollSpy(line) {
     const v = state.virtual;
-    if (!v || !v._tocRows || v._tocRows.length === 0) return;
+    if (!v || !v._tocItems || v._tocItems.length === 0) return;
     const ei = entryIndexForLine(line);
-    const row = v._tocRows[ei];
-    const prev = v._activeTocRow;
-    // This runs on every scroll frame. Bail when the active entry is unchanged
-    // so classList/scrollIntoView only touch the DOM at entry boundaries — doing
-    // it per frame forced needless layout work during continuous scrolling.
-    if (row === prev) return;
-    if (prev) prev.classList.remove('active');
+    if (ei === v._activeTocEntry) return;
+    if (v._activeTocEntry != null) {
+      const prevRow = v._tocRowEls.get(v._activeTocEntry);
+      if (prevRow) prevRow.classList.remove('active');
+    }
+    v._activeTocEntry = ei;
+    let row = v._tocRowEls.get(ei);
+    if (!row && isTocPanelVisible()) {
+      // Active entry is outside the mounted window — recenter and re-render.
+      // Only do this while the panel is visible: writing scrollTop on a
+      // display:none element is a no-op, so recentering is deferred to the tab
+      // open handler (see the sidebar-tab click listener) when hidden.
+      centerTocOnEntry(ei);
+      row = v._tocRowEls.get(ei);
+    }
     if (row) {
       row.classList.add('active');
-      v._activeTocRow = row;
-      // Only invoked when the highlighted row actually changes; 'nearest' keeps
-      // the (content-visibility) row in view without a full layout pass.
       row.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     }
   }
 
-  // Build the TOC directly from the section index (not from DOM headings). For
-  // very large files this can be tens of thousands of rows; rows use
-  // `content-visibility: auto` (see style.css) so off-screen rows are cheap.
-  // Tear down a virtualized (chunked) document: detach its scroll handler,
+  function isTocPanelVisible() {
+    const panel = $('panelToc');
+    return !!(panel && panel.classList.contains('active'));
+  }
+
+  // Flat fixed-height item list + prefix offsets. Only ~O(window) rows are
+  // mounted; the offsets let renderTocWindow find the visible slice in O(log n).
+  function buildVirtualTocItems(v) {
+    const items = [];
+    const groupStarts = new Map();
+    (v.groups || []).forEach(g => groupStarts.set(g.first, g));
+    const entryItemIndex = new Map();
+    v.entries.forEach((e, i) => {
+      const gr = groupStarts.get(i);
+      if (gr) items.push({ type: 'group', entryIndex: i, label: gr.h || '', h: TOC_GROUP_H });
+      items.push({ type: 'entry', entryIndex: i, label: e.h || '', h: TOC_ROW_H });
+      entryItemIndex.set(i, items.length - 1);
+    });
+    const offsets = new Array(items.length + 1);
+    offsets[0] = 0;
+    for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + items[i].h;
+    v._tocItems = items;
+    v._tocOffsets = offsets;
+    v._tocEntryItemIndex = entryItemIndex;
+    v._tocTotalHeight = offsets[offsets.length - 1];
+  }
+
+  function renderTocWindow() {
+    const v = state.virtual;
+    const tocList = $('tocList');
+    if (!v || !v._tocItems || !v._tocOffsets || !v._tocWindow) return;
+    const items = v._tocItems;
+    const offsets = v._tocOffsets;
+    const scrollTop = tocList.scrollTop;
+    const viewportH = tocList.clientHeight || 400;
+
+    // First item whose top edge is at/below the viewport top (binary search).
+    let lo = 0, hi = items.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[mid] <= scrollTop) lo = mid + 1;
+      else hi = mid;
+    }
+    const first = Math.max(0, lo - 1);
+    let last = first;
+    const bottom = scrollTop + viewportH;
+    while (last < items.length && offsets[last + 1] <= bottom) last++;
+
+    const start = Math.max(0, first - TOC_WINDOW_BUFFER);
+    const end = Math.min(items.length - 1, last + TOC_WINDOW_BUFFER);
+
+    v._tocSpacerTop.style.height = offsets[start] + 'px';
+    const win = v._tocWindow;
+    win.textContent = '';
+    v._tocRowEls.clear();
+    const frag = document.createDocumentFragment();
+    for (let i = start; i <= end; i++) {
+      const item = items[i];
+      const el = document.createElement('div');
+      if (item.type === 'group') {
+        el.className = 'toc-group-row';
+        el.textContent = item.label || '';
+        el.title = item.label || '';
+      } else {
+        el.className = 'toc-item-row virtual';
+        el.setAttribute('data-entry', item.entryIndex);
+        el.addEventListener('click', () => jumpToEntry(item.entryIndex));
+        v._tocRowEls.set(item.entryIndex, el);
+        const label = document.createElement('span');
+        label.className = 'toc-item-label';
+        label.textContent = item.label || '';
+        label.title = item.label || '';
+        el.appendChild(label);
+      }
+      frag.appendChild(el);
+    }
+    win.appendChild(frag);
+    v._tocSpacerBottom.style.height = (v._tocTotalHeight - offsets[end + 1]) + 'px';
+
+    // Re-apply the active highlight if the active entry is still mounted.
+    if (v._activeTocEntry != null) {
+      const active = v._tocRowEls.get(v._activeTocEntry);
+      if (active) active.classList.add('active');
+    }
+  }
+
+  function centerTocOnEntry(ei) {
+    const v = state.virtual;
+    const tocList = $('tocList');
+    if (!v || !v._tocOffsets || !v._tocEntryItemIndex) return;
+    const itemIdx = v._tocEntryItemIndex.get(ei);
+    if (itemIdx == null) return;
+    const target = v._tocOffsets[itemIdx];
+    const viewportH = tocList.clientHeight || 400;
+    tocList.scrollTop = Math.max(0, target - Math.floor(viewportH / 2));
+    renderTocWindow();
+  }
+
+  // Tear down a virtualized (chunked) document: detach its scroll handlers,
   // cancel any pending RAF, and release the large per-document structures
-  // (section index, TOC rows, chunk/heights Maps) so switching to another file
-  // or returning home doesn't pin them in memory for the session.
+  // (section index, TOC items/offsets, chunk/heights Maps) so switching to
+  // another file or returning home doesn't pin them in memory for the session.
   function teardownVirtual() {
     const v = state.virtual;
     if (!v) return;
     const content = $('content');
     if (v._scrollHandler && content) content.removeEventListener('scroll', v._scrollHandler);
     if (v._scrollRaf) { cancelAnimationFrame(v._scrollRaf); v._scrollRaf = null; }
+    const tocList = $('tocList');
+    if (v._tocScrollHandler && tocList) tocList.removeEventListener('scroll', v._tocScrollHandler);
+    if (v._tocRaf) { cancelAnimationFrame(v._tocRaf); v._tocRaf = null; }
     if (v.chunks) v.chunks.clear();
     if (v.inflight) v.inflight.clear();
     if (v.errorChunks) v.errorChunks.clear();
     if (v.chunkHeights) v.chunkHeights.clear();
     if (v.headwordMap) v.headwordMap.clear();
     if (v.entryMap) v.entryMap.clear();
-    v._tocRows = [];
+    if (v._tocRowEls) v._tocRowEls.clear();
+    v._tocItems = null;
+    v._tocOffsets = null;
+    v._tocEntryItemIndex = null;
+    v._tocSpacerTop = null;
+    v._tocWindow = null;
+    v._tocSpacerBottom = null;
     v.entries = null;
     v.groups = null;
     v.chunkRanges = null;
@@ -1354,44 +1471,46 @@
     }
   }
 
+  // Build the TOC directly from the section index (not from DOM headings). For
+  // very large files this can be tens of thousands of rows, so only a small
+  // window is mounted (see buildVirtualTocItems / renderTocWindow).
   function renderVirtualTOC() {
     const v = state.virtual;
     const tocList = $('tocList');
     disconnectScrollSpy();
-    tocList.innerHTML = '';
-    const fragment = document.createDocumentFragment();
-    const rows = [];
-    const groupStarts = new Map();
-    (v.groups || []).forEach(g => groupStarts.set(g.first, g));
+    buildVirtualTocItems(v);
 
-    v.entries.forEach((e, i) => {
-      if (groupStarts.has(i)) {
-        const gr = document.createElement('div');
-        gr.className = 'toc-group-row';
-        gr.textContent = groupStarts.get(i).h || '';
-        gr.title = gr.textContent;
-        fragment.appendChild(gr);
-      }
-      const row = document.createElement('div');
-      row.className = 'toc-item-row virtual';
-      row.setAttribute('data-entry', i);
-      const label = document.createElement('span');
-      label.className = 'toc-item-label';
-      label.textContent = e.h || '';
-      label.title = e.h || '';
-      row.appendChild(label);
-      row.addEventListener('click', () => jumpToEntry(i));
-      fragment.appendChild(row);
-      rows.push(row);
-    });
-
-    if (rows.length === 0) {
+    if (v._tocItems.length === 0) {
       tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
       return;
     }
 
-    tocList.appendChild(fragment);
-    state.virtual._tocRows = rows;
+    tocList.innerHTML = '';
+    v._tocSpacerTop = document.createElement('div');
+    v._tocSpacerTop.className = 'toc-spacer';
+    v._tocWindow = document.createElement('div');
+    v._tocWindow.className = 'toc-window';
+    v._tocSpacerBottom = document.createElement('div');
+    v._tocSpacerBottom.className = 'toc-spacer';
+    v._tocRowEls = new Map();
+    v._activeTocEntry = -1;
+    tocList.appendChild(v._tocSpacerTop);
+    tocList.appendChild(v._tocWindow);
+    tocList.appendChild(v._tocSpacerBottom);
+
+    if (v._tocScrollHandler) tocList.removeEventListener('scroll', v._tocScrollHandler);
+    const onTocScroll = () => {
+      if (v._tocRaf) return;
+      v._tocRaf = requestAnimationFrame(() => {
+        v._tocRaf = null;
+        if (state.virtual !== v) return;
+        renderTocWindow();
+      });
+    };
+    v._tocScrollHandler = onTocScroll;
+    tocList.addEventListener('scroll', onTocScroll, { passive: true });
+
+    renderTocWindow();
     updateVirtualScrollSpy(1);
   }
 
@@ -1467,8 +1586,17 @@
       spacerBottom: null,        // bottom spacer element
       headwordMap: new Map(),
       entryMap: new Map(),
-      _tocRows: [],
-      _activeTocRow: null,
+      _tocItems: null,
+      _tocOffsets: null,
+      _tocEntryItemIndex: null,
+      _tocTotalHeight: 0,
+      _tocRowEls: new Map(),
+      _tocSpacerTop: null,
+      _tocWindow: null,
+      _tocSpacerBottom: null,
+      _tocScrollHandler: null,
+      _tocRaf: null,
+      _activeTocEntry: -1,
       _scrollHandler: null,
       _scrollRaf: null,
     };
@@ -3255,6 +3383,18 @@
         // Auto-focus search input
         if (tabName === 'search') {
           setTimeout(() => $('globalSearchInput').focus(), 100);
+        }
+
+        // When the TOC tab is opened on a virtualized file, recenter its
+        // window on the active entry. While hidden, scrollTop writes are
+        // no-ops, so the window may be stale; defer until after layout.
+        if (tabName === 'toc' && isVirtualMode()) {
+          requestAnimationFrame(() => {
+            if (!isVirtualMode()) return;
+            const v = state.virtual;
+            const ei = (v && v._activeTocEntry >= 0) ? v._activeTocEntry : 0;
+            centerTocOnEntry(ei);
+          });
         }
       });
     });
