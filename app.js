@@ -3143,6 +3143,7 @@
     }
 
     $('userSettingsOverlay').style.display = 'flex';
+    document.body.classList.add('modal-open');
   }
 
   // ── Helper functions for admin & user panels ──
@@ -3152,11 +3153,17 @@
   function closeUserSettingsModal() {
     const overlay = $('userSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
+    document.body.classList.remove('modal-open');
   }
 
   function closeAdminModal() {
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
+    const loginOverlay = $('adminLoginOverlay');
+    if (loginOverlay) loginOverlay.style.display = 'none';
+    const setupOverlay = $('adminSetupOverlay');
+    if (setupOverlay) setupOverlay.style.display = 'none';
+    document.body.classList.remove('modal-open');
     if (hwAutoRefreshTimer) {
       clearInterval(hwAutoRefreshTimer);
       hwAutoRefreshTimer = null;
@@ -3590,6 +3597,7 @@
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
+      document.body.classList.add('modal-open');
 
       // Preload data for all admin tabs (Suggest, Analytics, Logs) so that
       // all 4 tabs and data analytics tables are populated immediately upon login/open
