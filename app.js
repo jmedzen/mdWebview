@@ -239,7 +239,8 @@
     if (searchFile) {
       searchFile = decodeURIComponent(searchFile);
       const searchLine = searchParams.get('line') ? parseInt(searchParams.get('line')) : null;
-      return { file: searchFile, line: searchLine };
+      const searchQuery = searchParams.get('q') || searchParams.get('query') || null;
+      return { file: searchFile, line: searchLine, query: searchQuery };
     }
 
     // 2. Fallback to hash (backwards compatibility)
@@ -299,7 +300,88 @@
     }
   }, { passive: true });
 
-  function scrollToLine(lineNum) {
+  function clearLineKeywordHighlights() {
+    const highlights = document.querySelectorAll('mark.search-keyword-highlight');
+    highlights.forEach(mark => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent), mark);
+        parent.normalize();
+      }
+    });
+  }
+
+  function highlightLineKeyword(anchorEl, query) {
+    if (!anchorEl || !query || typeof query !== 'string') return;
+    const terms = query.trim().split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return;
+
+    const regexPattern = terms.map(t => escRegex(t)).join('|');
+    if (!regexPattern) return;
+    const regex = new RegExp(`(${regexPattern})`, 'gi');
+
+    const lineTextNodes = [];
+
+    function collectTextNodes(node) {
+      let curr = node;
+      while (curr) {
+        if (curr !== anchorEl && curr.nodeType === 1 && curr.classList.contains('line-anchor')) {
+          return false;
+        }
+        if (curr.nodeType === 3) {
+          if (curr.nodeValue && curr.nodeValue.length > 0) {
+            lineTextNodes.push(curr);
+          }
+        } else if (curr.nodeType === 1 && curr !== anchorEl) {
+          if (!curr.classList.contains('line-anchor')) {
+            const shouldContinue = collectTextNodes(curr.firstChild);
+            if (!shouldContinue) return false;
+          }
+        }
+        curr = curr.nextSibling;
+      }
+      return true;
+    }
+
+    collectTextNodes(anchorEl.nextSibling);
+
+    lineTextNodes.forEach(textNode => {
+      const val = textNode.nodeValue;
+      if (!val || !regex.test(val)) return;
+
+      regex.lastIndex = 0;
+      const fragment = document.createDocumentFragment();
+      let lastIdx = 0;
+      let match;
+
+      while ((match = regex.exec(val)) !== null) {
+        const matchStart = match.index;
+        const matchText = match[0];
+
+        if (matchStart > lastIdx) {
+          fragment.appendChild(document.createTextNode(val.substring(lastIdx, matchStart)));
+        }
+
+        const mark = document.createElement('mark');
+        mark.className = 'search-keyword-highlight';
+        mark.textContent = matchText;
+        fragment.appendChild(mark);
+
+        lastIdx = matchStart + matchText.length;
+      }
+
+      if (lastIdx < val.length) {
+        fragment.appendChild(document.createTextNode(val.substring(lastIdx)));
+      }
+
+      if (textNode.parentNode) {
+        textNode.parentNode.replaceChild(fragment, textNode);
+      }
+    });
+  }
+
+  function scrollToLine(lineNum, highlightQuery) {
+    clearLineKeywordHighlights();
     if (!lineNum) return;
     // Try exact line anchor first
     let target = document.getElementById('L' + lineNum);
@@ -340,6 +422,9 @@
       if (block) {
         block.classList.add('line-highlight');
         setTimeout(() => block.classList.remove('line-highlight'), 2500);
+      }
+      if (highlightQuery) {
+        highlightLineKeyword(target, highlightQuery);
       }
     }
   }
@@ -853,7 +938,7 @@
   // FILE VIEWER
   // ═══════════════════════════════════════════════════════════
 
-  async function openFile(filePath, scrollToLineNum) {
+  async function openFile(filePath, scrollToLineNum, highlightQuery) {
     state.currentFile = filePath;
     log.info(`Opening file "${filePath}"${scrollToLineNum ? ` (Line: ${scrollToLineNum})` : ''}`);
 
@@ -920,7 +1005,7 @@
         generateTOC(headings);
         loading.style.display = 'none';
         wrapper.style.display = 'block';
-        if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum), 80);
+        if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery), 80);
         else content.scrollTop = 0;
         setTimeout(() => saveReadProgress(filePath), 350);
         if (cachedMeta) {
@@ -957,7 +1042,7 @@
           loading.style.display = 'none';
           wrapper.style.display = 'block';
           if (scrollToLineNum) {
-            setTimeout(() => scrollToLine(scrollToLineNum), 80);
+            setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery), 80);
           } else {
             content.scrollTop = 0;
           }
@@ -1012,7 +1097,7 @@
       wrapper.style.display = 'block';
 
       if (scrollToLineNum) {
-        setTimeout(() => scrollToLine(scrollToLineNum), 80);
+        setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery), 80);
       } else {
         content.scrollTop = 0;
       }
@@ -2609,7 +2694,8 @@
         if (itemEl) {
           const file = itemEl.getAttribute('data-file');
           const line = itemEl.getAttribute('data-line');
-          openFile(file, line ? parseInt(line, 10) : null);
+          const query = (state.lastSearchData && state.lastSearchData.query) || $('globalSearchInput')?.value || '';
+          openFile(file, line ? parseInt(line, 10) : null, query);
         }
       });
     }
