@@ -228,14 +228,31 @@ function renderMarkdownSSR(body, filePath, lineOffset) {
 function sanitizeDangerousTags(html) {
   if (!html) return '';
   return html
-    // Strip script tags and content
-    .replace(/<script\b[^<]*([\s\S]*?)<\/script>/gi, '')
-    // Strip dangerous iframe, embed, object, frame, frameset tags
-    .replace(/<\/?(?:iframe|embed|object|frame|frameset)\b[^>]*>/gi, '')
-    // Strip inline event handlers (onerror=, onload=, onclick=, etc.)
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    // Neutralize javascript: pseudo-protocol in href or src
-    .replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, '$1="#"');
+    // 1. Strip <script> entirely, including a bare/unclosed opening tag (in a
+    //    real parser script-data state runs to EOF, so drop everything after it).
+    .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
+    // 2. Strip a broad set of active/unsafe elements (opening + closing tags).
+    //    Includes <svg>/<math> (mXSS vectors) and <style>/<base>/<meta>/<link>/
+    //    <form> which can exfiltrate or hijack the page.
+    .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript)\b[^>]*>/gi, '')
+    // 3. Strip inline event handlers regardless of what precedes `on*`. The
+    //    original required whitespace, letting `<img/onerror=...>` (where `/`
+    //    is a self-closing flag) slip through. `\b` also catches `data-on*`.
+    .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+    // 4. Neutralize javascript:/vbscript: pseudo-protocols in href/src (and
+    //    data: in href), decoding HTML entities first so `java&#115;cript:`
+    //    cannot sneak past.
+    .replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
+      const raw = /^["']/.test(val) ? val.slice(1, -1) : val;
+      const decoded = raw
+        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/&#([0-9]+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+      if (/^\s*(?:javascript|vbscript)\s*:/i.test(decoded)) return attr + '="#"';
+      if (attr.toLowerCase() === 'href' && /^\s*data\s*:/i.test(decoded)) return attr + '="#"';
+      return m;
+    });
 }
 
 /**

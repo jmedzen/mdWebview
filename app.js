@@ -538,6 +538,13 @@
   function goHome(clearUrl = true) {
     state.currentFile = null;
 
+    // Release any virtualized document and full-render scroll-spy observer so
+    // returning home doesn't pin a large file's index, TOC rows, or headings.
+    teardownVirtual();
+    disconnectScrollSpy();
+    headingTextMap.clear();
+    cachedLineAnchors = [];
+
     const welcome = $('welcomeScreen');
     const wrapper = $('contentWrapper');
     const loading = $('contentLoading');
@@ -1241,9 +1248,41 @@
   // Build the TOC directly from the section index (not from DOM headings). For
   // very large files this can be tens of thousands of rows; rows use
   // `content-visibility: auto` (see style.css) so off-screen rows are cheap.
+  // Tear down a virtualized (chunked) document: detach its scroll handler,
+  // cancel any pending RAF, and release the large per-document structures
+  // (section index, TOC rows, chunk/heights Maps) so switching to another file
+  // or returning home doesn't pin them in memory for the session.
+  function teardownVirtual() {
+    const v = state.virtual;
+    if (!v) return;
+    const content = $('content');
+    if (v._scrollHandler && content) content.removeEventListener('scroll', v._scrollHandler);
+    if (v._scrollRaf) { cancelAnimationFrame(v._scrollRaf); v._scrollRaf = null; }
+    if (v.chunks) v.chunks.clear();
+    if (v.inflight) v.inflight.clear();
+    if (v.chunkHeights) v.chunkHeights.clear();
+    if (v.headwordMap) v.headwordMap.clear();
+    if (v.entryMap) v.entryMap.clear();
+    v._tocRows = [];
+    v.entries = null;
+    v.groups = null;
+    v.chunkRanges = null;
+    state.virtual = null;
+  }
+
+  // Disconnect the full-render scroll-spy IntersectionObserver (if any) so it
+  // stops observing the previous document's headings.
+  function disconnectScrollSpy() {
+    if (state.scrollSpyObserver) {
+      state.scrollSpyObserver.disconnect();
+      state.scrollSpyObserver = null;
+    }
+  }
+
   function renderVirtualTOC() {
     const v = state.virtual;
     const tocList = $('tocList');
+    disconnectScrollSpy();
     tocList.innerHTML = '';
     const fragment = document.createDocumentFragment();
     const rows = [];
@@ -1367,10 +1406,9 @@
       _scrollRaf: null,
     };
 
-    // Detach any previous virtual scroll handler (e.g. re-opening another large file).
-    if (state.virtual && state.virtual._scrollHandler) {
-      $('content').removeEventListener('scroll', state.virtual._scrollHandler);
-    }
+    // Tear down any previous virtual document (large→large switch, or a prior
+    // failed attempt) so its index, TOC rows and chunk Maps are released.
+    teardownVirtual();
     state.virtual = v;
 
     si.entries.forEach((e, i) => {
@@ -1472,6 +1510,11 @@
         console.warn('[Virtual] open failed, falling back to full render:', err);
       }
     }
+
+    // Full-render path: release any lingering virtual document and scroll-spy
+    // observer from a previously opened file before rendering the new one.
+    teardownVirtual();
+    disconnectScrollSpy();
 
     try {
       // Check LRU cache first — cached files open instantly (no network at all)

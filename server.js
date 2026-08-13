@@ -111,6 +111,31 @@ function updateLatest(stat, timestamp, field = 'lastAccess') {
 }
 
 const MAX_PROCESSED_IDS = 10000;
+// Upper bound on each analytics aggregate map (ips/files/searches, both the
+// lifetime and per-day buckets). These keys are partly attacker-influenceable
+// (X-Forwarded-For, share `?file=`, search `q=`), so they must never grow
+// without bound and bloat memory + the persisted store.
+const MAX_ANALYTICS_KEYS = 10000;
+
+// String-keyed objects keep insertion order, so deleting from the front evicts
+// the oldest entries. Runs only when a NEW key is added, keeping it O(1) in the
+// common case.
+function pruneAnalyticsMap(map, maxKeys = MAX_ANALYTICS_KEYS) {
+  const keys = Object.keys(map);
+  const excess = keys.length - maxKeys;
+  if (excess > 0) {
+    for (let i = 0; i < excess; i++) delete map[keys[i]];
+  }
+}
+
+function analyticsMapGetOrCreate(map, key, make, maxKeys = MAX_ANALYTICS_KEYS) {
+  let entry = map[key];
+  if (!entry) {
+    entry = map[key] = make();
+    pruneAnalyticsMap(map, maxKeys);
+  }
+  return entry;
+}
 
 function updateAnalyticsStoreEntry(store, entry) {
   const timestamp = new Date(entry.timestamp);
@@ -136,10 +161,10 @@ function updateAnalyticsStoreEntry(store, entry) {
   lifetime.requests++;
   bucket.requests++;
 
-  const ipStat = lifetime.ips[ip] || (lifetime.ips[ip] = { requests: 0, lastAccess: entry.timestamp });
+  const ipStat = analyticsMapGetOrCreate(lifetime.ips, ip, () => ({ requests: 0, lastAccess: entry.timestamp }));
   ipStat.requests++;
   updateLatest(ipStat, entry.timestamp);
-  const bucketIp = bucket.ips[ip] || (bucket.ips[ip] = { requests: 0, lastAccess: entry.timestamp });
+  const bucketIp = analyticsMapGetOrCreate(bucket.ips, ip, () => ({ requests: 0, lastAccess: entry.timestamp }));
   bucketIp.requests++;
   updateLatest(bucketIp, entry.timestamp);
 
@@ -148,13 +173,19 @@ function updateAnalyticsStoreEntry(store, entry) {
     if (docPath) {
       lifetime.views++;
       bucket.views++;
-      const file = lifetime.files[docPath] || (lifetime.files[docPath] = { views: 0, ips: {}, lastAccess: entry.timestamp });
+      const file = analyticsMapGetOrCreate(lifetime.files, docPath, () => ({ views: 0, ips: {}, lastAccess: entry.timestamp }));
       file.views++;
-      file.ips[ip] = true;
+      if (!file.ips[ip]) {
+        file.ips[ip] = true;
+        pruneAnalyticsMap(file.ips);
+      }
       updateLatest(file, entry.timestamp);
-      const bucketFile = bucket.files[docPath] || (bucket.files[docPath] = { views: 0, ips: {}, lastAccess: entry.timestamp });
+      const bucketFile = analyticsMapGetOrCreate(bucket.files, docPath, () => ({ views: 0, ips: {}, lastAccess: entry.timestamp }));
       bucketFile.views++;
-      bucketFile.ips[ip] = true;
+      if (!bucketFile.ips[ip]) {
+        bucketFile.ips[ip] = true;
+        pruneAnalyticsMap(bucketFile.ips);
+      }
       updateLatest(bucketFile, entry.timestamp);
     }
   }
@@ -164,10 +195,10 @@ function updateAnalyticsStoreEntry(store, entry) {
     if (query) {
       lifetime.searchCount++;
       bucket.searches++;
-      const search = lifetime.searches[query] || (lifetime.searches[query] = { count: 0, lastSearch: entry.timestamp });
+      const search = analyticsMapGetOrCreate(lifetime.searches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       search.count++;
       updateLatest(search, entry.timestamp, 'lastSearch');
-      const bucketSearch = bucket.searches[query] || (bucket.searches[query] = { count: 0, lastSearch: entry.timestamp });
+      const bucketSearch = analyticsMapGetOrCreate(bucket.searches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       bucketSearch.count++;
       updateLatest(bucketSearch, entry.timestamp, 'lastSearch');
     }
@@ -373,6 +404,19 @@ function safeDecodeURI(str) {
   }
 }
 
+// decodeURIComponent throws URIError on malformed escapes (e.g. a bare '%' or
+// '%E0%A4%A'). A single bad request must never crash the server, so every
+// request-path use goes through this wrapper; downstream path.resolve + the
+// isSafe path.relative check still confine the (possibly un-decoded) result.
+function safeDecodeURIComponent(str) {
+  if (typeof str !== 'string') return str;
+  try {
+    return decodeURIComponent(str);
+  } catch (_) {
+    return str;
+  }
+}
+
 function extractIpFromParam(reqOrIp) {
   if (!reqOrIp) return '127.0.0.1';
   if (typeof reqOrIp === 'string') {
@@ -457,6 +501,17 @@ const Logger = {
   }
 };
 
+// ── Last-resort error containment ──────────────────────────────────────────
+// Never let an uncaught exception or unhandled rejection take down the whole
+// server. Log it and keep serving. The per-request guards above handle the
+// known vectors; this is defense-in-depth for anything unexpected.
+process.on('uncaughtException', (err) => {
+  Logger.error('Process', 'Uncaught exception', err);
+});
+process.on('unhandledRejection', (reason) => {
+  Logger.error('Process', 'Unhandled rejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
+
 // ── Worker Thread Pool ─────────────────────────────────────────────────────
 // 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
 const numCpus = os.cpus().length || 4;
@@ -500,6 +555,9 @@ function createWorker(index) {
   });
 
   w.on('exit', (code) => {
+    // The timeout path already removed this worker and spawned a replacement
+    // (marking it `terminated`); the async 'exit' event must not spawn a second.
+    if (w.terminated) return;
     console.warn(`[Worker ${w.index}] Exited with code ${code}. Re-spawning...`);
     
     // Clean up active job if it died mid-execution to prevent leaking callbacks
@@ -561,6 +619,7 @@ function renderWithWorker(body, filePath, lineOffset) {
         const stuckWorker = workerPool.find(w => w.currentJobId === jobId);
         if (stuckWorker) {
           Logger.warn('WorkerPool', `[Worker #${stuckWorker.index}] Timed out on job #${jobId}. Terminating & respawning worker...`);
+          stuckWorker.terminated = true; // suppress the 'exit' handler's own respawn
           try { stuckWorker.terminate(); } catch (_) {}
           const idx = workerPool.indexOf(stuckWorker);
           if (idx !== -1) workerPool.splice(idx, 1);
@@ -711,12 +770,23 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src 'self' fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self';"
 };
 
+// Build response headers for the dynamic index.html, injecting a per-request
+// nonce into script-src so the single inline config script can run, while any
+// inline <script>/event-handler that arrives via rendered markdown is blocked.
+function indexHtmlHeaders(extra, nonce) {
+  const csp = SECURITY_HEADERS['Content-Security-Policy'].replace(
+    "script-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`
+  );
+  return Object.assign({}, extra, SECURITY_HEADERS, { 'Content-Security-Policy': csp });
+}
+
 let rawIndexHtml = null;
-function getIndexHtml(callback) {
-  const renderDynamicIndex = (templateBuf) => {
+function getIndexHtml(nonce, callback) {
+  const renderDynamicIndex = (templateBuf, nonce) => {
     let html = templateBuf.toString('utf-8');
     const defaultTheme = config.settings.defaultTheme || 'obsidian-dark';
     const defaultFontSize = config.settings.defaultFontSize || 16;
@@ -756,7 +826,7 @@ function getIndexHtml(callback) {
     );
 
     // 4. Inject server config script
-    const configScript = `<script>window.__APP_CONFIG__ = ${JSON.stringify(config.settings)};</script>`;
+    const configScript = `<script nonce="${nonce}">window.__APP_CONFIG__ = ${JSON.stringify(config.settings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
     } else {
@@ -767,13 +837,13 @@ function getIndexHtml(callback) {
   };
 
   if (rawIndexHtml) {
-    return callback(null, renderDynamicIndex(rawIndexHtml));
+    return callback(null, renderDynamicIndex(rawIndexHtml, nonce));
   }
   const indexPath = path.join(APP_ROOT, 'index.html');
   fs.readFile(indexPath, (err, data) => {
     if (err) return callback(err);
     rawIndexHtml = data;
-    callback(null, renderDynamicIndex(rawIndexHtml));
+    callback(null, renderDynamicIndex(rawIndexHtml, nonce));
   });
 }
 
@@ -853,6 +923,10 @@ const httpMetrics = {
   totalResponseTimeMs: 0,
   recentRequestTimes: [] // Timestamps for 60s sliding window RPM
 };
+
+// Bound the sliding-window RPM buffer so a flood of requests can never grow it
+// unboundedly (the 30 req/s API rate limit ≈ 1800/min; 5000 gives ample headroom).
+const MAX_RECENT_REQUEST_TIMES = 5000;
 
 let treeWatcherDebounceTimer = null;
 let treeWatcherStartTime = 0;
@@ -1010,7 +1084,7 @@ function handleFile(req, res, query) {
 
 // ── API: Media & Image File Server ───────────────────────────
 async function handleMedia(req, res, query) {
-  let rawPath = query.path ? decodeURIComponent(query.path).trim() : '';
+  let rawPath = query.path ? safeDecodeURIComponent(query.path).trim() : '';
   if (!rawPath) {
     res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     return res.end('Missing path parameter');
@@ -1021,7 +1095,7 @@ async function handleMedia(req, res, query) {
     rawPath = rawPath.replace(/\\/g, '/');
   }
   const baseName = path.basename(rawPath);
-  const docPath = query.doc ? decodeURIComponent(query.doc).trim() : '';
+  const docPath = query.doc ? safeDecodeURIComponent(query.doc).trim() : '';
   const docFolder = docPath ? path.dirname(docPath) : '';
 
   const mdRoot = getMdRoot();
@@ -2490,7 +2564,7 @@ function serveStatic(req, res, pathname) {
     return;
   }
 
-  let filePath = path.join(APP_ROOT, decodeURIComponent(pathname));
+  let filePath = path.join(APP_ROOT, safeDecodeURIComponent(pathname));
 
   // Default to index.html
   if (pathname === '/' || pathname === '') {
@@ -2541,7 +2615,8 @@ function serveStatic(req, res, pathname) {
 
   // Intercept root or index.html requests to serve dynamic index with injected config.settings
   if (pathname === '/' || pathname === '' || path.basename(resolved) === 'index.html') {
-    getIndexHtml((err, data) => {
+    const nonce = crypto.randomBytes(16).toString('base64');
+    getIndexHtml(nonce, (err, data) => {
       if (err) {
         res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
         res.end('Server Error');
@@ -2553,11 +2628,11 @@ function serveStatic(req, res, pathname) {
         res.end();
         return;
       }
-      const headers = Object.assign({
+      const headers = indexHtmlHeaders({
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache',
         'ETag': etag
-      }, SECURITY_HEADERS);
+      }, nonce);
       sendCompressed(req, res, 200, headers, data);
     });
     return;
@@ -2566,7 +2641,8 @@ function serveStatic(req, res, pathname) {
   fs.stat(resolved, (err, stats) => {
     if (err || !stats.isFile()) {
       // Fallback to index.html for SPA routing
-      getIndexHtml((err2, data) => {
+      const nonce = crypto.randomBytes(16).toString('base64');
+      getIndexHtml(nonce, (err2, data) => {
         if (err2) {
           res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
           res.end('Not Found');
@@ -2581,11 +2657,11 @@ function serveStatic(req, res, pathname) {
           return;
         }
 
-        const headers = Object.assign({
+        const headers = indexHtmlHeaders({
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
           'ETag': etag
-        }, SECURITY_HEADERS);
+        }, nonce);
 
         sendCompressed(req, res, 200, headers, data);
       });
@@ -2839,6 +2915,9 @@ const server = http.createServer((req, res) => {
     httpMetrics.totalRequests++;
     httpMetrics.totalResponseTimeMs += duration;
     httpMetrics.recentRequestTimes.push(now);
+    if (httpMetrics.recentRequestTimes.length > MAX_RECENT_REQUEST_TIMES) {
+      httpMetrics.recentRequestTimes.splice(0, httpMetrics.recentRequestTimes.length - MAX_RECENT_REQUEST_TIMES);
+    }
 
     const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
@@ -3013,7 +3092,7 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       let docPath = entry.path;
       if (!docPath && entry.message) {
         const match = entry.message.match(/path=([^&\s]+)/);
-        if (match) docPath = decodeURIComponent(match[1]);
+        if (match) docPath = safeDecodeURIComponent(match[1]);
       }
       if (!docPath && entry.message && entry.message.includes('Access file:')) {
         const match = entry.message.match(/Access file: "([^"]+)"/);
@@ -3044,7 +3123,7 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       }
       if (!q && entry.message) {
         const match = entry.message.match(/q=([^&\s]+)/);
-        if (match) q = decodeURIComponent(match[1]);
+        if (match) q = safeDecodeURIComponent(match[1]);
       }
       if (q && q.trim().length > 0) {
         totalSearches++;
