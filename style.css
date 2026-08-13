@@ -1224,6 +1224,35 @@ section.chunk {
   pointer-events: none;
 }
 
+/* Inline "load failed" placeholder for a virtual chunk (see buildChunkErrorPlaceholder). */
+section.chunk.chunk-error {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+.chunk-error-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary, #999);
+  font-size: calc(14px * var(--ui-font-scale, 1));
+}
+.chunk-retry-btn {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 6px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  transition: background 0.15s ease;
+}
+.chunk-retry-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* ── Resize Handle ─────────────────────────────────────────── */
 .resize-handle {
   width: 5px;
@@ -3447,11 +3476,20 @@ mark.search-keyword-highlight {
 }
 
 /* Toast Notification */
-.toast-notification {
+.toast-container {
   position: fixed;
   bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.toast-notification {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--accent);
@@ -3460,15 +3498,25 @@ mark.search-keyword-highlight {
   font-size: calc(13.5px * var(--ui-font-scale, 1));
   font-weight: 550;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  z-index: 10000;
   pointer-events: none;
   backdrop-filter: blur(12px);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  animation: toastFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   max-width: 90vw;
   overflow: hidden;
   text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-notification.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.toast-notification.hide {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
 }
 
 .toast-notification.toast-success {
@@ -3486,15 +3534,9 @@ mark.search-keyword-highlight {
   box-shadow: 0 4px 18px rgba(231, 76, 60, 0.25);
 }
 
-@keyframes toastFadeIn {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 12px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
+.toast-notification.toast-loading {
+  border-color: #3498db;
+  box-shadow: 0 4px 18px rgba(52, 152, 219, 0.25);
 }
 
 /* ── Admin Tabs & Log Viewer ────────────────────────────── */

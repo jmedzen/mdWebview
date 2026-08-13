@@ -504,6 +504,7 @@
       }
     } catch (err) {
       console.error('Error checking admin status:', err);
+      showToast('❌ 後台狀態載入失敗', 'error');
     }
   }
 
@@ -1023,6 +1024,13 @@
 
     const ci = chunkIndexForEntry(entryIndex);
     if (v.chunks.has(ci)) return v.chunks.get(ci).sectionEl;
+    // A previously failed chunk left a retry placeholder behind; drop it and
+    // re-attempt the load below rather than returning the stale placeholder.
+    if (v.errorChunks.has(ci)) {
+      const ph = v.errorChunks.get(ci);
+      if (ph.parentNode) ph.remove();
+      v.errorChunks.delete(ci);
+    }
     if (v.inflight.has(ci)) {
       await v.inflight.get(ci);
       const c = v.chunks.get(ci);
@@ -1034,28 +1042,40 @@
     const to = range.to;
 
     const p = (async () => {
-      const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(v.filePath)}&from=${from}&to=${to}`);
-      if (!res.ok) throw new Error('chunk load failed: ' + res.status);
-      // The user may have switched files while this chunk was in flight; if the
-      // virtual document we belong to is no longer current, drop the result so it
-      // can't be inserted into the wrong file's body.
-      if (state.virtual !== v) return null;
-      const html = await res.text();
-      const sectionEl = document.createElement('section');
-      sectionEl.className = 'chunk';
-      sectionEl.setAttribute('data-chunk', ci);
-      sectionEl.setAttribute('data-from', from);
-      sectionEl.setAttribute('data-to', to);
-      sectionEl.innerHTML = html;
-      insertChunkSorted(ci, sectionEl);
-      v.chunks.set(ci, { sectionEl, from, to });
-      // Measure this chunk and refresh the spacers so `scrollTop` keeps mapping
-      // to the absolute position (mounting above/below never shifts the view).
-      v.chunkHeights.set(ci, sectionEl.offsetHeight);
-      updateAvgPxPerLine();
-      refreshSpacers();
-      updateCachedLineAnchors($('markdownBody'));
-      return sectionEl;
+      try {
+        const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(v.filePath)}&from=${from}&to=${to}`);
+        if (!res.ok) throw new Error('chunk load failed: ' + res.status);
+        // The user may have switched files while this chunk was in flight; if the
+        // virtual document we belong to is no longer current, drop the result so it
+        // can't be inserted into the wrong file's body.
+        if (state.virtual !== v) return null;
+        const html = await res.text();
+        const sectionEl = document.createElement('section');
+        sectionEl.className = 'chunk';
+        sectionEl.setAttribute('data-chunk', ci);
+        sectionEl.setAttribute('data-from', from);
+        sectionEl.setAttribute('data-to', to);
+        sectionEl.innerHTML = html;
+        insertChunkSorted(ci, sectionEl);
+        v.chunks.set(ci, { sectionEl, from, to });
+        // Measure this chunk and refresh the spacers so `scrollTop` keeps mapping
+        // to the absolute position (mounting above/below never shifts the view).
+        v.chunkHeights.set(ci, sectionEl.offsetHeight);
+        updateAvgPxPerLine();
+        refreshSpacers();
+        updateCachedLineAnchors($('markdownBody'));
+        return sectionEl;
+      } catch (err) {
+        // Surface the failure instead of leaving a silent gap: drop an inline
+        // retry placeholder at this chunk's position and notify once per attempt.
+        if (state.virtual === v) {
+          const placeholder = buildChunkErrorPlaceholder(ci, from, to);
+          insertChunkSorted(ci, placeholder);
+          v.errorChunks.set(ci, placeholder);
+          showToast('⚠️ 內容片段載入失敗，請重試', 'error');
+        }
+        return null;
+      }
     })();
 
     v.inflight.set(ci, p);
@@ -1064,6 +1084,35 @@
     } finally {
       v.inflight.delete(ci);
     }
+  }
+
+  // A compact inline "load failed" box with a retry button, mounted at the same
+  // position a real chunk would occupy so the reader isn't left with a blank gap.
+  function buildChunkErrorPlaceholder(ci, from, to) {
+    const sectionEl = document.createElement('section');
+    sectionEl.className = 'chunk chunk-error';
+    sectionEl.setAttribute('data-chunk', ci);
+    sectionEl.setAttribute('data-from', from);
+    sectionEl.setAttribute('data-to', to);
+
+    const box = document.createElement('div');
+    box.className = 'chunk-error-box';
+    const msg = document.createElement('span');
+    msg.textContent = '⚠️ 內容片段載入失敗';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chunk-retry-btn';
+    btn.textContent = '重試';
+    btn.addEventListener('click', () => {
+      const v = state.virtual;
+      if (!v) return;
+      const r = v.chunkRanges[ci];
+      if (r) ensureChunk(r.from);
+    });
+    box.appendChild(msg);
+    box.appendChild(btn);
+    sectionEl.appendChild(box);
+    return sectionEl;
   }
 
   // Drop chunks farther than `windowSize` away from the center to bound memory (~7 mounted).
@@ -1210,7 +1259,10 @@
 
     let target = document.getElementById('L' + lineNum);
     if (!target) target = nearestCachedAnchor(lineNum);
-    if (!target) return;
+    if (!target) {
+      showToast(`⚠️ 找不到第 ${lineNum} 行`, 'warning');
+      return;
+    }
 
     const content = $('content');
     const targetRect = target.getBoundingClientRect();
@@ -1270,6 +1322,7 @@
     if (v._scrollRaf) { cancelAnimationFrame(v._scrollRaf); v._scrollRaf = null; }
     if (v.chunks) v.chunks.clear();
     if (v.inflight) v.inflight.clear();
+    if (v.errorChunks) v.errorChunks.clear();
     if (v.chunkHeights) v.chunkHeights.clear();
     if (v.headwordMap) v.headwordMap.clear();
     if (v.entryMap) v.entryMap.clear();
@@ -1371,8 +1424,10 @@
       } else {
         const nextCi = ci + 1;
         const prevCi = ci - 1;
-        if (nextCi < v.chunkRanges.length) ensureChunk(v.chunkRanges[nextCi].from); // prefetch next
-        if (prevCi >= 0) ensureChunk(v.chunkRanges[prevCi].from); // prefetch prev
+        // Prefetch neighbors eagerly; failures already render an inline retry
+        // placeholder via ensureChunk, so swallow the rejection to avoid noise.
+        if (nextCi < v.chunkRanges.length) ensureChunk(v.chunkRanges[nextCi].from).catch(() => {});
+        if (prevCi >= 0) ensureChunk(v.chunkRanges[prevCi].from).catch(() => {});
         recycleDistantChunks(ci);
       }
       updateVirtualScrollSpy(topLine);
@@ -1404,6 +1459,7 @@
       chunkRanges: si.chunks,    // [{from, to, lineStart}] — server's actual byte-bounded chunk boundaries
       chunks: new Map(),
       inflight: new Map(),
+      errorChunks: new Map(),     // chunkIndex -> failed-load retry placeholder
       chunkHeights: new Map(),   // chunkIndex -> measured pixel height
       avgPxPerLine: null,        // calibrated average rendered pixel height per source line
       spacerTop: null,           // top spacer element (keeps scrollTop → absolute position)
@@ -1518,6 +1574,7 @@
         if (handled) return;
       } catch (err) {
         console.warn('[Virtual] open failed, falling back to full render:', err);
+        showToast('ℹ️ 大檔快速模式不可用，已改以全文模式開啟', 'info', 3000);
       }
     }
 
@@ -1730,8 +1787,10 @@
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
     document.body.removeChild(ta);
+    return ok;
   }
 
 
@@ -2022,6 +2081,7 @@
 
     if (!filePath) {
       console.warn(`[Wikilink] Could not resolve "${fileName}" — file not found in tree.`);
+      showToast(`⚠️ 找不到目標檔案「${fileName}」`, 'warning');
       return;
     }
 
@@ -2086,6 +2146,7 @@
         jumpToEntry(ei);
       } else {
         console.warn(`[Wikilink] Heading "${targetText}" not found in virtual index.`);
+        showToast(`⚠️ 找不到章節「${targetText}」`, 'warning');
       }
       return;
     }
@@ -2122,6 +2183,7 @@
       setTimeout(() => targetEl.classList.remove('highlight-flash'), 2000);
     } else {
       console.warn(`[Wikilink] Heading "${targetText}" not found in document.`);
+      showToast(`⚠️ 找不到章節「${targetText}」`, 'warning');
     }
   }
 
@@ -2882,17 +2944,53 @@
   }
 
   // ── Toast Notification ────────────────────────────────────
-  let _toastTimer = null;
+  // Stacked, queue-aware toasts. `type` picks a border color and, when the
+  // message doesn't already carry an emoji, a matching icon. `type: 'loading'`
+  // (or duration 0/Infinity) yields a persistent toast; dismiss it via the
+  // returned handle's .dismiss(). Rapid successive events stack instead of
+  // clobbering each other.
+  const TOAST_ICONS = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌', loading: '⏳' };
+  const TOAST_MAX_VISIBLE = 3;
+  const TOAST_HIDE_MS = 300; // keep in sync with .toast-notification transition
+  // Emoji + the check/cross dingbats (✓ ✔ ✕ ✖ ✗ ✘) callers already prepend.
+  const TOAST_HAS_ICON_RE = /^(?:\p{Extended_Pictographic}|[✓-✘])/u;
+
+  function dismissToast(el, immediate = false) {
+    if (!el || !el.parentNode) return;
+    if (el._toastTimer) { clearTimeout(el._toastTimer); el._toastTimer = null; }
+    el.classList.remove('show');
+    if (immediate) { el.remove(); return; }
+    el.classList.add('hide');
+    setTimeout(() => el.remove(), TOAST_HIDE_MS);
+  }
+
   function showToast(msg, type = 'info', duration = 2200) {
-    const el = $('toastNotification');
-    if (!el) return;
-    el.textContent = msg;
+    const container = $('toastContainer');
+    if (!container) return { dismiss() {} };
+
+    const icon = TOAST_ICONS[type] || TOAST_ICONS.info;
+    const text = TOAST_HAS_ICON_RE.test(String(msg).trim())
+      ? msg : `${icon} ${msg}`;
+
+    const el = document.createElement('div');
     el.className = 'toast-notification' + (type !== 'info' ? ' toast-' + type : '');
-    el.style.display = 'block';
-    if (_toastTimer) clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => {
-      el.style.display = 'none';
-    }, duration);
+    el.textContent = text;
+    container.appendChild(el);
+
+    // Stack cap: evict oldest toasts past the limit so a burst never fills the screen.
+    const active = Array.from(container.querySelectorAll('.toast-notification'));
+    for (let i = 0; i < active.length - TOAST_MAX_VISIBLE; i++) {
+      dismissToast(active[i], true);
+    }
+
+    requestAnimationFrame(() => el.classList.add('show'));
+
+    const persistent = type === 'loading' || duration === 0 || duration === Infinity;
+    if (!persistent) {
+      el._toastTimer = setTimeout(() => dismissToast(el), duration);
+    }
+
+    return { el, dismiss() { dismissToast(el); } };
   }
 
   // ── Bookmarks ──────────────────────────────────────────────
@@ -3218,11 +3316,14 @@
 
           const fullLineUrl = window.location.origin + window.location.pathname + lineSearch;
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(fullLineUrl);
+            navigator.clipboard.writeText(fullLineUrl).then(
+              () => showToast(`✓ 已複製第 ${lineNum} 行分享連結`),
+              () => showToast('❌ 複製失敗（剪貼簿權限被拒）', 'error')
+            );
           } else {
-            fallbackCopy(fullLineUrl);
+            if (fallbackCopy(fullLineUrl)) showToast(`✓ 已複製第 ${lineNum} 行分享連結`);
+            else showToast('❌ 複製失敗', 'error');
           }
-          showToast(`✓ 已複製第 ${lineNum} 行分享連結`);
           scrollToLine(lineNum);
         }
       }
@@ -3394,10 +3495,10 @@
           };
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(doConfirm).catch(() => {
-              fallbackCopy(url); doConfirm();
+              if (fallbackCopy(url)) doConfirm(); else showToast('❌ 複製失敗', 'error');
             });
           } else {
-            fallbackCopy(url); doConfirm();
+            if (fallbackCopy(url)) doConfirm(); else showToast('❌ 複製失敗', 'error');
           }
           return;
         }
@@ -3832,6 +3933,7 @@
 
     // ── Logout ──
     $('settingsLogoutBtn').addEventListener('click', async () => {
+      let ok = true;
       try {
         await fetch('/api/admin/logout', {
           method: 'POST',
@@ -3839,11 +3941,12 @@
         });
       } catch (err) {
         console.error('Logout request failed:', err);
+        ok = false;
       }
       state.adminToken = null;
       localStorage.removeItem('mdWebview-admin-token');
       closeAdminModal();
-      showToast('👋 管理員已順利登出', 'info');
+      showToast(ok ? '👋 管理員已順利登出' : '❌ 登出請求失敗，但本機已登出', ok ? 'info' : 'error');
     });
   }
 
@@ -4014,6 +4117,7 @@
       renderHardwareDashboard(data);
     } catch (err) {
       console.error('Failed to load hardware stats:', err);
+      showToast('❌ 硬體狀態載入失敗', 'error');
     }
   }
 
@@ -4333,6 +4437,7 @@
       ]);
     } catch (err) {
       console.error('Error fetching settings:', err);
+      showToast('❌ 系統設定載入失敗', 'error');
     }
   }
 
@@ -4892,12 +4997,10 @@
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(rawUrl).then(doCopySuccess).catch(() => {
-          fallbackCopy(rawUrl);
-          doCopySuccess();
+          if (fallbackCopy(rawUrl)) doCopySuccess(); else showToast('❌ 複製失敗', 'error');
         });
       } else {
-        fallbackCopy(rawUrl);
-        doCopySuccess();
+        if (fallbackCopy(rawUrl)) doCopySuccess(); else showToast('❌ 複製失敗', 'error');
       }
     });
 
