@@ -750,6 +750,28 @@ function getMdRoot() {
   return configured || path.join(APP_ROOT, 'md');
 }
 
+// ── Realpath confinement (symlink escape defense) ──────────────────────────
+// Lexical `path.relative` checks are bypassable by a symlink inside the vault: a
+// link pointing outside still lexically "resolves" inside, so the `..` guard passes
+// while the OS follows the link out. Resolving both the target and the vault root to
+// canonical paths and re-checking containment closes this for every file handler.
+let mdRootRealpathCache = null;
+
+async function getMdRootRealpath() {
+  if (mdRootRealpathCache) return mdRootRealpathCache;
+  mdRootRealpathCache = await fs.promises.realpath(getMdRoot());
+  return mdRootRealpathCache;
+}
+
+// Returns true only when resolvedPath's canonical target lives inside the vault.
+// Throws ENOENT (etc.) for a nonexistent path so callers can preserve 404 semantics.
+async function isRealPathWithinMdRoot(resolvedPath) {
+  const realTarget = await fs.promises.realpath(resolvedPath);
+  const realRoot = await getMdRootRealpath();
+  const rel = path.relative(realRoot, realTarget);
+  return !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 // MIME types
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -784,13 +806,29 @@ function indexHtmlHeaders(extra, nonce) {
   return Object.assign({}, extra, SECURITY_HEADERS, { 'Content-Security-Policy': csp });
 }
 
+// Escape operator-supplied config strings before injecting them into HTML text/attributes.
+function escapeHtmlString(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Serialize for inline <script> such that no config value can break out via "</script>"
+// (or the U+2028/U+2029 line separators that terminate a JS string literal early).
+function safeJsonForScript(obj) {
+  return JSON.stringify(obj)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 let rawIndexHtml = null;
 function getIndexHtml(nonce, callback) {
   const renderDynamicIndex = (templateBuf, nonce) => {
     let html = templateBuf.toString('utf-8');
-    const defaultTheme = config.settings.defaultTheme || 'obsidian-dark';
-    const defaultFontSize = config.settings.defaultFontSize || 16;
-    const siteName = config.settings.siteName || 'mdWebview';
+    const defaultTheme = escapeHtmlString(config.settings.defaultTheme || 'obsidian-dark');
+    const defaultFontSize = parseInt(config.settings.defaultFontSize, 10) || 16;
+    const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
 
     // 1. Inject theme & font-size into <html> element
     html = html.replace(/<html([^>]*)>/i, (match, p1) => {
@@ -826,7 +864,11 @@ function getIndexHtml(nonce, callback) {
     );
 
     // 4. Inject server config script
-    const configScript = `<script nonce="${nonce}">window.__APP_CONFIG__ = ${JSON.stringify(config.settings)};</script>`;
+    // Strip the absolute vault path: the frontend never reads mdRoot from this
+    // payload, and shipping it on every page load would disclose the filesystem.
+    const clientSettings = Object.assign({}, config.settings);
+    delete clientSettings.mdRoot;
+    const configScript = `<script nonce="${nonce}">window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
     } else {
@@ -1042,12 +1084,13 @@ async function handleTree(req, res) {
     cachedTree = tree;
     sendJSON(res, 200, tree);
   } catch (err) {
-    sendJSON(res, 500, { error: err.message });
+    Logger.error('Tree', 'Failed to scan vault directory', err, req);
+    sendJSON(res, 500, { error: 'Failed to load file tree' });
   }
 }
 
 // ── API: File Content ────────────────────────────────────────
-function handleFile(req, res, query) {
+async function handleFile(req, res, query) {
   const filePath = query.path;
   if (!filePath) {
     return sendJSON(res, 400, { error: 'Missing path parameter' });
@@ -1073,13 +1116,16 @@ function handleFile(req, res, query) {
     return sendJSON(res, 403, { error: 'Access denied' });
   }
 
-  fs.promises.readFile(resolved, 'utf-8')
-    .then(raw => {
-      sendJSON(res, 200, { content: raw, path: filePath, line: line || null });
-    })
-    .catch(err => {
-      sendJSON(res, 404, { error: 'File not found: ' + filePath });
-    });
+  try {
+    // Reject symlinks that escape the vault (realpath throws ENOENT → 404 below)
+    if (!(await isRealPathWithinMdRoot(resolved))) {
+      return sendJSON(res, 403, { error: 'Access denied' });
+    }
+    const raw = await fs.promises.readFile(resolved, 'utf-8');
+    sendJSON(res, 200, { content: raw, path: filePath, line: line || null });
+  } catch (err) {
+    sendJSON(res, 404, { error: 'File not found: ' + filePath });
+  }
 }
 
 // ── API: Media & Image File Server ───────────────────────────
@@ -1148,6 +1194,12 @@ async function handleMedia(req, res, query) {
     return res.end('Access denied');
   }
 
+  // Symlink escape check: canonical target must stay within the vault
+  if (!(await isRealPathWithinMdRoot(resolvedPath))) {
+    res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Access denied');
+  }
+
   const ext = path.extname(resolvedPath).toLowerCase();
   const MIME_TYPES = {
     '.png': 'image/png',
@@ -1181,13 +1233,22 @@ async function handleMedia(req, res, query) {
     }
 
     const stream = fs.createReadStream(resolvedPath);
-    res.writeHead(200, Object.assign({
+    const mediaHeaders = {
       'Content-Type': contentType,
       'Content-Length': stat.size,
       'ETag': etag,
       'Cache-Control': 'public, max-age=86400'
-    }, SECURITY_HEADERS));
+    };
+    // Directly navigating to a vault .svg serves an executable same-origin document.
+    // A restrictive CSP neutralizes any embedded script without affecting <img> use.
+    if (ext === '.svg') {
+      mediaHeaders['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'";
+    }
+    res.writeHead(200, Object.assign({}, SECURITY_HEADERS, mediaHeaders));
     stream.pipe(res);
+    // Destroy the source stream on early client disconnect to avoid fd/buffer leaks.
+    req.on('close', () => stream.destroy());
+    res.on('close', () => stream.destroy());
   } catch (err) {
     res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Error serving media');
@@ -1223,6 +1284,10 @@ async function handleRender(req, res, query) {
   try {
     const renderStart = Date.now();
     const stat = await fs.promises.stat(resolved);
+    // Symlink escape check: canonical target must stay within the vault
+    if (!(await isRealPathWithinMdRoot(resolved))) {
+      return sendJSON(res, 403, { error: 'Access denied' });
+    }
     const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
     if (req.headers['if-none-match'] === etag) {
       Logger.debug('Render', `304 Not Modified: "${filePath}" (${Date.now() - renderStart}ms)`);
@@ -1315,6 +1380,10 @@ async function handleSectionIndex(req, res, query) {
 
   try {
     const stat = await fs.promises.stat(r.resolved);
+    // Symlink escape check: canonical target must stay within the vault
+    if (!(await isRealPathWithinMdRoot(r.resolved))) {
+      return sendJSON(res, 403, { error: 'Access denied' });
+    }
     if (stat.size < LARGE_FILE_MIN_BYTES) {
       return sendJSON(res, 200, { large: false });
     }
@@ -1394,6 +1463,10 @@ async function handleRenderChunk(req, res, query) {
 
   try {
     const stat = await fs.promises.stat(r.resolved);
+    // Symlink escape check: canonical target must stay within the vault
+    if (!(await isRealPathWithinMdRoot(r.resolved))) {
+      return sendJSON(res, 403, { error: 'Access denied' });
+    }
     if (stat.size < LARGE_FILE_MIN_BYTES) {
       return handleRender(req, res, query); // small file: full render
     }
@@ -1569,7 +1642,17 @@ function buildSectionIndex(relPath, fullPath) {
     const w = new Worker(WORKER_PATH);
     const jobId = `section-${++sectionJobSeq}`;
     let settled = false;
-    const finish = (fn, arg) => { if (!settled) { settled = true; try { w.terminate(); } catch (_) {} fn(arg); } };
+    let timeout = null;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      try { w.terminate(); } catch (_) {}
+      fn(arg);
+    };
+    // A hung section-scan worker would otherwise leave the request promise pending
+    // forever; time out and terminate it like the render pool does.
+    timeout = setTimeout(() => finish(reject, new Error('section worker timed out')), JOB_TIMEOUT_MS);
     w.on('message', ({ jobId: rId, ok, result, error }) => {
       if (rId !== jobId) return;
       if (ok) finish(resolve, result);
@@ -1688,11 +1771,24 @@ async function loadAllSectionIndexesFromBinAsync() {
   return result;
 }
 
+// Serializes section-index disk saves. Building several large-file indexes in
+// quick succession triggers concurrent saves, and each writer reuses the same
+// `.tmp` path — one writer's `rename` consumes it, leaving the other's rename
+// failing with ENOENT. Chaining them makes writes strictly sequential.
+let sectionIndexSaveChain = Promise.resolve();
+
 async function saveSectionIndexBinAsync() {
+  sectionIndexSaveChain = sectionIndexSaveChain.then(doSaveSectionIndexBin);
+  return sectionIndexSaveChain;
+}
+
+async function doSaveSectionIndexBin() {
   try {
     const saveStart = Date.now();
     const files = Array.from(sectionIndexCache.values());
     if (files.length === 0) return;
+
+    fs.mkdirSync(LOG_DIR, { recursive: true });
 
     let totalBytes = 4 + 4; // magic + fileCount
     for (const idx of files) {
@@ -1741,7 +1837,18 @@ async function saveSectionIndexBinAsync() {
 
     const tmpFile = SECTION_INDEX_CACHE_BIN + '.tmp';
     await fs.promises.writeFile(tmpFile, buf);
-    await fs.promises.rename(tmpFile, SECTION_INDEX_CACHE_BIN);
+    try {
+      await fs.promises.rename(tmpFile, SECTION_INDEX_CACHE_BIN);
+    } catch (err) {
+      // Defense-in-depth: if the target already exists (e.g. a stray concurrent
+      // save), the cache is effectively committed — ignore the ENOENT rather than
+      // logging a spurious error. Any other error is real and rethrown.
+      if (err.code === 'ENOENT' && fs.existsSync(SECTION_INDEX_CACHE_BIN)) {
+        // no-op: another writer already committed an equivalent file
+      } else {
+        throw err;
+      }
+    }
     Logger.info('Index', `Saved section-index cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
   } catch (err) {
     Logger.error('Index', 'Failed to save section-index cache', err);
@@ -2077,7 +2184,17 @@ async function runIndexWorkerPool(tasks, buildMessage, onMessage, concurrency) {
 
     const request = (type, payload) => new Promise((resolve, reject) => {
       const jobId = `w${workerId}-${++seq}`;
-      pending.set(jobId, { resolve, reject });
+      // Time out a hung scan so the thread and pending request don't leak forever.
+      const timer = setTimeout(() => {
+        if (pending.has(jobId)) {
+          pending.delete(jobId);
+          reject(new Error('index worker job timed out'));
+        }
+      }, JOB_TIMEOUT_MS);
+      pending.set(jobId, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       w.postMessage({ type, jobId, ...payload });
     });
 
@@ -2478,7 +2595,7 @@ async function handleSearch(req, res, query) {
     sendJSON(res, 200, searchData);
   } catch (err) {
     Logger.error('Search', `Search failed for query "${q}"`, err, req);
-    sendJSON(res, 500, { error: err.message });
+    sendJSON(res, 500, { error: 'Search failed' });
   }
 }
 
@@ -2552,7 +2669,7 @@ async function handleSearchFile(req, res, query) {
     sendJSON(res, 200, { path: relPath, query: q, matches, total: matches.length });
   } catch (err) {
     Logger.error('Search', `Search-file failed for "${relPath}" / "${q}"`, err, req);
-    sendJSON(res, 500, { error: err.message });
+    sendJSON(res, 500, { error: 'File search failed' });
   }
 }
 
@@ -2587,7 +2704,7 @@ function serveStatic(req, res, pathname) {
 
   // 1. Blacklist Check: Block hidden files/folders, server backend source code, worker threads, and project config files
   const isHiddenFile = baseName.startsWith('.') || relative.split(path.sep).some(segment => segment.startsWith('.'));
-  const isServerSource = baseName === 'server.js' || baseName === 'render-worker.js' || baseName === 'md-worker.js';
+  const isServerSource = baseName === 'server.js' || baseName === 'render-worker.js' || baseName === 'md-worker.js' || baseName === 'index-worker.js';
   const isSensitiveConfig = resolved === CONFIG_PATH || 
                             baseName === 'package.json' || 
                             baseName === 'package-lock.json' || 
@@ -2904,6 +3021,8 @@ const server = http.createServer((req, res) => {
   const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsed.pathname;
   const query = Object.fromEntries(parsed.searchParams);
+  // Redact any ?token= session token so it never reaches the HTTP access log.
+  const logSearch = parsed.search ? parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]') : '';
 
   // HTTP Access Logging Middleware
   const origEnd = res.end;
@@ -2921,7 +3040,7 @@ const server = http.createServer((req, res) => {
 
     const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
-      Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
+      Logger.info('HTTP', `${req.method} ${pathname}${logSearch || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
       Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     }
@@ -3034,6 +3153,12 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     const now = Date.now();
     if (cached && (now - cached.timestamp) < ANALYTICS_CACHE_TTL) return cached.data;
     const data = buildAggregateAnalyticsData(requestedTz, rangeKey);
+    // Cap the allTime branch too: cacheKey embeds the raw `tz` query string, so
+    // distinct tz values would otherwise grow the cache without bound.
+    if (analyticsCache.size >= ANALYTICS_CACHE_MAX) {
+      const oldestKey = analyticsCache.keys().next().value;
+      analyticsCache.delete(oldestKey);
+    }
     analyticsCache.set(cacheKey, { timestamp: now, data });
     return data;
   }
@@ -3391,7 +3516,8 @@ async function handleSuggestList(req, res) {
     }
     sendJSON(res, 200, { items, adminPickCount, hotPickCount, enabled: sl.enabled !== false });
   } catch (err) {
-    sendJSON(res, 500, { error: err.message });
+    Logger.error('Suggest', 'Failed to build suggestion list', err, req);
+    sendJSON(res, 500, { error: 'Failed to load suggestions' });
   }
 }
 
@@ -3698,10 +3824,14 @@ async function handleAnalyticsExport(req, res, query) {
 
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
+    // Redact the absolute vault path (and any other filesystem-layout detail) from
+    // the anonymous status payload — it is a useful recon primitive for traversal.
+    const safeSettings = Object.assign({}, config.settings);
+    delete safeSettings.mdRoot;
     return sendJSON(res, 200, {
       isSetup: !!config.admin,
       isAuthenticated: isAuthenticated(req),
-      settings: config.settings
+      settings: safeSettings
     });
   }
   if (pathname === '/api/admin/analytics' && req.method === 'GET') {
@@ -3719,6 +3849,12 @@ async function handleAnalyticsExport(req, res, query) {
   if (pathname === '/api/admin/setup' && req.method === 'POST') {
     if (config.admin) {
       return sendJSON(res, 400, { error: 'Admin already configured' });
+    }
+    // First-run admin creation must originate from loopback so a remote attacker
+    // cannot claim admin on a fresh (unconfigured) deployment first-come-first-served.
+    const ip = getClientIP(req);
+    if (ip !== '127.0.0.1' && ip !== '::1') {
+      return sendJSON(res, 403, { error: 'Admin setup is only allowed from localhost' });
     }
     return readJSONBody(req).then(data => {
       const { username, password } = data;

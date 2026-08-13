@@ -135,8 +135,14 @@
     };
     _mdWorker.onerror = (err) => {
       // Fallback: terminate worker so next call re-creates it
-      console.error('[md-worker] Worker error, will recreate on next call:', err.message);
-      _mdWorker.terminate();
+      console.error('[md-worker] Worker error, will recreate on next call:', err && err.message);
+      // Reject any pending callbacks so their Promise + captured body don't leak.
+      for (const id of Object.keys(_workerCallbacks)) {
+        const cb = _workerCallbacks[id];
+        delete _workerCallbacks[id];
+        try { cb.reject(new Error('md-worker failed')); } catch (_) {}
+      }
+      try { _mdWorker.terminate(); } catch (_) {}
       _mdWorker = null;
     };
     return _mdWorker;
@@ -1030,6 +1036,10 @@
     const p = (async () => {
       const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(v.filePath)}&from=${from}&to=${to}`);
       if (!res.ok) throw new Error('chunk load failed: ' + res.status);
+      // The user may have switched files while this chunk was in flight; if the
+      // virtual document we belong to is no longer current, drop the result so it
+      // can't be inserted into the wrong file's body.
+      if (state.virtual !== v) return null;
       const html = await res.text();
       const sectionEl = document.createElement('section');
       sectionEl.className = 'chunk';
@@ -1760,17 +1770,39 @@
     // 1. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
     text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
       const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-      return '<strong>' + trimmed + '</strong>';
+      return '<strong>' + escHtml(trimmed) + '</strong>';
     });
     // 2. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
     text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
       const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-      return '<strong>' + trimmed + '</strong>';
+      return '<strong>' + escHtml(trimmed) + '</strong>';
     });
     return text;
   }
 
   // Inline fallback: runs on main thread (same logic as md-worker.js)
+  // Client-side mirror of the server's HTML sanitizer. Used only by the legacy
+  // inline-markdown fallback (renderMarkdown → inlineParseMarkdown), which is
+  // currently unreachable but kept safe in case it is ever wired back up.
+  function sanitizeDangerousTags(html) {
+    if (!html) return '';
+    return html
+      .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
+      .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript)\b[^>]*>/gi, '')
+      .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+      .replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
+        const raw = /^["']/.test(val) ? val.slice(1, -1) : val;
+        const decoded = raw
+          .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+          .replace(/&#([0-9]+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+          .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&')
+          .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+        if (/^\s*(?:javascript|vbscript)\s*:/i.test(decoded)) return attr + '="#"';
+        if (attr.toLowerCase() === 'href' && /^\s*data\s*:/i.test(decoded)) return attr + '="#"';
+        return m;
+      });
+  }
+
   function inlineParseMarkdown(body) {
     if (!body) return '';
     body = preprocessObsidianFormatting(body);
@@ -1827,6 +1859,7 @@
 
     // ── 3. Parse main markdown body to HTML ─────────────────────
     let html = marked.parse(annotatedLines.join('\n'));
+    html = sanitizeDangerousTags(html);
 
     // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
     if (html.includes('[[')) {
@@ -1847,6 +1880,7 @@
       const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
       const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
       let combinedFnHtml = marked.parse(combinedFnText).trim();
+      combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
       if (combinedFnHtml.includes('[[')) {
         combinedFnHtml = convertWikilinks(combinedFnHtml);
       }
@@ -2392,9 +2426,9 @@
           ? `<span class="search-result-headword">${escHtml(item.headword)}</span>`
           : '';
         const entryAttr = (item.entryIndex !== undefined && item.entryIndex !== null && item.entryIndex >= 0)
-          ? ` data-entry="${item.entryIndex}"` : '';
+          ? ` data-entry="${escHtml(item.entryIndex)}"` : '';
         parts.push(`
-          <div class="search-result-item" data-file="${escHtml(item.file)}" data-line="${item.line}"${entryAttr}>
+          <div class="search-result-item" data-file="${escHtml(item.file)}" data-line="${escHtml(item.line)}"${entryAttr}>
             <span class="search-result-line">第 ${item.line} 行</span>
             ${headwordTag}
             <span class="search-result-snippet">${snippet}</span>

@@ -42,12 +42,14 @@ function preprocessObsidianFormatting(text) {
   // 1. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
   text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
     const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-    return '<strong>' + trimmed + '</strong>';
+    // Escape before wrapping in raw <strong>: the matched text is plain (no nested
+    // markdown), so escaping prevents author HTML from bypassing the later sanitizer.
+    return '<strong>' + escapeHtml(trimmed) + '</strong>';
   });
   // 2. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
   text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
     const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-    return '<strong>' + trimmed + '</strong>';
+    return '<strong>' + escapeHtml(trimmed) + '</strong>';
   });
   return text;
 }
@@ -170,8 +172,12 @@ function renderMarkdownSSR(body, filePath, lineOffset) {
 
   // 3. Parse main body to HTML
   let html = marked.parse(annotatedLines.join('\n'));
-  html = sanitizeDangerousTags(html);
+  // Normalize image srcs first, then sanitize last. Sanitizing after normalization
+  // ensures any attributes rebuilt by normalizeImageSrcs (which preserves the
+  // original tag's pre-/post-src attributes verbatim) are still stripped of
+  // event handlers and dangerous elements in the final pass.
   html = normalizeImageSrcs(html, filePath);
+  html = sanitizeDangerousTags(html);
 
   // 4. Convert Obsidian-style [[wikilinks]] on HTML output
   if (html.includes('[[')) {
@@ -322,6 +328,9 @@ function convertObsidianCallouts(html) {
 
       let titleText = customTitle ? customTitle.trim() : (type.charAt(0).toUpperCase() + type.slice(1));
       titleText = titleText.replace(/<\/p>$/i, '').trim();
+      // Defense-in-depth: the capture above already excludes '<', but escape the
+      // remaining HTML-significant characters before interpolating into markup.
+      titleText = escapeHtml(titleText);
 
       let cleanBody = bodyContent ? bodyContent.trim() : '';
 
