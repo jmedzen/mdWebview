@@ -25,9 +25,9 @@ marked.use({
   }
 });
 
-parentPort.on('message', ({ jobId, body, filePath }) => {
+parentPort.on('message', ({ jobId, body, filePath, lineOffset }) => {
   try {
-    const html = renderMarkdownSSR(body, filePath);
+    const html = renderMarkdownSSR(body, filePath, lineOffset || 0);
     parentPort.postMessage({ jobId, html });
   } catch (err) {
     parentPort.postMessage({ jobId, error: err.message });
@@ -98,7 +98,8 @@ function normalizeImageSrcs(html, currentFilePath) {
   });
 }
 
-function renderMarkdownSSR(body, filePath) {
+function renderMarkdownSSR(body, filePath, lineOffset) {
+  lineOffset = lineOffset || 0;
   if (!body) return '';
   body = preprocessObsidianFormatting(body);
   body = convertObsidianImages(body, filePath);
@@ -138,7 +139,7 @@ function renderMarkdownSSR(body, filePath) {
 
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i];
-    const lineNum = i + 1;
+    const lineNum = lineOffset + i + 1;
     const trimmed = line.trim();
     const isQuoteLine = /^>/.test(trimmed);
 

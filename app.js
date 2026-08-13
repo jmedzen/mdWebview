@@ -65,7 +65,13 @@
     fileSort: 'name-asc',
     searchSort: 'relevance',
     lastSearchData: null,
+    fileSizes: new Map(),
+    virtual: null,
+    pageSearchQuery: null,
   };
+
+  // Files at/above this byte size use virtualized rendering (must match server LARGE_FILE_MIN_BYTES).
+  const LARGE_FILE_MIN_BYTES = 1048576;
 
   // ── LRU Render Cache ─────────────────────────────────────
   // Caches last N rendered HTML results to avoid re-parsing unchanged files.
@@ -383,6 +389,12 @@
   function scrollToLine(lineNum, highlightQuery) {
     clearLineKeywordHighlights();
     if (!lineNum) return;
+
+    if (isVirtualMode()) {
+      scrollToLineVirtual(lineNum, highlightQuery);
+      return;
+    }
+
     // Try exact line anchor first
     let target = document.getElementById('L' + lineNum);
     if (!target) {
@@ -710,6 +722,7 @@
       if (!res.ok) throw new Error('Failed to load tree');
       state.treeData = await res.json();
       buildWikilinkIndex(state.treeData);
+      buildFileSizeMap(state.treeData);
       populateSearchFolderSelect(state.treeData);
       container.innerHTML = '';
       const sorted = sortTreeNodes(state.treeData, state.fileSort);
@@ -717,6 +730,21 @@
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
     }
+  }
+
+  // Walk the tree once and record every file's byte size, so openFile can decide
+  // whether to take the virtualized path without an extra network round-trip.
+  function buildFileSizeMap(nodes) {
+    state.fileSizes.clear();
+    (function walk(list) {
+      if (!Array.isArray(list)) return;
+      for (const n of list) {
+        if (n.type === 'file' && typeof n.size === 'number') {
+          state.fileSizes.set(n.path, n.size);
+        }
+        if (n.children) walk(n.children);
+      }
+    })(nodes);
   }
 
   function populateSearchFolderSelect(nodes) {
@@ -938,6 +966,450 @@
   // FILE VIEWER
   // ═══════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════
+  // VIRTUALIZED LARGE-FILE RENDERING
+  // ═══════════════════════════════════════════════════════════
+
+  function isVirtualMode() {
+    return !!(state.virtual && state.virtual.filePath === state.currentFile);
+  }
+
+  function chunkIndexForEntry(entryIndex) {
+    // Chunk boundaries are byte-bounded and non-uniform (server clamps chunks to
+    // CHUNK_MAX_BYTES), so find the range by binary search over the precomputed
+    // [from, to] ranges instead of assuming a fixed 100-entry grid.
+    const ranges = state.virtual.chunkRanges;
+    let lo = 0, hi = ranges.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (ranges[mid].from <= entryIndex) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  function insertChunkSorted(ci, sectionEl) {
+    const body = $('markdownBody');
+    const siblings = body.querySelectorAll('section.chunk');
+    for (const sib of siblings) {
+      const c = parseInt(sib.getAttribute('data-chunk'), 10);
+      if (c > ci) { body.insertBefore(sectionEl, sib); return; }
+    }
+    // Insert before the bottom spacer (if present) so it always stays last.
+    const v = state.virtual;
+    if (v && v.spacerBottom) body.insertBefore(sectionEl, v.spacerBottom);
+    else body.appendChild(sectionEl);
+  }
+
+  // Load (or return the already-loaded) chunk containing `entryIndex`.
+  async function ensureChunk(entryIndex) {
+    const v = state.virtual;
+    if (!v) return null;
+    if (entryIndex < 0) entryIndex = 0;
+    if (entryIndex >= v.totalEntries) entryIndex = v.totalEntries - 1;
+
+    const ci = chunkIndexForEntry(entryIndex);
+    if (v.chunks.has(ci)) return v.chunks.get(ci).sectionEl;
+    if (v.inflight.has(ci)) {
+      await v.inflight.get(ci);
+      const c = v.chunks.get(ci);
+      return c ? c.sectionEl : null;
+    }
+
+    const range = v.chunkRanges[ci];
+    const from = range.from;
+    const to = range.to;
+
+    const p = (async () => {
+      const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(v.filePath)}&from=${from}&to=${to}`);
+      if (!res.ok) throw new Error('chunk load failed: ' + res.status);
+      const html = await res.text();
+      const sectionEl = document.createElement('section');
+      sectionEl.className = 'chunk';
+      sectionEl.setAttribute('data-chunk', ci);
+      sectionEl.setAttribute('data-from', from);
+      sectionEl.setAttribute('data-to', to);
+      sectionEl.innerHTML = html;
+      insertChunkSorted(ci, sectionEl);
+      v.chunks.set(ci, { sectionEl, from, to });
+      // Measure this chunk and refresh the spacers so `scrollTop` keeps mapping
+      // to the absolute position (mounting above/below never shifts the view).
+      v.chunkHeights.set(ci, sectionEl.offsetHeight);
+      updateAvgPxPerLine();
+      refreshSpacers();
+      updateCachedLineAnchors($('markdownBody'));
+      return sectionEl;
+    })();
+
+    v.inflight.set(ci, p);
+    try {
+      return await p;
+    } finally {
+      v.inflight.delete(ci);
+    }
+  }
+
+  // Drop chunks farther than `windowSize` away from the center to bound memory (~7 mounted).
+  function recycleDistantChunks(centerCi, windowSize = 2) {
+    const v = state.virtual;
+    if (!v) return;
+    const keep = new Set();
+    for (let c = centerCi - windowSize; c <= centerCi + windowSize; c++) keep.add(c);
+    let removed = false;
+    for (const [ci, data] of Array.from(v.chunks.entries())) {
+      if (!keep.has(ci)) {
+        data.sectionEl.remove();
+        v.chunks.delete(ci);
+        v.chunkHeights.delete(ci);
+        removed = true;
+      }
+    }
+    if (removed) {
+      refreshSpacers();
+      updateCachedLineAnchors($('markdownBody'));
+    }
+  }
+
+  // Binary search: last entry whose lineStart <= line.
+  function entryIndexForLine(line) {
+    const entries = state.virtual.entries;
+    let lo = 0, hi = entries.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (entries[mid].ls <= line) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  // Rough absolute source line at the top of the viewport, from scrollTop and the
+  // calibrated px-per-line. Used only to pick which chunks to mount when the
+  // viewport is inside a spacer (fast scrollbar jumps); anchors refine it when
+  // the viewport overlaps mounted content.
+  function estimateLineFromScrollTop() {
+    const v = state.virtual;
+    const content = $('content');
+    if (!v || !content) return 1;
+    const avg = v.avgPxPerLine || 40;
+    return Math.max(1, Math.floor(content.scrollTop / avg) + 1);
+  }
+
+  function updateAvgPxPerLine() {
+    const v = state.virtual;
+    if (!v) return;
+    let px = 0, lines = 0;
+    for (const ci of v.chunks.keys()) {
+      const data = v.chunks.get(ci);
+      const h = v.chunkHeights.get(ci) || 0;
+      if (!data || h <= 0) continue;
+      // Source-line span of this chunk (used only as a proportional weight).
+      const firstLs = v.entries[data.from].ls;
+      const lastLe = v.entries[data.to].le;
+      const lineCount = Math.max(1, lastLe - firstLs + 1);
+      px += h; lines += lineCount;
+    }
+    if (lines > 0) v.avgPxPerLine = px / lines;
+  }
+
+  // Recompute the top/bottom spacer heights so the total scrollable height stays
+  // equal to the whole document, and mounting/recycling a chunk simply trades
+  // spacer height for real content (or vice-versa) without shifting the view.
+  // Spacer height is derived from exact source-line counts × calibrated
+  // px-per-line (more accurate than a flat per-entry average).
+  function refreshSpacers() {
+    const v = state.virtual;
+    if (!v || !v.spacerTop || !v.spacerBottom) return;
+    const cis = Array.from(v.chunks.keys()).filter(ci => v.chunks.get(ci)).sort((a, b) => a - b);
+    if (cis.length === 0) {
+      v.spacerTop.style.height = '0px';
+      v.spacerBottom.style.height = '0px';
+      return;
+    }
+    const firstCi = cis[0];
+    const lastCi = cis[cis.length - 1];
+    const firstData = v.chunks.get(firstCi);
+    const lastData = v.chunks.get(lastCi);
+    const firstEntry = v.entries[firstData.from];
+    const lastEntry = v.entries[lastData.to];
+    // Chunk 0 includes the file preamble (renders from line 1); later chunks
+    // start at their first entry's heading line.
+    const firstRenderedLine = firstData.from === 0 ? 1 : (firstEntry ? firstEntry.ls : 1);
+    const linesAbove = Math.max(0, firstRenderedLine - 1);
+    const linesBelow = Math.max(0, v.totalLines - (lastEntry ? lastEntry.le : 0));
+    const avg = v.avgPxPerLine || 40;
+    v.spacerTop.style.height = (linesAbove * avg) + 'px';
+    v.spacerBottom.style.height = (linesBelow * avg) + 'px';
+  }
+
+  function nearestCachedAnchor(lineNum) {
+    if (!cachedLineAnchors.length) return null;
+    let best = cachedLineAnchors[0], bestDiff = Infinity;
+    for (const a of cachedLineAnchors) {
+      const n = parseInt(a.dataset.line || '0', 10);
+      const d = Math.abs(n - lineNum);
+      if (d < bestDiff) { bestDiff = d; best = a; }
+    }
+    return best;
+  }
+
+  // Mount a single contiguous window of chunks centered on `centerCi`, removing
+  // every chunk outside it. Keeps the mounted set contiguous so the spacers only
+  // ever represent the "above first chunk" and "below last chunk" regions.
+  async function setMountedWindow(centerCi, radius = 1) {
+    const v = state.virtual;
+    if (!v) return;
+    const keep = new Set();
+    for (let c = centerCi - radius; c <= centerCi + radius; c++) keep.add(c);
+    for (const [c, data] of Array.from(v.chunks.entries())) {
+      if (!keep.has(c)) {
+        data.sectionEl.remove();
+        v.chunks.delete(c);
+        v.chunkHeights.delete(c);
+      }
+    }
+    for (let c = centerCi - radius; c <= centerCi + radius; c++) {
+      if (c < 0 || c >= v.chunkRanges.length) continue;
+      await ensureChunk(v.chunkRanges[c].from);
+    }
+    updateAvgPxPerLine();
+    refreshSpacers();
+    updateCachedLineAnchors($('markdownBody'));
+  }
+
+  async function scrollToLineVirtual(lineNum, highlightQuery) {
+    clearLineKeywordHighlights();
+    if (!lineNum) return;
+    const v = state.virtual;
+    if (!v) return;
+
+    const entryIndex = entryIndexForLine(lineNum);
+    const ci = chunkIndexForEntry(entryIndex);
+
+    // Mount a contiguous window around the target, then position by the target
+    // element's *actual* rect. Spacers keep the layout stable, so this lands
+    // exactly on the requested line (large-file jumps were previously drifting
+    // because chunks mounted above the target shifted the document mid-scroll).
+    await setMountedWindow(ci, 1);
+
+    let target = document.getElementById('L' + lineNum);
+    if (!target) target = nearestCachedAnchor(lineNum);
+    if (!target) return;
+
+    const content = $('content');
+    const targetRect = target.getBoundingClientRect();
+    const containerRect = content.getBoundingClientRect();
+    content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - 12);
+
+    const block = target.nextElementSibling || target.parentElement;
+    if (block) {
+      block.classList.add('line-highlight');
+      setTimeout(() => block.classList.remove('line-highlight'), 2500);
+    }
+    if (highlightQuery) highlightLineKeyword(target, highlightQuery);
+    updateVirtualScrollSpy(lineNum);
+  }
+
+  async function jumpToEntry(entryIndex) {
+    const v = state.virtual;
+    if (!v) return;
+    const line = v.entries[entryIndex] ? v.entries[entryIndex].ls : 1;
+    await scrollToLineVirtual(line, null);
+    if (isMobileBrowser()) {
+      const sidebar = $('sidebar');
+      if (sidebar && !sidebar.classList.contains('collapsed')) {
+        sidebar.classList.add('collapsed');
+        state.sidebarCollapsed = true;
+      }
+    }
+  }
+
+  function updateVirtualScrollSpy(line) {
+    const v = state.virtual;
+    if (!v || !v._tocRows || v._tocRows.length === 0) return;
+    const ei = entryIndexForLine(line);
+    const rows = v._tocRows;
+    const prev = v._activeTocRow;
+    if (prev && prev !== rows[ei]) prev.classList.remove('active');
+    const row = rows[ei];
+    if (row) {
+      row.classList.add('active');
+      v._activeTocRow = row;
+      row.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    }
+  }
+
+  // Build the TOC directly from the section index (not from DOM headings). For
+  // very large files this can be tens of thousands of rows; rows use
+  // `content-visibility: auto` (see style.css) so off-screen rows are cheap.
+  function renderVirtualTOC() {
+    const v = state.virtual;
+    const tocList = $('tocList');
+    tocList.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    const rows = [];
+    const groupStarts = new Map();
+    (v.groups || []).forEach(g => groupStarts.set(g.first, g));
+
+    v.entries.forEach((e, i) => {
+      if (groupStarts.has(i)) {
+        const gr = document.createElement('div');
+        gr.className = 'toc-group-row';
+        gr.textContent = groupStarts.get(i).h || '';
+        gr.title = gr.textContent;
+        fragment.appendChild(gr);
+      }
+      const row = document.createElement('div');
+      row.className = 'toc-item-row virtual';
+      row.setAttribute('data-entry', i);
+      const label = document.createElement('span');
+      label.className = 'toc-item-label';
+      label.textContent = e.h || '';
+      label.title = e.h || '';
+      row.appendChild(label);
+      row.addEventListener('click', () => jumpToEntry(i));
+      fragment.appendChild(row);
+      rows.push(row);
+    });
+
+    if (rows.length === 0) {
+      tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
+      return;
+    }
+
+    tocList.appendChild(fragment);
+    state.virtual._tocRows = rows;
+    updateVirtualScrollSpy(1);
+  }
+
+  function setupVirtualScroll() {
+    const v = state.virtual;
+    if (!v) return;
+    const content = $('content');
+    if (v._scrollHandler) content.removeEventListener('scroll', v._scrollHandler);
+
+    const onScroll = () => {
+      if (!isVirtualMode()) return;
+      // Topmost visible line: prefer a mounted anchor that actually overlaps the
+      // viewport; when the viewport sits inside a spacer (fast scrollbar jump),
+      // estimate from scrollTop so we still mount the right chunks.
+      let topLine = estimateLineFromScrollTop();
+      if (cachedLineAnchors.length) {
+        const rect = content.getBoundingClientRect();
+        let lo = 0, hi = cachedLineAnchors.length - 1, found = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const r = cachedLineAnchors[mid].getBoundingClientRect();
+          if (r.bottom >= rect.top) { found = mid; hi = mid - 1; }
+          else lo = mid + 1;
+        }
+        if (found === -1) found = cachedLineAnchors.length - 1;
+        const ar = cachedLineAnchors[found].getBoundingClientRect();
+        if (ar.bottom >= rect.top && ar.top <= rect.bottom) {
+          topLine = parseInt(cachedLineAnchors[found].dataset.line || '1', 10);
+        }
+      }
+
+      const ci = chunkIndexForEntry(entryIndexForLine(topLine));
+
+      // If the viewport jumped far from the mounted window, rebuild a contiguous
+      // window in one collapse-safe step; otherwise prefetch/recycle incrementally.
+      let centerFar = true;
+      for (const c of v.chunks.keys()) {
+        if (c >= ci - 1 && c <= ci + 1) { centerFar = false; break; }
+      }
+      if (centerFar) {
+        setMountedWindow(ci, 2);
+      } else {
+        const nextCi = ci + 1;
+        const prevCi = ci - 1;
+        if (nextCi < v.chunkRanges.length) ensureChunk(v.chunkRanges[nextCi].from); // prefetch next
+        if (prevCi >= 0) ensureChunk(v.chunkRanges[prevCi].from); // prefetch prev
+        recycleDistantChunks(ci);
+      }
+      updateVirtualScrollSpy(topLine);
+    };
+
+    const throttled = () => {
+      if (v._scrollRaf) return;
+      v._scrollRaf = requestAnimationFrame(() => { v._scrollRaf = null; onScroll(); });
+    };
+    v._scrollHandler = throttled;
+    content.addEventListener('scroll', throttled, { passive: true });
+  }
+
+  // Attempt to open a large file via the virtualized path. Returns true if
+  // handled; false means the caller should fall through to the full render.
+  async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery) {
+    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`);
+    if (!res.ok) return false;
+    const si = await res.json();
+    if (!si || !si.large || !Array.isArray(si.entries) || si.entries.length === 0) return false;
+    if (!Array.isArray(si.chunks) || si.chunks.length === 0) return false;
+
+    const v = {
+      filePath,
+      entries: si.entries,       // [{h, ls, le}]
+      groups: si.groups || [],
+      totalLines: si.totalLines,
+      totalEntries: si.entries.length,
+      chunkRanges: si.chunks,    // [{from, to, lineStart}] — server's actual byte-bounded chunk boundaries
+      chunks: new Map(),
+      inflight: new Map(),
+      chunkHeights: new Map(),   // chunkIndex -> measured pixel height
+      avgPxPerLine: null,        // calibrated average rendered pixel height per source line
+      spacerTop: null,           // top spacer element (keeps scrollTop → absolute position)
+      spacerBottom: null,        // bottom spacer element
+      headwordMap: new Map(),
+      entryMap: new Map(),
+      _tocRows: [],
+      _activeTocRow: null,
+      _scrollHandler: null,
+      _scrollRaf: null,
+    };
+
+    // Detach any previous virtual scroll handler (e.g. re-opening another large file).
+    if (state.virtual && state.virtual._scrollHandler) {
+      $('content').removeEventListener('scroll', state.virtual._scrollHandler);
+    }
+    state.virtual = v;
+
+    si.entries.forEach((e, i) => {
+      if (e.h && !v.headwordMap.has(e.h)) v.headwordMap.set(e.h, i);
+      const clean = (e.h || '').replace(/^【/, '').replace(/】$/, '').trim();
+      if (clean && !v.entryMap.has(clean)) v.entryMap.set(clean, i);
+    });
+
+    renderContentHeader(filePath, {});
+    document.title = `${filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+
+    renderVirtualTOC();
+    setupVirtualScroll();
+
+    // Spacer-based virtual scroll: a top/bottom spacer holds the pixel height of
+    // all unmounted entries, so `content.scrollTop` maps to the absolute line
+    // position and mounting/recycling a chunk never shifts already-visible text.
+    $('markdownBody').innerHTML = '';
+    v.spacerTop = document.createElement('div');
+    v.spacerTop.className = 'chunk-spacer';
+    v.spacerBottom = document.createElement('div');
+    v.spacerBottom.className = 'chunk-spacer';
+    $('markdownBody').appendChild(v.spacerTop);
+    $('markdownBody').appendChild(v.spacerBottom);
+
+    // Reveal the reader (openFile left the loading spinner up before branching here).
+    $('contentLoading').style.display = 'none';
+    $('contentWrapper').style.display = 'block';
+
+    if (scrollToLineNum) {
+      await scrollToLineVirtual(scrollToLineNum, highlightQuery);
+    } else {
+      await ensureChunk(0);
+      $('content').scrollTop = 0;
+    }
+    setTimeout(() => saveReadProgress(filePath), 350);
+    return true;
+  }
+
   async function openFile(filePath, scrollToLineNum, highlightQuery) {
     state.currentFile = filePath;
     log.info(`Opening file "${filePath}"${scrollToLineNum ? ` (Line: ${scrollToLineNum})` : ''}`);
@@ -987,6 +1459,19 @@
     headingTextMap.clear();
 
     highlightActiveFile(filePath);
+
+    // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
+    const fileSize = state.fileSizes.get(filePath) || 0;
+    const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
+      || localStorage.getItem('mdWebview-force-full') === '1';
+    if (fileSize >= LARGE_FILE_MIN_BYTES && !forceFull) {
+      try {
+        const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery);
+        if (handled) return;
+      } catch (err) {
+        console.warn('[Virtual] open failed, falling back to full render:', err);
+      }
+    }
 
     try {
       // Check LRU cache first — cached files open instantly (no network at all)
@@ -1508,6 +1993,26 @@
     const targetText = decodeURIComponent(text).trim();
     if (!targetText) return;
 
+    if (isVirtualMode()) {
+      const v = state.virtual;
+      const cleanText = targetText.replace(/^【/, '').replace(/】$/, '').trim();
+      let ei = v.headwordMap.get(targetText);
+      if (ei == null) ei = v.entryMap.get(cleanText);
+      if (ei == null) {
+        for (const [key, idx] of v.entryMap) {
+          if (key.includes(cleanText) || (cleanText.length > 1 && cleanText.includes(key))) {
+            ei = idx; break;
+          }
+        }
+      }
+      if (ei != null) {
+        jumpToEntry(ei);
+      } else {
+        console.warn(`[Wikilink] Heading "${targetText}" not found in virtual index.`);
+      }
+      return;
+    }
+
     const body = $('markdownBody');
     if (!body) return;
 
@@ -1840,9 +2345,15 @@
       parts.push(`<div class="search-result-group-body">`);
       group.items.forEach((item) => {
         const snippet = highlightSearchTerm(item.snippet, precompiledRegex);
+        const headwordTag = item.headword
+          ? `<span class="search-result-headword">${escHtml(item.headword)}</span>`
+          : '';
+        const entryAttr = (item.entryIndex !== undefined && item.entryIndex !== null && item.entryIndex >= 0)
+          ? ` data-entry="${item.entryIndex}"` : '';
         parts.push(`
-          <div class="search-result-item" data-file="${escHtml(item.file)}" data-line="${item.line}">
+          <div class="search-result-item" data-file="${escHtml(item.file)}" data-line="${item.line}"${entryAttr}>
             <span class="search-result-line">第 ${item.line} 行</span>
+            ${headwordTag}
             <span class="search-result-snippet">${snippet}</span>
           </div>`);
       });
@@ -1905,13 +2416,19 @@
     state.pageSearchIndex = -1;
   }
 
-  function doPageSearch(query) {
+  async function doPageSearch(query) {
     clearPageHighlights();
     state.pageSearchMatches = [];
     state.pageSearchIndex = -1;
+    state.pageSearchQuery = null;
 
     if (!query || query.trim().length === 0) {
       $('pageSearchCount').textContent = '';
+      return;
+    }
+
+    if (isVirtualMode()) {
+      await doPageSearchVirtual(query.trim());
       return;
     }
 
@@ -1932,9 +2449,51 @@
     $('pageSearchCount').textContent = matches.length > 0 ? `1/${matches.length}` : '0/0';
   }
 
+  // Server-side in-page search for virtualized files: covers the whole document
+  // (not just the ~7 mounted chunks). Returns matches [{ line, entryIndex, headword, snippet }].
+  async function doPageSearchVirtual(query) {
+    const v = state.virtual;
+    if (!v) return;
+    state.pageSearchQuery = query;
+    try {
+      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const matches = Array.isArray(data.matches) ? data.matches : [];
+      state.pageSearchMatches = matches;
+      state.pageSearchIndex = -1;
+      if (matches.length > 0) {
+        state.pageSearchIndex = 0;
+        const m = matches[0];
+        await scrollToLineVirtual(m.line, query);
+        $('pageSearchCount').textContent = `1/${matches.length}`;
+      } else {
+        showToast(`🔍 未找到符合「${query}」的內容`, 'warning');
+        $('pageSearchCount').textContent = '0/0';
+      }
+    } catch (err) {
+      state.pageSearchMatches = [];
+      showToast('本頁搜尋失敗：' + err.message, 'error');
+      $('pageSearchCount').textContent = '';
+    }
+  }
+
   function navigatePageSearch(direction) {
     const matches = state.pageSearchMatches;
     if (matches.length === 0) return;
+
+    if (isVirtualMode()) {
+      state.pageSearchIndex += direction;
+      if (state.pageSearchIndex >= matches.length) {
+        state.pageSearchIndex = 0;
+        showToast('ℹ️ 已搜尋至文末，回到第 1 筆結果', 'info');
+      }
+      if (state.pageSearchIndex < 0) state.pageSearchIndex = matches.length - 1;
+      const m = matches[state.pageSearchIndex];
+      scrollToLineVirtual(m.line, state.pageSearchQuery || null);
+      $('pageSearchCount').textContent = `${state.pageSearchIndex + 1}/${matches.length}`;
+      return;
+    }
 
     // Remove current active
     if (state.pageSearchIndex >= 0 && state.pageSearchIndex < matches.length) {
@@ -2368,7 +2927,7 @@
 
       // Find top visible line anchor if available
       let currentLine = null;
-      const anchors = $$('.markdown-line[data-line]', $('markdownBody'));
+      const anchors = $$('.line-anchor[data-line]', $('markdownBody'));
       const contentRect = content.getBoundingClientRect();
       for (const a of anchors) {
         const rect = a.getBoundingClientRect();
@@ -2397,6 +2956,9 @@
       if (data && data.filePath) {
         // Pass line for server-side rendering hint, but primarily use scrollTop for precise restoration
         openFile(data.filePath, data.line).then(() => {
+          // Virtualized files restore by absolute line (openFile already scrolled);
+          // scrollTop is meaningless there because chunk heights lazy-load.
+          if ((state.fileSizes.get(data.filePath) || 0) >= LARGE_FILE_MIN_BYTES) return;
           const content = $('content');
           if (content && typeof data.scrollTop === 'number') {
             // Restore precise scroll position (overrides the line-based scroll from openFile)

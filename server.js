@@ -538,16 +538,17 @@ function flushQueue() {
   if (jobQueue.length === 0) return;
   const freeWorker = workerPool.find(w => w.idle);
   if (!freeWorker) return;
-  const { jobId, body, filePath, resolve, reject } = jobQueue.shift();
+  const { jobId, body, filePath, lineOffset, resolve, reject } = jobQueue.shift();
   jobCallbacks.set(jobId, { resolve, reject });
   freeWorker.currentJobId = jobId;
   freeWorker.idle = false;
-  freeWorker.postMessage({ jobId, body, filePath });
+  freeWorker.postMessage({ jobId, body, filePath, lineOffset });
 }
 
 const JOB_TIMEOUT_MS = 30000; // 30 seconds
 
-function renderWithWorker(body, filePath) {
+function renderWithWorker(body, filePath, lineOffset) {
+  lineOffset = lineOffset || 0;
   return new Promise((resolve, reject) => {
     const jobId = ++jobIdSeq;
     const timer = setTimeout(() => {
@@ -578,10 +579,10 @@ function renderWithWorker(body, filePath) {
       jobCallbacks.set(jobId, { resolve: wrappedResolve, reject: wrappedReject });
       freeWorker.currentJobId = jobId;
       freeWorker.idle = false;
-      freeWorker.postMessage({ jobId, body, filePath });
+      freeWorker.postMessage({ jobId, body, filePath, lineOffset });
     } else {
       // All workers busy — queue the job
-      jobQueue.push({ jobId, body, filePath, resolve: wrappedResolve, reject: wrappedReject });
+      jobQueue.push({ jobId, body, filePath, lineOffset, resolve: wrappedResolve, reject: wrappedReject });
     }
   });
 }
@@ -876,6 +877,7 @@ function setupTreeWatcher() {
         // Invalidate tree and search cache
         cachedTree = null;
         searchCache.clear();
+        invalidateSectionIndexes();
 
         // Debounce index rebuild by 1.5 seconds to handle batch file operations cleanly
         if (treeWatcherDebounceTimer) {
@@ -1217,6 +1219,183 @@ async function handleRender(req, res, query) {
   }
 }
 
+// ── API: Section Index (large-file chunk metadata) ────────────────────────
+// Normalizes + resolves a markdown path with the same traversal guard as handleRender.
+function resolveMdPath(filePath) {
+  let p = String(filePath || '').replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/');
+  if (!p || p.includes('\0')) return null;
+  let resolved = path.resolve(path.join(getMdRoot(), p));
+  if (!fs.existsSync(resolved) && !p.endsWith('.md')) {
+    const candidate = path.resolve(path.join(getMdRoot(), p + '.md'));
+    if (fs.existsSync(candidate)) { resolved = candidate; p = p + '.md'; }
+  }
+  const relative = path.relative(getMdRoot(), resolved);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  if (!isSafe) return null;
+  return { resolved, relPath: relative, filePath: p };
+}
+
+async function handleSectionIndex(req, res, query) {
+  const r = resolveMdPath(query.path);
+  if (!r) return sendJSON(res, 404, { error: 'File not found' });
+
+  try {
+    const stat = await fs.promises.stat(r.resolved);
+    if (stat.size < LARGE_FILE_MIN_BYTES) {
+      return sendJSON(res, 200, { large: false });
+    }
+    const idx = await getSectionIndex(r.resolved, stat, r.relPath);
+    if (!idx || idx.entries.length === 0) {
+      return sendJSON(res, 200, { large: false });
+    }
+
+    const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      res.end();
+      return;
+    }
+
+    // Trimmed client payload: only what the frontend needs for TOC + navigation.
+    const entries = idx.entries.map(e => ({ h: e.headword, ls: e.lineStart, le: e.lineEnd }));
+    const groups = idx.groups.map(g => ({ h: g.headword, first: g.firstEntry, last: g.lastEntry }));
+    // Precomputed chunk boundaries (byte-bounded), so the client requests exactly
+    // the ranges the chunk renderer will produce — no off-by-whole-chunk drift.
+    const chunks = computeChunkRanges(idx);
+
+    res.setHeader('ETag', etag);
+    sendJSON(res, 200, {
+      large: true,
+      file: idx.relPath,
+      entryLevel: idx.entryLevel,
+      preambleLineCount: idx.preambleLineCount,
+      totalLines: idx.totalLines,
+      entries,
+      groups,
+      chunks,
+    });
+  } catch (err) {
+    sendJSON(res, 404, { error: 'File not found: ' + query.path });
+  }
+}
+
+// ── API: Chunked Render (renders a slice of a large file) ─────────────────
+const CHUNK_ENTRIES = 100;     // default max entries per chunk
+const CHUNK_MAX_BYTES = 262144; // 256KB safety cap per render job
+
+// Deterministic tiling of a large file's entries into byte-bounded chunks.
+// Mirrors handleRenderChunk's from/to clamping exactly, so the client can
+// request chunks by their precomputed [from, to] boundaries.
+function computeChunkRanges(idx) {
+  const total = idx.entries.length;
+  const ranges = [];
+  let from = 0;
+  while (from < total) {
+    let to = Math.min(from + CHUNK_ENTRIES - 1, total - 1);
+    let start = (from === 0) ? 0 : idx.entries[from].offset;
+    let end = idx.entries[to].offset + idx.entries[to].len;
+    while (to > from && (end - start) > CHUNK_MAX_BYTES) {
+      to--;
+      end = idx.entries[to].offset + idx.entries[to].len;
+    }
+    ranges.push({
+      from,
+      to,
+      lineStart: (from === 0) ? 1 : idx.entries[from].lineStart,
+    });
+    from = to + 1;
+  }
+  return ranges;
+}
+
+async function handleRenderChunk(req, res, query) {
+  const r = resolveMdPath(query.path);
+  if (!r) return sendJSON(res, 404, { error: 'File not found' });
+
+  let from = parseInt(query.from, 10);
+  let to = parseInt(query.to, 10);
+  if (Number.isNaN(from) || Number.isNaN(to) || from < 0 || to < from) {
+    return sendJSON(res, 400, { error: 'Invalid from/to range' });
+  }
+
+  try {
+    const stat = await fs.promises.stat(r.resolved);
+    if (stat.size < LARGE_FILE_MIN_BYTES) {
+      return handleRender(req, res, query); // small file: full render
+    }
+    const idx = await getSectionIndex(r.resolved, stat, r.relPath);
+    if (!idx || idx.entries.length === 0) {
+      return handleRender(req, res, query);
+    }
+
+    const total = idx.entries.length;
+    from = Math.max(0, Math.min(from, total - 1));
+    to = Math.max(from, Math.min(to, total - 1));
+    if (to - from + 1 > CHUNK_ENTRIES) to = from + CHUNK_ENTRIES - 1;
+
+    let start = (from === 0) ? 0 : idx.entries[from].offset;
+    let end = idx.entries[to].offset + idx.entries[to].len;
+    while (to > from && (end - start) > CHUNK_MAX_BYTES) {
+      to--;
+      end = idx.entries[to].offset + idx.entries[to].len;
+    }
+
+    const lineOffset = (from === 0) ? 0 : (idx.entries[from].lineStart - 1);
+    const byteLen = end - start;
+
+    const fh = await fs.promises.open(r.resolved, 'r');
+    let body;
+    try {
+      const buf = Buffer.alloc(byteLen);
+      await fh.read(buf, 0, byteLen, start);
+      body = buf.toString('utf-8');
+    } finally {
+      await fh.close();
+    }
+
+    const html = await renderWithWorker(body, r.relPath, lineOffset);
+
+    const metaHeader = Buffer.from(JSON.stringify({
+      from,
+      to,
+      lineStart: (from === 0) ? 1 : idx.entries[from].lineStart,
+      totalEntries: total,
+    }), 'utf-8').toString('base64');
+
+    const etag = `W/"${stat.size}-${stat.mtimeMs}-${from}-${to}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      res.end();
+      return;
+    }
+
+    const responseHeaders = Object.assign({
+      'Content-Type': 'text/html; charset=utf-8',
+      'ETag': etag,
+      'Cache-Control': 'no-cache',
+      'X-Chunk-Meta': metaHeader,
+    }, SECURITY_HEADERS);
+
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (acceptEncoding.includes('gzip')) {
+      zlib.gzip(Buffer.from(html, 'utf-8'), { level: zlib.constants.Z_BEST_SPEED }, (err, compressed) => {
+        if (err) {
+          res.writeHead(200, responseHeaders);
+          res.end(html);
+          return;
+        }
+        res.writeHead(200, Object.assign(responseHeaders, { 'Content-Encoding': 'gzip', 'Content-Length': compressed.length }));
+        res.end(compressed);
+      });
+    } else {
+      res.writeHead(200, responseHeaders);
+      res.end(html);
+    }
+  } catch (err) {
+    sendJSON(res, 404, { error: 'File not found: ' + query.path });
+  }
+}
+
 // ── API: Full-text Search ────────────────────────────────────
 async function collectFilesAsync(dir, relativePath = '') {
   let entries;
@@ -1276,8 +1455,224 @@ let searchIndex = {
   createdAt: null,
   fileList: [],         // [{ id, relPath, name, fullPath }]
   fileMap: new Map(),   // relPath -> fileId
-  bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array
+  units: [],            // unitId -> { fileId, entryIndex(-1=whole file), headword, byteOffset, byteLength, lineStart }
+  bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array of unitId
 };
+
+// ── Document Section Index (large-file chunking + entry-level search) ────────
+const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
+const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
+const SECTION_INDEX_MAGIC = 0x53455831; // "SEX1"
+const SECTION_INDEX_MAX_CACHE = 20;
+
+const sectionIndexCache = new Map();    // relPath -> section index object (LRU, insertion order)
+const sectionIndexPromises = new Map(); // relPath -> Promise (dedupe concurrent builds)
+let sectionIndexBinLoaded = false;
+let sectionJobSeq = 0;
+
+function setSectionIndex(relPath, idx) {
+  if (sectionIndexCache.has(relPath)) sectionIndexCache.delete(relPath);
+  sectionIndexCache.set(relPath, idx);
+  while (sectionIndexCache.size > SECTION_INDEX_MAX_CACHE) {
+    const oldest = sectionIndexCache.keys().next().value;
+    sectionIndexCache.delete(oldest);
+  }
+}
+
+function invalidateSectionIndexes() {
+  sectionIndexCache.clear();
+  sectionIndexBinLoaded = false;
+}
+
+/**
+ * Builds a section index for one file in a transient worker_thread.
+ * Section scanning is IO-bound, so files are parallelized across workers by the
+ * caller (one worker per file), never within a single file.
+ */
+function buildSectionIndex(relPath, fullPath) {
+  return new Promise((resolve, reject) => {
+    const WORKER_PATH = path.join(APP_ROOT, 'index-worker.js');
+    const w = new Worker(WORKER_PATH);
+    const jobId = `section-${++sectionJobSeq}`;
+    let settled = false;
+    const finish = (fn, arg) => { if (!settled) { settled = true; try { w.terminate(); } catch (_) {} fn(arg); } };
+    w.on('message', ({ jobId: rId, ok, result, error }) => {
+      if (rId !== jobId) return;
+      if (ok) finish(resolve, result);
+      else finish(reject, new Error(error || 'section worker failed'));
+    });
+    w.on('error', (err) => finish(reject, err));
+    w.on('exit', (code) => finish(reject, new Error(`section worker exited with code ${code}`)));
+    w.postMessage({ type: 'section', jobId, fullPath });
+  });
+}
+
+async function getSectionIndex(fullPath, stat, relPath) {
+  // 1. In-memory (validate against current size/mtime)
+  const cached = sectionIndexCache.get(relPath);
+  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+    setSectionIndex(relPath, cached); // refresh LRU order
+    return cached;
+  }
+
+  // 2. Binary disk cache (load all once; small — only large files are indexed)
+  if (!sectionIndexBinLoaded) {
+    sectionIndexBinLoaded = true;
+    try {
+      const all = await loadAllSectionIndexesFromBinAsync();
+      for (const idx of all) setSectionIndex(idx.relPath, idx);
+    } catch (_) {}
+    const binHit = sectionIndexCache.get(relPath);
+    if (binHit && binHit.size === stat.size && binHit.mtimeMs === stat.mtimeMs) return binHit;
+  }
+
+  // 3. Build (dedupe concurrent builds for the same file)
+  const existing = sectionIndexPromises.get(relPath);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const result = await buildSectionIndex(relPath, fullPath);
+    const idx = {
+      relPath,
+      fullPath,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      entryLevel: result.entryLevel,
+      preambleLineCount: result.preambleLineCount,
+      totalLines: result.totalLines,
+      totalBytes: result.totalBytes,
+      entries: result.entries,
+      groups: result.groups,
+    };
+    setSectionIndex(relPath, idx);
+    saveSectionIndexBinAsync().catch(() => {});
+    return idx;
+  })().finally(() => {
+    sectionIndexPromises.delete(relPath);
+  });
+
+  sectionIndexPromises.set(relPath, promise);
+  return promise;
+}
+
+/**
+ * Aggregate binary format (one file, one section each):
+ *   magic u32 | fileCount u32 | per-file records...
+ * Per-file record:
+ *   relPathLen u16 + relPath | size u32 | mtimeMs f64 | entryLevel u8 |
+ *   preambleLineCount u32 | totalLines u32 | totalBytes u32 |
+ *   entryCount u32 | groupCount u32 |
+ *   entries: [ headwordLen u16 + headword | offset u32 | len u32 | lineStart u32 | lineEnd u32 | groupIdx i16 ]
+ *   groups:  [ headwordLen u16 + headword | level u8 | firstEntry u32 | lastEntry u32 ]
+ */
+async function loadAllSectionIndexesFromBinAsync() {
+  const result = [];
+  if (!fs.existsSync(SECTION_INDEX_CACHE_BIN)) return result;
+  const buf = await fs.promises.readFile(SECTION_INDEX_CACHE_BIN);
+  if (buf.length < 8) return result;
+  let pos = 0;
+  if (buf.readUInt32BE(pos) !== SECTION_INDEX_MAGIC) return result;
+  pos += 4;
+  const fileCount = buf.readUInt32BE(pos); pos += 4;
+
+  for (let f = 0; f < fileCount; f++) {
+    const relLen = buf.readUInt16BE(pos); pos += 2;
+    const relPath = buf.toString('utf-8', pos, pos + relLen); pos += relLen;
+    const size = buf.readUInt32BE(pos); pos += 4;
+    const mtimeMs = buf.readDoubleBE(pos); pos += 8;
+    const entryLevel = buf.readUInt8(pos); pos += 1;
+    const preambleLineCount = buf.readUInt32BE(pos); pos += 4;
+    const totalLines = buf.readUInt32BE(pos); pos += 4;
+    const totalBytes = buf.readUInt32BE(pos); pos += 4;
+    const entryCount = buf.readUInt32BE(pos); pos += 4;
+    const groupCount = buf.readUInt32BE(pos); pos += 4;
+
+    const entries = new Array(entryCount);
+    for (let i = 0; i < entryCount; i++) {
+      const hLen = buf.readUInt16BE(pos); pos += 2;
+      const headword = buf.toString('utf-8', pos, pos + hLen); pos += hLen;
+      const offset = buf.readUInt32BE(pos); pos += 4;
+      const len = buf.readUInt32BE(pos); pos += 4;
+      const lineStart = buf.readUInt32BE(pos); pos += 4;
+      const lineEnd = buf.readUInt32BE(pos); pos += 4;
+      const groupIdx = buf.readInt16BE(pos); pos += 2;
+      entries[i] = { headword, offset, len, lineStart, lineEnd, groupIdx };
+    }
+
+    const groups = new Array(groupCount);
+    for (let i = 0; i < groupCount; i++) {
+      const hLen = buf.readUInt16BE(pos); pos += 2;
+      const headword = buf.toString('utf-8', pos, pos + hLen); pos += hLen;
+      const level = buf.readUInt8(pos); pos += 1;
+      const firstEntry = buf.readUInt32BE(pos); pos += 4;
+      const lastEntry = buf.readUInt32BE(pos); pos += 4;
+      groups[i] = { headword, level, firstEntry, lastEntry };
+    }
+
+    result.push({ relPath, size, mtimeMs, entryLevel, preambleLineCount, totalLines, totalBytes, entries, groups });
+  }
+  return result;
+}
+
+async function saveSectionIndexBinAsync() {
+  try {
+    const saveStart = Date.now();
+    const files = Array.from(sectionIndexCache.values());
+    if (files.length === 0) return;
+
+    let totalBytes = 4 + 4; // magic + fileCount
+    for (const idx of files) {
+      totalBytes += 2 + Buffer.byteLength(idx.relPath) + 4 + 8 + 1 + 4 + 4 + 4 + 4 + 4;
+      for (const e of idx.entries) totalBytes += 2 + Buffer.byteLength(e.headword) + 4 + 4 + 4 + 4 + 2;
+      for (const g of idx.groups) totalBytes += 2 + Buffer.byteLength(g.headword) + 1 + 4 + 4;
+    }
+
+    const buf = Buffer.allocUnsafe(totalBytes);
+    let pos = 0;
+    buf.writeUInt32BE(SECTION_INDEX_MAGIC, pos); pos += 4;
+    buf.writeUInt32BE(files.length, pos); pos += 4;
+
+    for (const idx of files) {
+      const relB = Buffer.from(idx.relPath);
+      buf.writeUInt16BE(relB.length, pos); pos += 2;
+      relB.copy(buf, pos); pos += relB.length;
+      buf.writeUInt32BE(idx.size, pos); pos += 4;
+      buf.writeDoubleBE(idx.mtimeMs, pos); pos += 8;
+      buf.writeUInt8(idx.entryLevel, pos); pos += 1;
+      buf.writeUInt32BE(idx.preambleLineCount, pos); pos += 4;
+      buf.writeUInt32BE(idx.totalLines, pos); pos += 4;
+      buf.writeUInt32BE(idx.totalBytes, pos); pos += 4;
+      buf.writeUInt32BE(idx.entries.length, pos); pos += 4;
+      buf.writeUInt32BE(idx.groups.length, pos); pos += 4;
+
+      for (const e of idx.entries) {
+        const hB = Buffer.from(e.headword);
+        buf.writeUInt16BE(hB.length, pos); pos += 2;
+        hB.copy(buf, pos); pos += hB.length;
+        buf.writeUInt32BE(e.offset, pos); pos += 4;
+        buf.writeUInt32BE(e.len, pos); pos += 4;
+        buf.writeUInt32BE(e.lineStart, pos); pos += 4;
+        buf.writeUInt32BE(e.lineEnd, pos); pos += 4;
+        buf.writeInt16BE(e.groupIdx, pos); pos += 2;
+      }
+      for (const g of idx.groups) {
+        const hB = Buffer.from(g.headword);
+        buf.writeUInt16BE(hB.length, pos); pos += 2;
+        hB.copy(buf, pos); pos += hB.length;
+        buf.writeUInt8(g.level, pos); pos += 1;
+        buf.writeUInt32BE(g.firstEntry, pos); pos += 4;
+        buf.writeUInt32BE(g.lastEntry, pos); pos += 4;
+      }
+    }
+
+    const tmpFile = SECTION_INDEX_CACHE_BIN + '.tmp';
+    await fs.promises.writeFile(tmpFile, buf);
+    await fs.promises.rename(tmpFile, SECTION_INDEX_CACHE_BIN);
+    Logger.info('Index', `Saved section-index cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
+  } catch (err) {
+    Logger.error('Index', 'Failed to save section-index cache', err);
+  }
+}
 
 /**
  * Computes a quick fingerprint of all files in vault based on path, size, and mtime
@@ -1305,8 +1700,10 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
 
     let readPos = 0;
     const magic = binBuf.readUInt32BE(readPos); readPos += 4;
-    if (magic !== 0x42475831 && magic !== 0x42475832) return false;
-    const isUint16Format = (magic === 0x42475832);
+    // New v3 format magics (unit-level indexing). Old magics (0x42475831/32) are
+    // deliberately rejected so a stale file-level cache is rebuilt.
+    if (magic !== 0x42475833 && magic !== 0x42475834) return false;
+    const isUint16Format = (magic === 0x42475833);
 
     const sigLen = binBuf.readUInt16BE(readPos); readPos += 2;
     const vaultSig = binBuf.toString('utf-8', readPos, readPos + sigLen); readPos += sigLen;
@@ -1317,6 +1714,7 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
     }
 
     const fileCount = binBuf.readUInt32BE(readPos); readPos += 4;
+    const unitCount = binBuf.readUInt32BE(readPos); readPos += 4;
     const bigramCount = binBuf.readUInt32BE(readPos); readPos += 4;
 
     const fileList = new Array(fileCount);
@@ -1338,8 +1736,23 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
       fileMap.set(relPath, id);
     }
 
+    const units = new Array(unitCount);
+    for (let i = 0; i < unitCount; i++) {
+      const unitId = binBuf.readUInt32BE(readPos); readPos += 4;
+      const fileId = binBuf.readUInt32BE(readPos); readPos += 4;
+      const entryIndex = binBuf.readInt32BE(readPos); readPos += 4;
+
+      const headwordLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const headword = binBuf.toString('utf-8', readPos, readPos + headwordLen); readPos += headwordLen;
+
+      const byteOffset = binBuf.readUInt32BE(readPos); readPos += 4;
+      const byteLength = binBuf.readUInt32BE(readPos); readPos += 4;
+      const lineStart = binBuf.readUInt32BE(readPos); readPos += 4;
+
+      units[unitId] = { unitId, fileId, entryIndex, headword, byteOffset, byteLength, lineStart };
+    }
+
     const bigrams = new Map();
-    const useUint16 = fileCount < 65536;
     for (let i = 0; i < bigramCount; i++) {
       const bgLen = binBuf.readUInt8(readPos); readPos += 1;
       const bgStr = binBuf.toString('utf-8', readPos, readPos + bgLen); readPos += bgLen;
@@ -1350,7 +1763,7 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
         readPos += isUint16Format ? 2 : 4;
         bigrams.set(bgStr, singleId);
       } else {
-        const arr = useUint16 ? new Uint16Array(count) : new Uint32Array(count);
+        const arr = isUint16Format ? new Uint16Array(count) : new Uint32Array(count);
         if (isUint16Format) {
           for (let j = 0; j < count; j++) {
             arr[j] = binBuf.readUInt16BE(readPos); readPos += 2;
@@ -1377,9 +1790,11 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
       createdAt,
       fileList,
       fileMap,
+      units,
       bigrams
     };
 
+    Logger.info('Index', `Loaded Bigram Index from disk cache: ${fileCount} files, ${unitCount} units, ${bigrams.size} bigrams in ${Date.now() - loadStart}ms`);
     if (global.gc) global.gc();
     return true;
   } catch (err) {
@@ -1391,17 +1806,21 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
 /**
  * Saves Bigram index as compact binary cache file (.bin) atomically (Crash-Safe)
  */
-async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
+async function saveSearchIndexBinCacheAsync(vaultSig, fileList, units, bigrams) {
   try {
     const saveStart = Date.now();
-    const useUint16 = fileList.length < 65536;
-    const magic = useUint16 ? 0x42475832 : 0x42475831;
+    const useUint16 = units.length < 65536;
+    const magic = useUint16 ? 0x42475833 : 0x42475834;
     const bytesPerId = useUint16 ? 2 : 4;
 
-    let totalBytes = 4 + 2 + Buffer.byteLength(vaultSig || '') + 4 + 4;
+    let totalBytes = 4 + 2 + Buffer.byteLength(vaultSig || '') + 4 + 4 + 4;
 
     for (const f of fileList) {
       totalBytes += 4 + 2 + Buffer.byteLength(f.relPath) + 2 + Buffer.byteLength(f.name) + 2 + Buffer.byteLength(f.fullPath);
+    }
+
+    for (const u of units) {
+      totalBytes += 4 + 4 + 4 + 2 + Buffer.byteLength(u.headword || '') + 4 + 4 + 4;
     }
 
     const entries = Array.from(bigrams.entries());
@@ -1421,6 +1840,7 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
     sigBuf.copy(buf, pos); pos += sigBuf.length;
 
     buf.writeUInt32BE(fileList.length, pos); pos += 4;
+    buf.writeUInt32BE(units.length, pos); pos += 4;
     buf.writeUInt32BE(entries.length, pos); pos += 4;
 
     for (const f of fileList) {
@@ -1437,6 +1857,20 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
       const fullB = Buffer.from(f.fullPath);
       buf.writeUInt16BE(fullB.length, pos); pos += 2;
       fullB.copy(buf, pos); pos += fullB.length;
+    }
+
+    for (const u of units) {
+      buf.writeUInt32BE(u.unitId, pos); pos += 4;
+      buf.writeUInt32BE(u.fileId, pos); pos += 4;
+      buf.writeInt32BE(u.entryIndex, pos); pos += 4;
+
+      const hwB = Buffer.from(u.headword || '');
+      buf.writeUInt16BE(hwB.length, pos); pos += 2;
+      hwB.copy(buf, pos); pos += hwB.length;
+
+      buf.writeUInt32BE(u.byteOffset, pos); pos += 4;
+      buf.writeUInt32BE(u.byteLength, pos); pos += 4;
+      buf.writeUInt32BE(u.lineStart, pos); pos += 4;
     }
 
     for (const entry of entries) {
@@ -1475,7 +1909,7 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
     await fs.promises.rename(tmpCacheFile, SEARCH_INDEX_CACHE_BIN);
 
     const sizeMb = (buf.length / (1024 * 1024)).toFixed(1);
-    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB) atomically in ${Date.now() - saveStart}ms`);
+    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB, ${units.length} units) atomically in ${Date.now() - saveStart}ms`);
   } catch (err) {
     Logger.error('Index', 'Failed to save binary search index cache', err);
   }
@@ -1485,60 +1919,8 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, bigrams) {
  * Tries to load the Bigram index from disk cache if vault fingerprint matches
  */
 async function loadSearchIndexFromCacheAsync(expectedVaultSig) {
-  // Prefer ultra-fast binary cache first
-  if (await loadSearchIndexFromBinCacheAsync(expectedVaultSig)) {
-    return true;
-  }
-
-  try {
-    if (!fs.existsSync(SEARCH_INDEX_CACHE_FILE)) return false;
-    const raw = await fs.promises.readFile(SEARCH_INDEX_CACHE_FILE, 'utf-8');
-    const data = JSON.parse(raw);
-
-    if (!data || data.vaultSig !== expectedVaultSig || !Array.isArray(data.fileList) || !Array.isArray(data.bigrams)) {
-      return false;
-    }
-
-    const fileMap = new Map();
-    data.fileList.forEach(f => fileMap.set(f.relPath, f.id));
-
-    const bigrams = new Map();
-    const useUint16 = data.fileList.length < 65536;
-    for (let i = 0; i < data.bigrams.length; i++) {
-      const entry = data.bigrams[i];
-      if (entry && entry[0] && Array.isArray(entry[1])) {
-        const list = entry[1];
-        if (list.length === 1) {
-          bigrams.set(entry[0], list[0]); // Primitive number
-        } else {
-          bigrams.set(entry[0], useUint16 ? new Uint16Array(list) : new Uint32Array(list));
-        }
-      }
-    }
-
-    let createdAt = data.builtAt || null;
-    if (!createdAt) {
-      try {
-        const stat = await fs.promises.stat(SEARCH_INDEX_CACHE_FILE);
-        createdAt = stat.mtime ? stat.mtime.toISOString() : null;
-      } catch (_) {}
-    }
-
-    searchIndex = {
-      ready: true,
-      building: false,
-      vaultSig: expectedVaultSig,
-      createdAt,
-      fileList: data.fileList,
-      fileMap,
-      bigrams
-    };
-
-    if (global.gc) global.gc();
-    return true;
-  } catch (err) {
-    return false;
-  }
+  // Binary cache is the only on-disk format (the legacy JSON cache is retired).
+  return loadSearchIndexFromBinCacheAsync(expectedVaultSig);
 }
 
 /**
@@ -1567,8 +1949,7 @@ async function saveSearchIndexCacheAsync(vaultSig, fileList, bigrams) {
 function extractBigrams(text, onBigram) {
   if (!text || typeof onBigram !== 'function') return;
   let prevChar = '';
-  const maxLen = Math.min(text.length, 3000000);
-  for (let i = 0; i < maxLen; i++) {
+  for (let i = 0; i < text.length; i++) {
     const ch = text.charCodeAt(i);
     if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
       const currChar = text[i];
@@ -1589,6 +1970,61 @@ function extractQueryBigrams(text) {
 }
 
 let activeIndexBuildId = 0;
+
+// Runs a pool of transient worker_threads over `tasks` with a shared counter.
+// `buildMessage(task)` → { type, payload } (jobId is added by the pool);
+// `onMessage(result, task)` processes one worker result (may throw to abort the pool).
+async function runIndexWorkerPool(tasks, buildMessage, onMessage, concurrency) {
+  let next = 0;
+  const total = tasks.length;
+  if (total === 0) return;
+
+  async function runWorker(workerId) {
+    const w = new Worker(path.join(APP_ROOT, 'index-worker.js'));
+    let seq = 0;
+    const pending = new Map(); // jobId -> { resolve, reject }
+    w.on('message', (msg) => {
+      const p = pending.get(msg.jobId);
+      if (!p) return;
+      pending.delete(msg.jobId);
+      if (msg.ok) p.resolve(msg.result);
+      else p.reject(new Error(msg.error || 'index worker error'));
+    });
+    w.on('error', (err) => {
+      for (const p of pending.values()) p.reject(err);
+      pending.clear();
+    });
+    w.on('exit', (code) => {
+      if (code !== 0) {
+        for (const p of pending.values()) p.reject(new Error('index worker exited ' + code));
+        pending.clear();
+      }
+    });
+
+    const request = (type, payload) => new Promise((resolve, reject) => {
+      const jobId = `w${workerId}-${++seq}`;
+      pending.set(jobId, { resolve, reject });
+      w.postMessage({ type, jobId, ...payload });
+    });
+
+    try {
+      while (true) {
+        const i = next++;
+        if (i >= total) break;
+        const task = tasks[i];
+        const { type, payload } = buildMessage(task);
+        const result = await request(type, payload);
+        onMessage(result, task);
+      }
+    } finally {
+      try { w.terminate(); } catch (_) {}
+    }
+  }
+
+  const workers = [];
+  for (let i = 0; i < concurrency; i++) workers.push(runWorker(i));
+  await Promise.all(workers);
+}
 
 async function buildSearchIndexAsync(forceRebuild = false) {
   if (searchIndex.building && !forceRebuild) return;
@@ -1629,58 +2065,71 @@ async function buildSearchIndexAsync(forceRebuild = false) {
 
     Logger.info('Index', `Starting Full-text Bigram Inverted Index build #${buildId} for ${files.length} files...`);
 
+    // Build the unit list: large files → one unit per dictionary entry; small files → one whole-file unit.
     const fileList = [];
     const fileMap = new Map();
-    const bigrams = new Map();
-    let fileIdx = 0;
+    const units = [];
+    let unitSeq = 0;
 
-    async function indexWorker(workerId) {
-      const seenBigrams = new Set();
-      while (fileIdx < files.length) {
-        if (buildId !== activeIndexBuildId) return;
-
-        const idx = fileIdx++;
-        if (idx > 0 && idx % 1000 === 0) {
-          Logger.info('Index', `Indexing progress (build #${buildId}): ${idx}/${files.length} files...`);
-        }
-        const file = files[idx];
-        if (!file) break;
-
-        const fileId = idx;
-        const entry = {
-          id: fileId,
-          relPath: file.relPath,
-          name: file.name,
-          fullPath: file.fullPath
-        };
-        fileList[fileId] = entry;
-        fileMap.set(file.relPath, fileId);
-
-        try {
-          const content = await fs.promises.readFile(file.fullPath, 'utf-8');
-          if (buildId !== activeIndexBuildId) return;
-          seenBigrams.clear();
-          extractBigrams(content, (bg) => {
-            if (!seenBigrams.has(bg)) {
-              seenBigrams.add(bg);
-              let list = bigrams.get(bg);
-              if (!list) {
-                list = [];
-                bigrams.set(bg, list);
-              }
-              list.push(fileId);
-            }
-          });
-        } catch (_) {}
+    for (let fIdx = 0; fIdx < files.length; fIdx++) {
+      if (buildId !== activeIndexBuildId) {
+        Logger.info('Index', `[Build #${buildId}] Aborted during unit construction.`);
+        return;
       }
+      const file = files[fIdx];
+      const fileId = fIdx;
+      fileList[fileId] = { id: fileId, relPath: file.relPath, name: file.name, fullPath: file.fullPath };
+      fileMap.set(file.relPath, fileId);
+
+      if ((file.size || 0) >= LARGE_FILE_MIN_BYTES) {
+        let idx = null;
+        try {
+          const stat = await fs.promises.stat(file.fullPath);
+          idx = await getSectionIndex(file.fullPath, stat, file.relPath);
+        } catch (_) {}
+        if (idx && idx.entries && idx.entries.length > 0) {
+          for (let ei = 0; ei < idx.entries.length; ei++) {
+            const e = idx.entries[ei];
+            units.push({ unitId: unitSeq++, fileId, entryIndex: ei, headword: e.headword, byteOffset: e.offset, byteLength: e.len, lineStart: e.lineStart });
+          }
+          continue;
+        }
+        // Fall through to a whole-file unit if the section index failed to build.
+      }
+      units.push({ unitId: unitSeq++, fileId, entryIndex: -1, headword: '', byteOffset: 0, byteLength: file.size || 0, lineStart: 1 });
     }
 
-    const limit = 10;
-    const workers = [];
-    for (let i = 0; i < limit; i++) {
-      workers.push(indexWorker(i));
+    // Group units by file path so each worker task reads one file handle and reuses it.
+    const byFile = new Map();
+    for (const u of units) {
+      const fullPath = fileList[u.fileId].fullPath;
+      let g = byFile.get(fullPath);
+      if (!g) { g = { fullPath, units: [] }; byFile.set(fullPath, g); }
+      g.units.push({ unitId: u.unitId, byteOffset: u.byteOffset, byteLength: u.byteLength });
     }
-    await Promise.all(workers);
+    const tasks = Array.from(byFile.values());
+
+    const bigrams = new Map();
+    const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
+    let doneUnits = 0;
+    const totalUnits = units.length;
+
+    await runIndexWorkerPool(tasks,
+      (task) => ({ type: 'index-build-file', payload: { fullPath: task.fullPath, units: task.units } }),
+      (result, task) => {
+        for (const r of result.results) {
+          for (const bg of r.bigrams) {
+            let list = bigrams.get(bg);
+            if (!list) { list = []; bigrams.set(bg, list); }
+            list.push(r.unitId);
+          }
+        }
+        doneUnits += task.units.length;
+        if (doneUnits % 20000 === 0 || doneUnits === totalUnits) {
+          Logger.info('Index', `Indexing progress (build #${buildId}): ${doneUnits}/${totalUnits} units...`);
+        }
+      },
+      concurrency);
 
     if (buildId !== activeIndexBuildId) {
       Logger.info('Index', `[Build #${buildId}] Aborted: Vault files modified during indexing.`);
@@ -1689,7 +2138,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
 
     // Sort posting lists for O(n+m) sorted-merge intersection, then compact to TypedArrays
     const compactBigrams = new Map();
-    const useUint16 = fileList.length < 65536;
+    const useUint16 = units.length < 65536;
     for (const [bg, list] of bigrams.entries()) {
       if (list.length === 1) {
         compactBigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
@@ -1707,13 +2156,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       createdAt,
       fileList,
       fileMap,
+      units,
       bigrams: compactBigrams
     };
 
-    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files (${compactBigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files / ${units.length} units (${compactBigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
 
     // Save binary cache to disk for ultra-fast server restarts
-    await saveSearchIndexBinCacheAsync(vaultSig, fileList, compactBigrams);
+    await saveSearchIndexBinCacheAsync(vaultSig, fileList, units, compactBigrams);
     if (global.gc) global.gc();
   } catch (err) {
     if (buildId === activeIndexBuildId) {
@@ -1773,9 +2223,10 @@ async function handleSearch(req, res, query) {
 
     const initialFileCount = files.length;
     let usedIndex = false;
+    let candidateUnits = null; // narrowed unit list (entry-level for large files); null = full scan
 
     // Bigram Inverted Index filtering using sorted-merge intersection (zero Set allocation)
-    if (searchIndex.ready && terms.some(t => t.length >= 2) && !isFilenameOnly) {
+    if (searchIndex.ready && terms.some(t => t.length >= 2) && !isFilenameOnly && searchIndex.units && searchIndex.units.length > 0) {
       // Sorted merge intersection: O(n+m) with zero heap allocation
       function intersectSorted(a, b) {
         const result = [];
@@ -1790,14 +2241,14 @@ async function handleSearch(req, res, query) {
         return result;
       }
 
-      let finalCandidates = null; // sorted array of file IDs
+      let finalCandidates = null; // sorted array of unit IDs
 
       for (const term of terms) {
         if (term.length < 2) continue;
         const qBigrams = extractQueryBigrams(term);
         if (qBigrams.length === 0) continue;
 
-        let termCandidates = null; // sorted array of file IDs
+        let termCandidates = null; // sorted array of unit IDs
         for (const bg of qBigrams) {
           const val = searchIndex.bigrams.get(bg);
           if (val === undefined || val === null) {
@@ -1825,14 +2276,18 @@ async function handleSearch(req, res, query) {
       }
 
       if (finalCandidates && finalCandidates.length > 0) {
-        usedIndex = true;
-        files = finalCandidates
-          .map(id => searchIndex.fileList[id])
+        candidateUnits = finalCandidates
+          .map(uid => searchIndex.units[uid])
           .filter(Boolean);
 
         if (folderFilter) {
-          files = files.filter(f => f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
+          candidateUnits = candidateUnits.filter(u => {
+            const f = searchIndex.fileList[u.fileId];
+            return f && (f.relPath === folderFilter || f.relPath.startsWith(folderFilter + '/'));
+          });
         }
+        if (candidateUnits.length === 0) candidateUnits = null; // all filtered out → full-scan fallback
+        else usedIndex = true;
       }
     }
 
@@ -1862,181 +2317,63 @@ async function handleSearch(req, res, query) {
         }
       }
     } else {
-      const limit = 10;
-      let fileIdx = 0;
-
-      function getLineNumByBinarySearch(breaks, pos) {
-        if (!breaks || breaks.length === 0) return 1;
-        let low = 0, high = breaks.length - 1;
-        while (low <= high) {
-          const mid = (low + high) >> 1;
-          if (breaks[mid] < pos) low = mid + 1;
-          else high = mid - 1;
-        }
-        return low + 1;
+      // Build the list of units to scan. When the bigram index narrowed to a set of
+      // candidate entries (large files) we scan only those; otherwise fall back to one
+      // whole-file unit per file so every file is still covered.
+      let unitsToScan;
+      if (candidateUnits && candidateUnits.length > 0) {
+        unitsToScan = candidateUnits.map(u => {
+          const f = searchIndex.fileList[u.fileId];
+          return {
+            unitId: u.unitId,
+            file: f.relPath,
+            fileName: f.name.replace(/\.md$/, ''),
+            entryIndex: u.entryIndex,
+            headword: u.headword,
+            byteOffset: u.byteOffset,
+            byteLength: u.byteLength,
+            lineStart: u.lineStart,
+            fullPath: f.fullPath,
+          };
+        });
+      } else {
+        unitsToScan = files.map((f, i) => ({
+          unitId: i,
+          file: f.relPath,
+          fileName: f.name.replace(/\.md$/, ''),
+          entryIndex: -1,
+          headword: '',
+          byteOffset: 0,
+          byteLength: f.size || 0,
+          lineStart: 1,
+          fullPath: f.fullPath,
+        }));
       }
 
-      // Binary search: find first index in sorted arr where arr[idx] >= target
-      function lowerBound(arr, target) {
-        let lo = 0, hi = arr.length;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (arr[mid] < target) lo = mid + 1;
-          else hi = mid;
-        }
-        return lo;
+      // Group units by file → one worker task per file (reuses the file handle inside the worker).
+      const byFile = new Map();
+      for (const u of unitsToScan) {
+        let g = byFile.get(u.fullPath);
+        if (!g) { g = { fullPath: u.fullPath, units: [] }; byFile.set(u.fullPath, g); }
+        g.units.push(u);
       }
+      const scanTasks = Array.from(byFile.values());
+      const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
 
-      async function worker() {
-        while (fileIdx < files.length && results.length < MAX_RESULTS) {
-          const file = files[fileIdx++];
-          if (!file) break;
-          try {
-            const content = await fs.promises.readFile(file.fullPath, 'utf-8');
-
-            let fileMatches = 0;
-            let lineBreaks = null;
-
-            if (terms.length === 1) {
-              const singleTerm = terms[0];
-              let pos = 0;
-              while (pos < content.length && results.length < MAX_RESULTS && fileMatches < MAX_FILE_MATCHES) {
-                const matchIdx = content.indexOf(singleTerm, pos);
-                if (matchIdx === -1) break;
-
-                if (lineBreaks === null) {
-                  lineBreaks = [];
-                  for (let bIdx = 0; bIdx < content.length; bIdx++) {
-                    if (content.charCodeAt(bIdx) === 10) lineBreaks.push(bIdx);
-                  }
-                }
-                const lineNum = getLineNumByBinarySearch(lineBreaks, matchIdx);
-
-                const lineStart = content.lastIndexOf('\n', matchIdx) + 1;
-                let lineEnd = content.indexOf('\n', matchIdx);
-                if (lineEnd === -1) lineEnd = content.length;
-                const lineText = content.substring(lineStart, lineEnd);
-                const idxInLine = matchIdx - lineStart;
-                const start = Math.max(0, idxInLine - SNIPPET_RADIUS);
-                const end = Math.min(lineText.length, idxInLine + singleTerm.length + SNIPPET_RADIUS);
-                let snippet = lineText.substring(start, end).trim();
-                if (start > 0) snippet = '…' + snippet;
-                if (end < lineText.length) snippet = snippet + '…';
-
-                results.push({
-                  file: file.relPath,
-                  fileName: file.name.replace(/\.md$/, ''),
-                  line: lineNum,
-                  snippet: snippet,
-                });
-                fileMatches++;
-                pos = matchIdx + singleTerm.length;
-              }
-            } else {
-              // Multi-term search with Proximity Distance Filtering
-              // Fast native C++ pre-filter: reject non-matching files before building position arrays
-              if (!terms.every(term => content.includes(term))) continue;
-
-              // Build term positions with early exit
-              let allTermsFound = true;
-              const termPositions = [];
-              for (let tI = 0; tI < terms.length; tI++) {
-                const term = terms[tI];
-                const posList = [];
-                let p = 0;
-                while (p < content.length) {
-                  const idx = content.indexOf(term, p);
-                  if (idx === -1) break;
-                  posList.push(idx);
-                  p = idx + term.length;
-                }
-                if (posList.length === 0) {
-                  allTermsFound = false;
-                  break;
-                }
-                termPositions.push(posList);
-              }
-
-              if (!allTermsFound) continue;
-
-              const p0List = termPositions[0];
-              const fileRelPath = file.relPath;
-              for (const p0 of p0List) {
-                if (fileMatches >= MAX_FILE_MATCHES || results.length >= MAX_RESULTS) break;
-
-                let clusterValid = true;
-                let minPos = p0;
-                let maxPos = p0 + terms[0].length;
-
-                for (let tIdx = 1; tIdx < terms.length; tIdx++) {
-                  const tLen = terms[tIdx].length;
-                  const list = termPositions[tIdx];
-                  let foundClose = false;
-                  // Binary search: jump to the relevant proximity window
-                  const windowStart = minPos - maxProximityDist;
-                  let lo = 0, hi = list.length;
-                  while (lo < hi) {
-                    const mid = (lo + hi) >> 1;
-                    if (list[mid] < windowStart) lo = mid + 1;
-                    else hi = mid;
-                  }
-                  for (let k = lo; k < list.length; k++) {
-                    const p = list[k];
-                    if (p > maxPos + maxProximityDist) break;
-                    const potentialMin = Math.min(minPos, p);
-                    const potentialMax = Math.max(maxPos, p + tLen);
-                    if (potentialMax - potentialMin <= maxProximityDist) {
-                      minPos = potentialMin;
-                      maxPos = potentialMax;
-                      foundClose = true;
-                      break;
-                    }
-                  }
-                  if (!foundClose) {
-                    clusterValid = false;
-                    break;
-                  }
-                }
-
-                if (clusterValid) {
-                  if (lineBreaks === null) {
-                    lineBreaks = [];
-                    for (let bIdx = 0; bIdx < content.length; bIdx++) {
-                      if (content.charCodeAt(bIdx) === 10) lineBreaks.push(bIdx);
-                    }
-                  }
-                  const lineNum = getLineNumByBinarySearch(lineBreaks, minPos);
-
-                  const start = Math.max(0, minPos - SNIPPET_RADIUS);
-                  const end = Math.min(content.length, maxPos + SNIPPET_RADIUS);
-                  let snippet = content.substring(start, end).replace(/\r?\n/g, ' ').trim();
-                  if (start > 0) snippet = '…' + snippet;
-                  if (end < content.length) snippet = snippet + '…';
-
-                  results.push({
-                    file: file.relPath,
-                    fileName: file.name.replace(/\.md$/, ''),
-                    line: lineNum,
-                    snippet: snippet,
-                  });
-                  fileMatches++;
-                }
-              }
-            }
-          } catch (err) {
-            // ignore
+      await runIndexWorkerPool(scanTasks,
+        (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: MAX_FILE_MATCHES } }),
+        (result) => {
+          for (const m of result.matches) {
+            if (results.length >= MAX_RESULTS) break;
+            results.push({ file: m.file, fileName: m.fileName, headword: m.headword, entryIndex: m.entryIndex, line: m.line, snippet: m.snippet });
           }
-        }
-      }
+        },
+        concurrency);
 
-      const workers = [];
-      for (let i = 0; i < limit; i++) {
-        workers.push(worker());
-      }
-      await Promise.all(workers);
-
-      // Post-processing: deduplicate adjacent matches in same file (within 2 lines)
+      // Post-processing: deduplicate adjacent matches in same file (within 2 lines).
+      // Parallel workers produce non-deterministic order, so sort by (file, line) first.
       if (terms.length > 1 && results.length > 1) {
+        results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
         const deduped = [results[0]];
         for (let di = 1; di < results.length; di++) {
           const prev = deduped[deduped.length - 1];
@@ -2062,11 +2399,85 @@ async function handleSearch(req, res, query) {
     }
     searchCache.set(cacheKey, { time: Date.now(), data: searchData });
 
-    const indexInfo = usedIndex ? ` (Index Candidates: ${files.length}/${initialFileCount})` : '';
+    const indexInfo = usedIndex ? ` (Index Candidates: ${candidateUnits ? candidateUnits.length : 0}/${searchIndex.units.length} units)` : '';
     Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''}${indexInfo} -> ${results.length} matches in ${searchDuration}ms`, req, { query: q });
     sendJSON(res, 200, searchData);
   } catch (err) {
     Logger.error('Search', `Search failed for query "${q}"`, err, req);
+    sendJSON(res, 500, { error: err.message });
+  }
+}
+
+// ── API: In-page (Ctrl+F) full-file search ─────────────────────
+// Used by app.js `doPageSearchVirtual` for large files: returns EVERY match in a
+// single file (ordered by line), scoped by entry so the client can jump to any
+// entry — not just the currently-mounted virtualization chunks.
+async function handleSearchFile(req, res, query) {
+  const q = query.q;
+  const relPath = query.path;
+  if (!q || !q.trim() || !relPath) {
+    return sendJSON(res, 400, { error: 'Missing query or path parameter' });
+  }
+
+  const terms = q.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return sendJSON(res, 400, { error: 'Missing query parameter' });
+  }
+
+  const maxProximityDist = Math.max(10, parseInt(config.settings.maxProximityDistance) || 150);
+  const MAX_RESULTS = 5000;
+
+  try {
+    if (!cachedTree) {
+      cachedTree = await scanDirAsync(getMdRoot(), '');
+      setupTreeWatcher();
+    }
+    if (!searchIndex.ready && !searchIndex.building) {
+      buildSearchIndexAsync().catch(() => {});
+    }
+
+    const files = flattenTreeToFiles(cachedTree, getMdRoot());
+    const file = files.find(f => f.relPath === relPath);
+    if (!file) {
+      return sendJSON(res, 404, { error: 'File not found: ' + relPath });
+    }
+
+    // Prefer entry-level units from the index; fall back to one whole-file unit.
+    let units = null;
+    if (searchIndex.ready && searchIndex.fileMap && searchIndex.fileMap.has(relPath)) {
+      const fileId = searchIndex.fileMap.get(relPath);
+      const fileUnits = searchIndex.units.filter(u => u && u.fileId === fileId);
+      if (fileUnits.length > 0) units = fileUnits;
+    }
+    if (!units) {
+      units = [{ unitId: 0, fileId: -1, entryIndex: -1, headword: '', byteOffset: 0, byteLength: file.size || 0, lineStart: 1 }];
+    }
+
+    const scanUnits = units.map(u => ({
+      unitId: u.unitId,
+      file: file.relPath,
+      fileName: file.name.replace(/\.md$/, ''),
+      entryIndex: u.entryIndex,
+      headword: u.headword,
+      byteOffset: u.byteOffset,
+      byteLength: u.byteLength,
+      lineStart: u.lineStart,
+    }));
+
+    const matches = [];
+    await runIndexWorkerPool([{ fullPath: file.fullPath, units: scanUnits }],
+      (t) => ({ type: 'search-scan', payload: { fullPath: t.fullPath, units: t.units, terms, maxProximityDist, maxPerFile: MAX_RESULTS } }),
+      (result) => {
+        for (const m of result.matches) {
+          matches.push({ line: m.line, entryIndex: m.entryIndex, headword: m.headword, snippet: m.snippet });
+        }
+      },
+      1);
+
+    matches.sort((a, b) => a.line - b.line);
+    sendJSON(res, 200, { path: relPath, query: q, matches, total: matches.length });
+  } catch (err) {
+    Logger.error('Search', `Search-file failed for "${relPath}" / "${q}"`, err, req);
     sendJSON(res, 500, { error: err.message });
   }
 }
@@ -2429,7 +2840,7 @@ const server = http.createServer((req, res) => {
     httpMetrics.totalResponseTimeMs += duration;
     httpMetrics.recentRequestTimes.push(now);
 
-    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/render';
+    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
       Logger.info('HTTP', `${req.method} ${pathname}${parsed.search || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
@@ -2462,8 +2873,17 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/render' && req.method === 'GET') {
     return handleRender(req, res, query);
   }
+  if (pathname === '/api/section-index' && req.method === 'GET') {
+    return handleSectionIndex(req, res, query);
+  }
+  if (pathname === '/api/render-chunk' && req.method === 'GET') {
+    return handleRenderChunk(req, res, query);
+  }
   if (pathname === '/api/search' && req.method === 'GET') {
     return handleSearch(req, res, query);
+  }
+  if (pathname === '/api/search-file' && req.method === 'GET') {
+    return handleSearchFile(req, res, query);
   }
 
 // ── Analytics Aggregator & Data Exporter ────────────────────────────────────
@@ -3088,6 +3508,7 @@ async function getSystemHardwareStats() {
       ready: searchIndex.ready,
       building: searchIndex.building,
       totalFiles: searchIndex.fileList ? searchIndex.fileList.length : 0,
+      totalUnits: searchIndex.units ? searchIndex.units.length : 0,
       uniqueBigrams: searchIndex.bigrams ? searchIndex.bigrams.size : 0,
       vaultSig: searchIndex.vaultSig || '',
       createdAt: indexFileMtime,
@@ -3134,6 +3555,7 @@ async function handleRebuildIndex(req, res) {
   }
   try {
     searchCache.clear();
+    invalidateSectionIndexes();
     buildSearchIndexAsync(true).catch(err => {
       Logger.error('Index', 'Manual index rebuild error', err);
     });
