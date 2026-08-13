@@ -65,6 +65,7 @@
     fileSort: 'name-asc',
     searchSort: 'relevance',
     lastSearchData: null,
+    searchRenderLimit: 0,
     fileSizes: new Map(),
     virtual: null,
     pageSearchQuery: null,
@@ -72,6 +73,12 @@
 
   // Files at/above this byte size use virtualized rendering (must match server LARGE_FILE_MIN_BYTES).
   const LARGE_FILE_MIN_BYTES = 1048576;
+
+  // Number of search-result rows rendered in one pass. A single search on a large
+  // dictionary can return thousands of matches (up to 5000 for a single file);
+  // building them all into the DOM at once froze the main thread. Rendering in
+  // batches keeps the search panel responsive; "顯示更多" appends another batch.
+  const SEARCH_RENDER_BATCH = 300;
 
   // ── LRU Render Cache ─────────────────────────────────────
   // Caches last N rendered HTML results to avoid re-parsing unchanged files.
@@ -2431,12 +2438,21 @@
   function renderSearchResults(data) {
     const container = $('searchResults');
     state.lastSearchData = data;
+    state.searchRenderLimit = SEARCH_RENDER_BATCH;
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>沒有找到結果</span></div>';
       return;
     }
 
+    renderSearchResultsPortion(container, data);
+  }
+
+  function renderSearchResultsPortion(container, data) {
+    const limit = state.searchRenderLimit || SEARCH_RENDER_BATCH;
+    // Preserve scroll position across "顯示更多" (innerHTML resets scrollTop; the
+    // items above the viewport are identical, so restoring keeps the user in place).
+    const prevScrollTop = container.scrollTop;
     const parts = [`<div class="search-status">找到 ${data.total} 個結果${data.capped ? '（已達上限）' : ''}</div>`];
 
     // Group by file
@@ -2469,14 +2485,21 @@
     const escapedTerms = terms.map(t => escRegex(escHtml(t)));
     const precompiledRegex = escapedTerms.length > 0 ? new RegExp(`(${escapedTerms.join('|')})`, 'gi') : null;
 
+    let rendered = 0;
+    outer:
     for (const [file, group] of sortedGroups) {
+      if (rendered >= limit) break;
       parts.push(`<div class="search-result-group">`);
       parts.push(`<div class="search-result-file" data-file-group="${escHtml(file)}">`);
       parts.push(`<span class="search-result-file-chevron expanded">›</span>`);
       parts.push(`<span class="search-result-file-icon">📄</span>${escHtml(group.fileName)}`);
       parts.push(`<span class="search-result-count">${group.items.length}</span></div>`);
       parts.push(`<div class="search-result-group-body">`);
-      group.items.forEach((item) => {
+      for (const item of group.items) {
+        if (rendered >= limit) {
+          parts.push(`</div></div>`);
+          break outer;
+        }
         const snippet = highlightSearchTerm(item.snippet, precompiledRegex);
         const headwordTag = item.headword
           ? `<span class="search-result-headword">${escHtml(item.headword)}</span>`
@@ -2489,11 +2512,18 @@
             ${headwordTag}
             <span class="search-result-snippet">${snippet}</span>
           </div>`);
-      });
+        rendered++;
+      }
       parts.push(`</div></div>`);
     }
 
+    const remaining = data.results.length - rendered;
+    if (remaining > 0) {
+      parts.push(`<button class="search-load-more" data-action="load-more">顯示更多（還有 ${remaining} 筆）</button>`);
+    }
+
     container.innerHTML = parts.join('');
+    if (prevScrollTop > 0) container.scrollTop = prevScrollTop;
   }
 
   function searchCollapseAll() {
@@ -3402,6 +3432,13 @@
     const searchResultsContainer = $('searchResults');
     if (searchResultsContainer) {
       searchResultsContainer.addEventListener('click', (e) => {
+        // Load-more button: render another batch of results without re-fetching.
+        if (e.target.closest('.search-load-more')) {
+          state.searchRenderLimit = (state.searchRenderLimit || SEARCH_RENDER_BATCH) + SEARCH_RENDER_BATCH;
+          if (state.lastSearchData) renderSearchResultsPortion($('searchResults'), state.lastSearchData);
+          return;
+        }
+
         // Toggle / Expand file header node
         const fileEl = e.target.closest('.search-result-file');
         if (fileEl) {

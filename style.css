@@ -1057,6 +1057,10 @@ body,
   border-radius: 4px;
   margin: 0 4px;
   transition: background 0.1s ease;
+  /* A single search can return thousands of matches; skip layout/paint for
+     off-screen rows so the list stays cheap to render and to re-show. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
 }
 
 .search-result-item:hover {
@@ -1088,6 +1092,26 @@ body,
   color: var(--text-primary);
   border-radius: 2px;
   padding: 0 1px;
+}
+
+.search-load-more {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  margin: 6px 0 10px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: calc(var(--sidebar-font-size) * 11 / 13);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.search-load-more:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
 }
 
 .search-loading {
