@@ -410,38 +410,11 @@
       return;
     }
 
-    // Try exact line anchor first
+    // Try exact line anchor first; fall back to the anchor of the block that
+    // contains the line (body continuation lines carry no anchor of their own —
+    // see anchorAtOrBefore).
     let target = document.getElementById('L' + lineNum);
-    if (!target) {
-      // Find nearest line anchor using binary search on cachedLineAnchors
-      if (!cachedLineAnchors.length) return;
-      let low = 0;
-      let high = cachedLineAnchors.length - 1;
-      let best = cachedLineAnchors[0];
-      let bestDiff = Math.abs(parseInt(best.dataset.line || 0) - lineNum);
-
-      while (low <= high) {
-        const mid = (low + high) >> 1;
-        const el = cachedLineAnchors[mid];
-        const n = parseInt(el.dataset.line || 0);
-        const diff = Math.abs(n - lineNum);
-        
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          best = el;
-        }
-        
-        if (n === lineNum) {
-          best = el;
-          break;
-        } else if (n < lineNum) {
-          low = mid + 1;
-        } else {
-          high = mid - 1;
-        }
-      }
-      target = best;
-    }
+    if (!target) target = anchorAtOrBefore(lineNum);
     if (target) {
       safeScrollToElement(target, $('content'), 'start');
       // Brief highlight on the parent block
@@ -1274,15 +1247,26 @@
     return null;
   }
 
-  function nearestCachedAnchor(lineNum) {
+  // The anchor of the block that *contains* line `lineNum`: the last anchor whose
+  // data-line is <= lineNum (cachedLineAnchors is in ascending document order, so a
+  // binary search suffices). A search match can land on a body continuation line
+  // that carries no anchor of its own — render-worker only emits an anchor at block
+  // starts. The numerically-NEAREST anchor is wrong for those: for a match in the
+  // middle of a multi-line entry it can be the NEXT entry's heading, which sends
+  // the jump one entry too far and makes the forward-walking keyword highlight miss
+  // the matched text entirely (the "cmd+f sometimes fails + no highlight" bug). The
+  // containing block's anchor is always at-or-before the line, so the jump lands on
+  // the right entry and the highlight walk reaches the body text.
+  function anchorAtOrBefore(lineNum) {
     if (!cachedLineAnchors.length) return null;
-    let best = cachedLineAnchors[0], bestDiff = Infinity;
-    for (const a of cachedLineAnchors) {
-      const n = parseInt(a.dataset.line || '0', 10);
-      const d = Math.abs(n - lineNum);
-      if (d < bestDiff) { bestDiff = d; best = a; }
+    let lo = 0, hi = cachedLineAnchors.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const n = parseInt(cachedLineAnchors[mid].dataset.line || '0', 10);
+      if (n <= lineNum) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
     }
-    return best;
+    return cachedLineAnchors[ans];
   }
 
   // Mount a single contiguous window of chunks centered on `centerCi`, removing
@@ -1325,7 +1309,7 @@
     await setMountedWindow(ci, 1);
 
     let target = document.getElementById('L' + lineNum);
-    if (!target) target = nearestCachedAnchor(lineNum);
+    if (!target) target = anchorAtOrBefore(lineNum);
     if (!target) {
       showToast(`⚠️ 找不到第 ${lineNum} 行`, 'warning');
       return;
