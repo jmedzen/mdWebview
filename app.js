@@ -1385,6 +1385,16 @@
     const start = Math.max(0, first - TOC_WINDOW_BUFFER);
     const end = Math.min(items.length - 1, last + TOC_WINDOW_BUFFER);
 
+    // Wheel scrolling usually moves scrollTop a few pixels per frame, which is
+    // far smaller than one row (34px), so the mounted [start, end] window rarely
+    // changes on adjacent frames. Rebuilding the window (clearing + recreating
+    // ~47 rows) every frame regardless was the "大量刷新" churn the user saw.
+    // Skip the rebuild when the window is unchanged; the existing rows already
+    // carry the correct geometry and active highlight.
+    if (start === v._tocRenderedStart && end === v._tocRenderedEnd) return;
+    v._tocRenderedStart = start;
+    v._tocRenderedEnd = end;
+
     v._tocSpacerTop.style.height = offsets[start] + 'px';
     const win = v._tocWindow;
     win.textContent = '';
@@ -1598,6 +1608,8 @@
       _tocSpacerBottom: null,
       _tocScrollHandler: null,
       _tocRaf: null,
+      _tocRenderedStart: -1,
+      _tocRenderedEnd: -1,
       _activeTocEntry: -1,
       _scrollHandler: null,
       _scrollRaf: null,

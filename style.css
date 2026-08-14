@@ -1130,6 +1130,10 @@ body,
   overflow-y: auto;
   padding: 6px 8px;
   position: relative;
+  /* The virtualized TOC swaps its mounted window in/out on scroll; the browser's
+     default scroll anchoring would try to keep a (now-destroyed) anchor row
+     stable and yank scrollTop, producing the up/down "jump" on wheel scroll. */
+  overflow-anchor: none;
 }
 
 .toc-item-row {
