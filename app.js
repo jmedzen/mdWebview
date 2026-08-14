@@ -1175,8 +1175,15 @@
     let px = 0, lines = 0;
     for (const ci of v.chunks.keys()) {
       const data = v.chunks.get(ci);
-      const h = v.chunkHeights.get(ci) || 0;
-      if (!data || h <= 0) continue;
+      if (!data || !data.sectionEl || !data.sectionEl.parentNode) continue;
+      // Measure LIVE height, not the cached chunkHeights value. The cache is only
+      // written on (re)mount, so after the user changes font size / line height /
+      // max width the stored value is stale and `avgPxPerLine` would then map
+      // scrollTop to the wrong line — the TOC-click "wrong heading" bug. This runs
+      // on chunk mount/recycle, never per scroll frame, so offsetHeight is cheap.
+      const h = data.sectionEl.offsetHeight;
+      if (h <= 0) continue;
+      v.chunkHeights.set(ci, h);
       // Source-line span of this chunk (used only as a proportional weight).
       const firstLs = v.entries[data.from].ls;
       const lastLe = v.entries[data.to].le;
@@ -1214,6 +1221,57 @@
     const avg = v.avgPxPerLine || 40;
     v.spacerTop.style.height = (linesAbove * avg) + 'px';
     v.spacerBottom.style.height = (linesBelow * avg) + 'px';
+  }
+
+  // Re-measure the mounted chunks and rebuild the spacer geometry after a user
+  // setting that changes rendered line height (font size / line height / max
+  // width) has been applied. Without this, `avgPxPerLine` and `chunkHeights`
+  // stay calibrated to the previous font size, so `estimateLineFromScrollTop()`
+  // maps scrollTop to the wrong line and the scroll handler re-mounts chunks
+  // around the wrong heading (the "TOC click opens the wrong heading" bug).
+  function recalibrateVirtualGeometry(preserve) {
+    const v = state.virtual;
+    if (!v || !v.spacerTop || !v.spacerBottom) return;
+    const content = $('content');
+    if (!content) return;
+
+    for (const [ci, data] of Array.from(v.chunks.entries())) {
+      if (data && data.sectionEl && data.sectionEl.parentNode) {
+        v.chunkHeights.set(ci, data.sectionEl.offsetHeight);
+      }
+    }
+    v.avgPxPerLine = null;
+    updateAvgPxPerLine();
+    refreshSpacers();
+    updateCachedLineAnchors($('markdownBody'));
+
+    // Re-anchor the line the reader was on before the reflow so changing the
+    // font doesn't yank their place to a different heading.
+    if (preserve && preserve.line > 0) {
+      const el = document.getElementById('L' + preserve.line);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const cr = content.getBoundingClientRect();
+        content.scrollTop = Math.max(0, content.scrollTop + (r.top - cr.top) - preserve.top);
+      }
+    }
+  }
+
+  // Capture the line currently at the top of the content viewport (and its pixel
+  // offset from the viewport top) using actual anchor rects — NOT the px-per-line
+  // estimate, which is precisely what a font-size change is about to invalidate.
+  function captureTopAnchor() {
+    const v = state.virtual;
+    const content = $('content');
+    if (!v || !content || !cachedLineAnchors.length) return null;
+    const cr = content.getBoundingClientRect();
+    for (const a of cachedLineAnchors) {
+      const r = a.getBoundingClientRect();
+      if (r.bottom >= cr.top) {
+        return { line: parseInt(a.dataset.line || '0', 10), top: r.top - cr.top };
+      }
+    }
+    return null;
   }
 
   function nearestCachedAnchor(lineNum) {
@@ -2931,6 +2989,12 @@
   function applyFontSize(size, saveToLocalStorage = true) {
     size = Math.max(12, Math.min(32, size));
     state.fontSize = size;
+
+    // Capture the reader's top line BEFORE the reflow; the font change rewrites
+    // rendered line height, which invalidates the virtual-scroll px-per-line
+    // calibration and would otherwise drift to the wrong heading.
+    const topAnchor = isVirtualMode() ? captureTopAnchor() : null;
+
     document.documentElement.style.setProperty('--content-font-size', size + 'px');
 
     // Default base is configured by admin in settings (default 16px)
@@ -2941,6 +3005,8 @@
     // uiScale = 1 + (delta / (defaultBase * 2))
     const uiScale = 1 + (delta / (defaultBase * 2));
     document.documentElement.style.setProperty('--ui-font-scale', uiScale);
+
+    recalibrateVirtualGeometry(topAnchor);
 
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
@@ -2973,7 +3039,9 @@
   function applyLineHeight(lh, saveToLocalStorage = true) {
     if (!lh) lh = '1.8';
     state.lineHeight = lh;
+    const topAnchor = isVirtualMode() ? captureTopAnchor() : null;
     document.documentElement.style.setProperty('--content-line-height', lh);
+    recalibrateVirtualGeometry(topAnchor);
 
     const group = $('settingLineHeightGroup');
     if (group) {
@@ -3026,7 +3094,9 @@
     const isMobile = isMobileBrowser();
     if (!mw) mw = isMobile ? '100%' : '800px';
     state.maxWidth = mw;
+    const topAnchor = isVirtualMode() ? captureTopAnchor() : null;
     document.documentElement.style.setProperty('--content-max-width', mw);
+    recalibrateVirtualGeometry(topAnchor);
 
     const group = $('settingMaxWidthGroup');
     if (group) {
