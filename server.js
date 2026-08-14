@@ -1279,15 +1279,12 @@ let searchIndex = {
   bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array
 };
 
-/**
- * Computes a quick fingerprint of all files in vault based on path, size, and mtime
- */
 function computeVaultSignature(files) {
-  const sortedPaths = files.map(f => f.relPath).sort();
+  const sorted = [...files].sort((a, b) => a.relPath.localeCompare(b.relPath));
   const hash = crypto.createHash('md5');
-  hash.update(`count:${sortedPaths.length}\n`);
-  for (let i = 0; i < sortedPaths.length; i++) {
-    hash.update(sortedPaths[i] + '\n');
+  hash.update(`version:v2.0-unlimited\ncount:${sorted.length}\n`);
+  for (let i = 0; i < sorted.length; i++) {
+    hash.update(`${sorted[i].relPath}:${sorted[i].size || 0}\n`);
   }
   return hash.digest('hex');
 }
@@ -1564,14 +1561,31 @@ async function saveSearchIndexCacheAsync(vaultSig, fileList, bigrams) {
   }
 }
 
+function isCJK(codePoint) {
+  return (
+    (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||   // CJK Unified Ideographs
+    (codePoint >= 0x3400 && codePoint <= 0x4DBF) ||   // CJK Extension A
+    (codePoint >= 0x20000 && codePoint <= 0x2A6DF) || // CJK Extension B
+    (codePoint >= 0x2A700 && codePoint <= 0x2B73F) || // CJK Extension C
+    (codePoint >= 0x2B740 && codePoint <= 0x2B81F) || // CJK Extension D
+    (codePoint >= 0x2B820 && codePoint <= 0x2CEAF) || // CJK Extension E
+    (codePoint >= 0x2CEB0 && codePoint <= 0x2EBEF) || // CJK Extension F
+    (codePoint >= 0x30000 && codePoint <= 0x323AF) || // CJK Extension G, H
+    (codePoint >= 0x2EBF0 && codePoint <= 0x2EE5D) || // CJK Extension I
+    (codePoint >= 0xF900 && codePoint <= 0xFAFF) ||   // CJK Compatibility Ideographs
+    (codePoint >= 0x2F800 && codePoint <= 0x2FA1D)    // CJK Compatibility Ideographs Supplement
+  );
+}
+
 function extractBigrams(text, onBigram) {
   if (!text || typeof onBigram !== 'function') return;
   let prevChar = '';
-  const maxLen = text.length;
-  for (let i = 0; i < maxLen; i++) {
-    const ch = text.charCodeAt(i);
-    if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
-      const currChar = text[i];
+  const textLen = text.length;
+  for (let i = 0; i < textLen;) {
+    const codePoint = text.codePointAt(i);
+    const charLen = codePoint > 0xFFFF ? 2 : 1;
+    if (isCJK(codePoint)) {
+      const currChar = charLen === 1 ? text[i] : text.slice(i, i + 2);
       if (prevChar) {
         onBigram(prevChar + currChar);
       }
@@ -1579,6 +1593,7 @@ function extractBigrams(text, onBigram) {
     } else {
       prevChar = '';
     }
+    i += charLen;
   }
 }
 
