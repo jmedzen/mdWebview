@@ -105,6 +105,22 @@ function scanSections(text) {
   return { entryLevel, preambleLineCount, totalLines, totalBytes, entries, groups: validGroups };
 }
 
+function isCJK(codePoint) {
+  return (
+    (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||   // CJK Unified Ideographs
+    (codePoint >= 0x3400 && codePoint <= 0x4DBF) ||   // CJK Extension A
+    (codePoint >= 0x20000 && codePoint <= 0x2A6DF) || // CJK Extension B
+    (codePoint >= 0x2A700 && codePoint <= 0x2B73F) || // CJK Extension C
+    (codePoint >= 0x2B740 && codePoint <= 0x2B81F) || // CJK Extension D
+    (codePoint >= 0x2B820 && codePoint <= 0x2CEAF) || // CJK Extension E
+    (codePoint >= 0x2CEB0 && codePoint <= 0x2EBEF) || // CJK Extension F
+    (codePoint >= 0x30000 && codePoint <= 0x323AF) || // CJK Extension G, H
+    (codePoint >= 0x2EBF0 && codePoint <= 0x2EE5D) || // CJK Extension I
+    (codePoint >= 0xF900 && codePoint <= 0xFAFF) ||   // CJK Compatibility Ideographs
+    (codePoint >= 0x2F800 && codePoint <= 0x2FA1D)    // CJK Compatibility Ideographs Supplement
+  );
+}
+
 /**
  * Extract unique bigrams of consecutive CJK chars. MUST stay byte-for-byte
  * identical to extractBigrams() in server.js so query bigrams and index bigrams
@@ -113,15 +129,18 @@ function scanSections(text) {
 function extractBigramsFromText(text) {
   const set = new Set();
   let prevChar = '';
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
-      const currChar = text[i];
+  const textLen = text.length;
+  for (let i = 0; i < textLen;) {
+    const codePoint = text.codePointAt(i);
+    const charLen = codePoint > 0xFFFF ? 2 : 1;
+    if (isCJK(codePoint)) {
+      const currChar = charLen === 1 ? text[i] : text.slice(i, i + 2);
       if (prevChar) set.add(prevChar + currChar);
       prevChar = currChar;
     } else {
       prevChar = '';
     }
+    i += charLen;
   }
   return set;
 }
