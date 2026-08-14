@@ -1406,6 +1406,13 @@ async function handleSectionIndex(req, res, query) {
     // the ranges the chunk renderer will produce — no off-by-whole-chunk drift.
     const chunks = computeChunkRanges(idx);
 
+    // Count a large-file open as a "view" so virtualized reads are visible to
+    // analytics. `/api/section-index` is fetched once per open (mirroring the
+    // Render log in handleRender); we log on the fresh-200 path only, matching
+    // handleRender's skip on 304. Never log here per-chunk — that would inflate
+    // views by the number of scrolled chunks.
+    Logger.info('Render', `Loaded document (virtualized): "${r.relPath}"`, req, { path: r.relPath });
+
     res.setHeader('ETag', etag);
     sendJSON(res, 200, {
       large: true,

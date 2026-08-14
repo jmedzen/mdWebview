@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.1.8">
+  <link rel="stylesheet" href="style.css?v=2.1.9">
 </head>
 <body>
   <div class="app">
@@ -662,6 +662,16 @@
                   <div class="progress-bar-fill fill-accent" id="hwHeapFill" style="width: 0%;"></div>
                 </div>
               </div>
+              <div class="hardware-sub-metrics">
+                <div class="sub-metric">
+                  <span class="sub-label">V8 外部記憶體 (External)</span>
+                  <span class="sub-val" id="hwExternalText">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">ArrayBuffers</span>
+                  <span class="sub-val" id="hwArrayBuffersText">--</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -731,6 +741,14 @@
                   <span class="sub-label">索引檔案建立/修改時間</span>
                   <span class="sub-val" id="hwIndexCreatedAt">--</span>
                 </div>
+                <div class="sub-metric">
+                  <span class="sub-label">索引詞目數 (Units)</span>
+                  <span class="sub-val" id="hwIndexUnits">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">Vault 路徑</span>
+                  <span class="sub-val" id="hwVaultPath" title="" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
+                </div>
               </div>
             </div>
           </div>
@@ -758,6 +776,10 @@
                 <div class="sub-metric">
                   <span class="sub-label">檔庫 Markdown 總容量</span>
                   <span class="sub-val" id="hwVaultTotalSize">--</span>
+                </div>
+                <div class="sub-metric full-width">
+                  <span class="sub-label">上次搜尋耗時 (Last Search)</span>
+                  <span class="sub-val" id="hwLastSearchTime">--</span>
                 </div>
               </div>
             </div>
@@ -862,6 +884,13 @@
                 <div class="analytics-card-label">全文搜尋總次數 (Searches)</div>
               </div>
             </div>
+            <div class="analytics-card">
+              <div class="analytics-card-icon">📈</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsAvgViewsPerDoc">0</div>
+                <div class="analytics-card-label">平均每篇點閱 (Avg Views/Doc)</div>
+              </div>
+            </div>
           </div>
 
           <!-- Trend Chart Section -->
@@ -881,14 +910,13 @@
                   <tr>
                     <th style="width: 50px; text-align: center;">排名</th>
                     <th>文章標題 / 檔名</th>
-                    <th>路徑</th>
                     <th style="width: 100px; text-align: right;">點閱數</th>
                     <th style="width: 100px; text-align: right;">獨立 IP</th>
                     <th style="width: 180px;">最後閱讀時間</th>
                   </tr>
                 </thead>
                 <tbody id="analyticsTopFilesTable">
-                  <tr><td colspan="6" class="analytics-empty">載入數據中…</td></tr>
+                  <tr><td colspan="5" class="analytics-empty">載入數據中…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1035,7 +1063,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.1.8" defer></script>
-  <script src="app.js?v=2.1.8" defer></script>
+  <script src="marked.min.js?v=2.1.9" defer></script>
+  <script src="app.js?v=2.1.9" defer></script>
 </body>
 </html>

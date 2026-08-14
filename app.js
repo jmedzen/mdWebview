@@ -4365,6 +4365,11 @@
       heapFill.style.width = `${heapPct}%`;
     }
 
+    const externalText = $('hwExternalText');
+    if (externalText) externalText.textContent = formatBytes(data.memory.external || 0);
+    const arrayBuffersText = $('hwArrayBuffersText');
+    if (arrayBuffersText) arrayBuffersText.textContent = formatBytes(data.memory.arrayBuffers || 0);
+
     const memBadge = $('hwMemStatusBadge');
     if (memBadge) {
       if (data.memory.rssUsagePct > 85) {
@@ -4419,6 +4424,14 @@
       bigramCount.textContent = `${(data.index.uniqueBigrams || 0).toLocaleString()} 筆 (檔案: ${data.index.totalFiles} 個)`;
     }
 
+    const indexUnits = $('hwIndexUnits');
+    if (indexUnits) indexUnits.textContent = (data.index.totalUnits || 0).toLocaleString();
+    const vaultPath = $('hwVaultPath');
+    if (vaultPath) {
+      vaultPath.textContent = data.storage.vaultPath || '--';
+      vaultPath.title = data.storage.vaultPath || '';
+    }
+
     const indexCreatedAt = $('hwIndexCreatedAt');
     if (indexCreatedAt) {
       const mtime = data.index.createdAt || data.index.lastModified;
@@ -4453,6 +4466,9 @@
       
       const vaultTotalSize = $('hwVaultTotalSize');
       if (vaultTotalSize) vaultTotalSize.textContent = formatBytes(data.search.vaultTotalSizeBytes || 0);
+
+      const lastSearchTime = $('hwLastSearchTime');
+      if (lastSearchTime) lastSearchTime.textContent = `${data.search.lastSearchTimeMs || 0} ms`;
     }
 
     // Network & Throughput Card
@@ -4755,6 +4771,12 @@
     if (uniqueIpsEl) uniqueIpsEl.textContent = (data.summary?.uniqueIps || 0).toLocaleString();
     if (activeFilesEl) activeFilesEl.textContent = (data.summary?.activeFiles || 0).toLocaleString();
     if (totalSearchesEl) totalSearchesEl.textContent = (data.summary?.totalSearches || 0).toLocaleString();
+    const avgViewsEl = $('analyticsAvgViewsPerDoc');
+    if (avgViewsEl) {
+      const views = data.summary?.totalViews || 0;
+      const files = data.summary?.activeFiles || 0;
+      avgViewsEl.textContent = files > 0 ? (views / files).toFixed(1) : '0';
+    }
 
     // SVG Visualizations
     renderAnalyticsTrendChart(data.dailyTrend || []);
@@ -4762,14 +4784,13 @@
     const topFilesTable = $('analyticsTopFilesTable');
     if (topFilesTable) {
       if (!data.topFiles || data.topFiles.length === 0) {
-        topFilesTable.innerHTML = '<tr><td colspan="6" class="analytics-empty">尚無瀏覽紀錄數據</td></tr>';
+        topFilesTable.innerHTML = '<tr><td colspan="5" class="analytics-empty">尚無瀏覽紀錄數據</td></tr>';
       } else {
         topFilesTable.innerHTML = data.topFiles.map((file, idx) => {
           const formattedTime = formatTimestampWithTZ(file.lastAccess, tz);
           return `<tr>
             <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
-            <td><a href="#" class="analytics-file-link" data-path="${escHtml(file.path)}" style="color: var(--accent); font-weight: 600; text-decoration: none;">${escHtml(file.fileName)}</a></td>
-            <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(file.path)}</td>
+            <td><a href="#" class="analytics-file-link" data-path="${escHtml(file.path)}" title="${escHtml(file.path)}" style="color: var(--accent); font-weight: 600; text-decoration: none;">${escHtml(file.fileName)}</a></td>
             <td style="text-align: right; font-weight: 700; color: #58a6ff;">${file.views.toLocaleString()}</td>
             <td style="text-align: right; font-weight: 600;">${file.uniqueIps.toLocaleString()}</td>
             <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(formattedTime)}</td>
