@@ -341,28 +341,30 @@
 
     const lineTextNodes = [];
 
-    function collectTextNodes(node) {
-      let curr = node;
-      while (curr) {
-        if (curr !== anchorEl && curr.nodeType === 1 && curr.classList.contains('line-anchor')) {
-          return false;
-        }
-        if (curr.nodeType === 3) {
-          if (curr.nodeValue && curr.nodeValue.length > 0) {
-            lineTextNodes.push(curr);
-          }
-        } else if (curr.nodeType === 1 && curr !== anchorEl) {
-          if (!curr.classList.contains('line-anchor')) {
-            const shouldContinue = collectTextNodes(curr.firstChild);
-            if (!shouldContinue) return false;
-          }
-        }
-        curr = curr.nextSibling;
+    // Collect text nodes in document order starting just AFTER the anchor,
+    // spanning the anchor's own block and any following sibling blocks until
+    // the next `.line-anchor` (the next block's start). Dictionary entries put
+    // the matched text in a body paragraph that carries no anchor of its own —
+    // the nearest anchor is the heading, so a block-scoped walk never reaches
+    // the body. A document-order walk reaches it and still stops at the next
+    // heading, keeping the highlight scoped to the clicked entry.
+    function nextNode(node) {
+      if (node.firstChild) return node.firstChild;
+      while (node) {
+        if (node.nextSibling) return node.nextSibling;
+        node = node.parentNode;
       }
-      return true;
+      return null;
     }
 
-    collectTextNodes(anchorEl.nextSibling);
+    let node = nextNode(anchorEl);
+    while (node) {
+      if (node.nodeType === 1 && node.classList && node.classList.contains('line-anchor')) break;
+      if (node.nodeType === 3 && node.nodeValue && node.nodeValue.length > 0) {
+        lineTextNodes.push(node);
+      }
+      node = nextNode(node);
+    }
 
     lineTextNodes.forEach(textNode => {
       const val = textNode.nodeValue;
