@@ -1367,10 +1367,45 @@
   const TOC_GROUP_H = 30;       // px height of a virtualized TOC group header
   const TOC_WINDOW_BUFFER = 12; // extra rows mounted above/below the viewport
 
+  // The entry whose heading is actually at the top of the content viewport,
+  // measured from the rendered anchors. The arithmetic px-per-line estimate is
+  // accurate enough for chunk management but NOT for the scroll-spy highlight:
+  // heading lines are taller than body lines and entries vary in length, so
+  // `estimateLineFromScrollTop()` drifts by an entry or two and the TOC would
+  // highlight the entry below the one the reader is on.
+  function topVisibleEntryIndex() {
+    const v = state.virtual;
+    const content = $('content');
+    if (!v || !content || !cachedLineAnchors.length) return -1;
+
+    const rough = estimateLineFromScrollTop();
+    const crTop = content.getBoundingClientRect().top;
+
+    // Binary search the cached anchors (document order == line order) for the
+    // last anchor at/before the rough line, so the subsequent walk is O(1).
+    let lo = 0, hi = cachedLineAnchors.length - 1, idx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const ln = parseInt(cachedLineAnchors[mid].dataset.line || '0', 10);
+      if (ln <= rough) { idx = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+
+    // Walk up to the first anchor whose bottom edge is still below the viewport
+    // top (i.e. the topmost visible line), then settle on it.
+    while (idx > 0 && cachedLineAnchors[idx].getBoundingClientRect().bottom > crTop) idx--;
+    while (idx + 1 < cachedLineAnchors.length && cachedLineAnchors[idx].getBoundingClientRect().bottom <= crTop) idx++;
+
+    const topLine = parseInt(cachedLineAnchors[idx].dataset.line || '0', 10);
+    if (topLine <= 0) return -1;
+    return entryIndexForLine(topLine);
+  }
+
   function updateVirtualScrollSpy(line) {
     const v = state.virtual;
     if (!v || !v._tocItems || v._tocItems.length === 0) return;
-    const ei = entryIndexForLine(line);
+    let ei = topVisibleEntryIndex();
+    if (ei < 0) ei = entryIndexForLine(line); // no anchors mounted yet → fall back
     if (ei === v._activeTocEntry) return;
     if (v._activeTocEntry != null) {
       const prevRow = v._tocRowEls.get(v._activeTocEntry);
