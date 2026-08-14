@@ -1567,7 +1567,7 @@ async function saveSearchIndexCacheAsync(vaultSig, fileList, bigrams) {
 function extractBigrams(text, onBigram) {
   if (!text || typeof onBigram !== 'function') return;
   let prevChar = '';
-  const maxLen = Math.min(text.length, 3000000);
+  const maxLen = text.length;
   for (let i = 0; i < maxLen; i++) {
     const ch = text.charCodeAt(i);
     if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
