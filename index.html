@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.1.13">
+  <link rel="stylesheet" href="style.css?v=2.2.0">
 </head>
 <body>
   <div class="app">
@@ -464,7 +464,7 @@
         <button type="button" class="admin-tab-btn" data-tab="hardware" id="adminTabHardwareBtn">🖥️ 硬體監控</button>
         <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
-        <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌 (Log)</button>
+        <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌</button>
       </div>
 
       <!-- Tab 1: Config Form -->
@@ -691,7 +691,19 @@
                   <div class="progress-bar-fill fill-blue" id="hwDiskFill" style="width: 0%;"></div>
                 </div>
               </div>
-              <div class="hardware-sub-metrics">
+              <div class="hardware-sub-metrics grid-2col">
+                <div class="sub-metric">
+                  <span class="sub-label">Node.js 版本</span>
+                  <span class="sub-val" id="hwNodeVer">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">作業系統平台</span>
+                  <span class="sub-val" id="hwPlatform">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">渲染 Worker 執行緒</span>
+                  <span class="sub-val" id="hwWorkerStatus">--</span>
+                </div>
                 <div class="sub-metric">
                   <span class="sub-label">索引快取檔</span>
                   <span class="sub-val" id="hwCacheSize">--</span>
@@ -703,6 +715,10 @@
                 <div class="sub-metric">
                   <span class="sub-label">Log 目錄總量</span>
                   <span class="sub-val" id="hwLogsSize">--</span>
+                </div>
+                <div class="sub-metric full-width">
+                  <span class="sub-label">Vault 路徑</span>
+                  <span class="sub-val" id="hwVaultPath" title="" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
                 </div>
               </div>
             </div>
@@ -718,20 +734,12 @@
             <div class="hardware-card-body">
               <div class="hardware-sub-metrics grid-2col">
                 <div class="sub-metric">
-                  <span class="sub-label">Node.js 版本</span>
-                  <span class="sub-val" id="hwNodeVer">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">作業系統平台</span>
-                  <span class="sub-val" id="hwPlatform">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">渲染 Worker 執行緒</span>
-                  <span class="sub-val" id="hwWorkerStatus">--</span>
-                </div>
-                <div class="sub-metric">
                   <span class="sub-label">全文索引狀態</span>
                   <span class="sub-val" id="hwIndexStatus">--</span>
+                </div>
+                <div class="sub-metric">
+                  <span class="sub-label">索引詞目數 (Units)</span>
+                  <span class="sub-val" id="hwIndexUnits">--</span>
                 </div>
                 <div class="sub-metric">
                   <span class="sub-label">索引 Bigram 總筆數</span>
@@ -740,14 +748,6 @@
                 <div class="sub-metric">
                   <span class="sub-label">索引檔案建立/修改時間</span>
                   <span class="sub-val" id="hwIndexCreatedAt">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引詞目數 (Units)</span>
-                  <span class="sub-val" id="hwIndexUnits">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">Vault 路徑</span>
-                  <span class="sub-val" id="hwVaultPath" title="" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
                 </div>
               </div>
             </div>
@@ -1063,7 +1063,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.1.13" defer></script>
-  <script src="app.js?v=2.1.13" defer></script>
+  <script src="marked.min.js?v=2.2.0" defer></script>
+  <script src="app.js?v=2.2.0" defer></script>
 </body>
 </html>

@@ -4485,7 +4485,7 @@
       }
     }
 
-    // Storage Card
+    // Storage & Filesystem Card
     const diskText = $('hwDiskText');
     const diskFill = $('hwDiskFill');
     const fs = data.storage.vaultFs;
@@ -4494,14 +4494,6 @@
       diskFill.style.width = `${fs.usagePct || 0}%`;
     }
 
-    const cacheSize = $('hwCacheSize');
-    if (cacheSize) cacheSize.textContent = formatBytes(data.storage.cacheSizeBytes);
-    const analyticsSize = $('hwAnalyticsSize');
-    if (analyticsSize) analyticsSize.textContent = formatBytes(data.storage.analyticsStoreSizeBytes);
-    const logsSize = $('hwLogsSize');
-    if (logsSize) logsSize.textContent = formatBytes(data.storage.logsDirSizeBytes);
-
-    // Runtime & Index Card
     const nodeVer = $('hwNodeVer');
     if (nodeVer) nodeVer.textContent = `${data.system.nodeVersion}`;
     const platform = $('hwPlatform');
@@ -4509,6 +4501,20 @@
     const workerStatus = $('hwWorkerStatus');
     if (workerStatus) workerStatus.textContent = `${data.workers.idle}/${data.workers.count} 就緒`;
 
+    const cacheSize = $('hwCacheSize');
+    if (cacheSize) cacheSize.textContent = formatBytes(data.storage.cacheSizeBytes);
+    const analyticsSize = $('hwAnalyticsSize');
+    if (analyticsSize) analyticsSize.textContent = formatBytes(data.storage.analyticsStoreSizeBytes);
+    const logsSize = $('hwLogsSize');
+    if (logsSize) logsSize.textContent = formatBytes(data.storage.logsDirSizeBytes);
+
+    const vaultPath = $('hwVaultPath');
+    if (vaultPath) {
+      vaultPath.textContent = data.storage.vaultPath || '--';
+      vaultPath.title = data.storage.vaultPath || '';
+    }
+
+    // Index Status Card
     const indexStatus = $('hwIndexStatus');
     if (indexStatus) {
       if (data.index.building) {
@@ -4520,17 +4526,12 @@
       }
     }
 
+    const indexUnits = $('hwIndexUnits');
+    if (indexUnits) indexUnits.textContent = (data.index.totalUnits || 0).toLocaleString();
+
     const bigramCount = $('hwBigramCount');
     if (bigramCount) {
       bigramCount.textContent = `${(data.index.uniqueBigrams || 0).toLocaleString()} 筆 (檔案: ${data.index.totalFiles} 個)`;
-    }
-
-    const indexUnits = $('hwIndexUnits');
-    if (indexUnits) indexUnits.textContent = (data.index.totalUnits || 0).toLocaleString();
-    const vaultPath = $('hwVaultPath');
-    if (vaultPath) {
-      vaultPath.textContent = data.storage.vaultPath || '--';
-      vaultPath.title = data.storage.vaultPath || '';
     }
 
     const indexCreatedAt = $('hwIndexCreatedAt');
