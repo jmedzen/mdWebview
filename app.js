@@ -3093,7 +3093,7 @@
     let html = `<div class="dict-file-list-header"><span>辭典選擇</span><button class="dict-file-all-toggle" data-dict-toggle-all>${allOn ? '全不選' : '全選'}</button></div>`;
     for (const fi of dictFileOrderIndex()) {
       const f = files[fi];
-      html += `<label class="dict-file-item" draggable="true" data-dict-drag="${fi}"><span class="dict-file-drag" aria-hidden="true" title="拖曳排序">⠿</span><input type="checkbox" data-dict-file="${fi}" ${selected.has(fi) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
+      html += `<label class="dict-file-item" data-dict-drag="${fi}"><span class="dict-file-drag" aria-hidden="true" title="拖曳排序">⠿</span><input type="checkbox" data-dict-file="${fi}" ${selected.has(fi) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
     }
     container.innerHTML = html;
   }
@@ -4386,48 +4386,65 @@
       });
 
       // ── Drag-to-reorder dictionary file list ──
+      // Driven by Pointer Events instead of HTML5 drag-and-drop, which iOS Safari
+      // never fires. The drag is grabbed from the ⠿ handle only, so checkbox taps
+      // and vertical scrolling elsewhere on the list still work.
       let _dictDragFi = -1;
       let _dictDragOverFi = -1;
       let _dictDragBefore = true;
+      let _dictDragPointerId = null;
       const clearDictDragMarks = () => {
         $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('dragging', 'drag-over', 'drag-over-after'));
       };
-      dictFileList.addEventListener('dragstart', (e) => {
-        const item = e.target.closest('.dict-file-item[draggable="true"]');
-        if (!item) return;
-        _dictDragFi = parseInt(item.getAttribute('data-dict-drag'), 10);
-        if (Number.isNaN(_dictDragFi)) { _dictDragFi = -1; return; }
-        e.dataTransfer.effectAllowed = 'move';
-        try { e.dataTransfer.setData('text/plain', String(_dictDragFi)); } catch (_) {}
-        item.classList.add('dragging');
-      });
-      dictFileList.addEventListener('dragover', (e) => {
-        if (_dictDragFi < 0) return;
+      const dictItemAtY = (y) => {
+        const items = $$('.dict-file-item', dictFileList);
+        for (const item of items) {
+          const r = item.getBoundingClientRect();
+          if (y >= r.top && y <= r.bottom) {
+            return { item, fi: parseInt(item.getAttribute('data-dict-drag'), 10), rect: r };
+          }
+        }
+        return null;
+      };
+      const onDictDragMove = (e) => {
+        if (_dictDragFi < 0 || e.pointerId !== _dictDragPointerId) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        const item = e.target.closest('.dict-file-item[draggable="true"]');
-        if (!item) return;
-        const overFi = parseInt(item.getAttribute('data-dict-drag'), 10);
-        if (Number.isNaN(overFi) || overFi === _dictDragFi) return;
-        const rect = item.getBoundingClientRect();
-        const before = (e.clientY - rect.top) < (rect.height / 2);
-        _dictDragOverFi = overFi;
-        _dictDragBefore = before;
+        const over = dictItemAtY(e.clientY);
+        if (!over || over.fi === _dictDragFi) { _dictDragOverFi = -1; clearDictDragMarks(); return; }
+        _dictDragOverFi = over.fi;
+        _dictDragBefore = (e.clientY - over.rect.top) < (over.rect.height / 2);
         $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
-        item.classList.add(before ? 'drag-over' : 'drag-over-after');
-      });
-      dictFileList.addEventListener('drop', (e) => {
+        over.item.classList.add(_dictDragBefore ? 'drag-over' : 'drag-over-after');
+      };
+      const onDictDragEnd = () => {
+        document.removeEventListener('pointermove', onDictDragMove);
+        document.removeEventListener('pointerup', onDictDragEnd);
+        document.removeEventListener('pointercancel', onDictDragEnd);
+        if (_dictDragFi >= 0 && _dictDragOverFi >= 0 && _dictDragOverFi !== _dictDragFi) {
+          reorderDictFiles(_dictDragFi, _dictDragOverFi, _dictDragBefore);
+        }
+        _dictDragFi = -1;
+        _dictDragOverFi = -1;
+        _dictDragPointerId = null;
+        clearDictDragMarks();
+      };
+      dictFileList.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const handle = e.target.closest('.dict-file-drag');
+        if (!handle) return;
+        const item = handle.closest('.dict-file-item');
+        if (!item) return;
+        const fi = parseInt(item.getAttribute('data-dict-drag'), 10);
+        if (Number.isNaN(fi)) return;
+        _dictDragFi = fi;
+        _dictDragOverFi = -1;
+        _dictDragBefore = true;
+        _dictDragPointerId = e.pointerId;
+        item.classList.add('dragging');
         e.preventDefault();
-        if (_dictDragFi < 0 || _dictDragOverFi < 0) { _dictDragFi = -1; _dictDragOverFi = -1; clearDictDragMarks(); return; }
-        if (_dictDragOverFi !== _dictDragFi) reorderDictFiles(_dictDragFi, _dictDragOverFi, _dictDragBefore);
-        _dictDragFi = -1;
-        _dictDragOverFi = -1;
-        clearDictDragMarks();
-      });
-      dictFileList.addEventListener('dragend', () => {
-        _dictDragFi = -1;
-        _dictDragOverFi = -1;
-        clearDictDragMarks();
+        document.addEventListener('pointermove', onDictDragMove);
+        document.addEventListener('pointerup', onDictDragEnd);
+        document.addEventListener('pointercancel', onDictDragEnd);
       });
     }
     const dictResults = $('dictResults');
@@ -4449,6 +4466,9 @@
         sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '', query });
         const highlight = state.dictMode === 'fulltext' ? query : null;
         openFile(file, line ? parseInt(line, 10) : null, highlight || null);
+        // On touch/narrow screens the right dict panel overlays the reader, so
+        // collapse it once a result is opened to reveal the entry.
+        if (isMobileBrowser()) toggleDictSidebar(false);
       });
     }
     const entryNavPrev = $('entryNavPrev');

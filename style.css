@@ -4814,6 +4814,8 @@ details.callout[open] > summary .callout-fold-icon {
   line-height: 1;
   flex-shrink: 0;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none; /* let the pointer-drag handle work on iOS instead of scrolling */
 }
 
 .dict-file-item.dragging {
