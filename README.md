@@ -92,9 +92,11 @@ services:
       - PORT=8330
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
+      - DICTIONARY_PATH=/data/dicts
     volumes:
       - ./data:/data
       - ./md:/data/md
+      - ./dicts:/data/dicts
     restart: unless-stopped
 ```
 
@@ -224,9 +226,11 @@ services:
       - PORT=8330
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
+      - DICTIONARY_PATH=/data/dicts
     volumes:
       - ./data:/data
       - ./md:/data/md
+      - ./dicts:/data/dicts
     restart: unless-stopped
 ```
 

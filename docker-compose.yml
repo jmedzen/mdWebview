@@ -10,6 +10,7 @@ services:
       - PORT=8330
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
+      - DICTIONARY_PATH=/data/dicts
     volumes:
       # Mount local ./data folder for config persistence
       - ./data:/data
@@ -17,4 +18,6 @@ services:
       - ./logs:/data/logs
       # Mount local ./md directory so markdown files are directly accessible inside container
       - ./md:/data/md
+      # Mount local ./dicts directory so dictionary files are accessible and persist inside container
+      - ./dicts:/data/dicts
     restart: unless-stopped

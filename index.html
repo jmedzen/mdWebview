@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.2.1">
+  <link rel="stylesheet" href="style.css?v=3.0.0">
 </head>
 <body>
   <div class="app">
@@ -37,6 +37,11 @@
         <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
+          </svg>
+        </button>
+        <button id="dictToggleBtn" class="control-btn dict-toggle-btn" title="辭典查詢" style="display:none">
+          <svg width="18" height="18" viewBox="0 0 512 512" fill="currentColor">
+            <path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20z"/>
           </svg>
         </button>
         <button id="adminSettingsBtn" class="control-btn settings-btn" title="偏好設定與系統管理">
@@ -201,6 +206,11 @@
           <div class="content-header" id="contentHeader"></div>
           <article class="markdown-body" id="markdownBody"></article>
           <button class="back-to-top" id="backToTop" title="回到頂部">↑</button>
+          <div class="entry-nav" id="entryNav" style="display:none">
+            <button class="entry-nav-btn" id="entryNavPrev" title="前一條">← 前一條</button>
+            <span class="entry-nav-label" id="entryNavLabel"></span>
+            <button class="entry-nav-btn" id="entryNavNext" title="後一條">後一條 →</button>
+          </div>
         </div>
 
         <!-- Loading Overlay -->
@@ -209,6 +219,34 @@
           <span>載入中…</span>
         </div>
       </main>
+
+      <!-- Dictionary Resize Handle -->
+      <div class="dict-resize-handle" id="dictResizeHandle" style="display:none"></div>
+
+      <!-- Dictionary Sidebar (right hidden menu) -->
+      <aside class="dict-sidebar collapsed" id="dictSidebar">
+        <div class="dict-sidebar-header">
+          <div class="dict-sidebar-title">
+            <h3>📖 辭典</h3>
+            <button type="button" class="dict-file-list-toggle" id="dictFileListToggle" title="切換辭典選擇" aria-expanded="false">
+              <svg class="dict-file-list-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉">✕</button>
+        </div>
+        <div class="dict-tabs" id="dictTabs">
+          <button class="dict-tab active" data-mode="prefix">詞條</button>
+          <button class="dict-tab" data-mode="fuzzy">模糊</button>
+          <button class="dict-tab" data-mode="fulltext">全文</button>
+        </div>
+        <div class="dict-file-list collapsed" id="dictFileList"></div>
+        <div class="dict-search-wrap">
+          <input type="text" id="dictSearchInput" class="dict-search-input" placeholder="輸入詞條…" autocomplete="off">
+        </div>
+        <div class="dict-results" id="dictResults"></div>
+      </aside>
     </div>
   </div>
 
@@ -560,6 +598,18 @@
                     <input type="text" id="settingsDownloadUrl" placeholder="例如: https://example.com/download.zip">
                   </div>
                 </div>
+                <div class="footer-setting-item">
+                  <div class="toggle-switch-wrapper compact-switch">
+                    <label class="toggle-switch-label" for="settingsEnableDictionary">
+                      <input type="checkbox" id="settingsEnableDictionary">
+                      <span class="toggle-switch-slider"></span>
+                    </label>
+                    <span class="toggle-switch-title">開啟辭典功能</span>
+                  </div>
+                  <div class="footer-input-wrap">
+                    <input type="text" id="settingsDictionaryPath" placeholder="例如: /path/to/mdWebview/dicts" title="辭典檔案路徑">
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -729,25 +779,56 @@
             <div class="hardware-card-header">
               <span class="card-icon">🪷</span>
               <span class="card-title">服務與全文索引狀態</span>
-              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
+              <button type="button" id="hwRebuildDictIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描辭典目錄與建立辭典全文索引">📖 重建辭典索引</button>
+              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: 6px;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
             </div>
             <div class="hardware-card-body">
-              <div class="hardware-sub-metrics grid-2col">
-                <div class="sub-metric">
-                  <span class="sub-label">全文索引狀態</span>
-                  <span class="sub-val" id="hwIndexStatus">--</span>
+              <div class="index-status-columns">
+                <div class="index-status-col">
+                  <div class="index-status-col-title">🔍 全文搜尋索引</div>
+                  <div class="hardware-sub-metrics grid-2col">
+                    <div class="sub-metric">
+                      <span class="sub-label">全文索引狀態</span>
+                      <span class="sub-val" id="hwIndexStatus">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引詞目數 (Units)</span>
+                      <span class="sub-val" id="hwIndexUnits">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引 Bigram 總筆數</span>
+                      <span class="sub-val" id="hwBigramCount">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引檔案建立/修改時間</span>
+                      <span class="sub-val" id="hwIndexCreatedAt">--</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引詞目數 (Units)</span>
-                  <span class="sub-val" id="hwIndexUnits">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引 Bigram 總筆數</span>
-                  <span class="sub-val" id="hwBigramCount">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引檔案建立/修改時間</span>
-                  <span class="sub-val" id="hwIndexCreatedAt">--</span>
+                <div class="index-status-col">
+                  <div class="index-status-col-title">📖 辭典索引</div>
+                  <div class="hardware-sub-metrics grid-2col">
+                    <div class="sub-metric">
+                      <span class="sub-label">辭典索引狀態</span>
+                      <span class="sub-val" id="hwDictIndexStatus">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">辭典詞目數 (Units)</span>
+                      <span class="sub-val" id="hwDictIndexUnits">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">辭典 Bigram 總筆數</span>
+                      <span class="sub-val" id="hwDictBigramCount">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引檔案大小</span>
+                      <span class="sub-val" id="hwDictIndexCacheSize">--</span>
+                    </div>
+                    <div class="sub-metric full-width">
+                      <span class="sub-label">索引檔案建立/修改時間</span>
+                      <span class="sub-val" id="hwDictIndexCreatedAt">--</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -885,6 +966,20 @@
               </div>
             </div>
             <div class="analytics-card">
+              <div class="analytics-card-icon">🔎</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsDictSearches">0</div>
+                <div class="analytics-card-label">辭典搜尋次數 (Dict Searches)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <div class="analytics-card-icon">👁️</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsDictLookups">0</div>
+                <div class="analytics-card-label">辭典查閱次數 (Dict Lookups)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
               <div class="analytics-card-icon">📈</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsAvgViewsPerDoc">0</div>
@@ -919,6 +1014,47 @@
                   <tr><td colspan="5" class="analytics-empty">載入數據中…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <!-- Dictionary Lookups & Searches -->
+          <div class="analytics-grid-two">
+            <div class="analytics-section">
+              <h3 class="analytics-section-title">🔥 熱門查詢辭條 Top 50 (Top Lookups)</h3>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px; text-align: center;">排名</th>
+                      <th>詞條</th>
+                      <th>辭典</th>
+                      <th style="width: 90px; text-align: right;">查閱次數</th>
+                      <th style="width: 150px;">最後查閱</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analyticsTopLookupsTable">
+                    <tr><td colspan="5" class="analytics-empty">尚無辭典查閱紀錄</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="analytics-section">
+              <h3 class="analytics-section-title">📖 熱門辭典搜尋 (Top Dict Searches)</h3>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px; text-align: center;">排名</th>
+                      <th>關鍵字</th>
+                      <th style="width: 90px; text-align: right;">搜尋次數</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analyticsTopDictSearchesTable">
+                    <tr><td colspan="3" class="analytics-empty">尚無辭典搜尋紀錄</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -1063,7 +1199,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.2.1" defer></script>
-  <script src="app.js?v=2.2.1" defer></script>
+  <script src="marked.min.js?v=3.0.0" defer></script>
+  <script src="app.js?v=3.0.0" defer></script>
 </body>
 </html>

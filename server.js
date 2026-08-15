@@ -72,7 +72,7 @@ function createEmptyAnalyticsStore() {
   return {
     version: ANALYTICS_STORE_VERSION,
     updatedAt: new Date(0).toISOString(),
-    lifetime: { requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {} },
+    lifetime: { requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0, dictSearches: {}, dictLookups: {} },
     daily: {},
     processedIds: {}
   };
@@ -155,7 +155,7 @@ function updateAnalyticsStoreEntry(store, entry) {
   const ip = entry.ip || '127.0.0.1';
   const dateKey = timestamp.toISOString().split('T')[0];
   const bucket = store.daily[dateKey] || (store.daily[dateKey] = {
-    requests: 0, views: 0, searches: 0, ips: {}, files: {}, searches: {}
+    requests: 0, views: 0, searches: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0
   });
   const lifetime = store.lifetime;
   lifetime.requests++;
@@ -203,6 +203,38 @@ function updateAnalyticsStoreEntry(store, entry) {
       updateLatest(bucketSearch, entry.timestamp, 'lastSearch');
     }
   }
+
+  if (entry.tag === 'DictSearch') {
+    const query = extractAnalyticsQuery(entry);
+    if (query) {
+      lifetime.dictSearchCount = (lifetime.dictSearchCount || 0) + 1;
+      bucket.dictSearchCount = (bucket.dictSearchCount || 0) + 1;
+      if (!lifetime.dictSearches) lifetime.dictSearches = {};
+      const s = analyticsMapGetOrCreate(lifetime.dictSearches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
+      s.count = (s.count || 0) + 1;
+      updateLatest(s, entry.timestamp, 'lastSearch');
+    }
+  }
+
+  if (entry.tag === 'DictLookup') {
+    const headword = extractAnalyticsQuery(entry);
+    const docPath = extractAnalyticsPath(entry);
+    if (headword || docPath) {
+      lifetime.dictLookupCount = (lifetime.dictLookupCount || 0) + 1;
+      bucket.dictLookupCount = (bucket.dictLookupCount || 0) + 1;
+      if (!lifetime.dictLookups) lifetime.dictLookups = {};
+      const key = `${docPath || ''}::${headword || ''}`;
+      const l = analyticsMapGetOrCreate(lifetime.dictLookups, key, () => ({ count: 0, headword, path: docPath, lastLookup: entry.timestamp }));
+      l.count = (l.count || 0) + 1;
+      updateLatest(l, entry.timestamp, 'lastLookup');
+    }
+  }
+
+  if (entry.tag === 'DictBrowse') {
+    lifetime.dictBrowseCount = (lifetime.dictBrowseCount || 0) + 1;
+    bucket.dictBrowseCount = (bucket.dictBrowseCount || 0) + 1;
+  }
+
   return true;
 }
 
@@ -286,6 +318,29 @@ function pruneAnalyticsLogEntry(entry) {
 
   const docPath = extractAnalyticsPath(entry);
   const query = extractAnalyticsQuery(entry);
+
+  if (tag === 'DictSearch') {
+    if (!query) return null;
+    return {
+      timestamp: entry.timestamp,
+      tag: 'DictSearch',
+      ip: entry.ip || '127.0.0.1',
+      query: query,
+      pruned: true
+    };
+  }
+
+  if (tag === 'DictLookup') {
+    if (!docPath && !query) return null;
+    return {
+      timestamp: entry.timestamp,
+      tag: 'DictLookup',
+      ip: entry.ip || '127.0.0.1',
+      ...(docPath ? { path: docPath } : {}),
+      ...(query ? { query: query } : {}),
+      pruned: true
+    };
+  }
 
   if (tag === 'Render' || tag === 'ShareLink' || docPath) {
     if (!docPath) return null;
@@ -661,6 +716,8 @@ let config = {
     version: process.env.VERSION || '',
     enableDownload: process.env.ENABLE_DOWNLOAD ? process.env.ENABLE_DOWNLOAD === 'true' : false,
     downloadUrl: process.env.DOWNLOAD_URL || '',
+    dictionaryEnabled: process.env.DICTIONARY_ENABLED ? process.env.DICTIONARY_ENABLED === 'true' : false,
+    dictionaryPath: process.env.DICTIONARY_PATH || deriveDictRoot(),
     suggestList: {
       adminList: [],
       adminPickCount: 3,
@@ -750,26 +807,41 @@ function getMdRoot() {
   return configured || path.join(APP_ROOT, 'md');
 }
 
+// Dictionary files live in a `dicts/` directory that is a sibling of the markdown
+// vault (mdRoot). Deriving from mdRoot (rather than APP_ROOT) keeps the dict dir on
+// the same persistent `/data` volume as the vault inside Docker — `/data/md` →
+// `/data/dicts` — instead of the ephemeral `/app` image layer.
+function deriveDictRoot(mdRoot) {
+  const base = mdRoot || process.env.MD_ROOT || path.join(APP_ROOT, 'md');
+  return path.join(path.dirname(path.resolve(base)), 'dicts');
+}
+
 // ── Realpath confinement (symlink escape defense) ──────────────────────────
 // Lexical `path.relative` checks are bypassable by a symlink inside the vault: a
 // link pointing outside still lexically "resolves" inside, so the `..` guard passes
 // while the OS follows the link out. Resolving both the target and the vault root to
 // canonical paths and re-checking containment closes this for every file handler.
-let mdRootRealpathCache = null;
+const realpathCache = new Map(); // root -> canonical realpath
 
-async function getMdRootRealpath() {
-  if (mdRootRealpathCache) return mdRootRealpathCache;
-  mdRootRealpathCache = await fs.promises.realpath(getMdRoot());
-  return mdRootRealpathCache;
+async function getRootRealpath(root) {
+  if (realpathCache.has(root)) return realpathCache.get(root);
+  const real = await fs.promises.realpath(root);
+  realpathCache.set(root, real);
+  return real;
 }
 
-// Returns true only when resolvedPath's canonical target lives inside the vault.
+// Returns true only when resolvedPath's canonical target lives inside `root`.
 // Throws ENOENT (etc.) for a nonexistent path so callers can preserve 404 semantics.
-async function isRealPathWithinMdRoot(resolvedPath) {
+async function isRealPathWithinRoot(root, resolvedPath) {
   const realTarget = await fs.promises.realpath(resolvedPath);
-  const realRoot = await getMdRootRealpath();
+  const realRoot = await getRootRealpath(root);
   const rel = path.relative(realRoot, realTarget);
   return !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+// Legacy single-root wrapper for vault-only handlers (file/media).
+async function isRealPathWithinMdRoot(resolvedPath) {
+  return isRealPathWithinRoot(getMdRoot(), resolvedPath);
 }
 
 // MIME types
@@ -868,6 +940,7 @@ function getIndexHtml(nonce, callback) {
     // payload, and shipping it on every page load would disclose the filesystem.
     const clientSettings = Object.assign({}, config.settings);
     delete clientSettings.mdRoot;
+    delete clientSettings.dictionaryPath;
     const configScript = `<script nonce="${nonce}">window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
@@ -1265,27 +1338,27 @@ async function handleRender(req, res, query) {
   // Normalize path segments (remove spaces around slashes)
   filePath = filePath.replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/');
 
-  let fullPath = path.join(getMdRoot(), filePath);
-  let resolved = path.resolve(fullPath);
+  const { root, fsRel } = resolveRoot(filePath);
+  let resolved = path.resolve(path.join(root, fsRel));
 
   // Fallback: if resolved file doesn't exist directly, try with .md extension
   if (!fs.existsSync(resolved) && !filePath.endsWith('.md')) {
-    const mdCandidate = path.resolve(path.join(getMdRoot(), filePath + '.md'));
+    const mdCandidate = path.resolve(path.join(root, fsRel + '.md'));
     if (fs.existsSync(mdCandidate)) {
       resolved = mdCandidate;
       filePath = filePath + '.md';
     }
   }
 
-  const relative = path.relative(getMdRoot(), resolved);
+  const relative = path.relative(root, resolved);
   const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
   if (!isSafe) return sendJSON(res, 403, { error: 'Access denied' });
 
   try {
     const renderStart = Date.now();
     const stat = await fs.promises.stat(resolved);
-    // Symlink escape check: canonical target must stay within the vault
-    if (!(await isRealPathWithinMdRoot(resolved))) {
+    // Symlink escape check: canonical target must stay within its root
+    if (!(await isRealPathWithinRoot(root, resolved))) {
       return sendJSON(res, 403, { error: 'Access denied' });
     }
     const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
@@ -1359,19 +1432,35 @@ async function handleRender(req, res, query) {
 }
 
 // ── API: Section Index (large-file chunk metadata) ────────────────────────
+// Multi-root path resolution. Dictionary files live outside the vault in
+// config.settings.dictionaryPath and are addressed with a `dict:` prefix that rides
+// through the client's opaque path string. `fsRel` is joined against the root on
+// disk; `relPath` keeps the `dict:` prefix so cache keys / response `file` never
+// collide with same-named vault files.
+function resolveRoot(filePath) {
+  const p = String(filePath || '');
+  if (p.startsWith('dict:')) {
+    return { root: config.settings.dictionaryPath, fsRel: p.slice(5), relPath: p };
+  }
+  return { root: getMdRoot(), fsRel: p, relPath: p };
+}
+
 // Normalizes + resolves a markdown path with the same traversal guard as handleRender.
 function resolveMdPath(filePath) {
   let p = String(filePath || '').replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/');
   if (!p || p.includes('\0')) return null;
-  let resolved = path.resolve(path.join(getMdRoot(), p));
-  if (!fs.existsSync(resolved) && !p.endsWith('.md')) {
-    const candidate = path.resolve(path.join(getMdRoot(), p + '.md'));
-    if (fs.existsSync(candidate)) { resolved = candidate; p = p + '.md'; }
+  const { root, fsRel, relPath } = resolveRoot(p);
+  let resolved = path.resolve(path.join(root, fsRel));
+  let outFsRel = fsRel;
+  let outRelPath = relPath;
+  if (!fs.existsSync(resolved) && !fsRel.endsWith('.md')) {
+    const candidate = path.resolve(path.join(root, fsRel + '.md'));
+    if (fs.existsSync(candidate)) { resolved = candidate; outFsRel = fsRel + '.md'; outRelPath = relPath + '.md'; }
   }
-  const relative = path.relative(getMdRoot(), resolved);
+  const relative = path.relative(root, resolved);
   const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
   if (!isSafe) return null;
-  return { resolved, relPath: relative, filePath: p };
+  return { resolved, relPath: outRelPath, root };
 }
 
 async function handleSectionIndex(req, res, query) {
@@ -1381,7 +1470,7 @@ async function handleSectionIndex(req, res, query) {
   try {
     const stat = await fs.promises.stat(r.resolved);
     // Symlink escape check: canonical target must stay within the vault
-    if (!(await isRealPathWithinMdRoot(r.resolved))) {
+    if (!(await isRealPathWithinRoot(r.root, r.resolved))) {
       return sendJSON(res, 403, { error: 'Access denied' });
     }
     if (stat.size < LARGE_FILE_MIN_BYTES) {
@@ -1471,7 +1560,7 @@ async function handleRenderChunk(req, res, query) {
   try {
     const stat = await fs.promises.stat(r.resolved);
     // Symlink escape check: canonical target must stay within the vault
-    if (!(await isRealPathWithinMdRoot(r.resolved))) {
+    if (!(await isRealPathWithinRoot(r.root, r.resolved))) {
       return sendJSON(res, 403, { error: 'Access denied' });
     }
     if (stat.size < LARGE_FILE_MIN_BYTES) {
@@ -2157,6 +2246,21 @@ function extractQueryBigrams(text) {
   return Array.from(set);
 }
 
+// Sorted-merge intersection of two ascending numeric arrays — O(n+m), zero heap
+// allocation. Shared by full-vault search and dictionary full-text search.
+function intersectSorted(a, b) {
+  const result = [];
+  let i = 0, j = 0;
+  const aLen = a.length, bLen = b.length;
+  while (i < aLen && j < bLen) {
+    const av = a[i], bv = b[j];
+    if (av < bv) i++;
+    else if (av > bv) j++;
+    else { result.push(av); i++; j++; }
+  }
+  return result;
+}
+
 let activeIndexBuildId = 0;
 
 // Runs a pool of transient worker_threads over `tasks` with a shared counter.
@@ -2371,6 +2475,628 @@ async function buildSearchIndexAsync(forceRebuild = false) {
   }
 }
 
+// ── Dictionary Index (dedicated full-text bigram index for dictionary files) ─
+// Separate from the vault `searchIndex`: dictionaries live in their own root
+// (config.settings.dictionaryPath), are entry-level (one unit per headword), and
+// are served by `/api/dict-headwords` + `/api/dict-search` only — never mixed into
+// the main vault search or its disk cache.
+const DICT_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-index-cache.bin');
+
+let dictIndex = {
+  ready: false,
+  building: false,
+  dictSig: null,
+  fileList: [],       // [{ id, relPath:'dict:*.md', name:'*.md', fullPath }]
+  fileMap: new Map(), // relPath -> fileId
+  units: [],          // unitId -> { fileId, entryIndex, headword, byteOffset, byteLength, lineStart }
+  bigrams: new Map(),
+};
+let activeDictIndexBuildId = 0;
+let dictWatcher = null;
+let dictWatcherDebounceTimer = null;
+
+// Returns the configured dictionary root (absolute), or null when disabled/unset.
+function getDictionaryPath() {
+  if (!config.settings.dictionaryEnabled) return null;
+  const p = config.settings.dictionaryPath;
+  if (!p) return null;
+  return path.resolve(p);
+}
+
+// Lists `.md` files directly inside the dictionary root (flat, non-recursive).
+function cleanHeadword(hw) {
+  return String(hw || '').replace(/^【/, '').replace(/】$/, '').trim();
+}
+
+const DICT_HEADING_RE = /^(#{1,6})\s+(.*)$/;
+
+// Fallback entry counter: scans a dictionary file's headings directly when its
+// section index is unavailable (e.g. index build failed in a fresh container).
+// Counts the deepest heading level — the entry level per scanSections() in
+// index-worker.js — and only non-empty headwords, matching the count that
+// handleDictHeadwords reports from a built index. Ensures 辭典選擇 never shows 0.
+async function scanDictEntryCount(fullPath) {
+  let headings = [];
+  try {
+    const text = await fs.promises.readFile(fullPath, 'utf-8');
+    for (const line of text.split('\n')) {
+      const m = DICT_HEADING_RE.exec(line);
+      if (!m) continue;
+      headings.push({ depth: m[1].length, clean: !!cleanHeadword(m[2]) });
+    }
+  } catch (_) {
+    return 0;
+  }
+  if (headings.length === 0) return 0;
+  let entryLevel = 0;
+  for (const h of headings) if (h.depth > entryLevel) entryLevel = h.depth;
+  let count = 0;
+  for (const h of headings) if (h.depth === entryLevel && h.clean) count++;
+  return count;
+}
+
+async function scanDictFiles() {
+  const root = getDictionaryPath();
+  if (!root) return [];
+  let entries;
+  try {
+    entries = await fs.promises.readdir(root, { withFileTypes: true });
+  } catch (_) {
+    return [];
+  }
+  const files = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || !entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const fullPath = path.join(root, entry.name);
+    let size = 0;
+    try { size = fs.statSync(fullPath).size; } catch (_) {}
+    files.push({ relPath: 'dict:' + entry.name, name: entry.name, fullPath, size });
+  }
+  files.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return files;
+}
+
+// Fingerprint of the dictionary folder (path + size + mtime) so the disk cache
+// is only reused when the dictionary files are byte-for-byte unchanged.
+async function computeDictSignature(files) {
+  const hash = crypto.createHash('md5');
+  hash.update(`count:${files.length}\n`);
+  for (const f of files) {
+    let mtime = '';
+    try { mtime = String((await fs.promises.stat(f.fullPath)).mtimeMs); } catch (_) {}
+    hash.update(`${f.relPath}\n${f.size}\n${mtime}\n`);
+  }
+  return hash.digest('hex');
+}
+
+async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
+  try {
+    if (!fs.existsSync(DICT_INDEX_CACHE_BIN)) return false;
+    const loadStart = Date.now();
+    const binBuf = await fs.promises.readFile(DICT_INDEX_CACHE_BIN);
+    if (binBuf.length < 10) return false;
+
+    let readPos = 0;
+    const magic = binBuf.readUInt32BE(readPos); readPos += 4;
+    if (magic !== 0x44475833 && magic !== 0x44475834) return false;
+    const isUint16Format = (magic === 0x44475833);
+
+    const sigLen = binBuf.readUInt16BE(readPos); readPos += 2;
+    const dictSig = binBuf.toString('utf-8', readPos, readPos + sigLen); readPos += sigLen;
+    if (dictSig !== expectedDictSig) return false;
+
+    const fileCount = binBuf.readUInt32BE(readPos); readPos += 4;
+    const unitCount = binBuf.readUInt32BE(readPos); readPos += 4;
+    const bigramCount = binBuf.readUInt32BE(readPos); readPos += 4;
+
+    const fileList = new Array(fileCount);
+    const fileMap = new Map();
+    for (let i = 0; i < fileCount; i++) {
+      const id = binBuf.readUInt32BE(readPos); readPos += 4;
+      const relLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const relPath = binBuf.toString('utf-8', readPos, readPos + relLen); readPos += relLen;
+      const nameLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const name = binBuf.toString('utf-8', readPos, readPos + nameLen); readPos += nameLen;
+      const fullLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const fullPath = binBuf.toString('utf-8', readPos, readPos + fullLen); readPos += fullLen;
+      const fileObj = { id, relPath, name, fullPath };
+      fileList[i] = fileObj;
+      fileMap.set(relPath, id);
+    }
+
+    const units = new Array(unitCount);
+    for (let i = 0; i < unitCount; i++) {
+      const unitId = binBuf.readUInt32BE(readPos); readPos += 4;
+      const fileId = binBuf.readUInt32BE(readPos); readPos += 4;
+      const entryIndex = binBuf.readInt32BE(readPos); readPos += 4;
+      const headwordLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      const headword = binBuf.toString('utf-8', readPos, readPos + headwordLen); readPos += headwordLen;
+      const byteOffset = binBuf.readUInt32BE(readPos); readPos += 4;
+      const byteLength = binBuf.readUInt32BE(readPos); readPos += 4;
+      const lineStart = binBuf.readUInt32BE(readPos); readPos += 4;
+      units[unitId] = { unitId, fileId, entryIndex, headword, byteOffset, byteLength, lineStart };
+    }
+
+    const bigrams = new Map();
+    for (let i = 0; i < bigramCount; i++) {
+      const bgLen = binBuf.readUInt8(readPos); readPos += 1;
+      const bgStr = binBuf.toString('utf-8', readPos, readPos + bgLen); readPos += bgLen;
+      const count = binBuf.readUInt32BE(readPos); readPos += 4;
+      if (count === 1) {
+        const singleId = isUint16Format ? binBuf.readUInt16BE(readPos) : binBuf.readUInt32BE(readPos);
+        readPos += isUint16Format ? 2 : 4;
+        bigrams.set(bgStr, singleId);
+      } else {
+        const arr = isUint16Format ? new Uint16Array(count) : new Uint32Array(count);
+        if (isUint16Format) {
+          for (let j = 0; j < count; j++) { arr[j] = binBuf.readUInt16BE(readPos); readPos += 2; }
+        } else {
+          for (let j = 0; j < count; j++) { arr[j] = binBuf.readUInt32BE(readPos); readPos += 4; }
+        }
+        bigrams.set(bgStr, arr);
+      }
+    }
+
+    let createdAt = null;
+    try {
+      const stat = await fs.promises.stat(DICT_INDEX_CACHE_BIN);
+      createdAt = stat.mtime ? stat.mtime.toISOString() : null;
+    } catch (_) {}
+
+    dictIndex = { ready: true, building: false, dictSig: expectedDictSig, createdAt, fileList, fileMap, units, bigrams };
+    Logger.info('DictIndex', `Loaded dictionary index from disk cache: ${fileCount} files, ${unitCount} units, ${bigrams.size} bigrams in ${Date.now() - loadStart}ms`);
+    if (global.gc) global.gc();
+    return true;
+  } catch (err) {
+    Logger.error('DictIndex', 'Failed to read dictionary index cache', err);
+    return false;
+  }
+}
+
+async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
+  try {
+    const saveStart = Date.now();
+    const useUint16 = units.length < 65536;
+    const magic = useUint16 ? 0x44475833 : 0x44475834;
+    const bytesPerId = useUint16 ? 2 : 4;
+
+    let totalBytes = 4 + 2 + Buffer.byteLength(dictSig || '') + 4 + 4 + 4;
+    for (const f of fileList) {
+      totalBytes += 4 + 2 + Buffer.byteLength(f.relPath) + 2 + Buffer.byteLength(f.name) + 2 + Buffer.byteLength(f.fullPath);
+    }
+    for (const u of units) {
+      totalBytes += 4 + 4 + 4 + 2 + Buffer.byteLength(u.headword || '') + 4 + 4 + 4;
+    }
+    const entries = Array.from(bigrams.entries());
+    for (const entry of entries) {
+      const val = entry[1];
+      const count = typeof val === 'number' ? 1 : val.length;
+      totalBytes += 1 + Buffer.byteLength(entry[0]) + 4 + (count * bytesPerId);
+    }
+
+    const buf = Buffer.allocUnsafe(totalBytes);
+    let pos = 0;
+
+    buf.writeUInt32BE(magic, pos); pos += 4;
+    const sigBuf = Buffer.from(dictSig || '');
+    buf.writeUInt16BE(sigBuf.length, pos); pos += 2;
+    sigBuf.copy(buf, pos); pos += sigBuf.length;
+
+    buf.writeUInt32BE(fileList.length, pos); pos += 4;
+    buf.writeUInt32BE(units.length, pos); pos += 4;
+    buf.writeUInt32BE(entries.length, pos); pos += 4;
+
+    for (const f of fileList) {
+      buf.writeUInt32BE(f.id, pos); pos += 4;
+      const relB = Buffer.from(f.relPath);
+      buf.writeUInt16BE(relB.length, pos); pos += 2; relB.copy(buf, pos); pos += relB.length;
+      const nameB = Buffer.from(f.name);
+      buf.writeUInt16BE(nameB.length, pos); pos += 2; nameB.copy(buf, pos); pos += nameB.length;
+      const fullB = Buffer.from(f.fullPath);
+      buf.writeUInt16BE(fullB.length, pos); pos += 2; fullB.copy(buf, pos); pos += fullB.length;
+    }
+
+    for (const u of units) {
+      buf.writeUInt32BE(u.unitId, pos); pos += 4;
+      buf.writeUInt32BE(u.fileId, pos); pos += 4;
+      buf.writeInt32BE(u.entryIndex, pos); pos += 4;
+      const hwB = Buffer.from(u.headword || '');
+      buf.writeUInt16BE(hwB.length, pos); pos += 2; hwB.copy(buf, pos); pos += hwB.length;
+      buf.writeUInt32BE(u.byteOffset, pos); pos += 4;
+      buf.writeUInt32BE(u.byteLength, pos); pos += 4;
+      buf.writeUInt32BE(u.lineStart, pos); pos += 4;
+    }
+
+    for (const entry of entries) {
+      const bgB = Buffer.from(entry[0]);
+      const val = entry[1];
+      const isSingle = typeof val === 'number';
+      const count = isSingle ? 1 : val.length;
+      buf.writeUInt8(bgB.length, pos); pos += 1;
+      bgB.copy(buf, pos); pos += bgB.length;
+      buf.writeUInt32BE(count, pos); pos += 4;
+      if (useUint16) {
+        if (isSingle) { buf.writeUInt16BE(val, pos); pos += 2; }
+        else { for (let j = 0; j < count; j++) { buf.writeUInt16BE(val[j], pos); pos += 2; } }
+      } else {
+        if (isSingle) { buf.writeUInt32BE(val, pos); pos += 4; }
+        else { for (let j = 0; j < count; j++) { buf.writeUInt32BE(val[j], pos); pos += 4; } }
+      }
+    }
+
+    const tmpCacheFile = DICT_INDEX_CACHE_BIN + '.tmp';
+    await fs.promises.writeFile(tmpCacheFile, buf);
+    await fs.promises.rename(tmpCacheFile, DICT_INDEX_CACHE_BIN);
+    Logger.info('DictIndex', `Saved dictionary index cache (${(buf.length / 1048576).toFixed(1)} MB, ${units.length} units) in ${Date.now() - saveStart}ms`);
+  } catch (err) {
+    Logger.error('DictIndex', 'Failed to save dictionary index cache', err);
+  }
+}
+
+async function buildDictIndexAsync(forceRebuild = false) {
+  if (dictIndex.building && !forceRebuild) return;
+
+  const buildId = ++activeDictIndexBuildId;
+  dictIndex.building = true;
+  const indexStart = Date.now();
+
+  try {
+    const files = await scanDictFiles();
+    if (buildId !== activeDictIndexBuildId) return;
+    const dictSig = await computeDictSignature(files);
+
+    if (dictIndex.ready && dictIndex.dictSig === dictSig && !forceRebuild) {
+      dictIndex.building = false;
+      return;
+    }
+
+    if (files.length === 0) {
+      dictIndex = { ready: false, building: false, dictSig: null, fileList: [], fileMap: new Map(), units: [], bigrams: new Map() };
+      return;
+    }
+
+    if (!forceRebuild) {
+      const loaded = await loadDictIndexFromBinCacheAsync(dictSig);
+      if (buildId !== activeDictIndexBuildId) return;
+      if (loaded) { dictIndex.building = false; return; }
+    }
+
+    // One unit per entry (dictionaries are entry-level; whole-file fallback only
+    // if a section index can't be built for a small dictionary file).
+    const fileList = [];
+    const fileMap = new Map();
+    const units = [];
+    let unitSeq = 0;
+
+    for (let fIdx = 0; fIdx < files.length; fIdx++) {
+      if (buildId !== activeDictIndexBuildId) return;
+      const file = files[fIdx];
+      const fileId = fIdx;
+      fileList[fileId] = { id: fileId, relPath: file.relPath, name: file.name, fullPath: file.fullPath };
+      fileMap.set(file.relPath, fileId);
+
+      let idx = null;
+      try {
+        const stat = await fs.promises.stat(file.fullPath);
+        idx = await getSectionIndex(file.fullPath, stat, file.relPath);
+      } catch (_) {}
+      if (idx && idx.entries && idx.entries.length > 0) {
+        for (let ei = 0; ei < idx.entries.length; ei++) {
+          const e = idx.entries[ei];
+          units.push({ unitId: unitSeq++, fileId, entryIndex: ei, headword: e.headword, byteOffset: e.offset, byteLength: e.len, lineStart: e.lineStart });
+        }
+        continue;
+      }
+      units.push({ unitId: unitSeq++, fileId, entryIndex: -1, headword: '', byteOffset: 0, byteLength: file.size || 0, lineStart: 1 });
+    }
+
+    const byFile = new Map();
+    for (const u of units) {
+      const fullPath = fileList[u.fileId].fullPath;
+      let g = byFile.get(fullPath);
+      if (!g) { g = { fullPath, units: [] }; byFile.set(fullPath, g); }
+      g.units.push({ unitId: u.unitId, byteOffset: u.byteOffset, byteLength: u.byteLength });
+    }
+    const tasks = Array.from(byFile.values());
+
+    const bigrams = new Map();
+    const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
+
+    await runIndexWorkerPool(tasks,
+      (task) => ({ type: 'index-build-file', payload: { fullPath: task.fullPath, units: task.units } }),
+      (result) => {
+        for (const r of result.results) {
+          for (const bg of r.bigrams) {
+            let list = bigrams.get(bg);
+            if (!list) { list = []; bigrams.set(bg, list); }
+            list.push(r.unitId);
+          }
+        }
+      },
+      concurrency);
+
+    if (buildId !== activeDictIndexBuildId) return;
+
+    const compactBigrams = new Map();
+    const useUint16 = units.length < 65536;
+    for (const [bg, list] of bigrams.entries()) {
+      if (list.length === 1) compactBigrams.set(bg, list[0]);
+      else { list.sort((a, b) => a - b); compactBigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list)); }
+    }
+
+    dictIndex = {
+      ready: true,
+      building: false,
+      dictSig,
+      createdAt: new Date().toISOString(),
+      fileList,
+      fileMap,
+      units,
+      bigrams: compactBigrams
+    };
+
+    Logger.info('DictIndex', `Dictionary full-text index built for ${fileList.length} files / ${units.length} entries (${compactBigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+    await saveDictIndexBinCacheAsync(dictSig, fileList, units, compactBigrams);
+    if (global.gc) global.gc();
+  } catch (err) {
+    dictIndex.building = false;
+    Logger.error('DictIndex', 'Failed to build dictionary index', err);
+  }
+}
+
+function invalidateDictIndex() {
+  activeDictIndexBuildId++;
+  dictIndex.ready = false;
+  dictIndex.building = false;
+}
+
+function setupDictWatcher() {
+  if (dictWatcher) return;
+  const root = getDictionaryPath();
+  if (!root || !fs.existsSync(root)) return;
+  try {
+    dictWatcher = fs.watch(root, (eventType, filename) => {
+      if (filename && (filename.startsWith('.') || filename.includes('/.'))) return;
+      invalidateDictIndex();
+      if (dictWatcherDebounceTimer) clearTimeout(dictWatcherDebounceTimer);
+      dictWatcherDebounceTimer = setTimeout(() => {
+        dictWatcherDebounceTimer = null;
+        buildDictIndexAsync(true).catch(() => {});
+      }, 1500);
+    });
+  } catch (err) {
+    Logger.error('DictIndex', 'Error setting up dictionary watcher', err);
+  }
+}
+
+function resetDictWatcher() {
+  if (dictWatcherDebounceTimer) { clearTimeout(dictWatcherDebounceTimer); dictWatcherDebounceTimer = null; }
+  if (dictWatcher) { try { dictWatcher.close(); } catch (_) {} dictWatcher = null; }
+  invalidateDictIndex();
+}
+
+// ── API: Dictionary Headwords (client-side prefix/fuzzy index) ────────────
+async function handleDictHeadwords(req, res) {
+  try {
+    setupDictWatcher();
+    const files = await scanDictFiles();
+    if (files.length === 0) {
+      return sendJSON(res, 200, { files: [], entries: [] });
+    }
+
+    // Compute per-file entry counts (cached section index, or a direct scan).
+    const fileList = files.map(f => ({ path: f.relPath, name: f.name.replace(/\.md$/, ''), size: f.size, entryCount: 0 }));
+    const perFileIdx = new Array(files.length).fill(null);
+    const perFileMtime = new Array(files.length).fill('');
+    for (let fi = 0; fi < files.length; fi++) {
+      const f = files[fi];
+      let stat = null;
+      try { stat = await fs.promises.stat(f.fullPath); perFileMtime[fi] = String(stat.mtimeMs); } catch (_) {}
+      let idx = null;
+      try {
+        if (stat) idx = await getSectionIndex(f.fullPath, stat, f.relPath);
+      } catch (_) {}
+      perFileIdx[fi] = idx;
+      if (idx && idx.entries && idx.entries.length > 0) {
+        for (const e of idx.entries) {
+          if (cleanHeadword(e.headword)) fileList[fi].entryCount++;
+        }
+      } else {
+        // Section index unavailable — fall back to a direct heading scan so the
+        // entry count reflects the file contents instead of showing 0.
+        fileList[fi].entryCount = await scanDictEntryCount(f.fullPath);
+      }
+    }
+
+    // ETag folds the entry counts in, so a client that cached a `0` count before
+    // the section index finished building is invalidated on the next poll instead
+    // of being served a stale 304 forever (the old ETag only keyed on size+mtime).
+    const etagParts = files.map((f, fi) => `${f.relPath}:${f.size}:${perFileMtime[fi]}:${fileList[fi].entryCount}`);
+    const etag = `W/"${crypto.createHash('md5').update(etagParts.join('|')).digest('hex')}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      return res.end();
+    }
+
+    // Build the headword entries array from the already-loaded section indexes.
+    const entries = [];
+    for (let fi = 0; fi < files.length; fi++) {
+      const idx = perFileIdx[fi];
+      if (!idx || !idx.entries) continue;
+      for (let ei = 0; ei < idx.entries.length; ei++) {
+        const e = idx.entries[ei];
+        const clean = cleanHeadword(e.headword);
+        if (!clean) continue;
+        entries.push([fi, ei, e.lineStart, clean]);
+      }
+    }
+
+    const headers = Object.assign({ 'ETag': etag, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' }, SECURITY_HEADERS);
+    sendCompressed(req, res, 200, headers, Buffer.from(JSON.stringify({ files: fileList, entries }), 'utf-8'));
+  } catch (err) {
+    Logger.error('Dict', 'Failed to list dictionary headwords', err);
+    sendJSON(res, 500, { error: 'Failed to list dictionary headwords' });
+  }
+}
+
+// ── API: Dictionary Full-text Search ──────────────────────────────────────
+async function handleDictSearch(req, res, query) {
+  // Cap full-text matches per selected dictionary. Without this, a common term
+  // (e.g. 一切) yields tens of thousands of matches, and the unbounded `results`
+  // array plus the client-side render balloon memory on repeated searches.
+  const DICT_SEARCH_MAX_PER_FILE = 1500;
+  const q = query.q;
+  if (!q || q.trim().length === 0) {
+    return sendJSON(res, 400, { error: 'Missing query parameter' });
+  }
+  const terms = q.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return sendJSON(res, 400, { error: 'Missing query parameter' });
+  }
+
+  // Optional comma-separated list of `dict:` paths restricting the search.
+  const filesParam = query.files ? String(query.files).split(',').map(s => s.trim()).filter(Boolean) : null;
+
+  const maxProximityDist = Math.max(10, parseInt(config.settings.maxProximityDistance) || 150);
+
+  try {
+    if (!dictIndex.ready && !dictIndex.building) {
+      buildDictIndexAsync().catch(() => {});
+    }
+    setupDictWatcher();
+
+    const files = await scanDictFiles();
+    if (files.length === 0) {
+      return sendJSON(res, 200, { query: q, results: [], total: 0, capped: false });
+    }
+
+    let fileSet = null;
+    if (filesParam && filesParam.length > 0) fileSet = new Set(filesParam);
+
+    const results = [];
+    let candidateUnits = null;
+
+    if (dictIndex.ready && terms.some(t => t.length >= 2) && dictIndex.units && dictIndex.units.length > 0) {
+      let finalCandidates = null;
+      for (const term of terms) {
+        if (term.length < 2) continue;
+        const qBigrams = extractQueryBigrams(term);
+        if (qBigrams.length === 0) continue;
+        let termCandidates = null;
+        for (const bg of qBigrams) {
+          const val = dictIndex.bigrams.get(bg);
+          if (val === undefined || val === null) { termCandidates = []; break; }
+          if (termCandidates === null) termCandidates = typeof val === 'number' ? [val] : Array.from(val);
+          else {
+            const posting = typeof val === 'number' ? [val] : val;
+            termCandidates = intersectSorted(termCandidates, posting);
+            if (termCandidates.length === 0) break;
+          }
+        }
+        if (termCandidates !== null) {
+          if (finalCandidates === null) finalCandidates = termCandidates;
+          else { finalCandidates = intersectSorted(finalCandidates, termCandidates); if (finalCandidates.length === 0) break; }
+        }
+      }
+
+      if (finalCandidates && finalCandidates.length > 0) {
+        candidateUnits = finalCandidates.map(uid => dictIndex.units[uid]).filter(Boolean);
+        if (fileSet) {
+          candidateUnits = candidateUnits.filter(u => fileSet.has(dictIndex.fileList[u.fileId].relPath));
+        }
+        if (candidateUnits.length === 0) candidateUnits = null;
+      }
+    }
+
+    let unitsToScan;
+    if (candidateUnits && candidateUnits.length > 0) {
+      unitsToScan = candidateUnits.map(u => {
+        const f = dictIndex.fileList[u.fileId];
+        return {
+          unitId: u.unitId,
+          file: f.relPath,
+          fileName: f.name.replace(/\.md$/, ''),
+          entryIndex: u.entryIndex,
+          headword: u.headword,
+          byteOffset: u.byteOffset,
+          byteLength: u.byteLength,
+          lineStart: u.lineStart,
+          fullPath: f.fullPath,
+        };
+      });
+    } else {
+      const scanFiles = fileSet ? files.filter(f => fileSet.has(f.relPath)) : files;
+      unitsToScan = scanFiles.map(f => ({
+        unitId: -1,
+        file: f.relPath,
+        fileName: f.name.replace(/\.md$/, ''),
+        entryIndex: -1,
+        headword: '',
+        byteOffset: 0,
+        byteLength: f.size || 0,
+        lineStart: 1,
+        fullPath: f.fullPath,
+      }));
+    }
+
+    const byFile = new Map();
+    for (const u of unitsToScan) {
+      let g = byFile.get(u.fullPath);
+      if (!g) { g = { fullPath: u.fullPath, units: [] }; byFile.set(u.fullPath, g); }
+      g.units.push(u);
+    }
+    const scanTasks = Array.from(byFile.values());
+    const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
+
+    let hitCap = false;
+    await runIndexWorkerPool(scanTasks,
+      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: DICT_SEARCH_MAX_PER_FILE } }),
+      (result) => {
+        if (result.matches.length >= DICT_SEARCH_MAX_PER_FILE) hitCap = true;
+        for (const m of result.matches) {
+          results.push({ file: m.file, fileName: m.fileName, headword: m.headword, entryIndex: m.entryIndex, line: m.line, snippet: m.snippet });
+        }
+      },
+      concurrency);
+
+    results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
+
+    sendJSON(res, 200, { query: q, results, total: results.length, capped: hitCap });
+  } catch (err) {
+    Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
+    sendJSON(res, 500, { error: 'Dictionary search failed' });
+  }
+}
+
+// ── API: Dictionary Analytics Event (client-side beacon) ────────────────────
+// Fire-and-forget endpoint for the client-side dictionary panel. Dictionary
+// queries auto-search on every keystroke (no Enter), so we deliberately do NOT
+// count a search when the query is typed or the full-text endpoint is hit.
+// Instead a single result CLICK is the only event that counts, and it records
+// both 辭典查詢 (the query string that produced the result) and 辭典點閱 (the
+// headword that was opened). This keeps the search/lookup counts in lockstep
+// with actual user intent rather than debounced keystrokes.
+//   kind: 'lookup' → a result was clicked; payload carries { file, headword, query }
+// Never blocks the caller; a malformed body simply yields an empty payload.
+async function handleDictEvent(req, res) {
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const kind = String(data.kind || '').trim();
+  const file = String(data.file || '').trim().slice(0, 500);
+  const headword = String(data.headword || '').trim().slice(0, 300);
+  const query = String(data.query || '').trim().slice(0, 500);
+
+  if (kind === 'lookup') {
+    if (!file && !headword) return sendJSON(res, 400, { error: 'Missing lookup target' });
+    Logger.info('DictLookup', `Lookup: "${headword}" in ${file || '(unknown)'}`, req, { path: file || undefined, query: headword || undefined });
+    if (query) {
+      Logger.info('DictSearch', `Dictionary query: "${query}" (clicked)`, req, { query });
+    }
+    return sendJSON(res, 200, { ok: true });
+  }
+  return sendJSON(res, 400, { error: 'Unknown event kind' });
+}
+
 // ── API: Full-text Search ────────────────────────────────────
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
@@ -2425,20 +3151,6 @@ async function handleSearch(req, res, query) {
 
     // Bigram Inverted Index filtering using sorted-merge intersection (zero Set allocation)
     if (searchIndex.ready && terms.some(t => t.length >= 2) && !isFilenameOnly && searchIndex.units && searchIndex.units.length > 0) {
-      // Sorted merge intersection: O(n+m) with zero heap allocation
-      function intersectSorted(a, b) {
-        const result = [];
-        let i = 0, j = 0;
-        const aLen = a.length, bLen = b.length;
-        while (i < aLen && j < bLen) {
-          const av = a[i], bv = b[j];
-          if (av < bv) i++;
-          else if (av > bv) j++;
-          else { result.push(av); i++; j++; }
-        }
-        return result;
-      }
-
       let finalCandidates = null; // sorted array of unit IDs
 
       for (const term of terms) {
@@ -3090,6 +3802,15 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/search-file' && req.method === 'GET') {
     return handleSearchFile(req, res, query);
   }
+  if (pathname === '/api/dict-headwords' && req.method === 'GET') {
+    return handleDictHeadwords(req, res);
+  }
+  if (pathname === '/api/dict-search' && req.method === 'GET') {
+    return handleDictSearch(req, res, query);
+  }
+  if (pathname === '/api/dict-event' && req.method === 'POST') {
+    return handleDictEvent(req, res);
+  }
 
 // ── Analytics Aggregator & Data Exporter ────────────────────────────────────
 const analyticsCache = new Map();
@@ -3120,6 +3841,8 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
   const fileEntries = Object.entries(lifetime.files || {});
   const searchEntries = Object.entries(lifetime.searches || {});
   const ipEntries = Object.entries(lifetime.ips || {});
+  const dictSearchEntries = Object.entries(lifetime.dictSearches || {});
+  const dictLookupEntries = Object.entries(lifetime.dictLookups || {});
   const dailyTrend = Object.entries(store.daily || {}).map(([date, bucket]) => ({
     date,
     views: bucket.views || 0,
@@ -3133,7 +3856,9 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
       totalViews: lifetime.views || 0,
       uniqueIps: ipEntries.length,
       totalSearches: lifetime.searchCount || 0,
-      activeFiles: fileEntries.length
+      activeFiles: fileEntries.length,
+      dictSearches: lifetime.dictSearchCount || 0,
+      dictLookups: lifetime.dictLookupCount || 0
     },
     topFiles: fileEntries.map(([filePath, stat]) => ({
       path: filePath,
@@ -3144,6 +3869,15 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
     })).sort((a, b) => b.views - a.views).slice(0, 50),
     topSearches: searchEntries.map(([query, stat]) => ({ query, count: stat.count || 0, lastSearch: stat.lastSearch }))
       .sort((a, b) => b.count - a.count).slice(0, 30),
+    topDictSearches: dictSearchEntries.map(([query, stat]) => ({ query, count: stat.count || 0, lastSearch: stat.lastSearch }))
+      .sort((a, b) => b.count - a.count).slice(0, 30),
+    topLookups: dictLookupEntries.map(([key, stat]) => ({
+      headword: stat.headword || '',
+      path: stat.path || '',
+      fileName: (stat.path || '').replace(/^dict:/, '').replace(/\.md$/, ''),
+      count: stat.count || 0,
+      lastLookup: stat.lastLookup
+    })).sort((a, b) => b.count - a.count).slice(0, 50),
     dailyTrend,
     ipDistribution: ipEntries.map(([ip, stat]) => ({ ip, requests: stat.requests || 0, lastAccess: stat.lastAccess }))
       .sort((a, b) => b.requests - a.requests).slice(0, 20)
@@ -3189,8 +3923,12 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
   const searchMap = new Map();
   const ipMap = new Map();
   const dailyMap = new Map();
+  const dictSearchMap = new Map();
+  const dictLookupMap = new Map();
   let totalViews = 0;
   let totalSearches = 0;
+  let totalDictSearches = 0;
+  let totalDictLookups = 0;
   const globalUniqueIps = new Set();
 
   function processEntry(entry) {
@@ -3271,6 +4009,40 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
         }
       }
     }
+
+    if (entry.tag === 'DictSearch') {
+      const q = (entry.query || '').trim();
+      if (q.length > 0) {
+        totalDictSearches++;
+        let sStat = dictSearchMap.get(q);
+        if (!sStat) {
+          sStat = { query: q, count: 0, lastSearch: entry.timestamp };
+          dictSearchMap.set(q, sStat);
+        }
+        sStat.count++;
+        if (new Date(entry.timestamp) > new Date(sStat.lastSearch)) {
+          sStat.lastSearch = entry.timestamp;
+        }
+      }
+    }
+
+    if (entry.tag === 'DictLookup') {
+      const headword = (entry.query || '').trim();
+      const docPath = entry.path || '';
+      if (headword || docPath) {
+        totalDictLookups++;
+        const key = `${docPath}::${headword}`;
+        let lStat = dictLookupMap.get(key);
+        if (!lStat) {
+          lStat = { headword, path: docPath, count: 0, lastLookup: entry.timestamp };
+          dictLookupMap.set(key, lStat);
+        }
+        lStat.count++;
+        if (new Date(entry.timestamp) > new Date(lStat.lastLookup)) {
+          lStat.lastLookup = entry.timestamp;
+        }
+      }
+    }
   }
 
   for (const file of files) {
@@ -3310,6 +4082,21 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     .sort((a, b) => b.count - a.count)
     .slice(0, 30);
 
+  const topDictSearches = Array.from(dictSearchMap.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 30);
+
+  const topLookups = Array.from(dictLookupMap.values())
+    .map(l => ({
+      headword: l.headword,
+      path: l.path,
+      fileName: l.path.replace(/^dict:/, '').replace(/\.md$/, ''),
+      count: l.count,
+      lastLookup: l.lastLookup
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 50);
+
   const ipDistribution = Array.from(ipMap.values())
     .sort((a, b) => b.requests - a.requests)
     .slice(0, 20);
@@ -3329,10 +4116,14 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       totalViews,
       uniqueIps: globalUniqueIps.size,
       totalSearches,
-      activeFiles: fileMap.size
+      activeFiles: fileMap.size,
+      dictSearches: totalDictSearches,
+      dictLookups: totalDictLookups
     },
     topFiles,
     topSearches,
+    topDictSearches,
+    topLookups,
     dailyTrend,
     ipDistribution
   };
@@ -3657,6 +4448,21 @@ async function getSystemHardwareStats() {
     searchIndex.createdAt = indexFileMtime;
   }
 
+  let dictCacheSize = 0;
+  let dictIndexFileMtime = dictIndex.createdAt || null;
+  try {
+    if (fs.existsSync(DICT_INDEX_CACHE_BIN)) {
+      const stat = fs.statSync(DICT_INDEX_CACHE_BIN);
+      dictCacheSize = stat.size;
+      dictIndexFileMtime = stat.mtime ? stat.mtime.toISOString() : (stat.birthtime ? stat.birthtime.toISOString() : dictIndexFileMtime);
+    }
+  } catch (err) {
+    Logger.error('Hardware', 'Failed to stat dictionary index cache file', err);
+  }
+  if (dictIndexFileMtime) {
+    dictIndex.createdAt = dictIndexFileMtime;
+  }
+
   const now = Date.now();
   const cutoff = now - 60000;
   httpMetrics.recentRequestTimes = httpMetrics.recentRequestTimes.filter(t => t >= cutoff);
@@ -3726,6 +4532,17 @@ async function getSystemHardwareStats() {
       createdAt: indexFileMtime,
       lastModified: indexFileMtime
     },
+    dictIndex: {
+      enabled: config.settings.dictionaryEnabled === true,
+      ready: dictIndex.ready,
+      building: dictIndex.building,
+      totalFiles: dictIndex.fileList ? dictIndex.fileList.length : 0,
+      totalUnits: dictIndex.units ? dictIndex.units.length : 0,
+      uniqueBigrams: dictIndex.bigrams ? dictIndex.bigrams.size : 0,
+      cacheSizeBytes: dictCacheSize,
+      createdAt: dictIndexFileMtime,
+      lastModified: dictIndexFileMtime
+    },
     search: {
       totalQueries: totalSearchQueries,
       cacheHits: searchCacheHits,
@@ -3772,6 +4589,20 @@ async function handleRebuildIndex(req, res) {
       Logger.error('Index', 'Manual index rebuild error', err);
     });
     return sendJSON(res, 200, { success: true, message: 'Index rebuild initiated' });
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
+async function handleRebuildDictIndex(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+  try {
+    buildDictIndexAsync(true).catch(err => {
+      Logger.error('DictIndex', 'Manual dictionary index rebuild error', err);
+    });
+    return sendJSON(res, 200, { success: true, message: 'Dictionary index rebuild initiated' });
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
   }
@@ -3835,6 +4666,7 @@ async function handleAnalyticsExport(req, res, query) {
     // the anonymous status payload — it is a useful recon primitive for traversal.
     const safeSettings = Object.assign({}, config.settings);
     delete safeSettings.mdRoot;
+    delete safeSettings.dictionaryPath;
     return sendJSON(res, 200, {
       isSetup: !!config.admin,
       isAuthenticated: isAuthenticated(req),
@@ -3958,12 +4790,16 @@ async function handleAnalyticsExport(req, res, query) {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
-      
+
       const resolvedPath = path.resolve(mdRoot.trim());
+      const nextDictEnabled = dictionaryEnabled !== undefined ? !!dictionaryEnabled : config.settings.dictionaryEnabled;
+      const nextDictPath = (dictionaryPath !== undefined)
+        ? (String(dictionaryPath).trim() ? path.resolve(String(dictionaryPath).trim()) : deriveDictRoot(resolvedPath))
+        : config.settings.dictionaryPath;
 
       const updateSettings = () => {
         if (config.settings.mdRoot !== resolvedPath) {
@@ -4008,26 +4844,59 @@ async function handleAnalyticsExport(req, res, query) {
             enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true)
           };
         }
+        if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
+          config.settings.dictionaryEnabled = nextDictEnabled;
+          config.settings.dictionaryPath = nextDictPath;
+          resetDictWatcher();
+        }
         saveConfig();
         return sendJSON(res, 200, { success: true, settings: config.settings });
+      };
+
+      const afterVaultOk = () => {
+        if (nextDictEnabled && nextDictPath) {
+          return fs.promises.stat(nextDictPath).then(ds => {
+            if (!ds.isDirectory()) {
+              return sendJSON(res, 400, { error: 'Dictionary path is not a directory' });
+            }
+            return updateSettings();
+          }).catch(err => {
+            if (err.code === 'ENOENT') {
+              if (createIfNotExists) {
+                return fs.promises.mkdir(nextDictPath, { recursive: true })
+                  .then(() => updateSettings())
+                  .catch(mkdirErr => sendJSON(res, 500, { error: 'Failed to create dictionary directory: ' + mkdirErr.message }));
+              }
+              return sendJSON(res, 404, {
+                error: `辭典目錄路徑 "${nextDictPath}" 不存在。`,
+                code: 'DIR_NOT_FOUND',
+                path: nextDictPath,
+                field: 'dictionaryPath'
+              });
+            }
+            return sendJSON(res, 400, { error: 'Dictionary path does not exist or is not readable' });
+          });
+        }
+        return updateSettings();
       };
 
       return fs.promises.stat(resolvedPath).then(stats => {
         if (!stats.isDirectory()) {
           return sendJSON(res, 400, { error: 'Provided path is not a directory' });
         }
-        return updateSettings();
+        return afterVaultOk();
       }).catch(err => {
         if (err.code === 'ENOENT') {
           if (createIfNotExists) {
             return fs.promises.mkdir(resolvedPath, { recursive: true })
-              .then(() => updateSettings())
+              .then(() => afterVaultOk())
               .catch(mkdirErr => sendJSON(res, 500, { error: 'Failed to create directory: ' + mkdirErr.message }));
           }
-          return sendJSON(res, 404, { 
-            error: `目錄路徑 "${resolvedPath}" 不存在。`, 
+          return sendJSON(res, 404, {
+            error: `目錄路徑 "${resolvedPath}" 不存在。`,
             code: 'DIR_NOT_FOUND',
-            path: resolvedPath 
+            path: resolvedPath,
+            field: 'mdRoot'
           });
         }
         return sendJSON(res, 400, { error: 'Directory path does not exist or is not readable' });
@@ -4045,6 +4914,9 @@ async function handleAnalyticsExport(req, res, query) {
   // Admin rebuild index API
   if (pathname === '/api/admin/rebuild-index' && req.method === 'POST') {
     return handleRebuildIndex(req, res);
+  }
+  if (pathname === '/api/admin/rebuild-dict-index' && req.method === 'POST') {
+    return handleRebuildDictIndex(req, res);
   }
 
   // Public suggest-list API (no auth required)
@@ -4068,4 +4940,11 @@ server.listen(PORT, () => {
 
   // Eagerly build Bigram Inverted Index in background on boot
   buildSearchIndexAsync().catch(() => {});
+
+  // Set up the dictionary directory watcher (and index) at boot so the index
+  // rebuilds automatically when dictionary files change — not only on fulltext.
+  if (config.settings.dictionaryEnabled) {
+    setupDictWatcher();
+    buildDictIndexAsync().catch(() => {});
+  }
 });
