@@ -3097,9 +3097,21 @@
       ensureDictHeadwords().then(() => runDictSearch(q));
       return;
     }
-    if (state.dictMode === 'fulltext') dictSearchFulltext(q);
-    else if (state.dictMode === 'fuzzy') dictSearchFuzzy(q);
-    else dictSearchPrefix(q);
+    // No dictionaries selected → don't run any search (prefix/fuzzy/fulltext).
+    const totalFiles = (state.dictIndex && state.dictIndex.files) ? state.dictIndex.files.length : 0;
+    if (totalFiles > 0 && dictSelectedSet().size === 0) {
+      $('dictResults').innerHTML = '<div class="dict-placeholder"><span>⚠️</span><span>未選取任何辭典，請先在「辭典選擇」勾選至少一個</span></div>';
+      return;
+    }
+    if (state.dictMode === 'fulltext') {
+      dictSearchFulltext(q);
+    } else {
+      // Switching to a local (prefix/fuzzy) mode — abort any in-flight full-text
+      // request so its late response can't overwrite the local results.
+      if (state.dictAbortController) { state.dictAbortController.abort(); state.dictAbortController = null; }
+      if (state.dictMode === 'fuzzy') dictSearchFuzzy(q);
+      else dictSearchPrefix(q);
+    }
   }
 
   function dictSearchPrefix(q) {
@@ -3188,15 +3200,24 @@
 
   function dictSearchFulltext(q) {
     if (state.dictAbortController) state.dictAbortController.abort();
-    state.dictAbortController = new AbortController();
+    const controller = new AbortController();
+    state.dictAbortController = controller;
     const results = $('dictResults');
     results.innerHTML = '<div class="dict-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
     const filesParam = dictSelectedFiles().map(encodeURIComponent).join(',');
-    fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}`, { signal: state.dictAbortController.signal })
+    fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}`, { signal: controller.signal })
       .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-      .then(data => renderDictFulltextResults(data, q))
+      .then(data => {
+        // Drop responses from a superseded request (a newer query or mode switch
+        // aborted this controller) so a stale result never overwrites the view.
+        if (state.dictAbortController !== controller) return;
+        state.dictAbortController = null;
+        renderDictFulltextResults(data, q);
+      })
       .catch(err => {
         if (err.name === 'AbortError') return;
+        if (state.dictAbortController !== controller) return;
+        state.dictAbortController = null;
         results.innerHTML = `<div class="dict-placeholder"><span>⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
       });
   }

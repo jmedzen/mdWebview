@@ -2941,6 +2941,10 @@ async function handleDictHeadwords(req, res) {
 
 // ── API: Dictionary Full-text Search ──────────────────────────────────────
 async function handleDictSearch(req, res, query) {
+  // Cap full-text matches per selected dictionary. Without this, a common term
+  // (e.g. 一切) yields tens of thousands of matches, and the unbounded `results`
+  // array plus the client-side render balloon memory on repeated searches.
+  const DICT_SEARCH_MAX_PER_FILE = 1500;
   const q = query.q;
   if (!q || q.trim().length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
@@ -3044,9 +3048,11 @@ async function handleDictSearch(req, res, query) {
     const scanTasks = Array.from(byFile.values());
     const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
 
+    let hitCap = false;
     await runIndexWorkerPool(scanTasks,
-      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: Infinity } }),
+      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: DICT_SEARCH_MAX_PER_FILE } }),
       (result) => {
+        if (result.matches.length >= DICT_SEARCH_MAX_PER_FILE) hitCap = true;
         for (const m of result.matches) {
           results.push({ file: m.file, fileName: m.fileName, headword: m.headword, entryIndex: m.entryIndex, line: m.line, snippet: m.snippet });
         }
@@ -3055,7 +3061,7 @@ async function handleDictSearch(req, res, query) {
 
     results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
 
-    sendJSON(res, 200, { query: q, results, total: results.length, capped: false });
+    sendJSON(res, 200, { query: q, results, total: results.length, capped: hitCap });
   } catch (err) {
     Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
     sendJSON(res, 500, { error: 'Dictionary search failed' });
