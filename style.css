@@ -4791,6 +4791,21 @@ details.callout[open] > summary .callout-fold-icon {
   font-size: calc(var(--sidebar-font-size) * 11 / 13);
 }
 
+.dict-result-file::after {
+  content: '▾';
+  margin-left: 2px;
+  font-size: calc(var(--sidebar-font-size) * 10 / 13);
+  color: var(--text-muted);
+}
+
+.dict-result-group.collapsed .dict-result-item {
+  display: none;
+}
+
+.dict-result-group.collapsed .dict-result-file::after {
+  content: '▸';
+}
+
 .dict-result-item {
   padding: 7px 8px;
   margin: 2px 0;

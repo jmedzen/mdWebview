@@ -2841,7 +2841,22 @@
     if (shouldOpen) {
       ensureDictHeadwords();
       startDictPolling();
+      sendDictEvent('browse');
     }
+  }
+
+  // Fire-and-forget beacon to the dictionary analytics endpoint. Used to record
+  // dictionary menu opens ('browse') and search-result clicks ('lookup').
+  function sendDictEvent(kind, payload = {}) {
+    if (!state.dictionaryEnabled) return;
+    try {
+      fetch('/api/dict-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, ...payload }),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_) {}
   }
 
   // CJK bigram extractor — MUST match extractBigrams() in server.js and
@@ -2959,9 +2974,9 @@
     }
     const selected = state.dictSelected || new Set(files.map((_, i) => i));
     const allOn = files.every((_, i) => selected.has(i));
-    let html = `<div class="dict-file-list-header"><span>查詢範圍</span><button class="dict-file-all-toggle" data-dict-toggle-all>${allOn ? '全不選' : '全選'}</button></div>`;
+    let html = `<div class="dict-file-list-header"><span>辭典選擇</span><button class="dict-file-all-toggle" data-dict-toggle-all>${allOn ? '全不選' : '全選'}</button></div>`;
     files.forEach((f, i) => {
-      html += `<label class="dict-file-item"><input type="checkbox" data-dict-file="${i}" ${selected.has(i) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${f.size ? formatBytes(f.size) : ''}</span></label>`;
+      html += `<label class="dict-file-item"><input type="checkbox" data-dict-file="${i}" ${selected.has(i) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
     });
     container.innerHTML = html;
   }
@@ -3080,7 +3095,7 @@
       const f = files[fi] || { name: '未知', path: '' };
       html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(f.name)}<span class="dict-result-file-count">${items.length}</span></div>`;
       for (const it of items) {
-        html += `<div class="dict-result-item" data-file="${escHtml(f.path)}" data-line="${it.line}" data-entry="${it.ei}"><span class="dict-result-headword">${highlightSearchTerm(it.hw, q)}</span></div>`;
+        html += `<div class="dict-result-item" data-file="${escHtml(f.path)}" data-line="${it.line}" data-entry="${it.ei}" data-headword="${escHtml(it.hw)}"><span class="dict-result-headword">${highlightSearchTerm(it.hw, q)}</span></div>`;
       }
       html += `</div>`;
     }
@@ -3118,9 +3133,10 @@
     for (const [file, g] of groups) {
       html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(g.name)}<span class="dict-result-file-count">${g.items.length}</span></div>`;
       for (const r of g.items) {
-        const headwordTag = r.headword ? `<span class="dict-result-headword">${escHtml(cleanDictHeadword(r.headword))}</span>` : '';
+        const cleanHeadword = cleanDictHeadword(r.headword);
+        const headwordTag = cleanHeadword ? `<span class="dict-result-headword">${escHtml(cleanHeadword)}</span>` : '';
         const entryAttr = (r.entryIndex !== undefined && r.entryIndex !== null && r.entryIndex >= 0) ? ` data-entry="${escHtml(r.entryIndex)}"` : '';
-        html += `<div class="dict-result-item" data-file="${escHtml(r.file)}" data-line="${escHtml(r.line)}"${entryAttr}>${headwordTag}<span class="dict-result-snippet">${highlightSearchTerm(r.snippet, q)}</span></div>`;
+        html += `<div class="dict-result-item" data-file="${escHtml(r.file)}" data-line="${escHtml(r.line)}" data-headword="${escHtml(cleanHeadword)}"${entryAttr}>${headwordTag}<span class="dict-result-snippet">${highlightSearchTerm(r.snippet, q)}</span></div>`;
       }
       html += `</div>`;
     }
@@ -4221,11 +4237,19 @@
     const dictResults = $('dictResults');
     if (dictResults) {
       dictResults.addEventListener('click', (e) => {
+        // Clicking a dictionary name header collapses/uncollapses that group's results.
+        const fileHeader = e.target.closest('.dict-result-file');
+        if (fileHeader) {
+          const group = fileHeader.closest('.dict-result-group');
+          if (group) group.classList.toggle('collapsed');
+          return;
+        }
         const item = e.target.closest('.dict-result-item');
         if (!item) return;
         const file = item.getAttribute('data-file');
         const line = item.getAttribute('data-line');
         if (!file) return;
+        sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '' });
         const highlight = state.dictMode === 'fulltext' ? ($('dictSearchInput')?.value || '').trim() : null;
         openFile(file, line ? parseInt(line, 10) : null, highlight || null);
       });
@@ -5374,6 +5398,10 @@
       const files = data.summary?.activeFiles || 0;
       avgViewsEl.textContent = files > 0 ? (views / files).toFixed(1) : '0';
     }
+    const dictSearchesEl = $('analyticsDictSearches');
+    const dictLookupsEl = $('analyticsDictLookups');
+    if (dictSearchesEl) dictSearchesEl.textContent = (data.summary?.dictSearches || 0).toLocaleString();
+    if (dictLookupsEl) dictLookupsEl.textContent = (data.summary?.dictLookups || 0).toLocaleString();
 
     // SVG Visualizations
     renderAnalyticsTrendChart(data.dailyTrend || []);
@@ -5414,6 +5442,37 @@
         topSearchesTable.innerHTML = '<tr><td colspan="3" class="analytics-empty">尚無搜尋紀錄</td></tr>';
       } else {
         topSearchesTable.innerHTML = data.topSearches.map((item, idx) => `<tr>
+          <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
+          <td style="font-weight: 600;">${escHtml(item.query)}</td>
+          <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>
+        </tr>`).join('');
+      }
+    }
+
+    const topLookupsTable = $('analyticsTopLookupsTable');
+    if (topLookupsTable) {
+      if (!data.topLookups || data.topLookups.length === 0) {
+        topLookupsTable.innerHTML = '<tr><td colspan="5" class="analytics-empty">尚無辭典查閱紀錄</td></tr>';
+      } else {
+        topLookupsTable.innerHTML = data.topLookups.map((item, idx) => {
+          const formattedTime = formatTimestampWithTZ(item.lastLookup, tz);
+          return `<tr>
+            <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
+            <td style="font-weight: 600;">${escHtml(item.headword)}</td>
+            <td style="color: var(--text-secondary);">${escHtml(item.fileName)}</td>
+            <td style="text-align: right; font-weight: 700; color: #58a6ff;">${item.count.toLocaleString()}</td>
+            <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(formattedTime)}</td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    const topDictSearchesTable = $('analyticsTopDictSearchesTable');
+    if (topDictSearchesTable) {
+      if (!data.topDictSearches || data.topDictSearches.length === 0) {
+        topDictSearchesTable.innerHTML = '<tr><td colspan="3" class="analytics-empty">尚無辭典搜尋紀錄</td></tr>';
+      } else {
+        topDictSearchesTable.innerHTML = data.topDictSearches.map((item, idx) => `<tr>
           <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
           <td style="font-weight: 600;">${escHtml(item.query)}</td>
           <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>

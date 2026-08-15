@@ -72,7 +72,7 @@ function createEmptyAnalyticsStore() {
   return {
     version: ANALYTICS_STORE_VERSION,
     updatedAt: new Date(0).toISOString(),
-    lifetime: { requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {} },
+    lifetime: { requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0, dictSearches: {}, dictLookups: {} },
     daily: {},
     processedIds: {}
   };
@@ -155,7 +155,7 @@ function updateAnalyticsStoreEntry(store, entry) {
   const ip = entry.ip || '127.0.0.1';
   const dateKey = timestamp.toISOString().split('T')[0];
   const bucket = store.daily[dateKey] || (store.daily[dateKey] = {
-    requests: 0, views: 0, searches: 0, ips: {}, files: {}, searches: {}
+    requests: 0, views: 0, searches: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0
   });
   const lifetime = store.lifetime;
   lifetime.requests++;
@@ -203,6 +203,38 @@ function updateAnalyticsStoreEntry(store, entry) {
       updateLatest(bucketSearch, entry.timestamp, 'lastSearch');
     }
   }
+
+  if (entry.tag === 'DictSearch') {
+    const query = extractAnalyticsQuery(entry);
+    if (query) {
+      lifetime.dictSearchCount = (lifetime.dictSearchCount || 0) + 1;
+      bucket.dictSearchCount = (bucket.dictSearchCount || 0) + 1;
+      if (!lifetime.dictSearches) lifetime.dictSearches = {};
+      const s = analyticsMapGetOrCreate(lifetime.dictSearches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
+      s.count = (s.count || 0) + 1;
+      updateLatest(s, entry.timestamp, 'lastSearch');
+    }
+  }
+
+  if (entry.tag === 'DictLookup') {
+    const headword = extractAnalyticsQuery(entry);
+    const docPath = extractAnalyticsPath(entry);
+    if (headword || docPath) {
+      lifetime.dictLookupCount = (lifetime.dictLookupCount || 0) + 1;
+      bucket.dictLookupCount = (bucket.dictLookupCount || 0) + 1;
+      if (!lifetime.dictLookups) lifetime.dictLookups = {};
+      const key = `${docPath || ''}::${headword || ''}`;
+      const l = analyticsMapGetOrCreate(lifetime.dictLookups, key, () => ({ count: 0, headword, path: docPath, lastLookup: entry.timestamp }));
+      l.count = (l.count || 0) + 1;
+      updateLatest(l, entry.timestamp, 'lastLookup');
+    }
+  }
+
+  if (entry.tag === 'DictBrowse') {
+    lifetime.dictBrowseCount = (lifetime.dictBrowseCount || 0) + 1;
+    bucket.dictBrowseCount = (bucket.dictBrowseCount || 0) + 1;
+  }
+
   return true;
 }
 
@@ -286,6 +318,29 @@ function pruneAnalyticsLogEntry(entry) {
 
   const docPath = extractAnalyticsPath(entry);
   const query = extractAnalyticsQuery(entry);
+
+  if (tag === 'DictSearch') {
+    if (!query) return null;
+    return {
+      timestamp: entry.timestamp,
+      tag: 'DictSearch',
+      ip: entry.ip || '127.0.0.1',
+      query: query,
+      pruned: true
+    };
+  }
+
+  if (tag === 'DictLookup') {
+    if (!docPath && !query) return null;
+    return {
+      timestamp: entry.timestamp,
+      tag: 'DictLookup',
+      ip: entry.ip || '127.0.0.1',
+      ...(docPath ? { path: docPath } : {}),
+      ...(query ? { query: query } : {}),
+      pruned: true
+    };
+  }
 
   if (tag === 'Render' || tag === 'ShareLink' || docPath) {
     if (!docPath) return null;
@@ -2805,7 +2860,7 @@ async function handleDictHeadwords(req, res) {
       return res.end();
     }
 
-    const fileList = files.map(f => ({ path: f.relPath, name: f.name.replace(/\.md$/, ''), size: f.size }));
+    const fileList = files.map(f => ({ path: f.relPath, name: f.name.replace(/\.md$/, ''), size: f.size, entryCount: 0 }));
     const entries = [];
     for (let fi = 0; fi < files.length; fi++) {
       const f = files[fi];
@@ -2820,6 +2875,7 @@ async function handleDictHeadwords(req, res) {
         const clean = cleanHeadword(e.headword);
         if (!clean) continue;
         entries.push([fi, ei, e.lineStart, clean]);
+        fileList[fi].entryCount++;
       }
     }
 
@@ -2947,11 +3003,37 @@ async function handleDictSearch(req, res, query) {
 
     results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
 
+    Logger.info('DictSearch', `Dictionary query: "${q}" -> ${results.length} matches`, req, { query: q });
     sendJSON(res, 200, { query: q, results, total: results.length, capped: false });
   } catch (err) {
     Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
     sendJSON(res, 500, { error: 'Dictionary search failed' });
   }
+}
+
+// ── API: Dictionary Analytics Event (client-side beacon) ────────────────────
+// Fire-and-forget endpoint for the client-side dictionary panel. Records two
+// kinds of events so the admin analytics dashboard can report dictionary usage:
+//   kind: 'lookup' → a search result was clicked (feeds 辭典查閱次數 + Top Lookups)
+//   kind: 'browse' → the dictionary menu/sidebar was opened (feeds 辭典查閱次數)
+// Never blocks the caller; a malformed body simply yields an empty payload.
+async function handleDictEvent(req, res) {
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const kind = String(data.kind || '').trim();
+  const file = String(data.file || '').trim().slice(0, 500);
+  const headword = String(data.headword || '').trim().slice(0, 300);
+
+  if (kind === 'lookup') {
+    if (!file && !headword) return sendJSON(res, 400, { error: 'Missing lookup target' });
+    Logger.info('DictLookup', `Lookup: "${headword}" in ${file || '(unknown)'}`, req, { path: file || undefined, query: headword || undefined });
+    return sendJSON(res, 200, { ok: true });
+  }
+  if (kind === 'browse') {
+    Logger.info('DictBrowse', 'Dictionary menu opened', req);
+    return sendJSON(res, 200, { ok: true });
+  }
+  return sendJSON(res, 400, { error: 'Unknown event kind' });
 }
 
 // ── API: Full-text Search ────────────────────────────────────
@@ -3665,6 +3747,9 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/dict-search' && req.method === 'GET') {
     return handleDictSearch(req, res, query);
   }
+  if (pathname === '/api/dict-event' && req.method === 'POST') {
+    return handleDictEvent(req, res);
+  }
 
 // ── Analytics Aggregator & Data Exporter ────────────────────────────────────
 const analyticsCache = new Map();
@@ -3695,6 +3780,8 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
   const fileEntries = Object.entries(lifetime.files || {});
   const searchEntries = Object.entries(lifetime.searches || {});
   const ipEntries = Object.entries(lifetime.ips || {});
+  const dictSearchEntries = Object.entries(lifetime.dictSearches || {});
+  const dictLookupEntries = Object.entries(lifetime.dictLookups || {});
   const dailyTrend = Object.entries(store.daily || {}).map(([date, bucket]) => ({
     date,
     views: bucket.views || 0,
@@ -3708,7 +3795,9 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
       totalViews: lifetime.views || 0,
       uniqueIps: ipEntries.length,
       totalSearches: lifetime.searchCount || 0,
-      activeFiles: fileEntries.length
+      activeFiles: fileEntries.length,
+      dictSearches: lifetime.dictSearchCount || 0,
+      dictLookups: (lifetime.dictLookupCount || 0) + (lifetime.dictBrowseCount || 0)
     },
     topFiles: fileEntries.map(([filePath, stat]) => ({
       path: filePath,
@@ -3719,6 +3808,15 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
     })).sort((a, b) => b.views - a.views).slice(0, 50),
     topSearches: searchEntries.map(([query, stat]) => ({ query, count: stat.count || 0, lastSearch: stat.lastSearch }))
       .sort((a, b) => b.count - a.count).slice(0, 30),
+    topDictSearches: dictSearchEntries.map(([query, stat]) => ({ query, count: stat.count || 0, lastSearch: stat.lastSearch }))
+      .sort((a, b) => b.count - a.count).slice(0, 30),
+    topLookups: dictLookupEntries.map(([key, stat]) => ({
+      headword: stat.headword || '',
+      path: stat.path || '',
+      fileName: (stat.path || '').replace(/^dict:/, '').replace(/\.md$/, ''),
+      count: stat.count || 0,
+      lastLookup: stat.lastLookup
+    })).sort((a, b) => b.count - a.count).slice(0, 50),
     dailyTrend,
     ipDistribution: ipEntries.map(([ip, stat]) => ({ ip, requests: stat.requests || 0, lastAccess: stat.lastAccess }))
       .sort((a, b) => b.requests - a.requests).slice(0, 20)
@@ -3764,8 +3862,13 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
   const searchMap = new Map();
   const ipMap = new Map();
   const dailyMap = new Map();
+  const dictSearchMap = new Map();
+  const dictLookupMap = new Map();
   let totalViews = 0;
   let totalSearches = 0;
+  let totalDictSearches = 0;
+  let totalDictLookups = 0;
+  let totalDictBrowses = 0;
   const globalUniqueIps = new Set();
 
   function processEntry(entry) {
@@ -3846,6 +3949,44 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
         }
       }
     }
+
+    if (entry.tag === 'DictSearch') {
+      const q = (entry.query || '').trim();
+      if (q.length > 0) {
+        totalDictSearches++;
+        let sStat = dictSearchMap.get(q);
+        if (!sStat) {
+          sStat = { query: q, count: 0, lastSearch: entry.timestamp };
+          dictSearchMap.set(q, sStat);
+        }
+        sStat.count++;
+        if (new Date(entry.timestamp) > new Date(sStat.lastSearch)) {
+          sStat.lastSearch = entry.timestamp;
+        }
+      }
+    }
+
+    if (entry.tag === 'DictLookup') {
+      const headword = (entry.query || '').trim();
+      const docPath = entry.path || '';
+      if (headword || docPath) {
+        totalDictLookups++;
+        const key = `${docPath}::${headword}`;
+        let lStat = dictLookupMap.get(key);
+        if (!lStat) {
+          lStat = { headword, path: docPath, count: 0, lastLookup: entry.timestamp };
+          dictLookupMap.set(key, lStat);
+        }
+        lStat.count++;
+        if (new Date(entry.timestamp) > new Date(lStat.lastLookup)) {
+          lStat.lastLookup = entry.timestamp;
+        }
+      }
+    }
+
+    if (entry.tag === 'DictBrowse') {
+      totalDictBrowses++;
+    }
   }
 
   for (const file of files) {
@@ -3885,6 +4026,21 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     .sort((a, b) => b.count - a.count)
     .slice(0, 30);
 
+  const topDictSearches = Array.from(dictSearchMap.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 30);
+
+  const topLookups = Array.from(dictLookupMap.values())
+    .map(l => ({
+      headword: l.headword,
+      path: l.path,
+      fileName: l.path.replace(/^dict:/, '').replace(/\.md$/, ''),
+      count: l.count,
+      lastLookup: l.lastLookup
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 50);
+
   const ipDistribution = Array.from(ipMap.values())
     .sort((a, b) => b.requests - a.requests)
     .slice(0, 20);
@@ -3904,10 +4060,14 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       totalViews,
       uniqueIps: globalUniqueIps.size,
       totalSearches,
-      activeFiles: fileMap.size
+      activeFiles: fileMap.size,
+      dictSearches: totalDictSearches,
+      dictLookups: totalDictLookups + totalDictBrowses
     },
     topFiles,
     topSearches,
+    topDictSearches,
+    topLookups,
     dailyTrend,
     ipDistribution
   };

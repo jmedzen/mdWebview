@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.3.5">
+  <link rel="stylesheet" href="style.css?v=2.3.6">
 </head>
 <body>
   <div class="app">
@@ -928,6 +928,20 @@
               </div>
             </div>
             <div class="analytics-card">
+              <div class="analytics-card-icon">🔎</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsDictSearches">0</div>
+                <div class="analytics-card-label">辭典搜尋次數 (Dict Searches)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <div class="analytics-card-icon">👁️</div>
+              <div class="analytics-card-content">
+                <div class="analytics-card-value" id="analyticsDictLookups">0</div>
+                <div class="analytics-card-label">辭典查閱次數 (Dict Lookups)</div>
+              </div>
+            </div>
+            <div class="analytics-card">
               <div class="analytics-card-icon">📈</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsAvgViewsPerDoc">0</div>
@@ -962,6 +976,47 @@
                   <tr><td colspan="5" class="analytics-empty">載入數據中…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <!-- Dictionary Lookups & Searches -->
+          <div class="analytics-grid-two">
+            <div class="analytics-section">
+              <h3 class="analytics-section-title">🔥 熱門查詢辭條 Top 50 (Top Lookups)</h3>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px; text-align: center;">排名</th>
+                      <th>詞條</th>
+                      <th>辭典</th>
+                      <th style="width: 90px; text-align: right;">查閱次數</th>
+                      <th style="width: 150px;">最後查閱</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analyticsTopLookupsTable">
+                    <tr><td colspan="5" class="analytics-empty">尚無辭典查閱紀錄</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="analytics-section">
+              <h3 class="analytics-section-title">📖 熱門辭典搜尋 (Top Dict Searches)</h3>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px; text-align: center;">排名</th>
+                      <th>關鍵字</th>
+                      <th style="width: 90px; text-align: right;">搜尋次數</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analyticsTopDictSearchesTable">
+                    <tr><td colspan="3" class="analytics-empty">尚無辭典搜尋紀錄</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -1106,7 +1161,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.3.5" defer></script>
-  <script src="app.js?v=2.3.5" defer></script>
+  <script src="marked.min.js?v=2.3.6" defer></script>
+  <script src="app.js?v=2.3.6" defer></script>
 </body>
 </html>
