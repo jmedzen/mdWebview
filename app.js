@@ -4508,7 +4508,7 @@
       const version = $('settingsVersion').value;
       const enableDownload = $('settingsEnableDownload').checked;
       const downloadUrl = $('settingsDownloadUrl').value;
-      const enableDictionary = ($('settingsEnableDictionary') || {}).checked;
+      const dictionaryEnabled = ($('settingsEnableDictionary') || {}).checked;
       const dictionaryPath = ($('settingsDictionaryPath') || {}).value;
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const errorEl = $('settingsErrorMsg');
@@ -4524,7 +4524,7 @@
           body: JSON.stringify({
             settings: {
               siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-              enableVersion, version, enableDownload, downloadUrl, enableDictionary, dictionaryPath, maxProximityDistance
+              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance
             }
           })
         });
