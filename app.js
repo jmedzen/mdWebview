@@ -4387,12 +4387,18 @@
 
       // ── Drag-to-reorder dictionary file list ──
       // Driven by Pointer Events instead of HTML5 drag-and-drop, which iOS Safari
-      // never fires. The drag is grabbed from the ⠿ handle only, so checkbox taps
-      // and vertical scrolling elsewhere on the list still work.
+      // never fires. The whole item is the grab surface: a quick tap (no movement)
+      // falls through to the native label → checkbox toggle, while a drag past a
+      // small threshold reorders the item. `.dict-file-item { touch-action: none }`
+      // (style.css) lets the gesture register on iOS instead of scrolling the list.
+      const DRAG_THRESHOLD = 8; // px of movement before a touch counts as a drag
       let _dictDragFi = -1;
       let _dictDragOverFi = -1;
       let _dictDragBefore = true;
       let _dictDragPointerId = null;
+      let _dictDragStartY = 0;
+      let _dictDragActive = false;
+      let _dictDragSuppressClick = false;
       const clearDictDragMarks = () => {
         $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('dragging', 'drag-over', 'drag-over-after'));
       };
@@ -4408,6 +4414,14 @@
       };
       const onDictDragMove = (e) => {
         if (_dictDragFi < 0 || e.pointerId !== _dictDragPointerId) return;
+        if (!_dictDragActive) {
+          if (Math.abs(e.clientY - _dictDragStartY) < DRAG_THRESHOLD) return;
+          _dictDragActive = true;
+          _dictDragSuppressClick = true;
+          const src = Array.from($$('.dict-file-item', dictFileList))
+            .find(el => parseInt(el.getAttribute('data-dict-drag'), 10) === _dictDragFi);
+          if (src) src.classList.add('dragging');
+        }
         e.preventDefault();
         const over = dictItemAtY(e.clientY);
         if (!over || over.fi === _dictDragFi) { _dictDragOverFi = -1; clearDictDragMarks(); return; }
@@ -4420,19 +4434,21 @@
         document.removeEventListener('pointermove', onDictDragMove);
         document.removeEventListener('pointerup', onDictDragEnd);
         document.removeEventListener('pointercancel', onDictDragEnd);
-        if (_dictDragFi >= 0 && _dictDragOverFi >= 0 && _dictDragOverFi !== _dictDragFi) {
+        if (_dictDragActive && _dictDragFi >= 0 && _dictDragOverFi >= 0 && _dictDragOverFi !== _dictDragFi) {
           reorderDictFiles(_dictDragFi, _dictDragOverFi, _dictDragBefore);
         }
         _dictDragFi = -1;
         _dictDragOverFi = -1;
         _dictDragPointerId = null;
+        _dictDragStartY = 0;
+        _dictDragActive = false;
         clearDictDragMarks();
+        // Clear the click-suppression latch after any trailing click has fired.
+        setTimeout(() => { _dictDragSuppressClick = false; }, 0);
       };
       dictFileList.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        const handle = e.target.closest('.dict-file-drag');
-        if (!handle) return;
-        const item = handle.closest('.dict-file-item');
+        const item = e.target.closest('.dict-file-item');
         if (!item) return;
         const fi = parseInt(item.getAttribute('data-dict-drag'), 10);
         if (Number.isNaN(fi)) return;
@@ -4440,12 +4456,22 @@
         _dictDragOverFi = -1;
         _dictDragBefore = true;
         _dictDragPointerId = e.pointerId;
-        item.classList.add('dragging');
-        e.preventDefault();
+        _dictDragStartY = e.clientY;
+        _dictDragActive = false;
+        _dictDragSuppressClick = false;
         document.addEventListener('pointermove', onDictDragMove);
         document.addEventListener('pointerup', onDictDragEnd);
         document.addEventListener('pointercancel', onDictDragEnd);
       });
+      // After a real drag the browser may still emit a click on the label; swallow
+      // it so the checkbox is not toggled unintentionally. Capture phase so it runs
+      // before the label's default activation.
+      dictFileList.addEventListener('click', (e) => {
+        if (!_dictDragSuppressClick) return;
+        _dictDragSuppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }, true);
     }
     const dictResults = $('dictResults');
     if (dictResults) {
