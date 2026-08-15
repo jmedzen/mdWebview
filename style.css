@@ -4779,6 +4779,12 @@ details.callout[open] > summary .callout-fold-icon {
   color: var(--text-secondary);
   font-size: calc(var(--sidebar-font-size) * 12 / 13);
   border-radius: 4px;
+  /* The whole item is the pointer-drag grab surface: touch-action none lets the
+     drag gesture register on iOS instead of scrolling the list, and user-select
+     none stops a mouse drag from selecting the name text. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .dict-file-item:hover {
@@ -4814,6 +4820,8 @@ details.callout[open] > summary .callout-fold-icon {
   line-height: 1;
   flex-shrink: 0;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none; /* let the pointer-drag handle work on iOS instead of scrolling */
 }
 
 .dict-file-item.dragging {

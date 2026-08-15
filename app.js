@@ -3093,7 +3093,7 @@
     let html = `<div class="dict-file-list-header"><span>辭典選擇</span><button class="dict-file-all-toggle" data-dict-toggle-all>${allOn ? '全不選' : '全選'}</button></div>`;
     for (const fi of dictFileOrderIndex()) {
       const f = files[fi];
-      html += `<label class="dict-file-item" draggable="true" data-dict-drag="${fi}"><span class="dict-file-drag" aria-hidden="true" title="拖曳排序">⠿</span><input type="checkbox" data-dict-file="${fi}" ${selected.has(fi) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
+      html += `<label class="dict-file-item" data-dict-drag="${fi}"><span class="dict-file-drag" aria-hidden="true" title="拖曳排序">⠿</span><input type="checkbox" data-dict-file="${fi}" ${selected.has(fi) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
     }
     container.innerHTML = html;
   }
@@ -4386,49 +4386,92 @@
       });
 
       // ── Drag-to-reorder dictionary file list ──
+      // Driven by Pointer Events instead of HTML5 drag-and-drop, which iOS Safari
+      // never fires. The whole item is the grab surface: a quick tap (no movement)
+      // falls through to the native label → checkbox toggle, while a drag past a
+      // small threshold reorders the item. `.dict-file-item { touch-action: none }`
+      // (style.css) lets the gesture register on iOS instead of scrolling the list.
+      const DRAG_THRESHOLD = 8; // px of movement before a touch counts as a drag
       let _dictDragFi = -1;
       let _dictDragOverFi = -1;
       let _dictDragBefore = true;
+      let _dictDragPointerId = null;
+      let _dictDragStartY = 0;
+      let _dictDragActive = false;
+      let _dictDragSuppressClick = false;
       const clearDictDragMarks = () => {
         $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('dragging', 'drag-over', 'drag-over-after'));
       };
-      dictFileList.addEventListener('dragstart', (e) => {
-        const item = e.target.closest('.dict-file-item[draggable="true"]');
-        if (!item) return;
-        _dictDragFi = parseInt(item.getAttribute('data-dict-drag'), 10);
-        if (Number.isNaN(_dictDragFi)) { _dictDragFi = -1; return; }
-        e.dataTransfer.effectAllowed = 'move';
-        try { e.dataTransfer.setData('text/plain', String(_dictDragFi)); } catch (_) {}
-        item.classList.add('dragging');
-      });
-      dictFileList.addEventListener('dragover', (e) => {
-        if (_dictDragFi < 0) return;
+      const dictItemAtY = (y) => {
+        const items = $$('.dict-file-item', dictFileList);
+        for (const item of items) {
+          const r = item.getBoundingClientRect();
+          if (y >= r.top && y <= r.bottom) {
+            return { item, fi: parseInt(item.getAttribute('data-dict-drag'), 10), rect: r };
+          }
+        }
+        return null;
+      };
+      const onDictDragMove = (e) => {
+        if (_dictDragFi < 0 || e.pointerId !== _dictDragPointerId) return;
+        if (!_dictDragActive) {
+          if (Math.abs(e.clientY - _dictDragStartY) < DRAG_THRESHOLD) return;
+          _dictDragActive = true;
+          _dictDragSuppressClick = true;
+          const src = Array.from($$('.dict-file-item', dictFileList))
+            .find(el => parseInt(el.getAttribute('data-dict-drag'), 10) === _dictDragFi);
+          if (src) src.classList.add('dragging');
+        }
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        const item = e.target.closest('.dict-file-item[draggable="true"]');
-        if (!item) return;
-        const overFi = parseInt(item.getAttribute('data-dict-drag'), 10);
-        if (Number.isNaN(overFi) || overFi === _dictDragFi) return;
-        const rect = item.getBoundingClientRect();
-        const before = (e.clientY - rect.top) < (rect.height / 2);
-        _dictDragOverFi = overFi;
-        _dictDragBefore = before;
+        const over = dictItemAtY(e.clientY);
+        if (!over || over.fi === _dictDragFi) { _dictDragOverFi = -1; clearDictDragMarks(); return; }
+        _dictDragOverFi = over.fi;
+        _dictDragBefore = (e.clientY - over.rect.top) < (over.rect.height / 2);
         $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
-        item.classList.add(before ? 'drag-over' : 'drag-over-after');
+        over.item.classList.add(_dictDragBefore ? 'drag-over' : 'drag-over-after');
+      };
+      const onDictDragEnd = () => {
+        document.removeEventListener('pointermove', onDictDragMove);
+        document.removeEventListener('pointerup', onDictDragEnd);
+        document.removeEventListener('pointercancel', onDictDragEnd);
+        if (_dictDragActive && _dictDragFi >= 0 && _dictDragOverFi >= 0 && _dictDragOverFi !== _dictDragFi) {
+          reorderDictFiles(_dictDragFi, _dictDragOverFi, _dictDragBefore);
+        }
+        _dictDragFi = -1;
+        _dictDragOverFi = -1;
+        _dictDragPointerId = null;
+        _dictDragStartY = 0;
+        _dictDragActive = false;
+        clearDictDragMarks();
+        // Clear the click-suppression latch after any trailing click has fired.
+        setTimeout(() => { _dictDragSuppressClick = false; }, 0);
+      };
+      dictFileList.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const item = e.target.closest('.dict-file-item');
+        if (!item) return;
+        const fi = parseInt(item.getAttribute('data-dict-drag'), 10);
+        if (Number.isNaN(fi)) return;
+        _dictDragFi = fi;
+        _dictDragOverFi = -1;
+        _dictDragBefore = true;
+        _dictDragPointerId = e.pointerId;
+        _dictDragStartY = e.clientY;
+        _dictDragActive = false;
+        _dictDragSuppressClick = false;
+        document.addEventListener('pointermove', onDictDragMove);
+        document.addEventListener('pointerup', onDictDragEnd);
+        document.addEventListener('pointercancel', onDictDragEnd);
       });
-      dictFileList.addEventListener('drop', (e) => {
+      // After a real drag the browser may still emit a click on the label; swallow
+      // it so the checkbox is not toggled unintentionally. Capture phase so it runs
+      // before the label's default activation.
+      dictFileList.addEventListener('click', (e) => {
+        if (!_dictDragSuppressClick) return;
+        _dictDragSuppressClick = false;
         e.preventDefault();
-        if (_dictDragFi < 0 || _dictDragOverFi < 0) { _dictDragFi = -1; _dictDragOverFi = -1; clearDictDragMarks(); return; }
-        if (_dictDragOverFi !== _dictDragFi) reorderDictFiles(_dictDragFi, _dictDragOverFi, _dictDragBefore);
-        _dictDragFi = -1;
-        _dictDragOverFi = -1;
-        clearDictDragMarks();
-      });
-      dictFileList.addEventListener('dragend', () => {
-        _dictDragFi = -1;
-        _dictDragOverFi = -1;
-        clearDictDragMarks();
-      });
+        e.stopPropagation();
+      }, true);
     }
     const dictResults = $('dictResults');
     if (dictResults) {
@@ -4449,6 +4492,9 @@
         sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '', query });
         const highlight = state.dictMode === 'fulltext' ? query : null;
         openFile(file, line ? parseInt(line, 10) : null, highlight || null);
+        // On touch/narrow screens the right dict panel overlays the reader, so
+        // collapse it once a result is opened to reveal the entry.
+        if (isMobileBrowser()) toggleDictSidebar(false);
       });
     }
     const entryNavPrev = $('entryNavPrev');
