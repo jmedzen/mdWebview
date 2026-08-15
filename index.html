@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.2.1">
+  <link rel="stylesheet" href="style.css?v=2.2.2">
 </head>
 <body>
   <div class="app">
@@ -37,6 +37,11 @@
         <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
+          </svg>
+        </button>
+        <button id="dictToggleBtn" class="control-btn dict-toggle-btn" title="辭典查詢" style="display:none">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1 2.828c.885-.37 2.154-.769 3.388-.893 1.33-.134 2.458.063 3.112.752v9.746c-.935-.53-2.12-.603-3.213-.493-1.18.12-2.37.461-3.287.811V2.828zm7.5-.141c.654-.689 1.782-.886 3.112-.752 1.234.124 2.503.523 3.388.893v9.923c-.917-.35-2.107-.692-3.287-.81-1.094-.111-2.278-.442-3.213.492V2.687zM8 1.783C7.015.936 5.587.81 4.287.94c-1.514.15-3.016.621-4.287 1.07v11.007c1.271-.449 2.773-.92 4.287-1.07 1.3-.13 2.728.005 3.713.852 1.015-.847 2.443-.982 3.713-.852 1.514.15 2.816.621 4.287 1.07V2.01c-1.271-.449-2.773-.92-4.287-1.07C10.413.81 8.985.936 8 1.783z"/>
           </svg>
         </button>
         <button id="adminSettingsBtn" class="control-btn settings-btn" title="偏好設定與系統管理">
@@ -201,6 +206,11 @@
           <div class="content-header" id="contentHeader"></div>
           <article class="markdown-body" id="markdownBody"></article>
           <button class="back-to-top" id="backToTop" title="回到頂部">↑</button>
+          <div class="entry-nav" id="entryNav" style="display:none">
+            <button class="entry-nav-btn" id="entryNavPrev" title="前一條">← 前一條</button>
+            <span class="entry-nav-label" id="entryNavLabel"></span>
+            <button class="entry-nav-btn" id="entryNavNext" title="後一條">後一條 →</button>
+          </div>
         </div>
 
         <!-- Loading Overlay -->
@@ -209,6 +219,24 @@
           <span>載入中…</span>
         </div>
       </main>
+
+      <!-- Dictionary Sidebar (right hidden menu) -->
+      <aside class="dict-sidebar collapsed" id="dictSidebar">
+        <div class="dict-sidebar-header">
+          <h3>📖 辭典</h3>
+          <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉">✕</button>
+        </div>
+        <div class="dict-tabs" id="dictTabs">
+          <button class="dict-tab active" data-mode="prefix">詞條</button>
+          <button class="dict-tab" data-mode="fuzzy">模糊</button>
+          <button class="dict-tab" data-mode="fulltext">全文</button>
+        </div>
+        <div class="dict-file-list" id="dictFileList"></div>
+        <div class="dict-search-wrap">
+          <input type="text" id="dictSearchInput" class="dict-search-input" placeholder="輸入詞條…" autocomplete="off">
+        </div>
+        <div class="dict-results" id="dictResults"></div>
+      </aside>
     </div>
   </div>
 
@@ -558,6 +586,18 @@
                   </div>
                   <div class="footer-input-wrap">
                     <input type="text" id="settingsDownloadUrl" placeholder="例如: https://example.com/download.zip">
+                  </div>
+                </div>
+                <div class="footer-setting-item">
+                  <div class="toggle-switch-wrapper compact-switch">
+                    <label class="toggle-switch-label" for="settingsEnableDictionary">
+                      <input type="checkbox" id="settingsEnableDictionary">
+                      <span class="toggle-switch-slider"></span>
+                    </label>
+                    <span class="toggle-switch-title">開啟辭典功能</span>
+                  </div>
+                  <div class="footer-input-wrap">
+                    <input type="text" id="settingsDictionaryPath" placeholder="例如: /path/to/mdWebview/dicts" title="辭典檔案路徑">
                   </div>
                 </div>
               </div>
@@ -1063,7 +1103,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.2.1" defer></script>
-  <script src="app.js?v=2.2.1" defer></script>
+  <script src="marked.min.js?v=2.2.2" defer></script>
+  <script src="app.js?v=2.2.2" defer></script>
 </body>
 </html>

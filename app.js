@@ -69,6 +69,13 @@
     fileSizes: new Map(),
     virtual: null,
     pageSearchQuery: null,
+    dictionaryEnabled: !!appConfig.dictionaryEnabled,
+    dictHeadwords: null,
+    dictIndex: null,
+    dictSelected: null,
+    dictSidebarOpen: false,
+    dictMode: 'prefix',
+    dictAbortController: null,
   };
 
   // Files at/above this byte size use virtualized rendering (must match server LARGE_FILE_MIN_BYTES).
@@ -912,18 +919,21 @@
       indicator.innerHTML = `<span class="active-file-icon">🏠</span><span class="active-file-title">首頁</span>`;
       indicator.title = `首頁 (${escHtml(state.siteName || '大覺藏集')})`;
     } else {
-      const parts = filePath.split('/');
+      // Dictionary files are namespaced `dict:…`; strip the prefix for display.
+      const isDict = filePath.startsWith('dict:');
+      const displayPath = isDict ? filePath.slice(5) : filePath;
+      const parts = displayPath.split('/');
       const fileName = parts.pop().replace(/\.md$/, '');
       const folderName = parts.length > 0 ? parts[parts.length - 1] : '';
       const displayTitle = (meta && meta.title) ? meta.title : fileName;
 
-      let html = `<span class="active-file-icon">📄</span><span class="active-file-title">${escHtml(displayTitle)}</span>`;
+      let html = `<span class="active-file-icon">${isDict ? '📖' : '📄'}</span><span class="active-file-title">${escHtml(displayTitle)}</span>`;
       if (folderName) {
         html += `<span class="active-file-folder">[${escHtml(folderName)}]</span>`;
       }
 
       indicator.innerHTML = html;
-      indicator.title = `當前經論: ${filePath}`;
+      indicator.title = `當前${isDict ? '辭典' : '經論'}: ${displayPath}`;
     }
   }
 
@@ -1334,6 +1344,7 @@
     if (!v) return;
     const line = v.entries[entryIndex] ? v.entries[entryIndex].ls : 1;
     await scrollToLineVirtual(line, null);
+    updateEntryNav();
     if (isMobileBrowser()) {
       const sidebar = $('sidebar');
       if (sidebar && !sidebar.classList.contains('collapsed')) {
@@ -1640,6 +1651,7 @@
         recycleDistantChunks(ci);
       }
       updateVirtualScrollSpy(topLine);
+      updateEntryNav();
     };
 
     const throttled = () => {
@@ -1704,7 +1716,8 @@
     });
 
     renderContentHeader(filePath, {});
-    document.title = `${filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+    const dispName = filePath.startsWith('dict:') ? filePath.slice(5).split('/').pop().replace(/\.md$/, '') : filePath.split('/').pop().replace(/\.md$/, '');
+    document.title = `${dispName} — ${state.siteName}`;
 
     renderVirtualTOC();
     setupVirtualScroll();
@@ -1730,6 +1743,7 @@
       await ensureChunk(0);
       $('content').scrollTop = 0;
     }
+    updateEntryNav();
     setTimeout(() => saveReadProgress(filePath), 350);
     return true;
   }
@@ -1785,10 +1799,13 @@
     highlightActiveFile(filePath);
 
     // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
+    // Dictionary files always take the virtualized path (they can be 20MB+ and are
+    // not listed in the main tree's fileSizes map).
     const fileSize = state.fileSizes.get(filePath) || 0;
+    const isDictFile = filePath.startsWith('dict:');
     const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
       || localStorage.getItem('mdWebview-force-full') === '1';
-    if (fileSize >= LARGE_FILE_MIN_BYTES && !forceFull) {
+    if ((fileSize >= LARGE_FILE_MIN_BYTES || isDictFile) && !forceFull) {
       try {
         const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery);
         if (handled) return;
@@ -1824,7 +1841,8 @@
         else content.scrollTop = 0;
         setTimeout(() => saveReadProgress(filePath), 350);
         if (cachedMeta) {
-          document.title = `${cachedMeta.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+          const dispName = filePath.startsWith('dict:') ? filePath.slice(5).split('/').pop().replace(/\.md$/, '') : filePath.split('/').pop().replace(/\.md$/, '');
+          document.title = `${cachedMeta.title || dispName} — ${state.siteName}`;
         }
         return;
       }
@@ -1862,7 +1880,8 @@
             content.scrollTop = 0;
           }
           setTimeout(() => saveReadProgress(filePath), 350);
-          document.title = `${(cachedMeta && cachedMeta.title) || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+          const dispName = filePath.startsWith('dict:') ? filePath.slice(5).split('/').pop().replace(/\.md$/, '') : filePath.split('/').pop().replace(/\.md$/, '');
+          document.title = `${(cachedMeta && cachedMeta.title) || dispName} — ${state.siteName}`;
 
           // Defer TOC generation & line-anchor indexing to idle time
           const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 10));
@@ -1918,7 +1937,8 @@
       }
       setTimeout(() => saveReadProgress(filePath), 350);
 
-      document.title = `${frontmatter.title || filePath.split('/').pop().replace(/\.md$/, '')} — ${state.siteName}`;
+      const dispName = filePath.startsWith('dict:') ? filePath.slice(5).split('/').pop().replace(/\.md$/, '') : filePath.split('/').pop().replace(/\.md$/, '');
+      document.title = `${frontmatter.title || dispName} — ${state.siteName}`;
 
       // Defer TOC generation & line-anchor indexing to idle time (non-blocking)
       const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 10));
@@ -1971,7 +1991,8 @@
   function renderContentHeader(filePath, fm) {
     updateActiveFileUI(filePath, fm);
     const header = $('contentHeader');
-    const parts = filePath.split('/');
+    const displayPath = filePath.startsWith('dict:') ? filePath.slice(5) : filePath;
+    const parts = displayPath.split('/');
     const fileName = parts.pop().replace(/\.md$/, '');
     const folder = parts.join(' / ');
 
@@ -2778,6 +2799,315 @@
   }
 
   // ═══════════════════════════════════════════════════════════
+  // DICTIONARY LOOKUP PANEL (right hidden menu)
+  // ═══════════════════════════════════════════════════════════
+
+  function syncDictToggleVisibility() {
+    const btn = $('dictToggleBtn');
+    if (btn) btn.style.display = state.dictionaryEnabled ? 'flex' : 'none';
+    if (!state.dictionaryEnabled) toggleDictSidebar(false);
+  }
+
+  function toggleDictSidebar(force) {
+    const sidebar = $('dictSidebar');
+    if (!sidebar) return;
+    const shouldOpen = typeof force === 'boolean' ? force : !state.dictSidebarOpen;
+    state.dictSidebarOpen = shouldOpen;
+    sidebar.classList.toggle('collapsed', !shouldOpen);
+    const btn = $('dictToggleBtn');
+    if (btn) btn.classList.toggle('active', shouldOpen);
+    if (shouldOpen) ensureDictHeadwords();
+  }
+
+  // CJK bigram extractor — MUST match extractBigrams() in server.js and
+  // extractBigramsFromText() in index-worker.js so prefix/fuzzy matching stays
+  // consistent with the server-side full-text bigram index.
+  function extractCJKBigrams(text) {
+    const set = new Set();
+    let prev = '';
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charCodeAt(i);
+      if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
+        const c = text[i];
+        if (prev) set.add(prev + c);
+        prev = c;
+      } else {
+        prev = '';
+      }
+    }
+    return set;
+  }
+
+  function cleanDictHeadword(hw) {
+    return String(hw || '').replace(/^【/, '').replace(/】$/, '').trim();
+  }
+
+  async function ensureDictHeadwords() {
+    if (state.dictHeadwords || state._dictLoading) return;
+    state._dictLoading = true;
+    renderDictFileList();
+    try {
+      const res = await fetch('/api/dict-headwords');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      state.dictHeadwords = data;
+      buildDictFrontendIndex(data);
+      // Record dict file sizes so openFile's virtual gate has sizes available.
+      (data.files || []).forEach(f => { if (f.size) state.fileSizes.set(f.path, f.size); });
+      if (state.dictSelected === null) {
+        state.dictSelected = new Set((data.files || []).map((_, i) => i));
+      }
+      renderDictFileList();
+    } catch (err) {
+      state.dictHeadwords = { files: [], entries: [] };
+      state.dictIndex = null;
+      renderDictFileList();
+      showToast('❌ 辭典詞頭載入失敗', 'error');
+    } finally {
+      state._dictLoading = false;
+    }
+  }
+
+  function buildDictFrontendIndex(data) {
+    const files = data.files || [];
+    const raw = data.entries || [];
+    const sorted = raw.map(r => ({ hw: r[3], fi: r[0], ei: r[1], line: r[2] }));
+    sorted.sort((a, b) => (a.hw < b.hw ? -1 : a.hw > b.hw ? 1 : (a.fi - b.fi || a.ei - b.ei)));
+    const bigrams = new Map();
+    sorted.forEach((it, idx) => {
+      const bs = extractCJKBigrams(it.hw);
+      for (const bg of bs) {
+        let arr = bigrams.get(bg);
+        if (!arr) { arr = []; bigrams.set(bg, arr); }
+        arr.push(idx);
+      }
+    });
+    state.dictIndex = { files, sorted, bigrams, count: sorted.length };
+  }
+
+  function renderDictFileList() {
+    const container = $('dictFileList');
+    if (!container) return;
+    const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
+    if (!state.dictHeadwords || state._dictLoading) {
+      container.innerHTML = '<div class="dict-file-empty">載入辭典清單…</div>';
+      return;
+    }
+    if (files.length === 0) {
+      container.innerHTML = '<div class="dict-file-empty">未掃描到辭典檔</div>';
+      return;
+    }
+    const selected = state.dictSelected || new Set(files.map((_, i) => i));
+    const allOn = files.every((_, i) => selected.has(i));
+    let html = `<div class="dict-file-list-header"><span>查詢範圍</span><button class="dict-file-all-toggle" data-dict-toggle-all>${allOn ? '全不選' : '全選'}</button></div>`;
+    files.forEach((f, i) => {
+      html += `<label class="dict-file-item"><input type="checkbox" data-dict-file="${i}" ${selected.has(i) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${f.size ? formatBytes(f.size) : ''}</span></label>`;
+    });
+    container.innerHTML = html;
+  }
+
+  function dictSelectedFiles() {
+    const files = (state.dictIndex && state.dictIndex.files) || [];
+    const selected = state.dictSelected;
+    if (!selected) return files.map(f => f.path);
+    return files.filter((_, i) => selected.has(i)).map(f => f.path);
+  }
+
+  function dictSelectedSet() {
+    const files = (state.dictIndex && state.dictIndex.files) || [];
+    if (!state.dictSelected) return new Set(files.map((_, i) => i));
+    return new Set(state.dictSelected);
+  }
+
+  function intersectSortedIdx(a, b) {
+    const out = [];
+    let i = 0, j = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] < b[j]) i++;
+      else if (a[i] > b[j]) j++;
+      else { out.push(a[i]); i++; j++; }
+    }
+    return out;
+  }
+
+  const DICT_RESULT_CAP = 200;
+
+  function runDictSearch(query) {
+    const q = (query || '').trim();
+    if (!q) {
+      $('dictResults').innerHTML = '<div class="dict-placeholder"><span>📖</span><span>輸入詞條開始查詢</span></div>';
+      return;
+    }
+    if (!state.dictHeadwords) {
+      ensureDictHeadwords().then(() => runDictSearch(q));
+      return;
+    }
+    if (state.dictMode === 'fulltext') dictSearchFulltext(q);
+    else if (state.dictMode === 'fuzzy') dictSearchFuzzy(q);
+    else dictSearchPrefix(q);
+  }
+
+  function dictSearchPrefix(q) {
+    const idx = state.dictIndex;
+    const results = $('dictResults');
+    if (!idx || idx.sorted.length === 0) {
+      results.innerHTML = '<div class="dict-placeholder"><span>📖</span><span>無可用詞頭</span></div>';
+      return;
+    }
+    const sel = dictSelectedSet();
+    const sorted = idx.sorted;
+    // Binary search the sorted array for [q, q + U+FFFF).
+    let lo = 0, hi = sorted.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid].hw < q) lo = mid + 1; else hi = mid; }
+    const start = lo;
+    const upper = q + '￿';
+    lo = start; hi = sorted.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid].hw < upper) lo = mid + 1; else hi = mid; }
+    const end = lo;
+    const matched = [];
+    for (let i = start; i < end && matched.length < DICT_RESULT_CAP; i++) {
+      const it = sorted[i];
+      if (it.hw.startsWith(q) && sel.has(it.fi)) matched.push(it);
+    }
+    renderDictHeadwordResults(matched, q);
+  }
+
+  function dictSearchFuzzy(q) {
+    const idx = state.dictIndex;
+    const results = $('dictResults');
+    if (!idx || idx.sorted.length === 0) {
+      results.innerHTML = '<div class="dict-placeholder"><span>📖</span><span>無可用詞頭</span></div>';
+      return;
+    }
+    const sel = dictSelectedSet();
+    const qBigrams = extractCJKBigrams(q);
+    let candidateIdx = null;
+    if (qBigrams.size > 0) {
+      for (const bg of qBigrams) {
+        const posting = idx.bigrams.get(bg);
+        if (!posting) { candidateIdx = []; break; }
+        candidateIdx = (candidateIdx === null) ? posting.slice() : intersectSortedIdx(candidateIdx, posting);
+        if (candidateIdx.length === 0) break;
+      }
+    }
+    const matched = [];
+    if (candidateIdx && candidateIdx.length > 0) {
+      for (const i of candidateIdx) {
+        if (matched.length >= DICT_RESULT_CAP) break;
+        const it = idx.sorted[i];
+        if (it.hw.includes(q) && sel.has(it.fi)) matched.push(it);
+      }
+    } else if (candidateIdx === null) {
+      // No CJK bigrams (e.g. single char / non-CJK) → linear includes scan.
+      for (const it of idx.sorted) {
+        if (matched.length >= DICT_RESULT_CAP) break;
+        if (it.hw.includes(q) && sel.has(it.fi)) matched.push(it);
+      }
+    }
+    renderDictHeadwordResults(matched, q);
+  }
+
+  function renderDictHeadwordResults(matched, q) {
+    const results = $('dictResults');
+    if (matched.length === 0) {
+      results.innerHTML = '<div class="dict-placeholder"><span>🔍</span><span>沒有找到結果</span></div>';
+      return;
+    }
+    const files = state.dictIndex.files || [];
+    const groups = new Map();
+    for (const it of matched) {
+      if (!groups.has(it.fi)) groups.set(it.fi, []);
+      groups.get(it.fi).push(it);
+    }
+    let html = `<div class="dict-status">找到 ${matched.length} 筆${matched.length >= DICT_RESULT_CAP ? '（僅顯示前 ' + DICT_RESULT_CAP + ' 筆）' : ''}</div>`;
+    for (const [fi, items] of groups) {
+      const f = files[fi] || { name: '未知', path: '' };
+      html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(f.name)}<span class="dict-result-file-count">${items.length}</span></div>`;
+      for (const it of items) {
+        html += `<div class="dict-result-item" data-file="${escHtml(f.path)}" data-line="${it.line}" data-entry="${it.ei}"><span class="dict-result-headword">${highlightSearchTerm(it.hw, q)}</span></div>`;
+      }
+      html += `</div>`;
+    }
+    results.innerHTML = html;
+  }
+
+  function dictSearchFulltext(q) {
+    if (state.dictAbortController) state.dictAbortController.abort();
+    state.dictAbortController = new AbortController();
+    const results = $('dictResults');
+    results.innerHTML = '<div class="dict-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
+    const filesParam = dictSelectedFiles().map(encodeURIComponent).join(',');
+    fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}`, { signal: state.dictAbortController.signal })
+      .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(data => renderDictFulltextResults(data, q))
+      .catch(err => {
+        if (err.name === 'AbortError') return;
+        results.innerHTML = `<div class="dict-placeholder"><span>⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
+      });
+  }
+
+  function renderDictFulltextResults(data, q) {
+    const results = $('dictResults');
+    const list = data.results || [];
+    if (list.length === 0) {
+      results.innerHTML = '<div class="dict-placeholder"><span>🔍</span><span>沒有找到結果</span></div>';
+      return;
+    }
+    const groups = new Map();
+    for (const r of list) {
+      if (!groups.has(r.file)) groups.set(r.file, { name: r.fileName, items: [] });
+      groups.get(r.file).items.push(r);
+    }
+    let html = `<div class="dict-status">找到 ${data.total} 筆${data.capped ? '（已達上限）' : ''}</div>`;
+    for (const [file, g] of groups) {
+      html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(g.name)}<span class="dict-result-file-count">${g.items.length}</span></div>`;
+      for (const r of g.items) {
+        const headwordTag = r.headword ? `<span class="dict-result-headword">${escHtml(cleanDictHeadword(r.headword))}</span>` : '';
+        const entryAttr = (r.entryIndex !== undefined && r.entryIndex !== null && r.entryIndex >= 0) ? ` data-entry="${escHtml(r.entryIndex)}"` : '';
+        html += `<div class="dict-result-item" data-file="${escHtml(r.file)}" data-line="${escHtml(r.line)}"${entryAttr}>${headwordTag}<span class="dict-result-snippet">${highlightSearchTerm(r.snippet, q)}</span></div>`;
+      }
+      html += `</div>`;
+    }
+    results.innerHTML = html;
+  }
+
+  // ── Dictionary entry prev/next navigation (main reader) ──
+  let _entryNavEi = -1;
+  function updateEntryNav() {
+    const nav = $('entryNav');
+    if (!nav) return;
+    if (!state.currentFile || !state.currentFile.startsWith('dict:') || !isVirtualMode()) {
+      if (nav.style.display !== 'none') { nav.style.display = 'none'; _entryNavEi = -1; }
+      return;
+    }
+    const v = state.virtual;
+    const ei = topVisibleEntryIndex();
+    if (ei < 0) {
+      nav.style.display = 'none';
+      _entryNavEi = -1;
+      return;
+    }
+    if (ei === _entryNavEi && nav.style.display === 'flex') return;
+    _entryNavEi = ei;
+    nav.style.display = 'flex';
+    const entry = v.entries[ei];
+    const clean = entry ? cleanDictHeadword(entry.h) : '';
+    $('entryNavLabel').textContent = clean || '';
+    $('entryNavPrev').disabled = (ei <= 0);
+    $('entryNavNext').disabled = (ei >= v.entries.length - 1);
+  }
+
+  function dictNavStep(delta) {
+    if (!isVirtualMode()) return;
+    const v = state.virtual;
+    const ei = topVisibleEntryIndex();
+    if (ei < 0) return;
+    const target = ei + delta;
+    if (target < 0 || target >= v.entries.length) return;
+    jumpToEntry(target);
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // PAGE SEARCH (In-page)
   // ═══════════════════════════════════════════════════════════
 
@@ -3142,7 +3472,8 @@
   // ── Recent Files (Top 20) ──────────────────────────────────
   function addRecentFile(filePath, title) {
     if (!filePath) return;
-    const fileName = title || filePath.split('/').pop().replace(/\.md$/, '');
+    const cleanPath = filePath.startsWith('dict:') ? filePath.slice(5) : filePath;
+    const fileName = title || cleanPath.split('/').pop().replace(/\.md$/, '');
     let list = state.recentFiles || [];
     list = list.filter(item => item.filePath !== filePath);
     list.unshift({
@@ -3749,6 +4080,71 @@
       });
     }
 
+    // ── Dictionary Lookup Panel ──
+    const dictToggleBtn = $('dictToggleBtn');
+    if (dictToggleBtn) {
+      dictToggleBtn.addEventListener('click', () => toggleDictSidebar());
+    }
+    const dictSidebarClose = $('dictSidebarClose');
+    if (dictSidebarClose) {
+      dictSidebarClose.addEventListener('click', () => toggleDictSidebar(false));
+    }
+    const dictTabs = $('dictTabs');
+    if (dictTabs) {
+      dictTabs.addEventListener('click', (e) => {
+        const tab = e.target.closest('.dict-tab');
+        if (!tab) return;
+        state.dictMode = tab.getAttribute('data-mode') || 'prefix';
+        $$('.dict-tab', dictTabs).forEach(t => t.classList.toggle('active', t === tab));
+        runDictSearch($('dictSearchInput')?.value || '');
+      });
+    }
+    const dictSearchInput = $('dictSearchInput');
+    if (dictSearchInput) {
+      const debouncedDictSearch = debounce((v) => runDictSearch(v), 80);
+      dictSearchInput.addEventListener('input', (e) => debouncedDictSearch(e.target.value));
+    }
+    const dictFileList = $('dictFileList');
+    if (dictFileList) {
+      dictFileList.addEventListener('change', (e) => {
+        const cb = e.target.closest('input[data-dict-file]');
+        if (!cb) return;
+        const idx = parseInt(cb.getAttribute('data-dict-file'), 10);
+        if (state.dictSelected === null) state.dictSelected = new Set();
+        if (cb.checked) state.dictSelected.add(idx);
+        else state.dictSelected.delete(idx);
+        renderDictFileList();
+        runDictSearch($('dictSearchInput')?.value || '');
+      });
+      dictFileList.addEventListener('click', (e) => {
+        const allBtn = e.target.closest('[data-dict-toggle-all]');
+        if (!allBtn) return;
+        const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
+        const allOn = files.every((_, i) => state.dictSelected && state.dictSelected.has(i));
+        state.dictSelected = new Set(allOn ? [] : files.map((_, i) => i));
+        renderDictFileList();
+        runDictSearch($('dictSearchInput')?.value || '');
+      });
+    }
+    const dictResults = $('dictResults');
+    if (dictResults) {
+      dictResults.addEventListener('click', (e) => {
+        const item = e.target.closest('.dict-result-item');
+        if (!item) return;
+        const file = item.getAttribute('data-file');
+        const line = item.getAttribute('data-line');
+        if (!file) return;
+        const highlight = state.dictMode === 'fulltext' ? ($('dictSearchInput')?.value || '').trim() : null;
+        openFile(file, line ? parseInt(line, 10) : null, highlight || null);
+        toggleDictSidebar(false);
+      });
+    }
+    const entryNavPrev = $('entryNavPrev');
+    const entryNavNext = $('entryNavNext');
+    if (entryNavPrev) entryNavPrev.addEventListener('click', () => dictNavStep(-1));
+    if (entryNavNext) entryNavNext.addEventListener('click', () => dictNavStep(1));
+    syncDictToggleVisibility();
+
     // ── Content Header Action Delegation (Copy-link & Bookmark) ──
     const contentHeader = $('contentHeader');
     if (contentHeader) {
@@ -4088,12 +4484,19 @@
       if (downloadToggle && downloadInput) {
         downloadInput.disabled = !downloadToggle.checked;
       }
+      const dictToggle = $('settingsEnableDictionary');
+      const dictInput = $('settingsDictionaryPath');
+      if (dictToggle && dictInput) {
+        dictInput.disabled = !dictToggle.checked;
+      }
     }
 
     const versionToggleEl = $('settingsEnableVersion');
     if (versionToggleEl) versionToggleEl.addEventListener('change', syncFooterToggleInputs);
     const downloadToggleEl = $('settingsEnableDownload');
     if (downloadToggleEl) downloadToggleEl.addEventListener('change', syncFooterToggleInputs);
+    const dictToggleEl = $('settingsEnableDictionary');
+    if (dictToggleEl) dictToggleEl.addEventListener('change', syncFooterToggleInputs);
 
     // ── Settings Form Submission ──
     async function performSaveSettings(createIfNotExists = false, closeAfterSave = false) {
@@ -4105,6 +4508,8 @@
       const version = $('settingsVersion').value;
       const enableDownload = $('settingsEnableDownload').checked;
       const downloadUrl = $('settingsDownloadUrl').value;
+      const enableDictionary = ($('settingsEnableDictionary') || {}).checked;
+      const dictionaryPath = ($('settingsDictionaryPath') || {}).value;
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const errorEl = $('settingsErrorMsg');
       const successEl = $('settingsSuccessMsg');
@@ -4117,16 +4522,17 @@
             'X-Admin-Token': state.adminToken
           },
           body: JSON.stringify({
-            settings: { 
+            settings: {
               siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-              enableVersion, version, enableDownload, downloadUrl, maxProximityDistance 
+              enableVersion, version, enableDownload, downloadUrl, enableDictionary, dictionaryPath, maxProximityDistance
             }
           })
         });
         const data = await res.json();
         if (!res.ok) {
           if (res.status === 404 && data.code === 'DIR_NOT_FOUND') {
-            const confirmCreate = window.confirm(`指定的目錄路徑不存在：\n${data.path || mdRoot}\n\n是否要自動創建此目錄？`);
+            const targetLabel = data.field === 'dictionaryPath' ? '辭典目錄' : '目錄';
+            const confirmCreate = window.confirm(`指定的${targetLabel}路徑不存在：\n${data.path || mdRoot || dictionaryPath}\n\n是否要自動創建此目錄？`);
             if (confirmCreate) {
               return await performSaveSettings(true, closeAfterSave);
             }
@@ -4150,6 +4556,10 @@
             updateSiteNameUI();
           }
           updateWelcomeFooter(data.settings);
+          if (data.settings.dictionaryEnabled !== undefined) {
+            state.dictionaryEnabled = !!data.settings.dictionaryEnabled;
+            syncDictToggleVisibility();
+          }
         }
 
         // Reload the file tree and update UI with new paths
@@ -4702,6 +5112,10 @@
       $('settingsVersion').value = data.settings.version || '';
       $('settingsEnableDownload').checked = !!data.settings.enableDownload;
       $('settingsDownloadUrl').value = data.settings.downloadUrl || '';
+      const dictEnabledEl = $('settingsEnableDictionary');
+      if (dictEnabledEl) dictEnabledEl.checked = !!data.settings.dictionaryEnabled;
+      const dictPathEl = $('settingsDictionaryPath');
+      if (dictPathEl) dictPathEl.value = data.settings.dictionaryPath || '';
       const proxEl = $('settingsMaxProximityDistance');
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
