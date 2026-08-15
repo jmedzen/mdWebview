@@ -4572,13 +4572,41 @@ details.callout[open] > summary .callout-fold-icon {
   flex-shrink: 0;
   z-index: 10;
   font-size: var(--sidebar-font-size);
-  transition: width 0.2s ease;
 }
 
 .dict-sidebar.collapsed {
   width: 0;
   border-left: none;
   overflow: hidden;
+}
+
+/* ── Dictionary Resize Handle (left edge of the right panel) ── */
+.dict-resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+  z-index: 20;
+  position: relative;
+}
+.dict-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 32px;
+  background: var(--border-subtle);
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.dict-resize-handle:hover::after,
+.dict-resize-handle.active::after {
+  opacity: 1;
+  background: var(--accent);
 }
 
 .dict-sidebar-header {
@@ -4907,6 +4935,9 @@ details.callout[open] > summary .callout-fold-icon {
   }
   .dict-sidebar.collapsed {
     width: 0;
+  }
+  .dict-resize-handle {
+    display: none !important;
   }
   .entry-nav {
     bottom: 16px;

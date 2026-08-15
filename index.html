@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.3.1">
+  <link rel="stylesheet" href="style.css?v=2.3.2">
 </head>
 <body>
   <div class="app">
@@ -40,8 +40,8 @@
           </svg>
         </button>
         <button id="dictToggleBtn" class="control-btn dict-toggle-btn" title="辭典查詢" style="display:none">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1 2.828c.885-.37 2.154-.769 3.388-.893 1.33-.134 2.458.063 3.112.752v9.746c-.935-.53-2.12-.603-3.213-.493-1.18.12-2.37.461-3.287.811V2.828zm7.5-.141c.654-.689 1.782-.886 3.112-.752 1.234.124 2.503.523 3.388.893v9.923c-.917-.35-2.107-.692-3.287-.81-1.094-.111-2.278-.442-3.213.492V2.687zM8 1.783C7.015.936 5.587.81 4.287.94c-1.514.15-3.016.621-4.287 1.07v11.007c1.271-.449 2.773-.92 4.287-1.07 1.3-.13 2.728.005 3.713.852 1.015-.847 2.443-.982 3.713-.852 1.514.15 2.816.621 4.287 1.07V2.01c-1.271-.449-2.773-.92-4.287-1.07C10.413.81 8.985.936 8 1.783z"/>
+          <svg width="18" height="18" viewBox="0 0 512 512" fill="currentColor">
+            <path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20z"/>
           </svg>
         </button>
         <button id="adminSettingsBtn" class="control-btn settings-btn" title="偏好設定與系統管理">
@@ -219,6 +219,9 @@
           <span>載入中…</span>
         </div>
       </main>
+
+      <!-- Dictionary Resize Handle -->
+      <div class="dict-resize-handle" id="dictResizeHandle" style="display:none"></div>
 
       <!-- Dictionary Sidebar (right hidden menu) -->
       <aside class="dict-sidebar collapsed" id="dictSidebar">
@@ -1103,7 +1106,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.3.1" defer></script>
-  <script src="app.js?v=2.3.1" defer></script>
+  <script src="marked.min.js?v=2.3.2" defer></script>
+  <script src="app.js?v=2.3.2" defer></script>
 </body>
 </html>

@@ -7,5 +7,7 @@ logs/*
 .agents
 md/*
 !md/.gitkeep
+dicts/*
+!dicts/.gitkeep
 
 

@@ -76,6 +76,9 @@
     dictSidebarOpen: false,
     dictMode: 'prefix',
     dictAbortController: null,
+    dictSidebarWidth: null,
+    dictHeadwordsETag: null,
+    dictPollTimer: null,
   };
 
   // Files at/above this byte size use virtualized rendering (must match server LARGE_FILE_MIN_BYTES).
@@ -2814,9 +2817,20 @@
     const shouldOpen = typeof force === 'boolean' ? force : !state.dictSidebarOpen;
     state.dictSidebarOpen = shouldOpen;
     sidebar.classList.toggle('collapsed', !shouldOpen);
+    if (shouldOpen) {
+      sidebar.style.width = state.dictSidebarWidth ? state.dictSidebarWidth + 'px' : '';
+    } else {
+      sidebar.style.width = '';
+      stopDictPolling();
+    }
+    const handle = $('dictResizeHandle');
+    if (handle) handle.style.display = shouldOpen ? 'block' : 'none';
     const btn = $('dictToggleBtn');
     if (btn) btn.classList.toggle('active', shouldOpen);
-    if (shouldOpen) ensureDictHeadwords();
+    if (shouldOpen) {
+      ensureDictHeadwords();
+      startDictPolling();
+    }
   }
 
   // CJK bigram extractor — MUST match extractBigrams() in server.js and
@@ -2847,17 +2861,7 @@
     state._dictLoading = true;
     renderDictFileList();
     try {
-      const res = await fetch('/api/dict-headwords');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      state.dictHeadwords = data;
-      buildDictFrontendIndex(data);
-      // Record dict file sizes so openFile's virtual gate has sizes available.
-      (data.files || []).forEach(f => { if (f.size) state.fileSizes.set(f.path, f.size); });
-      if (state.dictSelected === null) {
-        state.dictSelected = new Set((data.files || []).map((_, i) => i));
-      }
-      renderDictFileList();
+      await fetchDictHeadwords();
     } catch (err) {
       state.dictHeadwords = { files: [], entries: [] };
       state.dictIndex = null;
@@ -2866,6 +2870,49 @@
     } finally {
       state._dictLoading = false;
     }
+  }
+
+  // Fetches the dictionary headword list, revalidating with ETag so unchanged
+  // requests cost only a 304. Returns true when the data actually changed.
+  async function fetchDictHeadwords() {
+    const headers = {};
+    if (state.dictHeadwordsETag) headers['If-None-Match'] = state.dictHeadwordsETag;
+    const res = await fetch('/api/dict-headwords', { headers });
+    if (res.status === 304) return false; // unchanged
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state.dictHeadwordsETag = res.headers.get('ETag') || '';
+    const data = await res.json();
+    state.dictHeadwords = data;
+    buildDictFrontendIndex(data);
+    // Record dict file sizes so openFile's virtual gate has sizes available.
+    (data.files || []).forEach(f => { if (f.size) state.fileSizes.set(f.path, f.size); });
+    // Prune selection indices beyond the current file count (files removed).
+    const n = (data.files || []).length;
+    if (state.dictSelected === null) {
+      state.dictSelected = new Set((data.files || []).map((_, i) => i));
+    } else {
+      for (const i of Array.from(state.dictSelected)) if (i >= n) state.dictSelected.delete(i);
+    }
+    renderDictFileList();
+    return true;
+  }
+
+  function startDictPolling() {
+    stopDictPolling();
+    state.dictPollTimer = setInterval(async () => {
+      if (!state.dictSidebarOpen || !state.dictionaryEnabled) return;
+      try {
+        const changed = await fetchDictHeadwords();
+        if (changed) {
+          const q = ($('dictSearchInput')?.value || '').trim();
+          if (q) runDictSearch(q);
+        }
+      } catch (_) { /* ignore transient poll errors */ }
+    }, 20000);
+  }
+
+  function stopDictPolling() {
+    if (state.dictPollTimer) { clearInterval(state.dictPollTimer); state.dictPollTimer = null; }
   }
 
   function buildDictFrontendIndex(data) {
@@ -3775,6 +3822,42 @@
     });
   }
 
+  function setupDictResizeHandle() {
+    const handle = $('dictResizeHandle');
+    const sidebar = $('dictSidebar');
+    if (!handle || !sidebar) return;
+    let isResizing = false;
+    let startX, startWidth;
+
+    handle.addEventListener('mousedown', (e) => {
+      if (sidebar.classList.contains('collapsed')) return;
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = sidebar.offsetWidth;
+      handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      // Right-side panel: dragging left widens it, so invert dx.
+      const dx = startX - e.clientX;
+      const newWidth = Math.max(240, Math.min(560, startWidth + dx));
+      sidebar.style.width = newWidth + 'px';
+      state.dictSidebarWidth = newWidth;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!isResizing) return;
+      isResizing = false;
+      handle.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════
   // EVENT LISTENERS
   // ═══════════════════════════════════════════════════════════
@@ -4275,6 +4358,7 @@
 
     // ── Sidebar resize ──
     setupResizeHandle();
+    setupDictResizeHandle();
     setupSelectionPopup();
 
     // ── User Settings Gear Button Click ──

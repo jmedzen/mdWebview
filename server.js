@@ -2787,6 +2787,7 @@ function resetDictWatcher() {
 // ── API: Dictionary Headwords (client-side prefix/fuzzy index) ────────────
 async function handleDictHeadwords(req, res) {
   try {
+    setupDictWatcher();
     const files = await scanDictFiles();
     if (files.length === 0) {
       return sendJSON(res, 200, { files: [], entries: [] });
@@ -4683,4 +4684,11 @@ server.listen(PORT, () => {
 
   // Eagerly build Bigram Inverted Index in background on boot
   buildSearchIndexAsync().catch(() => {});
+
+  // Set up the dictionary directory watcher (and index) at boot so the index
+  // rebuilds automatically when dictionary files change — not only on fulltext.
+  if (config.settings.dictionaryEnabled) {
+    setupDictWatcher();
+    buildDictIndexAsync().catch(() => {});
+  }
 });
