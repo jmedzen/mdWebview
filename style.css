@@ -4637,6 +4637,40 @@ details.callout[open] > summary .callout-fold-icon {
   color: var(--text-primary);
 }
 
+.dict-sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dict-file-list-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dict-file-list-toggle:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.dict-file-list-chevron {
+  transition: transform 0.25s ease;
+}
+
+.dict-file-list-toggle.open .dict-file-list-chevron {
+  transform: rotate(90deg);
+}
+
 .dict-sidebar-close {
   border: none;
   background: transparent;
@@ -4700,6 +4734,17 @@ details.callout[open] > summary .callout-fold-icon {
   flex-shrink: 0;
   max-height: 220px;
   overflow-y: auto;
+  transition: max-height 0.28s ease, padding 0.28s ease, opacity 0.28s ease, border-color 0.28s ease;
+}
+
+.dict-file-list.collapsed {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .dict-file-list-header {

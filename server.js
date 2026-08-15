@@ -2508,6 +2508,33 @@ function cleanHeadword(hw) {
   return String(hw || '').replace(/^【/, '').replace(/】$/, '').trim();
 }
 
+const DICT_HEADING_RE = /^(#{1,6})\s+(.*)$/;
+
+// Fallback entry counter: scans a dictionary file's headings directly when its
+// section index is unavailable (e.g. index build failed in a fresh container).
+// Counts the deepest heading level — the entry level per scanSections() in
+// index-worker.js — and only non-empty headwords, matching the count that
+// handleDictHeadwords reports from a built index. Ensures 辭典選擇 never shows 0.
+async function scanDictEntryCount(fullPath) {
+  let headings = [];
+  try {
+    const text = await fs.promises.readFile(fullPath, 'utf-8');
+    for (const line of text.split('\n')) {
+      const m = DICT_HEADING_RE.exec(line);
+      if (!m) continue;
+      headings.push({ depth: m[1].length, clean: !!cleanHeadword(m[2]) });
+    }
+  } catch (_) {
+    return 0;
+  }
+  if (headings.length === 0) return 0;
+  let entryLevel = 0;
+  for (const h of headings) if (h.depth > entryLevel) entryLevel = h.depth;
+  let count = 0;
+  for (const h of headings) if (h.depth === entryLevel && h.clean) count++;
+  return count;
+}
+
 async function scanDictFiles() {
   const root = getDictionaryPath();
   if (!root) return [];
@@ -2878,13 +2905,18 @@ async function handleDictHeadwords(req, res) {
         const stat = await fs.promises.stat(f.fullPath);
         idx = await getSectionIndex(f.fullPath, stat, f.relPath);
       } catch (_) {}
-      if (!idx || !idx.entries) continue;
-      for (let ei = 0; ei < idx.entries.length; ei++) {
-        const e = idx.entries[ei];
-        const clean = cleanHeadword(e.headword);
-        if (!clean) continue;
-        entries.push([fi, ei, e.lineStart, clean]);
-        fileList[fi].entryCount++;
+      if (idx && idx.entries && idx.entries.length > 0) {
+        for (let ei = 0; ei < idx.entries.length; ei++) {
+          const e = idx.entries[ei];
+          const clean = cleanHeadword(e.headword);
+          if (!clean) continue;
+          entries.push([fi, ei, e.lineStart, clean]);
+          fileList[fi].entryCount++;
+        }
+      } else {
+        // Section index unavailable — fall back to a direct heading scan so the
+        // entry count reflects the file contents instead of showing 0.
+        fileList[fi].entryCount = await scanDictEntryCount(f.fullPath);
       }
     }
 
@@ -3012,7 +3044,6 @@ async function handleDictSearch(req, res, query) {
 
     results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
 
-    Logger.info('DictSearch', `Dictionary query: "${q}" -> ${results.length} matches`, req, { query: q });
     sendJSON(res, 200, { query: q, results, total: results.length, capped: false });
   } catch (err) {
     Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
@@ -3021,10 +3052,14 @@ async function handleDictSearch(req, res, query) {
 }
 
 // ── API: Dictionary Analytics Event (client-side beacon) ────────────────────
-// Fire-and-forget endpoint for the client-side dictionary panel. Records two
-// kinds of events so the admin analytics dashboard can report dictionary usage:
-//   kind: 'lookup' → a search result was clicked (feeds 辭典查閱次數 + Top Lookups)
-//   kind: 'browse' → the dictionary menu/sidebar was opened (feeds 辭典查閱次數)
+// Fire-and-forget endpoint for the client-side dictionary panel. Dictionary
+// queries auto-search on every keystroke (no Enter), so we deliberately do NOT
+// count a search when the query is typed or the full-text endpoint is hit.
+// Instead a single result CLICK is the only event that counts, and it records
+// both 辭典查詢 (the query string that produced the result) and 辭典點閱 (the
+// headword that was opened). This keeps the search/lookup counts in lockstep
+// with actual user intent rather than debounced keystrokes.
+//   kind: 'lookup' → a result was clicked; payload carries { file, headword, query }
 // Never blocks the caller; a malformed body simply yields an empty payload.
 async function handleDictEvent(req, res) {
   let data = {};
@@ -3032,14 +3067,14 @@ async function handleDictEvent(req, res) {
   const kind = String(data.kind || '').trim();
   const file = String(data.file || '').trim().slice(0, 500);
   const headword = String(data.headword || '').trim().slice(0, 300);
+  const query = String(data.query || '').trim().slice(0, 500);
 
   if (kind === 'lookup') {
     if (!file && !headword) return sendJSON(res, 400, { error: 'Missing lookup target' });
     Logger.info('DictLookup', `Lookup: "${headword}" in ${file || '(unknown)'}`, req, { path: file || undefined, query: headword || undefined });
-    return sendJSON(res, 200, { ok: true });
-  }
-  if (kind === 'browse') {
-    Logger.info('DictBrowse', 'Dictionary menu opened', req);
+    if (query) {
+      Logger.info('DictSearch', `Dictionary query: "${query}" (clicked)`, req, { query });
+    }
     return sendJSON(res, 200, { ok: true });
   }
   return sendJSON(res, 400, { error: 'Unknown event kind' });
@@ -3806,7 +3841,7 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
       totalSearches: lifetime.searchCount || 0,
       activeFiles: fileEntries.length,
       dictSearches: lifetime.dictSearchCount || 0,
-      dictLookups: (lifetime.dictLookupCount || 0) + (lifetime.dictBrowseCount || 0)
+      dictLookups: lifetime.dictLookupCount || 0
     },
     topFiles: fileEntries.map(([filePath, stat]) => ({
       path: filePath,
@@ -3877,7 +3912,6 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
   let totalSearches = 0;
   let totalDictSearches = 0;
   let totalDictLookups = 0;
-  let totalDictBrowses = 0;
   const globalUniqueIps = new Set();
 
   function processEntry(entry) {
@@ -3992,10 +4026,6 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
         }
       }
     }
-
-    if (entry.tag === 'DictBrowse') {
-      totalDictBrowses++;
-    }
   }
 
   for (const file of files) {
@@ -4071,7 +4101,7 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       totalSearches,
       activeFiles: fileMap.size,
       dictSearches: totalDictSearches,
-      dictLookups: totalDictLookups + totalDictBrowses
+      dictLookups: totalDictLookups
     },
     topFiles,
     topSearches,

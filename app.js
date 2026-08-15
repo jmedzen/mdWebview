@@ -2841,12 +2841,24 @@
     if (shouldOpen) {
       ensureDictHeadwords();
       startDictPolling();
-      sendDictEvent('browse');
     }
   }
 
-  // Fire-and-forget beacon to the dictionary analytics endpoint. Used to record
-  // dictionary menu opens ('browse') and search-result clicks ('lookup').
+  // Toggles the collapsible "辭典選擇" file-list box with a slide animation.
+  // Hidden by default; all dictionaries remain selected when collapsed.
+  function toggleDictFileList(force) {
+    const list = $('dictFileList');
+    const btn = $('dictFileListToggle');
+    if (!list || !btn) return;
+    const shouldOpen = typeof force === 'boolean' ? force : list.classList.contains('collapsed');
+    list.classList.toggle('collapsed', !shouldOpen);
+    btn.classList.toggle('open', shouldOpen);
+    btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  }
+
+  // Fire-and-forget beacon to the dictionary analytics endpoint. Records search-
+  // result clicks ('lookup'), which drive both 辭典查詢 (query) and 辭典點閱
+  // (headword) — see handleDictEvent in server.js.
   function sendDictEvent(kind, payload = {}) {
     if (!state.dictionaryEnabled) return;
     try {
@@ -4197,6 +4209,10 @@
     if (dictSidebarClose) {
       dictSidebarClose.addEventListener('click', () => toggleDictSidebar(false));
     }
+    const dictFileListToggle = $('dictFileListToggle');
+    if (dictFileListToggle) {
+      dictFileListToggle.addEventListener('click', () => toggleDictFileList());
+    }
     const dictTabs = $('dictTabs');
     if (dictTabs) {
       dictTabs.addEventListener('click', (e) => {
@@ -4249,8 +4265,9 @@
         const file = item.getAttribute('data-file');
         const line = item.getAttribute('data-line');
         if (!file) return;
-        sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '' });
-        const highlight = state.dictMode === 'fulltext' ? ($('dictSearchInput')?.value || '').trim() : null;
+        const query = ($('dictSearchInput')?.value || '').trim();
+        sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '', query });
+        const highlight = state.dictMode === 'fulltext' ? query : null;
         openFile(file, line ? parseInt(line, 10) : null, highlight || null);
       });
     }

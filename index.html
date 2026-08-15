@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.3.7">
+  <link rel="stylesheet" href="style.css?v=2.3.8">
 </head>
 <body>
   <div class="app">
@@ -226,7 +226,14 @@
       <!-- Dictionary Sidebar (right hidden menu) -->
       <aside class="dict-sidebar collapsed" id="dictSidebar">
         <div class="dict-sidebar-header">
-          <h3>📖 辭典</h3>
+          <div class="dict-sidebar-title">
+            <h3>📖 辭典</h3>
+            <button type="button" class="dict-file-list-toggle" id="dictFileListToggle" title="切換辭典選擇" aria-expanded="false">
+              <svg class="dict-file-list-chevron" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
           <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉">✕</button>
         </div>
         <div class="dict-tabs" id="dictTabs">
@@ -234,7 +241,7 @@
           <button class="dict-tab" data-mode="fuzzy">模糊</button>
           <button class="dict-tab" data-mode="fulltext">全文</button>
         </div>
-        <div class="dict-file-list" id="dictFileList"></div>
+        <div class="dict-file-list collapsed" id="dictFileList"></div>
         <div class="dict-search-wrap">
           <input type="text" id="dictSearchInput" class="dict-search-input" placeholder="輸入詞條…" autocomplete="off">
         </div>
@@ -1192,7 +1199,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.3.7" defer></script>
-  <script src="app.js?v=2.3.7" defer></script>
+  <script src="marked.min.js?v=2.3.8" defer></script>
+  <script src="app.js?v=2.3.8" defer></script>
 </body>
 </html>
