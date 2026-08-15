@@ -68,6 +68,7 @@
     searchRenderLimit: 0,
     fileSizes: new Map(),
     virtual: null,
+    sectionIndexCache: new Map(), // filePath -> { etag, si } for virtual opens
     pageSearchQuery: null,
     dictionaryEnabled: !!appConfig.dictionaryEnabled,
     dictHeadwords: null,
@@ -1298,10 +1299,14 @@
         v.chunkHeights.delete(c);
       }
     }
+    // Mount the window concurrently (each chunk is an independent fetch) instead
+    // of serially, so a result click doesn't pay three sequential round-trips.
+    const mounts = [];
     for (let c = centerCi - radius; c <= centerCi + radius; c++) {
       if (c < 0 || c >= v.chunkRanges.length) continue;
-      await ensureChunk(v.chunkRanges[c].from);
+      mounts.push(ensureChunk(v.chunkRanges[c].from));
     }
+    await Promise.all(mounts);
     updateAvgPxPerLine();
     refreshSpacers();
     updateCachedLineAnchors($('markdownBody'));
@@ -1669,9 +1674,29 @@
   // Attempt to open a large file via the virtualized path. Returns true if
   // handled; false means the caller should fall through to the full render.
   async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery) {
-    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`);
-    if (!res.ok) return false;
-    const si = await res.json();
+    // Reuse a cached section index when the file is unchanged: send If-None-Match
+    // so the server answers 304 and skips the multi-MB payload on re-opens.
+    const cachedSi = state.sectionIndexCache.get(filePath);
+    const headers = {};
+    if (cachedSi) headers['If-None-Match'] = cachedSi.etag;
+    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`, { headers });
+    let si;
+    if (res.status === 304 && cachedSi) {
+      si = cachedSi.si;
+    } else if (res.ok) {
+      const etag = res.headers.get('ETag');
+      si = await res.json();
+      if (etag) {
+        // Bounded LRU so the cache can't grow unboundedly across many large files.
+        state.sectionIndexCache.delete(filePath);
+        state.sectionIndexCache.set(filePath, { etag, si });
+        while (state.sectionIndexCache.size > 12) {
+          state.sectionIndexCache.delete(state.sectionIndexCache.keys().next().value);
+        }
+      }
+    } else {
+      return false;
+    }
     if (!si || !si.large || !Array.isArray(si.entries) || si.entries.length === 0) return false;
     if (!Array.isArray(si.chunks) || si.chunks.length === 0) return false;
 
@@ -1798,6 +1823,22 @@
       }
     }
 
+    // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
+    // Dictionary files always take the virtualized path (they can be 20MB+ and are
+    // not listed in the main tree's fileSizes map).
+    const isDictFile = filePath.startsWith('dict:');
+    const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
+      || localStorage.getItem('mdWebview-force-full') === '1';
+
+    // Same-file navigation: if this dict/large file is already open in virtual
+    // mode, skip the full section-index refetch + teardown and just jump to the
+    // requested entry — consecutive dictionary result clicks then feel instant.
+    if (state.virtual && state.virtual.filePath === filePath && !forceFull) {
+      highlightActiveFile(filePath);
+      await scrollToLineVirtual(scrollToLineNum || 1, highlightQuery);
+      return;
+    }
+
     const loading = $('contentLoading');
     const welcome = $('welcomeScreen');
     const wrapper = $('contentWrapper');
@@ -1813,13 +1854,7 @@
 
     highlightActiveFile(filePath);
 
-    // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
-    // Dictionary files always take the virtualized path (they can be 20MB+ and are
-    // not listed in the main tree's fileSizes map).
     const fileSize = state.fileSizes.get(filePath) || 0;
-    const isDictFile = filePath.startsWith('dict:');
-    const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
-      || localStorage.getItem('mdWebview-force-full') === '1';
     if ((fileSize >= LARGE_FILE_MIN_BYTES || isDictFile) && !forceFull) {
       try {
         const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery);

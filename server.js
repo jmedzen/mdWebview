@@ -1705,12 +1705,15 @@ let searchIndex = {
 // ── Document Section Index (large-file chunking + entry-level search) ────────
 const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
 const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
+const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
 const SECTION_INDEX_MAGIC = 0x53455831; // "SEX1"
 const SECTION_INDEX_MAX_CACHE = 20;
 
 const sectionIndexCache = new Map();    // relPath -> section index object (LRU, insertion order)
+const dictSectionIndexCache = new Map(); // dict: relPath -> section index (unbounded; only a few dict files)
 const sectionIndexPromises = new Map(); // relPath -> Promise (dedupe concurrent builds)
 let sectionIndexBinLoaded = false;
+let dictSectionIndexBinLoaded = false;
 let sectionJobSeq = 0;
 
 function setSectionIndex(relPath, idx) {
@@ -1725,6 +1728,11 @@ function setSectionIndex(relPath, idx) {
 function invalidateSectionIndexes() {
   sectionIndexCache.clear();
   sectionIndexBinLoaded = false;
+}
+
+function invalidateDictSectionIndexes() {
+  dictSectionIndexCache.clear();
+  dictSectionIndexBinLoaded = false;
 }
 
 /**
@@ -1761,21 +1769,32 @@ function buildSectionIndex(relPath, fullPath) {
 }
 
 async function getSectionIndex(fullPath, stat, relPath) {
+  // Dictionary files use a separate, unbounded cache + dedicated bin so their
+  // (large) section indexes are never evicted by the vault's 20-entry LRU.
+  const isDict = relPath.startsWith('dict:');
+  const cache = isDict ? dictSectionIndexCache : sectionIndexCache;
+
   // 1. In-memory (validate against current size/mtime)
-  const cached = sectionIndexCache.get(relPath);
+  const cached = cache.get(relPath);
   if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
-    setSectionIndex(relPath, cached); // refresh LRU order
+    if (!isDict) setSectionIndex(relPath, cached); // refresh LRU order
     return cached;
   }
 
   // 2. Binary disk cache (load all once; small — only large files are indexed)
-  if (!sectionIndexBinLoaded) {
-    sectionIndexBinLoaded = true;
+  const binPath = isDict ? DICT_SECTION_INDEX_CACHE_BIN : SECTION_INDEX_CACHE_BIN;
+  const binLoaded = isDict ? dictSectionIndexBinLoaded : sectionIndexBinLoaded;
+  if (!binLoaded) {
+    if (isDict) dictSectionIndexBinLoaded = true;
+    else sectionIndexBinLoaded = true;
     try {
-      const all = await loadAllSectionIndexesFromBinAsync();
-      for (const idx of all) setSectionIndex(idx.relPath, idx);
+      const all = await loadAllSectionIndexesFromBinAsync(binPath);
+      for (const idx of all) {
+        if (isDict) dictSectionIndexCache.set(idx.relPath, idx);
+        else setSectionIndex(idx.relPath, idx);
+      }
     } catch (_) {}
-    const binHit = sectionIndexCache.get(relPath);
+    const binHit = cache.get(relPath);
     if (binHit && binHit.size === stat.size && binHit.mtimeMs === stat.mtimeMs) return binHit;
   }
 
@@ -1797,8 +1816,10 @@ async function getSectionIndex(fullPath, stat, relPath) {
       entries: result.entries,
       groups: result.groups,
     };
-    setSectionIndex(relPath, idx);
-    saveSectionIndexBinAsync().catch(() => {});
+    if (isDict) dictSectionIndexCache.set(relPath, idx);
+    else setSectionIndex(relPath, idx);
+    if (isDict) saveDictSectionIndexBinAsync().catch(() => {});
+    else saveSectionIndexBinAsync().catch(() => {});
     return idx;
   })().finally(() => {
     sectionIndexPromises.delete(relPath);
@@ -1818,10 +1839,10 @@ async function getSectionIndex(fullPath, stat, relPath) {
  *   entries: [ headwordLen u16 + headword | offset u32 | len u32 | lineStart u32 | lineEnd u32 | groupIdx i16 ]
  *   groups:  [ headwordLen u16 + headword | level u8 | firstEntry u32 | lastEntry u32 ]
  */
-async function loadAllSectionIndexesFromBinAsync() {
+async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_BIN) {
   const result = [];
-  if (!fs.existsSync(SECTION_INDEX_CACHE_BIN)) return result;
-  const buf = await fs.promises.readFile(SECTION_INDEX_CACHE_BIN);
+  if (!fs.existsSync(binPath)) return result;
+  const buf = await fs.promises.readFile(binPath);
   if (buf.length < 8) return result;
   let pos = 0;
   if (buf.readUInt32BE(pos) !== SECTION_INDEX_MAGIC) return result;
@@ -1874,14 +1895,19 @@ async function loadAllSectionIndexesFromBinAsync() {
 let sectionIndexSaveChain = Promise.resolve();
 
 async function saveSectionIndexBinAsync() {
-  sectionIndexSaveChain = sectionIndexSaveChain.then(doSaveSectionIndexBin);
+  sectionIndexSaveChain = sectionIndexSaveChain.then(() => doSaveSectionIndexBin(sectionIndexCache, SECTION_INDEX_CACHE_BIN, 'section-index'));
   return sectionIndexSaveChain;
 }
 
-async function doSaveSectionIndexBin() {
+async function saveDictSectionIndexBinAsync() {
+  sectionIndexSaveChain = sectionIndexSaveChain.then(() => doSaveSectionIndexBin(dictSectionIndexCache, DICT_SECTION_INDEX_CACHE_BIN, 'dict-section-index'));
+  return sectionIndexSaveChain;
+}
+
+async function doSaveSectionIndexBin(cache, binPath, label) {
   try {
     const saveStart = Date.now();
-    const files = Array.from(sectionIndexCache.values());
+    const files = Array.from(cache.values());
     if (files.length === 0) return;
 
     fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -1931,23 +1957,23 @@ async function doSaveSectionIndexBin() {
       }
     }
 
-    const tmpFile = SECTION_INDEX_CACHE_BIN + '.tmp';
+    const tmpFile = binPath + '.tmp';
     await fs.promises.writeFile(tmpFile, buf);
     try {
-      await fs.promises.rename(tmpFile, SECTION_INDEX_CACHE_BIN);
+      await fs.promises.rename(tmpFile, binPath);
     } catch (err) {
       // Defense-in-depth: if the target already exists (e.g. a stray concurrent
       // save), the cache is effectively committed — ignore the ENOENT rather than
       // logging a spurious error. Any other error is real and rethrown.
-      if (err.code === 'ENOENT' && fs.existsSync(SECTION_INDEX_CACHE_BIN)) {
+      if (err.code === 'ENOENT' && fs.existsSync(binPath)) {
         // no-op: another writer already committed an equivalent file
       } else {
         throw err;
       }
     }
-    Logger.info('Index', `Saved section-index cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
+    Logger.info('Index', `Saved ${label} cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
   } catch (err) {
-    Logger.error('Index', 'Failed to save section-index cache', err);
+    Logger.error('Index', `Failed to save ${label} cache`, err);
   }
 }
 
@@ -2850,6 +2876,23 @@ function invalidateDictIndex() {
   dictIndex.building = false;
 }
 
+/**
+ * Builds the section index for every dictionary file in the background so the
+ * first dictionary open is warm even after a restart. buildDictIndexAsync can
+ * short-circuit after loading the bigram bin without ever building a section
+ * index (server.js:2758-2761), which leaves the first click paying a full
+ * 23MB scan; this closes that gap. Fire-and-forget — never blocks boot.
+ */
+async function warmDictSectionIndexes() {
+  try {
+    const files = await scanDictFiles();
+    for (const f of files) {
+      const stat = await fs.promises.stat(f.fullPath);
+      await getSectionIndex(f.fullPath, stat, f.relPath);
+    }
+  } catch (_) {}
+}
+
 function setupDictWatcher() {
   if (dictWatcher) return;
   const root = getDictionaryPath();
@@ -2858,6 +2901,7 @@ function setupDictWatcher() {
     dictWatcher = fs.watch(root, (eventType, filename) => {
       if (filename && (filename.startsWith('.') || filename.includes('/.'))) return;
       invalidateDictIndex();
+      invalidateDictSectionIndexes();
       if (dictWatcherDebounceTimer) clearTimeout(dictWatcherDebounceTimer);
       dictWatcherDebounceTimer = setTimeout(() => {
         dictWatcherDebounceTimer = null;
@@ -2873,6 +2917,7 @@ function resetDictWatcher() {
   if (dictWatcherDebounceTimer) { clearTimeout(dictWatcherDebounceTimer); dictWatcherDebounceTimer = null; }
   if (dictWatcher) { try { dictWatcher.close(); } catch (_) {} dictWatcher = null; }
   invalidateDictIndex();
+  invalidateDictSectionIndexes();
 }
 
 // ── API: Dictionary Headwords (client-side prefix/fuzzy index) ────────────
@@ -4946,5 +4991,8 @@ server.listen(PORT, () => {
   if (config.settings.dictionaryEnabled) {
     setupDictWatcher();
     buildDictIndexAsync().catch(() => {});
+    // Warm the (large) dictionary section indexes so the first entry open is
+    // fast even after a restart, independent of the bigram index build above.
+    warmDictSectionIndexes().catch(() => {});
   }
 });
