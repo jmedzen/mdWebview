@@ -2486,10 +2486,6 @@ kbd {
 }
 
 /* ── Admin Settings & Modals ───────────────────────────────── */
-.settings-btn {
-  margin-left: 6px;
-}
-
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -4606,7 +4602,7 @@ details.callout[open] > summary .callout-fold-icon {
 .dict-sidebar-header h3 {
   margin: 0;
   font-size: calc(var(--sidebar-font-size) * 14 / 13);
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-primary);
 }
 

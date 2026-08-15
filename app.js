@@ -1723,12 +1723,15 @@
     document.title = `${dispName} — ${state.siteName}`;
 
     renderVirtualTOC();
-    setupVirtualScroll();
 
     // Spacer-based virtual scroll: a top/bottom spacer holds the pixel height of
     // all unmounted entries, so `content.scrollTop` maps to the absolute line
     // position and mounting/recycling a chunk never shifts already-visible text.
     $('markdownBody').innerHTML = '';
+    // Reset the reader's scroll offset before mounting the new document. When
+    // switching from a large file scrolled to a deep line, `content.scrollTop`
+    // otherwise carries over the previous file's huge offset.
+    $('content').scrollTop = 0;
     v.spacerTop = document.createElement('div');
     v.spacerTop.className = 'chunk-spacer';
     v.spacerBottom = document.createElement('div');
@@ -1746,6 +1749,14 @@
       await ensureChunk(0);
       $('content').scrollTop = 0;
     }
+    // Attach the scroll handler only AFTER the initial mount/scroll has settled.
+    // Attaching it earlier lets a scroll event fired by the transition (scrollTop
+    // clamp / spacer growth) invoke onScroll mid-mount, whose
+    // `estimateLineFromScrollTop()` then reads a transient scrollTop and re-mounts
+    // the window around chunk 0 — racing `scrollToLineVirtual`'s `setMountedWindow`
+    // and dropping a "後段" (deep-line) jump at the top of the file instead of on
+    // the matched entry.
+    setupVirtualScroll();
     updateEntryNav();
     setTimeout(() => saveReadProgress(filePath), 350);
     return true;
@@ -4217,7 +4228,6 @@
         if (!file) return;
         const highlight = state.dictMode === 'fulltext' ? ($('dictSearchInput')?.value || '').trim() : null;
         openFile(file, line ? parseInt(line, 10) : null, highlight || null);
-        toggleDictSidebar(false);
       });
     }
     const entryNavPrev = $('entryNavPrev');
