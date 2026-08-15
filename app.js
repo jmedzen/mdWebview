@@ -4766,6 +4766,7 @@
   // ── Helper functions for admin & user panels ──
   let hwAutoRefreshTimer = null;
   let indexRebuildPollingTimer = null;
+  let dictIndexRebuildPollingTimer = null;
 
   function closeUserSettingsModal() {
     const overlay = $('userSettingsOverlay');
@@ -4788,6 +4789,10 @@
     if (indexRebuildPollingTimer) {
       clearInterval(indexRebuildPollingTimer);
       indexRebuildPollingTimer = null;
+    }
+    if (dictIndexRebuildPollingTimer) {
+      clearInterval(dictIndexRebuildPollingTimer);
+      dictIndexRebuildPollingTimer = null;
     }
   }
 
@@ -5070,6 +5075,51 @@
       }
     }
 
+    // Dictionary Index Status (side-by-side with full-text index)
+    if (data.dictIndex) {
+      const dictStatus = $('hwDictIndexStatus');
+      if (dictStatus) {
+        if (!data.dictIndex.enabled) {
+          dictStatus.textContent = '未啟用';
+        } else if (data.dictIndex.building) {
+          dictStatus.textContent = '建置中 ⏳';
+        } else if (data.dictIndex.ready) {
+          dictStatus.textContent = '就緒 ✅';
+        } else {
+          dictStatus.textContent = '未建置 ⚠️';
+        }
+      }
+
+      const dictUnits = $('hwDictIndexUnits');
+      if (dictUnits) dictUnits.textContent = (data.dictIndex.totalUnits || 0).toLocaleString();
+
+      const dictBigramCount = $('hwDictBigramCount');
+      if (dictBigramCount) {
+        dictBigramCount.textContent = `${(data.dictIndex.uniqueBigrams || 0).toLocaleString()} 筆 (檔案: ${data.dictIndex.totalFiles} 個)`;
+      }
+
+      const dictCacheSize = $('hwDictIndexCacheSize');
+      if (dictCacheSize) dictCacheSize.textContent = formatBytes(data.dictIndex.cacheSizeBytes || 0);
+
+      const dictCreatedAt = $('hwDictIndexCreatedAt');
+      if (dictCreatedAt) {
+        const mtime = data.dictIndex.createdAt || data.dictIndex.lastModified;
+        if (mtime) dictCreatedAt.textContent = formatTimestampWithTZ(mtime);
+        else dictCreatedAt.textContent = '未建立';
+      }
+
+      const dictRebuildBtn = $('hwRebuildDictIndexBtn');
+      if (dictRebuildBtn) {
+        if (data.dictIndex.building) {
+          dictRebuildBtn.disabled = true;
+          dictRebuildBtn.textContent = '⏳ 重建中…';
+        } else if (!dictIndexRebuildPollingTimer) {
+          dictRebuildBtn.disabled = false;
+          dictRebuildBtn.textContent = '📖 重建辭典索引';
+        }
+      }
+    }
+
     // Search Engine & Cache Performance Card
     if (data.search) {
       const searchHitRate = $('hwSearchHitRate');
@@ -5168,11 +5218,76 @@
     };
   }
 
+  function setupHardwareDictIndexRebuild() {
+    const rebuildBtn = $('hwRebuildDictIndexBtn');
+    if (!rebuildBtn || rebuildBtn.dataset.bound) return;
+    rebuildBtn.dataset.bound = 'true';
+
+    rebuildBtn.onclick = async () => {
+      if (rebuildBtn.disabled) return;
+
+      if (!confirm('確定要手動重建辭典索引嗎？\n這將重新掃描辭典目錄並重建辭典 Bigram 倒排索引。')) {
+        return;
+      }
+
+      try {
+        rebuildBtn.disabled = true;
+        rebuildBtn.textContent = '⏳ 重建中…';
+
+        const res = await fetch('/api/admin/rebuild-dict-index', {
+          method: 'POST',
+          headers: { 'X-Admin-Token': state.adminToken }
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          showToast(`❌ 重建辭典索引失敗: ${errData.error || res.statusText}`, 'error', 3500);
+          rebuildBtn.disabled = false;
+          rebuildBtn.textContent = '📖 重建辭典索引';
+          return;
+        }
+
+        showToast('⏳ 已觸發辭典索引重建，後台建置中…', 'info', 3000);
+
+        await loadHardwareStats();
+
+        if (dictIndexRebuildPollingTimer) clearInterval(dictIndexRebuildPollingTimer);
+        dictIndexRebuildPollingTimer = setInterval(async () => {
+          try {
+            const statsRes = await fetch('/api/admin/hardware', {
+              headers: { 'X-Admin-Token': state.adminToken }
+            });
+            if (!statsRes.ok) return;
+            const data = await statsRes.json();
+            renderHardwareDashboard(data);
+
+            if (!data.dictIndex.building) {
+              clearInterval(dictIndexRebuildPollingTimer);
+              dictIndexRebuildPollingTimer = null;
+              rebuildBtn.disabled = false;
+              rebuildBtn.textContent = '📖 重建辭典索引';
+              showToast('✅ 辭典索引重建完成！', 'success', 3000);
+            }
+          } catch (err) {
+            console.error('Error polling hardware stats during dict index rebuild:', err);
+          }
+        }, 1500);
+
+      } catch (err) {
+        console.error('Failed to rebuild dictionary index:', err);
+        showToast(`❌ 重建辭典索引失敗: ${err.message}`, 'error', 3500);
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = '📖 重建辭典索引';
+      }
+    };
+  }
+
   function setupHardwareAutoRefresh() {
     const refreshBtn = $('hwRefreshBtn');
     const select = $('hwAutoRefreshSelect');
 
     setupHardwareIndexRebuild();
+    setupHardwareDictIndexRebuild();
 
     if (refreshBtn) {
       refreshBtn.onclick = () => loadHardwareStats();

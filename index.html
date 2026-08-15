@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2.3.6">
+  <link rel="stylesheet" href="style.css?v=2.3.7">
 </head>
 <body>
   <div class="app">
@@ -772,25 +772,56 @@
             <div class="hardware-card-header">
               <span class="card-icon">🪷</span>
               <span class="card-title">服務與全文索引狀態</span>
-              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
+              <button type="button" id="hwRebuildDictIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描辭典目錄與建立辭典全文索引">📖 重建辭典索引</button>
+              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: 6px;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
             </div>
             <div class="hardware-card-body">
-              <div class="hardware-sub-metrics grid-2col">
-                <div class="sub-metric">
-                  <span class="sub-label">全文索引狀態</span>
-                  <span class="sub-val" id="hwIndexStatus">--</span>
+              <div class="index-status-columns">
+                <div class="index-status-col">
+                  <div class="index-status-col-title">🔍 全文搜尋索引</div>
+                  <div class="hardware-sub-metrics grid-2col">
+                    <div class="sub-metric">
+                      <span class="sub-label">全文索引狀態</span>
+                      <span class="sub-val" id="hwIndexStatus">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引詞目數 (Units)</span>
+                      <span class="sub-val" id="hwIndexUnits">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引 Bigram 總筆數</span>
+                      <span class="sub-val" id="hwBigramCount">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引檔案建立/修改時間</span>
+                      <span class="sub-val" id="hwIndexCreatedAt">--</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引詞目數 (Units)</span>
-                  <span class="sub-val" id="hwIndexUnits">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引 Bigram 總筆數</span>
-                  <span class="sub-val" id="hwBigramCount">--</span>
-                </div>
-                <div class="sub-metric">
-                  <span class="sub-label">索引檔案建立/修改時間</span>
-                  <span class="sub-val" id="hwIndexCreatedAt">--</span>
+                <div class="index-status-col">
+                  <div class="index-status-col-title">📖 辭典索引</div>
+                  <div class="hardware-sub-metrics grid-2col">
+                    <div class="sub-metric">
+                      <span class="sub-label">辭典索引狀態</span>
+                      <span class="sub-val" id="hwDictIndexStatus">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">辭典詞目數 (Units)</span>
+                      <span class="sub-val" id="hwDictIndexUnits">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">辭典 Bigram 總筆數</span>
+                      <span class="sub-val" id="hwDictBigramCount">--</span>
+                    </div>
+                    <div class="sub-metric">
+                      <span class="sub-label">索引檔案大小</span>
+                      <span class="sub-val" id="hwDictIndexCacheSize">--</span>
+                    </div>
+                    <div class="sub-metric full-width">
+                      <span class="sub-label">索引檔案建立/修改時間</span>
+                      <span class="sub-val" id="hwDictIndexCreatedAt">--</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1161,7 +1192,7 @@
 
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="marked.min.js?v=2.3.6" defer></script>
-  <script src="app.js?v=2.3.6" defer></script>
+  <script src="marked.min.js?v=2.3.7" defer></script>
+  <script src="app.js?v=2.3.7" defer></script>
 </body>
 </html>

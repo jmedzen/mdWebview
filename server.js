@@ -717,7 +717,7 @@ let config = {
     enableDownload: process.env.ENABLE_DOWNLOAD ? process.env.ENABLE_DOWNLOAD === 'true' : false,
     downloadUrl: process.env.DOWNLOAD_URL || '',
     dictionaryEnabled: process.env.DICTIONARY_ENABLED ? process.env.DICTIONARY_ENABLED === 'true' : false,
-    dictionaryPath: process.env.DICTIONARY_PATH || path.join(APP_ROOT, 'dicts'),
+    dictionaryPath: process.env.DICTIONARY_PATH || deriveDictRoot(),
     suggestList: {
       adminList: [],
       adminPickCount: 3,
@@ -805,6 +805,15 @@ function getMdRoot() {
   }
 
   return configured || path.join(APP_ROOT, 'md');
+}
+
+// Dictionary files live in a `dicts/` directory that is a sibling of the markdown
+// vault (mdRoot). Deriving from mdRoot (rather than APP_ROOT) keeps the dict dir on
+// the same persistent `/data` volume as the vault inside Docker — `/data/md` →
+// `/data/dicts` — instead of the ephemeral `/app` image layer.
+function deriveDictRoot(mdRoot) {
+  const base = mdRoot || process.env.MD_ROOT || path.join(APP_ROOT, 'md');
+  return path.join(path.dirname(path.resolve(base)), 'dicts');
 }
 
 // ── Realpath confinement (symlink escape defense) ──────────────────────────
@@ -4392,6 +4401,21 @@ async function getSystemHardwareStats() {
     searchIndex.createdAt = indexFileMtime;
   }
 
+  let dictCacheSize = 0;
+  let dictIndexFileMtime = dictIndex.createdAt || null;
+  try {
+    if (fs.existsSync(DICT_INDEX_CACHE_BIN)) {
+      const stat = fs.statSync(DICT_INDEX_CACHE_BIN);
+      dictCacheSize = stat.size;
+      dictIndexFileMtime = stat.mtime ? stat.mtime.toISOString() : (stat.birthtime ? stat.birthtime.toISOString() : dictIndexFileMtime);
+    }
+  } catch (err) {
+    Logger.error('Hardware', 'Failed to stat dictionary index cache file', err);
+  }
+  if (dictIndexFileMtime) {
+    dictIndex.createdAt = dictIndexFileMtime;
+  }
+
   const now = Date.now();
   const cutoff = now - 60000;
   httpMetrics.recentRequestTimes = httpMetrics.recentRequestTimes.filter(t => t >= cutoff);
@@ -4461,6 +4485,17 @@ async function getSystemHardwareStats() {
       createdAt: indexFileMtime,
       lastModified: indexFileMtime
     },
+    dictIndex: {
+      enabled: config.settings.dictionaryEnabled === true,
+      ready: dictIndex.ready,
+      building: dictIndex.building,
+      totalFiles: dictIndex.fileList ? dictIndex.fileList.length : 0,
+      totalUnits: dictIndex.units ? dictIndex.units.length : 0,
+      uniqueBigrams: dictIndex.bigrams ? dictIndex.bigrams.size : 0,
+      cacheSizeBytes: dictCacheSize,
+      createdAt: dictIndexFileMtime,
+      lastModified: dictIndexFileMtime
+    },
     search: {
       totalQueries: totalSearchQueries,
       cacheHits: searchCacheHits,
@@ -4507,6 +4542,20 @@ async function handleRebuildIndex(req, res) {
       Logger.error('Index', 'Manual index rebuild error', err);
     });
     return sendJSON(res, 200, { success: true, message: 'Index rebuild initiated' });
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
+async function handleRebuildDictIndex(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+  try {
+    buildDictIndexAsync(true).catch(err => {
+      Logger.error('DictIndex', 'Manual dictionary index rebuild error', err);
+    });
+    return sendJSON(res, 200, { success: true, message: 'Dictionary index rebuild initiated' });
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
   }
@@ -4702,7 +4751,7 @@ async function handleAnalyticsExport(req, res, query) {
       const resolvedPath = path.resolve(mdRoot.trim());
       const nextDictEnabled = dictionaryEnabled !== undefined ? !!dictionaryEnabled : config.settings.dictionaryEnabled;
       const nextDictPath = (dictionaryPath !== undefined)
-        ? (String(dictionaryPath).trim() ? path.resolve(String(dictionaryPath).trim()) : path.join(APP_ROOT, 'dicts'))
+        ? (String(dictionaryPath).trim() ? path.resolve(String(dictionaryPath).trim()) : deriveDictRoot(resolvedPath))
         : config.settings.dictionaryPath;
 
       const updateSettings = () => {
@@ -4818,6 +4867,9 @@ async function handleAnalyticsExport(req, res, query) {
   // Admin rebuild index API
   if (pathname === '/api/admin/rebuild-index' && req.method === 'POST') {
     return handleRebuildIndex(req, res);
+  }
+  if (pathname === '/api/admin/rebuild-dict-index' && req.method === 'POST') {
+    return handleRebuildDictIndex(req, res);
   }
 
   // Public suggest-list API (no auth required)

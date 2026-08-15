@@ -4391,6 +4391,37 @@ details.callout[open] > summary .callout-fold-icon {
   color: var(--text-primary);
 }
 
+.index-status-columns {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.index-status-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.index-status-col-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.index-status-col .hardware-sub-metrics {
+  margin-top: 0;
+}
+
+@media (max-width: 720px) {
+  .index-status-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .progress-bar-row {
   display: flex;
   flex-direction: column;
@@ -4664,10 +4695,10 @@ details.callout[open] > summary .callout-fold-icon {
 
 /* Dictionary file checklist */
 .dict-file-list {
-  padding: 8px 12px;
+  padding: 8px 12px 10px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  max-height: 160px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
@@ -4719,11 +4750,15 @@ details.callout[open] > summary .callout-fold-icon {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  min-width: 0;
 }
 
 .dict-file-item .dict-file-count {
   color: var(--text-muted);
   font-size: calc(var(--sidebar-font-size) * 11 / 13);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .dict-file-empty {
