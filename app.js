@@ -2938,10 +2938,19 @@
     buildDictFrontendIndex(data);
     // Record dict file sizes so openFile's virtual gate has sizes available.
     (data.files || []).forEach(f => { if (f.size) state.fileSizes.set(f.path, f.size); });
-    // Prune selection indices beyond the current file count (files removed).
+    // Prune selection indices beyond the current file count (files removed), and
+    // on first load restore the user's saved selection (by path) — falling back
+    // to "all selected" when no preference has ever been saved.
     const n = (data.files || []).length;
     if (state.dictSelected === null) {
-      state.dictSelected = new Set((data.files || []).map((_, i) => i));
+      const saved = loadDictFileSelect();
+      if (saved !== null) {
+        const savedSet = new Set(saved);
+        state.dictSelected = new Set();
+        (data.files || []).forEach((f, i) => { if (savedSet.has(f.path)) state.dictSelected.add(i); });
+      } else {
+        state.dictSelected = new Set((data.files || []).map((_, i) => i));
+      }
     } else {
       for (const i of Array.from(state.dictSelected)) if (i >= n) state.dictSelected.delete(i);
     }
@@ -3003,6 +3012,32 @@
 
   function saveDictFileOrder() {
     try { localStorage.setItem(DICT_FILE_ORDER_KEY, JSON.stringify(state.dictFileOrder || [])); } catch (_) {}
+  }
+
+  const DICT_FILE_SELECT_KEY = 'mdWebview-dict-selected';
+
+  // Loads the saved dictionary selection (array of `dict:` paths) once. Returns
+  // null when no preference was ever saved, so the "all selected" default still
+  // applies on first run.
+  function loadDictFileSelect() {
+    try {
+      const raw = localStorage.getItem(DICT_FILE_SELECT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function saveDictFileSelect(paths) {
+    try { localStorage.setItem(DICT_FILE_SELECT_KEY, JSON.stringify(paths || [])); } catch (_) {}
+  }
+
+  // Persists the current checkbox selection as `dict:` paths so reopening the
+  // panel restores the user's preferred dictionaries.
+  function persistDictSelection() {
+    saveDictFileSelect(dictSelectedFiles());
   }
 
   // Canonical file indices in the user's preferred display order. Unknown paths
@@ -4335,6 +4370,7 @@
         if (state.dictSelected === null) state.dictSelected = new Set();
         if (cb.checked) state.dictSelected.add(idx);
         else state.dictSelected.delete(idx);
+        persistDictSelection();
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');
       });
@@ -4344,6 +4380,7 @@
         const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
         const allOn = files.every((_, i) => state.dictSelected && state.dictSelected.has(i));
         state.dictSelected = new Set(allOn ? [] : files.map((_, i) => i));
+        persistDictSelection();
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');
       });
