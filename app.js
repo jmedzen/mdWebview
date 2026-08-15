@@ -3877,17 +3877,6 @@
       contentEl.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-    // ── Header Active File Click (Scroll to Top) ──
-    const headerActiveFile = $('headerActiveFile');
-    if (headerActiveFile) {
-      headerActiveFile.addEventListener('click', () => {
-        const contentEl = $('content');
-        if (contentEl) {
-          contentEl.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-      });
-    }
-
     // ── Sidebar resize ──
     setupResizeHandle();
     setupSelectionPopup();
