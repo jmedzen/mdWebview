@@ -2935,11 +2935,13 @@
   function renderDictFileList() {
     const container = $('dictFileList');
     if (!container) return;
-    const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
-    if (!state.dictHeadwords || state._dictLoading) {
-      container.innerHTML = '<div class="dict-file-empty">載入辭典清單…</div>';
+    if (!state.dictHeadwords) {
+      container.innerHTML = state._dictLoading
+        ? '<div class="dict-file-empty">載入辭典清單…</div>'
+        : '<div class="dict-file-empty">未掃描到辭典檔</div>';
       return;
     }
+    const files = state.dictHeadwords.files || [];
     if (files.length === 0) {
       container.innerHTML = '<div class="dict-file-empty">未掃描到辭典檔</div>';
       return;
@@ -2977,8 +2979,6 @@
     return out;
   }
 
-  const DICT_RESULT_CAP = 200;
-
   function runDictSearch(query) {
     const q = (query || '').trim();
     if (!q) {
@@ -3012,7 +3012,7 @@
     while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid].hw < upper) lo = mid + 1; else hi = mid; }
     const end = lo;
     const matched = [];
-    for (let i = start; i < end && matched.length < DICT_RESULT_CAP; i++) {
+    for (let i = start; i < end; i++) {
       const it = sorted[i];
       if (it.hw.startsWith(q) && sel.has(it.fi)) matched.push(it);
     }
@@ -3040,14 +3040,12 @@
     const matched = [];
     if (candidateIdx && candidateIdx.length > 0) {
       for (const i of candidateIdx) {
-        if (matched.length >= DICT_RESULT_CAP) break;
         const it = idx.sorted[i];
         if (it.hw.includes(q) && sel.has(it.fi)) matched.push(it);
       }
     } else if (candidateIdx === null) {
       // No CJK bigrams (e.g. single char / non-CJK) → linear includes scan.
       for (const it of idx.sorted) {
-        if (matched.length >= DICT_RESULT_CAP) break;
         if (it.hw.includes(q) && sel.has(it.fi)) matched.push(it);
       }
     }
@@ -3066,7 +3064,7 @@
       if (!groups.has(it.fi)) groups.set(it.fi, []);
       groups.get(it.fi).push(it);
     }
-    let html = `<div class="dict-status">找到 ${matched.length} 筆${matched.length >= DICT_RESULT_CAP ? '（僅顯示前 ' + DICT_RESULT_CAP + ' 筆）' : ''}</div>`;
+    let html = `<div class="dict-status">找到 ${matched.length} 筆</div>`;
     for (const [fi, items] of groups) {
       const f = files[fi] || { name: '未知', path: '' };
       html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(f.name)}<span class="dict-result-file-count">${items.length}</span></div>`;

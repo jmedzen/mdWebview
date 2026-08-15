@@ -2846,8 +2846,6 @@ async function handleDictSearch(req, res, query) {
   const filesParam = query.files ? String(query.files).split(',').map(s => s.trim()).filter(Boolean) : null;
 
   const maxProximityDist = Math.max(10, parseInt(config.settings.maxProximityDistance) || 150);
-  const MAX_RESULTS = 5000;
-  const MAX_FILE_MATCHES = 5000;
 
   try {
     if (!dictIndex.ready && !dictIndex.building) {
@@ -2939,10 +2937,9 @@ async function handleDictSearch(req, res, query) {
     const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
 
     await runIndexWorkerPool(scanTasks,
-      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: MAX_FILE_MATCHES } }),
+      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: Infinity } }),
       (result) => {
         for (const m of result.matches) {
-          if (results.length >= MAX_RESULTS) break;
           results.push({ file: m.file, fileName: m.fileName, headword: m.headword, entryIndex: m.entryIndex, line: m.line, snippet: m.snippet });
         }
       },
@@ -2950,7 +2947,7 @@ async function handleDictSearch(req, res, query) {
 
     results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
 
-    sendJSON(res, 200, { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS });
+    sendJSON(res, 200, { query: q, results, total: results.length, capped: false });
   } catch (err) {
     Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
     sendJSON(res, 500, { error: 'Dictionary search failed' });
