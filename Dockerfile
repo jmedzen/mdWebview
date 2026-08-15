@@ -10,7 +10,7 @@ RUN npm install --production
 COPY server.js app.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
 
 # Create data, logs, md, and dicts directory
-RUN mkdir -p /data /data/logs /app/md /data/dicts
+RUN mkdir -p /data /data/logs /data/md /data/dicts
 
 # Default environment variables
 ENV PORT=8330 \
