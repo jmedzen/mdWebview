@@ -73,6 +73,7 @@
     dictHeadwords: null,
     dictIndex: null,
     dictSelected: null,
+    dictFileOrder: null,
     dictSidebarOpen: false,
     dictMode: 'prefix',
     dictAbortController: null,
@@ -2320,6 +2321,19 @@
       return;
     }
 
+    // Case 1b: dict-mode self-reference. Dictionary files link their own entries
+    // as [[佛光辭典#【一切】|【一切】]], so while reading a `dict:` file resolve
+    // those in-place via the virtual entry index instead of the vault tree —
+    // which would resolve to nothing and drop the reader out of dict mode.
+    if (state.currentFile && state.currentFile.startsWith('dict:')) {
+      const currentDictName = state.currentFile.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
+      if (!fileName || fileName.toLowerCase() === currentDictName.toLowerCase()) {
+        const target = anchor ? anchor.substring(1) : fileName;
+        if (target) scrollToHeadingByText(target);
+        return;
+      }
+    }
+
     // Resolve file name to tree path
     const filePath = wikilinkIndex.get(fileName) || wikilinkIndex.get(fileName.toLowerCase());
 
@@ -2970,6 +2984,61 @@
     state.dictIndex = { files, sorted, bigrams, count: sorted.length };
   }
 
+  const DICT_FILE_ORDER_KEY = 'mdWebview-dict-file-order';
+
+  // Loads the user's preferred dictionary file order (array of `dict:` paths)
+  // from localStorage once; falls back to an empty array (server order).
+  function loadDictFileOrder() {
+    if (state.dictFileOrder !== null) return;
+    let arr = [];
+    try {
+      const raw = localStorage.getItem(DICT_FILE_ORDER_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) arr = parsed.map(String);
+      }
+    } catch (_) {}
+    state.dictFileOrder = arr;
+  }
+
+  function saveDictFileOrder() {
+    try { localStorage.setItem(DICT_FILE_ORDER_KEY, JSON.stringify(state.dictFileOrder || [])); } catch (_) {}
+  }
+
+  // Canonical file indices in the user's preferred display order. Unknown paths
+  // in the saved order are dropped; newly added files are appended at the end.
+  function dictFileOrderIndex() {
+    const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
+    if (files.length === 0) return [];
+    loadDictFileOrder();
+    const order = state.dictFileOrder || [];
+    const idxByPath = new Map(files.map((f, i) => [f.path, i]));
+    const result = [];
+    for (const p of order) {
+      const i = idxByPath.get(p);
+      if (i !== undefined) result.push(i);
+    }
+    for (let i = 0; i < files.length; i++) {
+      if (!result.includes(i)) result.push(i);
+    }
+    return result;
+  }
+
+  // Moves canonical file index `fromFi` before (or after) `toFi` and persists
+  // the new order, then re-renders the list and results.
+  function reorderDictFiles(fromFi, toFi, before) {
+    const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
+    const order = dictFileOrderIndex();
+    if (order.indexOf(fromFi) < 0 || order.indexOf(toFi) < 0 || fromFi === toFi) return;
+    order.splice(order.indexOf(fromFi), 1);
+    const targetPos = order.indexOf(toFi);
+    order.splice(before ? targetPos : targetPos + 1, 0, fromFi);
+    state.dictFileOrder = order.map(i => files[i].path);
+    saveDictFileOrder();
+    renderDictFileList();
+    runDictSearch($('dictSearchInput')?.value || '');
+  }
+
   function renderDictFileList() {
     const container = $('dictFileList');
     if (!container) return;
@@ -2987,9 +3056,10 @@
     const selected = state.dictSelected || new Set(files.map((_, i) => i));
     const allOn = files.every((_, i) => selected.has(i));
     let html = `<div class="dict-file-list-header"><span>辭典選擇</span><button class="dict-file-all-toggle" data-dict-toggle-all>${allOn ? '全不選' : '全選'}</button></div>`;
-    files.forEach((f, i) => {
-      html += `<label class="dict-file-item"><input type="checkbox" data-dict-file="${i}" ${selected.has(i) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
-    });
+    for (const fi of dictFileOrderIndex()) {
+      const f = files[fi];
+      html += `<label class="dict-file-item" draggable="true" data-dict-drag="${fi}"><span class="dict-file-drag" aria-hidden="true" title="拖曳排序">⠿</span><input type="checkbox" data-dict-file="${fi}" ${selected.has(fi) ? 'checked' : ''}><span class="dict-file-name">${escHtml(f.name)}</span><span class="dict-file-count">${(f.entryCount || 0).toLocaleString()} 筆</span></label>`;
+    }
     container.innerHTML = html;
   }
 
@@ -3103,7 +3173,9 @@
       groups.get(it.fi).push(it);
     }
     let html = `<div class="dict-status">找到 ${matched.length} 筆</div>`;
-    for (const [fi, items] of groups) {
+    for (const fi of dictFileOrderIndex()) {
+      const items = groups.get(fi);
+      if (!items || items.length === 0) continue;
       const f = files[fi] || { name: '未知', path: '' };
       html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(f.name)}<span class="dict-result-file-count">${items.length}</span></div>`;
       for (const it of items) {
@@ -3141,8 +3213,13 @@
       if (!groups.has(r.file)) groups.set(r.file, { name: r.fileName, items: [] });
       groups.get(r.file).items.push(r);
     }
+    const files = (state.dictIndex && state.dictIndex.files) || [];
     let html = `<div class="dict-status">找到 ${data.total} 筆${data.capped ? '（已達上限）' : ''}</div>`;
-    for (const [file, g] of groups) {
+    for (const fi of dictFileOrderIndex()) {
+      const f = files[fi];
+      if (!f) continue;
+      const g = groups.get(f.path);
+      if (!g || g.items.length === 0) continue;
       html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(g.name)}<span class="dict-result-file-count">${g.items.length}</span></div>`;
       for (const r of g.items) {
         const cleanHeadword = cleanDictHeadword(r.headword);
@@ -4248,6 +4325,51 @@
         state.dictSelected = new Set(allOn ? [] : files.map((_, i) => i));
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');
+      });
+
+      // ── Drag-to-reorder dictionary file list ──
+      let _dictDragFi = -1;
+      let _dictDragOverFi = -1;
+      let _dictDragBefore = true;
+      const clearDictDragMarks = () => {
+        $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('dragging', 'drag-over', 'drag-over-after'));
+      };
+      dictFileList.addEventListener('dragstart', (e) => {
+        const item = e.target.closest('.dict-file-item[draggable="true"]');
+        if (!item) return;
+        _dictDragFi = parseInt(item.getAttribute('data-dict-drag'), 10);
+        if (Number.isNaN(_dictDragFi)) { _dictDragFi = -1; return; }
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', String(_dictDragFi)); } catch (_) {}
+        item.classList.add('dragging');
+      });
+      dictFileList.addEventListener('dragover', (e) => {
+        if (_dictDragFi < 0) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const item = e.target.closest('.dict-file-item[draggable="true"]');
+        if (!item) return;
+        const overFi = parseInt(item.getAttribute('data-dict-drag'), 10);
+        if (Number.isNaN(overFi) || overFi === _dictDragFi) return;
+        const rect = item.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < (rect.height / 2);
+        _dictDragOverFi = overFi;
+        _dictDragBefore = before;
+        $$('.dict-file-item', dictFileList).forEach(el => el.classList.remove('drag-over', 'drag-over-after'));
+        item.classList.add(before ? 'drag-over' : 'drag-over-after');
+      });
+      dictFileList.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (_dictDragFi < 0 || _dictDragOverFi < 0) { _dictDragFi = -1; _dictDragOverFi = -1; clearDictDragMarks(); return; }
+        if (_dictDragOverFi !== _dictDragFi) reorderDictFiles(_dictDragFi, _dictDragOverFi, _dictDragBefore);
+        _dictDragFi = -1;
+        _dictDragOverFi = -1;
+        clearDictDragMarks();
+      });
+      dictFileList.addEventListener('dragend', () => {
+        _dictDragFi = -1;
+        _dictDragOverFi = -1;
+        clearDictDragMarks();
       });
     }
     const dictResults = $('dictResults');

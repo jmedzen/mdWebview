@@ -2884,39 +2884,50 @@ async function handleDictHeadwords(req, res) {
       return sendJSON(res, 200, { files: [], entries: [] });
     }
 
-    const etagParts = [];
-    for (const f of files) {
-      let mtime = '';
-      try { mtime = String((await fs.promises.stat(f.fullPath)).mtimeMs); } catch (_) {}
-      etagParts.push(`${f.relPath}:${f.size}:${mtime}`);
+    // Compute per-file entry counts (cached section index, or a direct scan).
+    const fileList = files.map(f => ({ path: f.relPath, name: f.name.replace(/\.md$/, ''), size: f.size, entryCount: 0 }));
+    const perFileIdx = new Array(files.length).fill(null);
+    const perFileMtime = new Array(files.length).fill('');
+    for (let fi = 0; fi < files.length; fi++) {
+      const f = files[fi];
+      let stat = null;
+      try { stat = await fs.promises.stat(f.fullPath); perFileMtime[fi] = String(stat.mtimeMs); } catch (_) {}
+      let idx = null;
+      try {
+        if (stat) idx = await getSectionIndex(f.fullPath, stat, f.relPath);
+      } catch (_) {}
+      perFileIdx[fi] = idx;
+      if (idx && idx.entries && idx.entries.length > 0) {
+        for (const e of idx.entries) {
+          if (cleanHeadword(e.headword)) fileList[fi].entryCount++;
+        }
+      } else {
+        // Section index unavailable — fall back to a direct heading scan so the
+        // entry count reflects the file contents instead of showing 0.
+        fileList[fi].entryCount = await scanDictEntryCount(f.fullPath);
+      }
     }
+
+    // ETag folds the entry counts in, so a client that cached a `0` count before
+    // the section index finished building is invalidated on the next poll instead
+    // of being served a stale 304 forever (the old ETag only keyed on size+mtime).
+    const etagParts = files.map((f, fi) => `${f.relPath}:${f.size}:${perFileMtime[fi]}:${fileList[fi].entryCount}`);
     const etag = `W/"${crypto.createHash('md5').update(etagParts.join('|')).digest('hex')}"`;
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
       return res.end();
     }
 
-    const fileList = files.map(f => ({ path: f.relPath, name: f.name.replace(/\.md$/, ''), size: f.size, entryCount: 0 }));
+    // Build the headword entries array from the already-loaded section indexes.
     const entries = [];
     for (let fi = 0; fi < files.length; fi++) {
-      const f = files[fi];
-      let idx = null;
-      try {
-        const stat = await fs.promises.stat(f.fullPath);
-        idx = await getSectionIndex(f.fullPath, stat, f.relPath);
-      } catch (_) {}
-      if (idx && idx.entries && idx.entries.length > 0) {
-        for (let ei = 0; ei < idx.entries.length; ei++) {
-          const e = idx.entries[ei];
-          const clean = cleanHeadword(e.headword);
-          if (!clean) continue;
-          entries.push([fi, ei, e.lineStart, clean]);
-          fileList[fi].entryCount++;
-        }
-      } else {
-        // Section index unavailable — fall back to a direct heading scan so the
-        // entry count reflects the file contents instead of showing 0.
-        fileList[fi].entryCount = await scanDictEntryCount(f.fullPath);
+      const idx = perFileIdx[fi];
+      if (!idx || !idx.entries) continue;
+      for (let ei = 0; ei < idx.entries.length; ei++) {
+        const e = idx.entries[ei];
+        const clean = cleanHeadword(e.headword);
+        if (!clean) continue;
+        entries.push([fi, ei, e.lineStart, clean]);
       }
     }
 

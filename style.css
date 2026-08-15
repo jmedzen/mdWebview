@@ -4806,6 +4806,28 @@ details.callout[open] > summary .callout-fold-icon {
   font-variant-numeric: tabular-nums;
 }
 
+.dict-file-item .dict-file-drag {
+  color: var(--text-muted);
+  opacity: 0.55;
+  cursor: grab;
+  font-size: calc(var(--sidebar-font-size) * 12 / 13);
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.dict-file-item.dragging {
+  opacity: 0.4;
+}
+
+.dict-file-item.drag-over {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.dict-file-item.drag-over-after {
+  box-shadow: 0 2px 0 0 var(--accent);
+}
+
 .dict-file-empty {
   color: var(--text-muted);
   font-size: calc(var(--sidebar-font-size) * 12 / 13);
