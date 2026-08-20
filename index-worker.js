@@ -53,7 +53,7 @@ function scanSections(text) {
     const m = HEADING_RE.exec(line);
     if (m) {
       if (!sawHeading) { preambleLineCount = lineNum - 1; sawHeading = true; }
-      headings.push({ depth: m[1].length, offset: byteOffset, lineStart: lineNum, headword: m[2].trim() });
+      headings.push({ level: m[1].length, offset: byteOffset, lineStart: lineNum, headword: m[2].trim() });
     }
 
     byteOffset += Buffer.byteLength(line) + (isCRLF ? 2 : 1);
@@ -68,30 +68,18 @@ function scanSections(text) {
     return { entryLevel: 0, preambleLineCount: 0, totalLines, totalBytes, entries: [], groups: [] };
   }
 
-  let entryLevel = 0;
-  for (const h of headings) if (h.depth > entryLevel) entryLevel = h.depth;
-
   const entries = [];
-  const groups = [];
-  let currentGroupIdx = -1;
-  let pendingGroupOffset = -1;
-  let pendingGroupLine = -1;
-
-  for (const h of headings) {
-    if (h.depth < entryLevel) {
-      groups.push({ headword: h.headword, level: h.depth, firstEntry: entries.length, lastEntry: entries.length - 1 });
-      currentGroupIdx = groups.length - 1;
-      pendingGroupOffset = h.offset;
-      pendingGroupLine = h.lineStart;
-    } else {
-      // Fold a preceding group header into this entry's start (renders once, as prefix).
-      const offset = pendingGroupOffset >= 0 ? pendingGroupOffset : h.offset;
-      const lineStart = pendingGroupLine >= 0 ? pendingGroupLine : h.lineStart;
-      entries.push({ headword: h.headword, offset, lineStart, lineEnd: -1, len: 0, groupIdx: currentGroupIdx });
-      pendingGroupOffset = -1;
-      pendingGroupLine = -1;
-      if (currentGroupIdx >= 0) groups[currentGroupIdx].lastEntry = entries.length - 1;
-    }
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i];
+    entries.push({
+      headword: h.headword,
+      level: h.level,
+      offset: h.offset,
+      lineStart: h.lineStart,
+      lineEnd: -1,
+      len: 0,
+      groupIdx: h.level
+    });
   }
 
   for (let i = 0; i < entries.length; i++) {
@@ -100,9 +88,7 @@ function scanSections(text) {
     e.len = (i + 1 < entries.length) ? (entries[i + 1].offset - e.offset) : (totalBytes - e.offset);
   }
 
-  const validGroups = groups.filter(g => g.lastEntry >= g.firstEntry);
-
-  return { entryLevel, preambleLineCount, totalLines, totalBytes, entries, groups: validGroups };
+  return { entryLevel: 1, preambleLineCount, totalLines, totalBytes, entries, groups: [] };
 }
 
 /**

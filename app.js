@@ -68,6 +68,7 @@
     searchRenderLimit: 0,
     fileSizes: new Map(),
     virtual: null,
+    sectionIndexCache: new Map(), // filePath -> { etag, si } for virtual opens
     pageSearchQuery: null,
     dictionaryEnabled: !!appConfig.dictionaryEnabled,
     dictHeadwords: null,
@@ -77,6 +78,8 @@
     dictSidebarOpen: false,
     dictMode: 'prefix',
     dictAbortController: null,
+    dictFulltextCache: null,
+    dictFulltextScrollTop: 0,
     dictSidebarWidth: null,
     dictHeadwordsETag: null,
     dictPollTimer: null,
@@ -202,7 +205,67 @@
           }
           return undefined;
         }
-      }
+      },
+      extensions: [
+        {
+          name: 'highlight',
+          level: 'inline',
+          start(src) { return src.indexOf('=='); },
+          tokenizer(src, tokens) {
+            const rule = /^==(?=[^\s=])([\s\S]*?[^\s=])==/;
+            const match = rule.exec(src);
+            if (match) {
+              return {
+                type: 'highlight',
+                raw: match[0],
+                text: match[1],
+                tokens: this.lexer.inlineTokens(match[1])
+              };
+            }
+          },
+          renderer(token) {
+            return `<mark class="obsidian-highlight">${this.parser.parseInline(token.tokens)}</mark>`;
+          }
+        },
+        {
+          name: 'mathBlock',
+          level: 'block',
+          start(src) { return src.indexOf('$$'); },
+          tokenizer(src, tokens) {
+            const rule = /^\$\$[\r\n]*([\s\S]*?)[\r\n]*\$\$/;
+            const match = rule.exec(src);
+            if (match) {
+              return {
+                type: 'mathBlock',
+                raw: match[0],
+                text: match[1].trim()
+              };
+            }
+          },
+          renderer(token) {
+            return `<div class="math-block" data-math="${escHtml(token.text)}">$$${escHtml(token.text)}$$</div>\n`;
+          }
+        },
+        {
+          name: 'mathInline',
+          level: 'inline',
+          start(src) { return src.indexOf('$'); },
+          tokenizer(src, tokens) {
+            const rule = /^\$(?!\s)([^$\n]+?)(?<!\s)\$/;
+            const match = rule.exec(src);
+            if (match) {
+              return {
+                type: 'mathInline',
+                raw: match[0],
+                text: match[1].trim()
+              };
+            }
+          },
+          renderer(token) {
+            return `<span class="math-inline" data-math="${escHtml(token.text)}">$${escHtml(token.text)}$</span>`;
+          }
+        }
+      ]
     });
     // Pre-warm the Web Worker so first file open has no startup delay
     getMdWorker();
@@ -1052,6 +1115,7 @@
         sectionEl.setAttribute('data-from', from);
         sectionEl.setAttribute('data-to', to);
         sectionEl.innerHTML = html;
+        postProcessMarkdownDOM(sectionEl);
         insertChunkSorted(ci, sectionEl);
         v.chunks.set(ci, { sectionEl, from, to });
         // Measure this chunk and refresh the spacers so `scrollTop` keeps mapping
@@ -1298,10 +1362,14 @@
         v.chunkHeights.delete(c);
       }
     }
+    // Mount the window concurrently (each chunk is an independent fetch) instead
+    // of serially, so a result click doesn't pay three sequential round-trips.
+    const mounts = [];
     for (let c = centerCi - radius; c <= centerCi + radius; c++) {
       if (c < 0 || c >= v.chunkRanges.length) continue;
-      await ensureChunk(v.chunkRanges[c].from);
+      mounts.push(ensureChunk(v.chunkRanges[c].from));
     }
+    await Promise.all(mounts);
     updateAvgPxPerLine();
     refreshSpacers();
     updateCachedLineAnchors($('markdownBody'));
@@ -1431,19 +1499,63 @@
     return !!(panel && panel.classList.contains('active'));
   }
 
+  function cleanHeadingText(text) {
+    if (!text) return '';
+    return text
+      .replace(/^\*\*+|\*\*+$/g, '')
+      .replace(/^__+|__+$/g, '')
+      .replace(/^[*_]+|[*_]+$/g, '')
+      .replace(/^==+|==+$/g, '')
+      .replace(/\[\^[^\]]+\]/g, '')
+      .trim();
+  }
+
   // Flat fixed-height item list + prefix offsets. Only ~O(window) rows are
   // mounted; the offsets let renderTocWindow find the visible slice in O(log n).
   function buildVirtualTocItems(v) {
     const items = [];
-    const groupStarts = new Map();
-    (v.groups || []).forEach(g => groupStarts.set(g.first, g));
     const entryItemIndex = new Map();
-    v.entries.forEach((e, i) => {
-      const gr = groupStarts.get(i);
-      if (gr) items.push({ type: 'group', entryIndex: i, label: gr.h || '', h: TOC_GROUP_H });
-      items.push({ type: 'entry', entryIndex: i, label: e.h || '', h: TOC_ROW_H });
+    const minLevel = (v.entries && v.entries.length > 0)
+      ? Math.min(...v.entries.map(e => e.level || 1))
+      : 1;
+    v._collapsedEntries = v._collapsedEntries || new Set();
+
+    let skipUntilLevel = -1;
+
+    for (let i = 0; i < (v.entries || []).length; i++) {
+      const e = v.entries[i];
+      const level = e.level || 1;
+
+      if (skipUntilLevel > 0) {
+        if (level > skipUntilLevel) {
+          continue; // Child under a collapsed ancestor
+        } else {
+          skipUntilLevel = -1; // Exited the collapsed subtree
+        }
+      }
+
+      const hasChildren = (i + 1 < v.entries.length) && ((v.entries[i + 1].level || 1) > level);
+      const isCollapsed = v._collapsedEntries.has(i);
+      const depth = Math.max(0, level - minLevel);
+      const label = cleanHeadingText(e.h || '');
+
+      items.push({
+        type: 'entry',
+        entryIndex: i,
+        label,
+        level,
+        depth,
+        hasChildren,
+        isCollapsed,
+        h: TOC_ROW_H
+      });
       entryItemIndex.set(i, items.length - 1);
-    });
+
+      if (hasChildren && isCollapsed) {
+        skipUntilLevel = level;
+      }
+    }
+
     const offsets = new Array(items.length + 1);
     offsets[0] = 0;
     for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + items[i].h;
@@ -1495,21 +1607,48 @@
     for (let i = start; i <= end; i++) {
       const item = items[i];
       const el = document.createElement('div');
-      if (item.type === 'group') {
-        el.className = 'toc-group-row';
-        el.textContent = item.label || '';
-        el.title = item.label || '';
-      } else {
-        el.className = 'toc-item-row virtual';
-        el.setAttribute('data-entry', item.entryIndex);
-        el.addEventListener('click', () => jumpToEntry(item.entryIndex));
-        v._tocRowEls.set(item.entryIndex, el);
-        const label = document.createElement('span');
-        label.className = 'toc-item-label';
-        label.textContent = item.label || '';
-        label.title = item.label || '';
-        el.appendChild(label);
+      el.className = 'toc-item-row virtual' + (item.isCollapsed ? ' collapsed' : '');
+      el.setAttribute('data-entry', item.entryIndex);
+      el.setAttribute('data-level', item.level || 1);
+      el.setAttribute('data-index', item.entryIndex);
+
+      const depth = item.depth || 0;
+      const indent = depth * 16 + 8;
+      el.style.paddingLeft = `${indent}px`;
+
+      if (depth > 0) {
+        el.classList.add('is-nested');
+        el.style.setProperty('--guide-left', `${indent - 10}px`);
       }
+
+      const chevron = document.createElement('span');
+      chevron.className = 'toc-item-chevron' + (item.hasChildren ? '' : ' empty');
+      chevron.textContent = '▾';
+      if (item.hasChildren) {
+        chevron.title = item.isCollapsed ? '展開' : '摺疊';
+        chevron.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (v._collapsedEntries.has(item.entryIndex)) {
+            v._collapsedEntries.delete(item.entryIndex);
+          } else {
+            v._collapsedEntries.add(item.entryIndex);
+          }
+          buildVirtualTocItems(v);
+          v._tocRenderedStart = -1;
+          v._tocRenderedEnd = -1;
+          renderTocWindow();
+        });
+      }
+      el.appendChild(chevron);
+
+      const label = document.createElement('span');
+      label.className = 'toc-item-label';
+      label.textContent = item.label || '';
+      label.title = item.label || '';
+      el.appendChild(label);
+
+      el.addEventListener('click', () => jumpToEntry(item.entryIndex));
+      v._tocRowEls.set(item.entryIndex, el);
       frag.appendChild(el);
     }
     win.appendChild(frag);
@@ -1554,6 +1693,7 @@
     if (v.headwordMap) v.headwordMap.clear();
     if (v.entryMap) v.entryMap.clear();
     if (v._tocRowEls) v._tocRowEls.clear();
+    if (v._collapsedEntries) v._collapsedEntries.clear();
     v._tocItems = null;
     v._tocOffsets = null;
     v._tocEntryItemIndex = null;
@@ -1669,9 +1809,29 @@
   // Attempt to open a large file via the virtualized path. Returns true if
   // handled; false means the caller should fall through to the full render.
   async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery) {
-    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`);
-    if (!res.ok) return false;
-    const si = await res.json();
+    // Reuse a cached section index when the file is unchanged: send If-None-Match
+    // so the server answers 304 and skips the multi-MB payload on re-opens.
+    const cachedSi = state.sectionIndexCache.get(filePath);
+    const headers = {};
+    if (cachedSi) headers['If-None-Match'] = cachedSi.etag;
+    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`, { headers });
+    let si;
+    if (res.status === 304 && cachedSi) {
+      si = cachedSi.si;
+    } else if (res.ok) {
+      const etag = res.headers.get('ETag');
+      si = await res.json();
+      if (etag) {
+        // Bounded LRU so the cache can't grow unboundedly across many large files.
+        state.sectionIndexCache.delete(filePath);
+        state.sectionIndexCache.set(filePath, { etag, si });
+        while (state.sectionIndexCache.size > 12) {
+          state.sectionIndexCache.delete(state.sectionIndexCache.keys().next().value);
+        }
+      }
+    } else {
+      return false;
+    }
     if (!si || !si.large || !Array.isArray(si.entries) || si.entries.length === 0) return false;
     if (!Array.isArray(si.chunks) || si.chunks.length === 0) return false;
 
@@ -1798,6 +1958,22 @@
       }
     }
 
+    // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
+    // Dictionary files always take the virtualized path (they can be 20MB+ and are
+    // not listed in the main tree's fileSizes map).
+    const isDictFile = filePath.startsWith('dict:');
+    const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
+      || localStorage.getItem('mdWebview-force-full') === '1';
+
+    // Same-file navigation: if this dict/large file is already open in virtual
+    // mode, skip the full section-index refetch + teardown and just jump to the
+    // requested entry — consecutive dictionary result clicks then feel instant.
+    if (state.virtual && state.virtual.filePath === filePath && !forceFull) {
+      highlightActiveFile(filePath);
+      await scrollToLineVirtual(scrollToLineNum || 1, highlightQuery);
+      return;
+    }
+
     const loading = $('contentLoading');
     const welcome = $('welcomeScreen');
     const wrapper = $('contentWrapper');
@@ -1813,13 +1989,7 @@
 
     highlightActiveFile(filePath);
 
-    // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
-    // Dictionary files always take the virtualized path (they can be 20MB+ and are
-    // not listed in the main tree's fileSizes map).
     const fileSize = state.fileSizes.get(filePath) || 0;
-    const isDictFile = filePath.startsWith('dict:');
-    const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
-      || localStorage.getItem('mdWebview-force-full') === '1';
     if ((fileSize >= LARGE_FILE_MIN_BYTES || isDictFile) && !forceFull) {
       try {
         const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery);
@@ -1843,6 +2013,7 @@
         if (cachedMeta) renderContentHeader(filePath, cachedMeta);
         const el = $('markdownBody');
         el.innerHTML = cachedHtml;
+        postProcessMarkdownDOM(el);
         
         // Cache line anchors and query headings once
         updateCachedLineAnchors(el);
@@ -1884,6 +2055,7 @@
         if (cachedHtml) {
           const el = $('markdownBody');
           el.innerHTML = cachedHtml;
+          postProcessMarkdownDOM(el);
           const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : {};
           renderContentHeader(filePath, cachedMeta || {});
           
@@ -1937,6 +2109,7 @@
       // Insert pre-rendered HTML
       const el = $('markdownBody');
       el.innerHTML = html;
+      postProcessMarkdownDOM(el);
 
       // Cache for instant re-opens
       cacheSet(filePath, html);
@@ -2072,6 +2245,7 @@
 
     // Insert HTML into DOM
     el.innerHTML = html;
+    postProcessMarkdownDOM(el);
 
     // Add IDs to headings for scroll spy
     const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
@@ -2082,16 +2256,24 @@
 
   function preprocessObsidianFormatting(text) {
     if (!text) return '';
-    // 1. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
-    text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
-      const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-      return '<strong>' + escHtml(trimmed) + '</strong>';
-    });
-    // 2. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
-    text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
-      const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-      return '<strong>' + escHtml(trimmed) + '</strong>';
-    });
+    // 1. Strip Obsidian comments: %% comment %% (single line & multi-line)
+    if (text.includes('%%')) {
+      text = text.replace(/%%[\s\S]*?%%/g, '');
+    }
+    // 2. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
+    if (text.includes('**')) {
+      text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
+        const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+        return '<strong>' + escHtml(trimmed) + '</strong>';
+      });
+    }
+    // 3. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
+    if (text.includes('__')) {
+      text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
+        const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+        return '<strong>' + escHtml(trimmed) + '</strong>';
+      });
+    }
     return text;
   }
 
@@ -2103,7 +2285,7 @@
     if (!html) return '';
     return html
       .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
-      .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript)\b[^>]*>/gi, '')
+      .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|form|base|meta|link|source|applet|noscript)\b[^>]*>/gi, '')
       .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
       .replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
         const raw = /^["']/.test(val) ? val.slice(1, -1) : val;
@@ -2116,6 +2298,142 @@
         if (attr.toLowerCase() === 'href' && /^\s*data\s*:/i.test(decoded)) return attr + '="#"';
         return m;
       });
+  }
+
+  const CALLOUT_ICONS = {
+    quote: '”', cite: '”',
+    note: 'ℹ', info: 'ℹ', todo: '☑',
+    abstract: '📋', summary: '📋', tldr: '📋',
+    tip: '💡', hint: '💡', important: '💡',
+    success: '✓', check: '✓', done: '✓',
+    question: '?', help: '?', faq: '?',
+    warning: '⚠️', caution: '⚠️', attention: '⚠️',
+    failure: '✕', fail: '✕', missing: '✕',
+    danger: '⚡', error: '⚡',
+    bug: '🪲',
+    example: '🧪'
+  };
+
+  function convertObsidianCallouts(html) {
+    if (!html || !html.includes('[!')) return html;
+
+    let prevHtml;
+    let iterations = 0;
+
+    do {
+      prevHtml = html;
+      html = html.replace(/<blockquote>\s*(?:<p>)?\s*(?:(<span[^>]*class="line-anchor"[^>]*><\/span>)\s*)?\[!([a-zA-Z0-9_-]+)\]([+-])?(?:[ \t]+([^\n<]+))?(?:<\/p>)?([\s\S]*?)<\/blockquote>/gi, (match, lineAnchor = '', rawType, foldSign, customTitle, bodyContent) => {
+        const type = rawType.toLowerCase();
+        const icon = CALLOUT_ICONS[type] || 'ℹ';
+
+        let titleText = customTitle ? customTitle.trim() : (type.charAt(0).toUpperCase() + type.slice(1));
+        titleText = titleText.replace(/<\/p>$/i, '').trim();
+        titleText = escHtml(titleText);
+
+        let cleanBody = bodyContent ? bodyContent.trim() : '';
+
+        // Strip leading <br> tags, leading/trailing empty <p> tags, and redundant line-anchor wrappers
+        cleanBody = cleanBody
+          .replace(/^(?:\s*<br\s*\/?>\s*)+/gi, '')
+          .replace(/^(?:\s*<p>\s*(?:<span[^>]*class="line-anchor"[^>]*><\/span>|<br\s*\/?>|\s*)*<\/p>\s*)+/gi, (m) => {
+            const anchors = m.match(/<span[^>]*class="line-anchor"[^>]*><\/span>/g);
+            return anchors ? anchors.join('') : '';
+          })
+          .replace(/(?:\s*<p>\s*(?:<span[^>]*class="line-anchor"[^>]*><\/span>|<br\s*\/?>|\s*)*<\/p>\s*)+$/gi, (m) => {
+            const anchors = m.match(/<span[^>]*class="line-anchor"[^>]*><\/span>/g);
+            return anchors ? anchors.join('') : '';
+          })
+          .replace(/<p>\s*(?:<span[^>]*class="line-anchor"[^>]*><\/span>|\s*)*<\/p>/gi, (m) => {
+            const anchors = m.match(/<span[^>]*class="line-anchor"[^>]*><\/span>/g);
+            return anchors ? anchors.join('') : '';
+          })
+          .trim()
+          .replace(/^(?:\s*<br\s*\/?>\s*)+/gi, '');
+
+        const isFoldable = foldSign === '+' || foldSign === '-';
+        const isExpanded = foldSign === '+';
+
+        if (isFoldable) {
+          return `${lineAnchor}<details class="callout" data-callout="${type}"${isExpanded ? ' open' : ''}>
+  <summary class="callout-title">
+    <span class="callout-icon">${icon}</span>
+    <span class="callout-title-inner">${titleText}</span>
+    <span class="callout-fold-icon">›</span>
+  </summary>
+  <div class="callout-content">${cleanBody}</div>
+</details>`;
+        } else {
+          return `${lineAnchor}<div class="callout" data-callout="${type}">
+  <div class="callout-title">
+    <span class="callout-icon">${icon}</span>
+    <span class="callout-title-inner">${titleText}</span>
+  </div>
+  <div class="callout-content">${cleanBody}</div>
+</div>`;
+        }
+      });
+      iterations++;
+    } while (html !== prevHtml && iterations < 5 && html.includes('[!'));
+
+    return html;
+  }
+
+  function renderMath(container) {
+    if (!container) return;
+    const blocks = container.querySelectorAll('.math-block, .math-inline');
+    if (blocks.length === 0) return;
+    if (window.katex) {
+      blocks.forEach(el => {
+        if (el.dataset.katexRendered) return;
+        const tex = el.getAttribute('data-math') || el.textContent.replace(/^\$+|\$+$/g, '').trim();
+        const isDisplay = el.classList.contains('math-block');
+        try {
+          window.katex.render(tex, el, { displayMode: isDisplay, throwOnError: false });
+          el.dataset.katexRendered = 'true';
+        } catch (err) {
+          console.warn('[KaTeX error]', err);
+        }
+      });
+    }
+  }
+
+  function renderMermaid(container) {
+    if (!container || !window.mermaid) return;
+    const blocks = container.querySelectorAll('pre > code.language-mermaid');
+    if (blocks.length === 0) return;
+    try {
+      const isDark = (document.documentElement.getAttribute('data-theme') || '').includes('dark');
+      window.mermaid.initialize({
+        startOnLoad: false,
+        theme: isDark ? 'dark' : 'default',
+        securityLevel: 'loose'
+      });
+      blocks.forEach((codeEl, idx) => {
+        if (codeEl.dataset.mermaidRendered) return;
+        const pre = codeEl.closest('pre');
+        if (!pre) return;
+        const graphDefinition = codeEl.textContent.trim();
+        if (!graphDefinition) return;
+        codeEl.dataset.mermaidRendered = 'true';
+        const containerDiv = document.createElement('div');
+        containerDiv.className = 'mermaid-container';
+        const id = 'mermaid-svg-' + Date.now() + '-' + idx;
+        window.mermaid.render(id, graphDefinition).then(({ svg }) => {
+          containerDiv.innerHTML = svg;
+          if (pre.parentNode) pre.parentNode.replaceChild(containerDiv, pre);
+        }).catch(err => {
+          console.warn('[Mermaid render error]', err);
+        });
+      });
+    } catch (err) {
+      console.warn('[Mermaid init error]', err);
+    }
+  }
+
+  function postProcessMarkdownDOM(container) {
+    if (!container) return;
+    renderMath(container);
+    renderMermaid(container);
   }
 
   function inlineParseMarkdown(body) {
@@ -2153,23 +2471,54 @@
 
     // ── 2. Inject line-number anchors ────────────────────────────
     const annotatedLines = [];
-    let prevWasBlank = true;
+    let inBlockquote = false;
+    let inCodeBlock = false;
+
     for (let i = 0; i < cleanLines.length; i++) {
       const line = cleanLines[i];
       const lineNum = i + 1;
       const trimmed = line.trim();
-      const isBlockStart =
-        /^#{1,6}\s/.test(trimmed) ||
-        /^[-*+]\s/.test(trimmed) ||
-        /^\d+\.\s/.test(trimmed) ||
-        /^>/.test(trimmed) ||
-        /^```/.test(trimmed) ||
-        (prevWasBlank && trimmed.length > 0);
-      if (isBlockStart) {
-        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        annotatedLines.push(line);
+        continue;
       }
-      annotatedLines.push(line);
-      prevWasBlank = trimmed.length === 0;
+      if (inCodeBlock) {
+        annotatedLines.push(line);
+        continue;
+      }
+
+      const isQuoteLine = /^>/.test(trimmed);
+      if (isQuoteLine) {
+        const quoteContent = line.replace(/^>\s?/, '');
+        annotatedLines.push(`> <span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${quoteContent}`);
+        inBlockquote = true;
+        continue;
+      } else {
+        inBlockquote = false;
+      }
+
+      // Heading: insert anchor inside the heading
+      const headingMatch = line.match(/^(#{1,6}\s+)(.*)$/);
+      if (headingMatch) {
+        annotatedLines.push(`${headingMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${headingMatch[2]}`);
+        continue;
+      }
+
+      // List item: insert anchor inside the list item
+      const listMatch = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/);
+      if (listMatch) {
+        annotatedLines.push(`${listMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${listMatch[2]}`);
+        continue;
+      }
+
+      // Regular line / paragraph start
+      if (trimmed.length > 0) {
+        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${line}`);
+      } else {
+        annotatedLines.push(line);
+      }
     }
 
     // ── 3. Parse main markdown body to HTML ─────────────────────
@@ -2179,6 +2528,11 @@
     // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
     if (html.includes('[[')) {
       html = convertWikilinks(html);
+    }
+
+    // ── 4.5. Convert Obsidian Callouts ([!NOTE], [!WARNING], etc.) ────
+    if (html.includes('[!')) {
+      html = convertObsidianCallouts(html);
     }
 
     // ── 5. Process footnote references ──────────────────────────
@@ -2198,6 +2552,9 @@
       combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
       if (combinedFnHtml.includes('[[')) {
         combinedFnHtml = convertWikilinks(combinedFnHtml);
+      }
+      if (combinedFnHtml.includes('[!')) {
+        combinedFnHtml = convertObsidianCallouts(combinedFnHtml);
       }
       const fnRenderedArray = combinedFnHtml.split(/<!--FN_SPLIT_DELIMITER-->/i);
 
@@ -2300,6 +2657,9 @@
       if (hashIdx !== -1) {
         file = target.substring(0, hashIdx).trim();
         anchor = target.substring(hashIdx).trim();
+        if (pipeIdx === -1 && file === '' && display.startsWith('#')) {
+          display = display.substring(1).trim();
+        }
       }
 
       return `<a class="wikilink" data-wikilink-file="${escHtml(file)}" data-wikilink-anchor="${escHtml(anchor)}" href="javascript:void(0)" title="${escHtml(target)}">${escHtml(display)}</a>`;
@@ -2469,7 +2829,8 @@
     headings.forEach((h) => {
       const clone = h.cloneNode(true);
       clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
-      const text = clone.textContent.trim();
+      const rawText = clone.textContent.trim();
+      const text = cleanHeadingText(rawText);
       if (text) {
         validItems.push({ h, text, level: parseInt(h.tagName.charAt(1)) });
       }
@@ -2575,6 +2936,32 @@
 
   function tocCollapseAll() {
     const btn = $('tocCollapseAllBtn');
+    if (isVirtualMode()) {
+      const v = state.virtual;
+      if (!v || !v.entries || v.entries.length === 0) return;
+      v._collapsedEntries = v._collapsedEntries || new Set();
+      if (v._collapsedEntries.size > 0) {
+        // Expand all
+        v._collapsedEntries.clear();
+        updateCollapseBtnUI(btn, true);
+      } else {
+        // Collapse all parents with children
+        for (let i = 0; i < v.entries.length; i++) {
+          const curLevel = v.entries[i].level || 1;
+          const nextLevel = (i + 1 < v.entries.length) ? (v.entries[i + 1].level || 1) : 1;
+          if (nextLevel > curLevel) {
+            v._collapsedEntries.add(i);
+          }
+        }
+        updateCollapseBtnUI(btn, false);
+      }
+      buildVirtualTocItems(v);
+      v._tocRenderedStart = -1;
+      v._tocRenderedEnd = -1;
+      renderTocWindow();
+      return;
+    }
+
     const rows = $$('.toc-item-row', $('tocList'));
     if (rows.length === 0) return;
 
@@ -3125,12 +3512,19 @@
   function runDictSearch(query) {
     const q = (query || '').trim();
     if (!q) {
+      state.dictFulltextCache = null;
+      state.dictFulltextScrollTop = 0;
       $('dictResults').innerHTML = '<div class="dict-placeholder"><span>📖</span><span>輸入詞條開始查詢</span></div>';
       return;
     }
     if (!state.dictHeadwords) {
       ensureDictHeadwords().then(() => runDictSearch(q));
       return;
+    }
+    // Invalidate cached fulltext results if query has changed
+    if (state.dictFulltextCache && state.dictFulltextCache.query !== q) {
+      state.dictFulltextCache = null;
+      state.dictFulltextScrollTop = 0;
     }
     // No dictionaries selected → don't run any search (prefix/fuzzy/fulltext).
     const totalFiles = (state.dictIndex && state.dictIndex.files) ? state.dictIndex.files.length : 0;
@@ -3234,12 +3628,21 @@
   }
 
   function dictSearchFulltext(q) {
+    const filesParam = dictSelectedFiles().map(encodeURIComponent).join(',');
+    const results = $('dictResults');
+    // If fulltext results for the same query and files are already cached, restore them directly
+    if (state.dictFulltextCache && state.dictFulltextCache.query === q && state.dictFulltextCache.files === filesParam) {
+      if (state.dictAbortController) { state.dictAbortController.abort(); state.dictAbortController = null; }
+      renderDictFulltextResults(state.dictFulltextCache.data, q);
+      if (state.dictFulltextScrollTop && results) {
+        results.scrollTop = state.dictFulltextScrollTop;
+      }
+      return;
+    }
     if (state.dictAbortController) state.dictAbortController.abort();
     const controller = new AbortController();
     state.dictAbortController = controller;
-    const results = $('dictResults');
     results.innerHTML = '<div class="dict-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
-    const filesParam = dictSelectedFiles().map(encodeURIComponent).join(',');
     fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}`, { signal: controller.signal })
       .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
       .then(data => {
@@ -3247,6 +3650,8 @@
         // aborted this controller) so a stale result never overwrites the view.
         if (state.dictAbortController !== controller) return;
         state.dictAbortController = null;
+        state.dictFulltextCache = { query: q, files: filesParam, data: data };
+        state.dictFulltextScrollTop = 0;
         renderDictFulltextResults(data, q);
       })
       .catch(err => {
@@ -4351,7 +4756,12 @@
       dictTabs.addEventListener('click', (e) => {
         const tab = e.target.closest('.dict-tab');
         if (!tab) return;
-        state.dictMode = tab.getAttribute('data-mode') || 'prefix';
+        const newMode = tab.getAttribute('data-mode') || 'prefix';
+        if (state.dictMode === newMode) return;
+        if (state.dictMode === 'fulltext' && $('dictResults')) {
+          state.dictFulltextScrollTop = $('dictResults').scrollTop;
+        }
+        state.dictMode = newMode;
         $$('.dict-tab', dictTabs).forEach(t => t.classList.toggle('active', t === tab));
         runDictSearch($('dictSearchInput')?.value || '');
       });
@@ -4370,6 +4780,7 @@
         if (state.dictSelected === null) state.dictSelected = new Set();
         if (cb.checked) state.dictSelected.add(idx);
         else state.dictSelected.delete(idx);
+        state.dictFulltextCache = null;
         persistDictSelection();
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');
@@ -4380,6 +4791,7 @@
         const files = (state.dictHeadwords && state.dictHeadwords.files) || [];
         const allOn = files.every((_, i) => state.dictSelected && state.dictSelected.has(i));
         state.dictSelected = new Set(allOn ? [] : files.map((_, i) => i));
+        state.dictFulltextCache = null;
         persistDictSelection();
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');

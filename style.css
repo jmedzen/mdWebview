@@ -1179,22 +1179,24 @@ body,
 }
 
 .toc-item-chevron {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
-  margin-right: 2px;
+  font-size: 10px;
+  margin-right: 4px;
   flex-shrink: 0;
-  transition: transform 0.15s ease, opacity 0.15s ease;
-  opacity: 0.6;
-  border-radius: 3px;
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s ease, background-color 0.15s ease;
+  opacity: 0.65;
+  border-radius: 4px;
+  user-select: none;
 }
 
 .toc-item-chevron:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.12);
+  background-color: var(--bg-hover, rgba(255, 255, 255, 0.12));
 }
 
 .toc-item-chevron.empty {
@@ -2027,6 +2029,7 @@ kbd {
   margin: 0.8em 0;
 }
 
+
 /* Bold and Emphasis */
 .markdown-body strong {
   font-weight: 700;
@@ -2052,16 +2055,32 @@ kbd {
 .markdown-body ul,
 .markdown-body ol {
   padding-left: 1.8em;
-  margin: 0.6em 0;
+  margin: 0.8em 0;
 }
 
 .markdown-body li {
-  margin: 0.3em 0;
+  margin: 0.25em 0;
   line-height: 1.75;
 }
 
+.markdown-body li:first-child {
+  margin-top: 0;
+}
+
+.markdown-body li:last-child {
+  margin-bottom: 0;
+}
+
 .markdown-body li > p {
-  margin: 0.3em 0;
+  margin: 0.25em 0;
+}
+
+.markdown-body li > p:first-child {
+  margin-top: 0;
+}
+
+.markdown-body li > p:last-child {
+  margin-bottom: 0;
 }
 
 /* Blockquotes */
@@ -5055,4 +5074,91 @@ details.callout[open] > summary .callout-fold-icon {
   .entry-nav-label {
     max-width: 120px;
   }
+}
+
+/* ── Obsidian Markdown Enhancements (Highlights, Task Lists, Math, Mermaid) ── */
+mark.obsidian-highlight,
+.markdown-body mark {
+  background-color: rgba(255, 220, 0, 0.35);
+  color: inherit;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+[data-theme="obsidian-dark"] mark.obsidian-highlight,
+[data-theme="obsidian-dark"] .markdown-body mark {
+  background-color: rgba(255, 215, 0, 0.28);
+  color: #fff3a8;
+}
+
+[data-theme="eye-parchment"] mark.obsidian-highlight,
+[data-theme="eye-parchment"] .markdown-body mark {
+  background-color: rgba(230, 185, 90, 0.4);
+}
+
+[data-theme="eye-green"] mark.obsidian-highlight,
+[data-theme="eye-green"] .markdown-body mark {
+  background-color: rgba(140, 200, 120, 0.35);
+}
+
+[data-theme="retro-warm"] mark.obsidian-highlight,
+[data-theme="retro-warm"] .markdown-body mark {
+  background-color: rgba(240, 195, 120, 0.4);
+}
+
+[data-theme="zen"] mark.obsidian-highlight,
+[data-theme="zen"] .markdown-body mark {
+  background-color: rgba(200, 170, 120, 0.35);
+}
+
+/* Task lists */
+.markdown-body ul:has(.task-list-item),
+.markdown-body .task-list {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.markdown-body .task-list-item {
+  list-style-type: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.markdown-body .task-list-item input[type="checkbox"] {
+  margin-top: 5px;
+  cursor: default;
+  accent-color: var(--accent-color, #d4a373);
+}
+
+.markdown-body .task-list-item:has(input:checked) {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-color);
+}
+
+/* Math blocks and inline math */
+.markdown-body .math-block {
+  overflow-x: auto;
+  padding: 8px 0;
+  text-align: center;
+  margin: 1em 0;
+}
+
+.markdown-body .math-inline {
+  padding: 0 2px;
+}
+
+/* Mermaid containers */
+.markdown-body .mermaid-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5em 0;
+  overflow-x: auto;
+}
+
+.markdown-body .mermaid-container svg {
+  max-width: 100%;
+  height: auto;
 }
