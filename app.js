@@ -6520,8 +6520,22 @@
       popup.id = 'selectionSharePopup';
       popup.className = 'selection-share-popup';
       popup.innerHTML = `
+        <button id="selectionSearchBtn" title="在全文庫中搜尋此文字">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+            <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
+          </svg>
+          <span>全文庫搜尋</span>
+        </button>
+        <div class="popup-divider"></div>
+        <button id="selectionDictBtn" title="在辭典中查詢此詞條">
+          <svg width="13" height="13" viewBox="0 0 512 512" fill="currentColor">
+            <path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20z"/>
+          </svg>
+          <span>辭典查詢</span>
+        </button>
+        <div class="popup-divider"></div>
         <button id="selectionShareBtn" title="分享此段落與行數">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
             <path d="M11 2.5a2.5 2.5 0 11.603 1.628l-6.718 3.12a2.499 2.499 0 010 1.504l6.718 3.12a2.5 2.5 0 11-.488.928L4.397 9.77a2.5 2.5 0 110-3.54l6.718-3.12A2.499 2.499 0 0111 2.5z"/>
           </svg>
           <span id="selectionShareLabel">分享指定行</span>
@@ -6530,10 +6544,13 @@
       document.body.appendChild(popup);
     }
 
+    const searchBtn = $('selectionSearchBtn');
+    const dictBtn = $('selectionDictBtn');
     const shareBtn = $('selectionShareBtn');
     const shareLabel = $('selectionShareLabel');
     let currentShareUrl = '';
     let currentLineNum = null;
+    let currentSelectedText = '';
 
     document.addEventListener('mouseup', () => {
       // Small timeout to let selection clear/update
@@ -6561,18 +6578,28 @@
           return;
         }
 
+        currentSelectedText = text;
+        currentLineNum = lineNum;
+
         // Calculate position: right above/right of the selection
         const rect = range.getBoundingClientRect();
         
         // Show popup
         popup.classList.add('visible');
         
-        // Position it: center-top of selection range bounding box
-        const popupWidth = popup.offsetWidth || 110;
-        const popupHeight = popup.offsetHeight || 32;
+        const popupWidth = popup.offsetWidth || 280;
+        const popupHeight = popup.offsetHeight || 34;
         
-        const top = rect.top + window.scrollY - popupHeight - 8;
-        const left = rect.left + rect.width / 2 + window.scrollX - popupWidth / 2;
+        let top = rect.top + window.scrollY - popupHeight - 8;
+        let left = rect.left + rect.width / 2 + window.scrollX - popupWidth / 2;
+
+        if (left < 10) left = 10;
+        if (left + popupWidth > window.innerWidth - 10) {
+          left = Math.max(10, window.innerWidth - popupWidth - 10);
+        }
+        if (top < window.scrollY + 8) {
+          top = rect.bottom + window.scrollY + 8;
+        }
         
         popup.style.top = `${Math.max(0, top)}px`;
         popup.style.left = `${Math.max(0, left)}px`;
@@ -6580,7 +6607,6 @@
         // Update share link using unencoded Chinese URL
         const baseUrl = window.location.origin + window.location.pathname;
         const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-        currentLineNum = lineNum;
         currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
 
         // Reset label
@@ -6595,6 +6621,66 @@
       e.stopPropagation();
     });
 
+    // 1. 全文庫搜尋按鈕
+    searchBtn.addEventListener('click', () => {
+      if (!currentSelectedText) return;
+      popup.classList.remove('visible');
+
+      // Open left sidebar if collapsed
+      const sidebar = $('sidebar');
+      if (sidebar && sidebar.classList.contains('collapsed')) {
+        sidebar.classList.remove('collapsed');
+        state.sidebarCollapsed = false;
+      }
+
+      // Switch tab to search
+      $$('.sidebar-tab').forEach((t) => t.classList.remove('active'));
+      const searchTab = document.querySelector('.sidebar-tab[data-tab="search"]');
+      if (searchTab) searchTab.classList.add('active');
+
+      $$('.sidebar-panel').forEach((p) => p.classList.remove('active'));
+      const searchPanel = document.querySelector('.sidebar-panel[data-panel="search"]');
+      if (searchPanel) searchPanel.classList.add('active');
+      state.sidebarTab = 'search';
+
+      const searchInput = $('globalSearchInput');
+      if (searchInput) {
+        searchInput.value = currentSelectedText;
+        searchInput.focus();
+      }
+      performGlobalSearch(currentSelectedText);
+    });
+
+    // 2. 辭典查詢按鈕
+    dictBtn.addEventListener('click', () => {
+      if (!currentSelectedText) return;
+      popup.classList.remove('visible');
+
+      // Enable dictionary and open right sidebar
+      if (!state.dictionaryEnabled) {
+        state.dictionaryEnabled = true;
+        syncDictToggleVisibility();
+      }
+      toggleDictSidebar(true);
+
+      // On mobile, collapse left sidebar to avoid overlap
+      if (isMobileBrowser()) {
+        const sidebar = $('sidebar');
+        if (sidebar && !sidebar.classList.contains('collapsed')) {
+          sidebar.classList.add('collapsed');
+          state.sidebarCollapsed = true;
+        }
+      }
+
+      const dictInput = $('dictSearchInput');
+      if (dictInput) {
+        dictInput.value = currentSelectedText;
+        dictInput.focus();
+      }
+      runDictSearch(currentSelectedText);
+    });
+
+    // 3. 分享指定行按鈕
     shareBtn.addEventListener('click', () => {
       if (!currentShareUrl) return;
       const rawUrl = decodeURIComponent(currentShareUrl);
