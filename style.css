@@ -5056,3 +5056,90 @@ details.callout[open] > summary .callout-fold-icon {
     max-width: 120px;
   }
 }
+
+/* ── Obsidian Markdown Enhancements (Highlights, Task Lists, Math, Mermaid) ── */
+mark.obsidian-highlight,
+.markdown-body mark {
+  background-color: rgba(255, 220, 0, 0.35);
+  color: inherit;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+[data-theme="obsidian-dark"] mark.obsidian-highlight,
+[data-theme="obsidian-dark"] .markdown-body mark {
+  background-color: rgba(255, 215, 0, 0.28);
+  color: #fff3a8;
+}
+
+[data-theme="eye-parchment"] mark.obsidian-highlight,
+[data-theme="eye-parchment"] .markdown-body mark {
+  background-color: rgba(230, 185, 90, 0.4);
+}
+
+[data-theme="eye-green"] mark.obsidian-highlight,
+[data-theme="eye-green"] .markdown-body mark {
+  background-color: rgba(140, 200, 120, 0.35);
+}
+
+[data-theme="retro-warm"] mark.obsidian-highlight,
+[data-theme="retro-warm"] .markdown-body mark {
+  background-color: rgba(240, 195, 120, 0.4);
+}
+
+[data-theme="zen"] mark.obsidian-highlight,
+[data-theme="zen"] .markdown-body mark {
+  background-color: rgba(200, 170, 120, 0.35);
+}
+
+/* Task lists */
+.markdown-body ul:has(.task-list-item),
+.markdown-body .task-list {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.markdown-body .task-list-item {
+  list-style-type: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.markdown-body .task-list-item input[type="checkbox"] {
+  margin-top: 5px;
+  cursor: default;
+  accent-color: var(--accent-color, #d4a373);
+}
+
+.markdown-body .task-list-item:has(input:checked) {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-color);
+}
+
+/* Math blocks and inline math */
+.markdown-body .math-block {
+  overflow-x: auto;
+  padding: 8px 0;
+  text-align: center;
+  margin: 1em 0;
+}
+
+.markdown-body .math-inline {
+  padding: 0 2px;
+}
+
+/* Mermaid containers */
+.markdown-body .mermaid-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5em 0;
+  overflow-x: auto;
+}
+
+.markdown-body .mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}

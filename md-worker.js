@@ -12,6 +12,83 @@ marked.setOptions({
   headerIds: true,
   mangle: false,
 });
+marked.use({
+  tokenizer: {
+    del(src) {
+      // Standard GFM double tildes strikethrough only (prevent single tildes ~P11~P12~ range syntax from trigger del)
+      const cap = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~/.exec(src);
+      if (cap) {
+        return {
+          type: 'del',
+          raw: cap[0],
+          text: cap[1],
+          tokens: this.lexer.inlineTokens(cap[1])
+        };
+      }
+      return undefined;
+    }
+  },
+  extensions: [
+    {
+      name: 'highlight',
+      level: 'inline',
+      start(src) { return src.indexOf('=='); },
+      tokenizer(src, tokens) {
+        const rule = /^==(?=[^\s=])([\s\S]*?[^\s=])==/;
+        const match = rule.exec(src);
+        if (match) {
+          return {
+            type: 'highlight',
+            raw: match[0],
+            text: match[1],
+            tokens: this.lexer.inlineTokens(match[1])
+          };
+        }
+      },
+      renderer(token) {
+        return `<mark class="obsidian-highlight">${this.parser.parseInline(token.tokens)}</mark>`;
+      }
+    },
+    {
+      name: 'mathBlock',
+      level: 'block',
+      start(src) { return src.indexOf('$$'); },
+      tokenizer(src, tokens) {
+        const rule = /^\$\$[\r\n]*([\s\S]*?)[\r\n]*\$\$/;
+        const match = rule.exec(src);
+        if (match) {
+          return {
+            type: 'mathBlock',
+            raw: match[0],
+            text: match[1].trim()
+          };
+        }
+      },
+      renderer(token) {
+        return `<div class="math-block" data-math="${escapeAttr(token.text)}">$$${escapeHtml(token.text)}$$</div>\n`;
+      }
+    },
+    {
+      name: 'mathInline',
+      level: 'inline',
+      start(src) { return src.indexOf('$'); },
+      tokenizer(src, tokens) {
+        const rule = /^\$(?!\s)([^$\n]+?)(?<!\s)\$/;
+        const match = rule.exec(src);
+        if (match) {
+          return {
+            type: 'mathInline',
+            raw: match[0],
+            text: match[1].trim()
+          };
+        }
+      },
+      renderer(token) {
+        return `<span class="math-inline" data-math="${escapeAttr(token.text)}">$${escapeHtml(token.text)}$</span>`;
+      }
+    }
+  ]
+});
 
 self.onmessage = function (e) {
   const { id, body, filePath } = e.data;
@@ -26,16 +103,24 @@ self.onmessage = function (e) {
 
 function preprocessObsidianFormatting(text) {
   if (!text) return '';
-  // 1. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
-  text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
-    const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-    return '<strong>' + trimmed + '</strong>';
-  });
-  // 2. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
-  text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
-    const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
-    return '<strong>' + trimmed + '</strong>';
-  });
+  // 1. Strip Obsidian comments: %% comment %% (single line & multi-line)
+  if (text.includes('%%')) {
+    text = text.replace(/%%[\s\S]*?%%/g, '');
+  }
+  // 2. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
+  if (text.includes('**')) {
+    text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
+      const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+      return '<strong>' + escapeHtml(trimmed) + '</strong>';
+    });
+  }
+  // 3. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
+  if (text.includes('__')) {
+    text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
+      const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+      return '<strong>' + escapeHtml(trimmed) + '</strong>';
+    });
+  }
   return text;
 }
 
@@ -256,6 +341,9 @@ function convertWikilinks(html) {
     if (hashIdx !== -1) {
       file = target.substring(0, hashIdx).trim();
       anchor = target.substring(hashIdx).trim();
+      if (pipeIdx === -1 && file === '' && display.startsWith('#')) {
+        display = display.substring(1).trim();
+      }
     }
 
     return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="javascript:void(0)" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
