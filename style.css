@@ -2027,6 +2027,15 @@ kbd {
   margin: 0.8em 0;
 }
 
+/* Empty line-anchor paragraphs should have zero height/margin */
+.markdown-body p:has(> .line-anchor:only-child),
+.markdown-body p:empty {
+  margin: 0;
+  padding: 0;
+  height: 0;
+  line-height: 0;
+}
+
 /* Bold and Emphasis */
 .markdown-body strong {
   font-weight: 700;
@@ -2052,16 +2061,32 @@ kbd {
 .markdown-body ul,
 .markdown-body ol {
   padding-left: 1.8em;
-  margin: 0.6em 0;
+  margin: 0.8em 0;
 }
 
 .markdown-body li {
-  margin: 0.3em 0;
+  margin: 0.25em 0;
   line-height: 1.75;
 }
 
+.markdown-body li:first-child {
+  margin-top: 0;
+}
+
+.markdown-body li:last-child {
+  margin-bottom: 0;
+}
+
 .markdown-body li > p {
-  margin: 0.3em 0;
+  margin: 0.25em 0;
+}
+
+.markdown-body li > p:first-child {
+  margin-top: 0;
+}
+
+.markdown-body li > p:last-child {
+  margin-bottom: 0;
 }
 
 /* Blockquotes */

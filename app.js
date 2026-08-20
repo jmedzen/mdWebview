@@ -1499,19 +1499,41 @@
     return !!(panel && panel.classList.contains('active'));
   }
 
+  function cleanHeadingText(text) {
+    if (!text) return '';
+    return text
+      .replace(/^\*\*+|\*\*+$/g, '')
+      .replace(/^__+|__+$/g, '')
+      .replace(/^[*_]+|[*_]+$/g, '')
+      .replace(/^==+|==+$/g, '')
+      .replace(/\[\^[^\]]+\]/g, '')
+      .trim();
+  }
+
   // Flat fixed-height item list + prefix offsets. Only ~O(window) rows are
   // mounted; the offsets let renderTocWindow find the visible slice in O(log n).
   function buildVirtualTocItems(v) {
     const items = [];
-    const groupStarts = new Map();
-    (v.groups || []).forEach(g => groupStarts.set(g.first, g));
     const entryItemIndex = new Map();
-    v.entries.forEach((e, i) => {
-      const gr = groupStarts.get(i);
-      if (gr) items.push({ type: 'group', entryIndex: i, label: gr.h || '', h: TOC_GROUP_H });
-      items.push({ type: 'entry', entryIndex: i, label: e.h || '', h: TOC_ROW_H });
+    const minLevel = (v.entries && v.entries.length > 0)
+      ? Math.min(...v.entries.map(e => e.level || 1))
+      : 1;
+
+    (v.entries || []).forEach((e, i) => {
+      const level = e.level || 1;
+      const depth = Math.max(0, level - minLevel);
+      const label = cleanHeadingText(e.h || '');
+      items.push({
+        type: 'entry',
+        entryIndex: i,
+        label,
+        level,
+        depth,
+        h: TOC_ROW_H
+      });
       entryItemIndex.set(i, items.length - 1);
     });
+
     const offsets = new Array(items.length + 1);
     offsets[0] = 0;
     for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + items[i].h;
@@ -1563,21 +1585,33 @@
     for (let i = start; i <= end; i++) {
       const item = items[i];
       const el = document.createElement('div');
-      if (item.type === 'group') {
-        el.className = 'toc-group-row';
-        el.textContent = item.label || '';
-        el.title = item.label || '';
-      } else {
-        el.className = 'toc-item-row virtual';
-        el.setAttribute('data-entry', item.entryIndex);
-        el.addEventListener('click', () => jumpToEntry(item.entryIndex));
-        v._tocRowEls.set(item.entryIndex, el);
-        const label = document.createElement('span');
-        label.className = 'toc-item-label';
-        label.textContent = item.label || '';
-        label.title = item.label || '';
-        el.appendChild(label);
+      el.className = 'toc-item-row virtual';
+      el.setAttribute('data-entry', item.entryIndex);
+      el.setAttribute('data-level', item.level || 1);
+      el.setAttribute('data-index', item.entryIndex);
+
+      const depth = item.depth || 0;
+      const indent = depth * 16 + 8;
+      el.style.paddingLeft = `${indent}px`;
+
+      if (depth > 0) {
+        el.classList.add('is-nested');
+        el.style.setProperty('--guide-left', `${indent - 10}px`);
       }
+
+      const chevron = document.createElement('span');
+      chevron.className = 'toc-item-chevron empty';
+      chevron.textContent = '▾';
+      el.appendChild(chevron);
+
+      const label = document.createElement('span');
+      label.className = 'toc-item-label';
+      label.textContent = item.label || '';
+      label.title = item.label || '';
+      el.appendChild(label);
+
+      el.addEventListener('click', () => jumpToEntry(item.entryIndex));
+      v._tocRowEls.set(item.entryIndex, el);
       frag.appendChild(el);
     }
     win.appendChild(frag);
@@ -2399,23 +2433,54 @@
 
     // ── 2. Inject line-number anchors ────────────────────────────
     const annotatedLines = [];
-    let prevWasBlank = true;
+    let inBlockquote = false;
+    let inCodeBlock = false;
+
     for (let i = 0; i < cleanLines.length; i++) {
       const line = cleanLines[i];
       const lineNum = i + 1;
       const trimmed = line.trim();
-      const isBlockStart =
-        /^#{1,6}\s/.test(trimmed) ||
-        /^[-*+]\s/.test(trimmed) ||
-        /^\d+\.\s/.test(trimmed) ||
-        /^>/.test(trimmed) ||
-        /^```/.test(trimmed) ||
-        (prevWasBlank && trimmed.length > 0);
-      if (isBlockStart) {
-        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        annotatedLines.push(line);
+        continue;
       }
-      annotatedLines.push(line);
-      prevWasBlank = trimmed.length === 0;
+      if (inCodeBlock) {
+        annotatedLines.push(line);
+        continue;
+      }
+
+      const isQuoteLine = /^>/.test(trimmed);
+      if (isQuoteLine) {
+        const quoteContent = line.replace(/^>\s?/, '');
+        annotatedLines.push(`> <span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${quoteContent}`);
+        inBlockquote = true;
+        continue;
+      } else {
+        inBlockquote = false;
+      }
+
+      // Heading: insert anchor inside the heading
+      const headingMatch = line.match(/^(#{1,6}\s+)(.*)$/);
+      if (headingMatch) {
+        annotatedLines.push(`${headingMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${headingMatch[2]}`);
+        continue;
+      }
+
+      // List item: insert anchor inside the list item
+      const listMatch = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/);
+      if (listMatch) {
+        annotatedLines.push(`${listMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${listMatch[2]}`);
+        continue;
+      }
+
+      // Regular line / paragraph start
+      if (trimmed.length > 0) {
+        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${line}`);
+      } else {
+        annotatedLines.push(line);
+      }
     }
 
     // ── 3. Parse main markdown body to HTML ─────────────────────
@@ -2726,7 +2791,8 @@
     headings.forEach((h) => {
       const clone = h.cloneNode(true);
       clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
-      const text = clone.textContent.trim();
+      const rawText = clone.textContent.trim();
+      const text = cleanHeadingText(rawText);
       if (text) {
         validItems.push({ h, text, level: parseInt(h.tagName.charAt(1)) });
       }

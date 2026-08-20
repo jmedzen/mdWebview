@@ -1489,8 +1489,13 @@ async function handleSectionIndex(req, res, query) {
     }
 
     // Trimmed client payload: only what the frontend needs for TOC + navigation.
-    const entries = idx.entries.map(e => ({ h: e.headword, ls: e.lineStart, le: e.lineEnd }));
-    const groups = idx.groups.map(g => ({ h: g.headword, first: g.firstEntry, last: g.lastEntry }));
+    const entries = idx.entries.map(e => ({
+      h: e.headword,
+      ls: e.lineStart,
+      le: e.lineEnd,
+      level: e.level || (e.groupIdx > 0 ? e.groupIdx : 1)
+    }));
+    const groups = (idx.groups || []).map(g => ({ h: g.headword, first: g.firstEntry, last: g.lastEntry }));
     // Precomputed chunk boundaries (byte-bounded), so the client requests exactly
     // the ranges the chunk renderer will produce — no off-by-whole-chunk drift.
     const chunks = computeChunkRanges(idx);
@@ -1706,7 +1711,7 @@ let searchIndex = {
 const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
 const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
 const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
-const SECTION_INDEX_MAGIC = 0x53455831; // "SEX1"
+const SECTION_INDEX_MAGIC = 0x53455832; // "SEX2"
 const SECTION_INDEX_MAX_CACHE = 20;
 
 const sectionIndexCache = new Map();    // relPath -> section index object (LRU, insertion order)
@@ -1818,11 +1823,16 @@ async function getSectionIndex(fullPath, stat, relPath) {
     };
     if (isDict) dictSectionIndexCache.set(relPath, idx);
     else setSectionIndex(relPath, idx);
-    if (isDict) saveDictSectionIndexBinAsync().catch(() => {});
-    else saveSectionIndexBinAsync().catch(() => {});
-    return idx;
-  })().finally(() => {
     sectionIndexPromises.delete(relPath);
+
+    // Persist to disk asynchronously in the background
+    if (isDict) saveDictSectionIndexBinAsync();
+    else saveSectionIndexBinAsync();
+
+    return idx;
+  })().catch((err) => {
+    sectionIndexPromises.delete(relPath);
+    throw err;
   });
 
   sectionIndexPromises.set(relPath, promise);
@@ -1870,7 +1880,8 @@ async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_B
       const lineStart = buf.readUInt32BE(pos); pos += 4;
       const lineEnd = buf.readUInt32BE(pos); pos += 4;
       const groupIdx = buf.readInt16BE(pos); pos += 2;
-      entries[i] = { headword, offset, len, lineStart, lineEnd, groupIdx };
+      const level = (groupIdx >= 1 && groupIdx <= 6) ? groupIdx : 1;
+      entries[i] = { headword, offset, len, lineStart, lineEnd, groupIdx, level };
     }
 
     const groups = new Array(groupCount);
@@ -1945,7 +1956,8 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
         buf.writeUInt32BE(e.len, pos); pos += 4;
         buf.writeUInt32BE(e.lineStart, pos); pos += 4;
         buf.writeUInt32BE(e.lineEnd, pos); pos += 4;
-        buf.writeInt16BE(e.groupIdx, pos); pos += 2;
+        const gIdx = e.level || e.groupIdx || 1;
+        buf.writeInt16BE(gIdx, pos); pos += 2;
       }
       for (const g of idx.groups) {
         const hB = Buffer.from(g.headword);

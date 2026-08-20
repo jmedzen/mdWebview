@@ -206,41 +206,54 @@ function parseMarkdown(body, filePath) {
 
   // ── 2. Inject line-number anchors ────────────────────────────
   const annotatedLines = [];
-  let prevWasBlank = true;
   let inBlockquote = false;
+  let inCodeBlock = false;
 
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i];
     const lineNum = i + 1;
     const trimmed = line.trim();
-    const isQuoteLine = /^>/.test(trimmed);
 
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      annotatedLines.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      annotatedLines.push(line);
+      continue;
+    }
+
+    const isQuoteLine = /^>/.test(trimmed);
     if (isQuoteLine) {
-      if (!inBlockquote) {
-        annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
-        annotatedLines.push(line);
-      } else {
-        const quoteContent = line.replace(/^>\s?/, '');
-        annotatedLines.push(`> <span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${quoteContent}`);
-      }
+      const quoteContent = line.replace(/^>\s?/, '');
+      annotatedLines.push(`> <span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${quoteContent}`);
       inBlockquote = true;
-      prevWasBlank = false;
       continue;
     } else {
       inBlockquote = false;
     }
 
-    const isBlockStart =
-      /^#{1,6}\s/.test(trimmed) ||
-      /^[-*+]\s/.test(trimmed) ||
-      /^\d+\.\s/.test(trimmed) ||
-      /^```/.test(trimmed) ||
-      (prevWasBlank && trimmed.length > 0);
-    if (isBlockStart) {
-      annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+    // Heading: insert anchor inside the heading
+    const headingMatch = line.match(/^(#{1,6}\s+)(.*)$/);
+    if (headingMatch) {
+      annotatedLines.push(`${headingMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${headingMatch[2]}`);
+      continue;
     }
-    annotatedLines.push(line);
-    prevWasBlank = trimmed.length === 0;
+
+    // List item: insert anchor inside the list item
+    const listMatch = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/);
+    if (listMatch) {
+      annotatedLines.push(`${listMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${listMatch[2]}`);
+      continue;
+    }
+
+    // Regular line / paragraph start
+    if (trimmed.length > 0) {
+      annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${line}`);
+    } else {
+      annotatedLines.push(line);
+    }
   }
 
   // ── 3. Parse main markdown body to HTML ─────────────────────
