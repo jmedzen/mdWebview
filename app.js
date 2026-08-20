@@ -1518,21 +1518,43 @@
     const minLevel = (v.entries && v.entries.length > 0)
       ? Math.min(...v.entries.map(e => e.level || 1))
       : 1;
+    v._collapsedEntries = v._collapsedEntries || new Set();
 
-    (v.entries || []).forEach((e, i) => {
+    let skipUntilLevel = -1;
+
+    for (let i = 0; i < (v.entries || []).length; i++) {
+      const e = v.entries[i];
       const level = e.level || 1;
+
+      if (skipUntilLevel > 0) {
+        if (level > skipUntilLevel) {
+          continue; // Child under a collapsed ancestor
+        } else {
+          skipUntilLevel = -1; // Exited the collapsed subtree
+        }
+      }
+
+      const hasChildren = (i + 1 < v.entries.length) && ((v.entries[i + 1].level || 1) > level);
+      const isCollapsed = v._collapsedEntries.has(i);
       const depth = Math.max(0, level - minLevel);
       const label = cleanHeadingText(e.h || '');
+
       items.push({
         type: 'entry',
         entryIndex: i,
         label,
         level,
         depth,
+        hasChildren,
+        isCollapsed,
         h: TOC_ROW_H
       });
       entryItemIndex.set(i, items.length - 1);
-    });
+
+      if (hasChildren && isCollapsed) {
+        skipUntilLevel = level;
+      }
+    }
 
     const offsets = new Array(items.length + 1);
     offsets[0] = 0;
@@ -1585,7 +1607,7 @@
     for (let i = start; i <= end; i++) {
       const item = items[i];
       const el = document.createElement('div');
-      el.className = 'toc-item-row virtual';
+      el.className = 'toc-item-row virtual' + (item.isCollapsed ? ' collapsed' : '');
       el.setAttribute('data-entry', item.entryIndex);
       el.setAttribute('data-level', item.level || 1);
       el.setAttribute('data-index', item.entryIndex);
@@ -1600,8 +1622,23 @@
       }
 
       const chevron = document.createElement('span');
-      chevron.className = 'toc-item-chevron empty';
+      chevron.className = 'toc-item-chevron' + (item.hasChildren ? '' : ' empty');
       chevron.textContent = '▾';
+      if (item.hasChildren) {
+        chevron.title = item.isCollapsed ? '展開' : '摺疊';
+        chevron.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (v._collapsedEntries.has(item.entryIndex)) {
+            v._collapsedEntries.delete(item.entryIndex);
+          } else {
+            v._collapsedEntries.add(item.entryIndex);
+          }
+          buildVirtualTocItems(v);
+          v._tocRenderedStart = -1;
+          v._tocRenderedEnd = -1;
+          renderTocWindow();
+        });
+      }
       el.appendChild(chevron);
 
       const label = document.createElement('span');
@@ -1656,6 +1693,7 @@
     if (v.headwordMap) v.headwordMap.clear();
     if (v.entryMap) v.entryMap.clear();
     if (v._tocRowEls) v._tocRowEls.clear();
+    if (v._collapsedEntries) v._collapsedEntries.clear();
     v._tocItems = null;
     v._tocOffsets = null;
     v._tocEntryItemIndex = null;
@@ -2898,6 +2936,32 @@
 
   function tocCollapseAll() {
     const btn = $('tocCollapseAllBtn');
+    if (isVirtualMode()) {
+      const v = state.virtual;
+      if (!v || !v.entries || v.entries.length === 0) return;
+      v._collapsedEntries = v._collapsedEntries || new Set();
+      if (v._collapsedEntries.size > 0) {
+        // Expand all
+        v._collapsedEntries.clear();
+        updateCollapseBtnUI(btn, true);
+      } else {
+        // Collapse all parents with children
+        for (let i = 0; i < v.entries.length; i++) {
+          const curLevel = v.entries[i].level || 1;
+          const nextLevel = (i + 1 < v.entries.length) ? (v.entries[i + 1].level || 1) : 1;
+          if (nextLevel > curLevel) {
+            v._collapsedEntries.add(i);
+          }
+        }
+        updateCollapseBtnUI(btn, false);
+      }
+      buildVirtualTocItems(v);
+      v._tocRenderedStart = -1;
+      v._tocRenderedEnd = -1;
+      renderTocWindow();
+      return;
+    }
+
     const rows = $$('.toc-item-row', $('tocList'));
     if (rows.length === 0) return;
 
