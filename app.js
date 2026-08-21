@@ -3057,6 +3057,14 @@
   let searchAbortController = null;
 
   async function performGlobalSearch(query) {
+    if (typeof toTraditional === 'function') {
+      const trad = toTraditional(query);
+      if (trad !== query) {
+        query = trad;
+        const input = $('globalSearchInput');
+        if (input && input.value !== trad) input.value = trad;
+      }
+    }
     if (!query || query.trim().length === 0) {
       $('searchResults').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>輸入關鍵詞開始搜尋</span></div>';
       return;
@@ -3295,20 +3303,27 @@
     return String(hw || '').replace(/^【/, '').replace(/】$/, '').trim();
   }
 
+  let dictHeadwordsPromise = null;
+
   async function ensureDictHeadwords() {
-    if (state.dictHeadwords || state._dictLoading) return;
-    state._dictLoading = true;
+    if (state.dictHeadwords) return state.dictHeadwords;
+    if (dictHeadwordsPromise) return dictHeadwordsPromise;
     renderDictFileList();
-    try {
-      await fetchDictHeadwords();
-    } catch (err) {
-      state.dictHeadwords = { files: [], entries: [] };
-      state.dictIndex = null;
-      renderDictFileList();
-      showToast('❌ 辭典詞頭載入失敗', 'error');
-    } finally {
-      state._dictLoading = false;
-    }
+    dictHeadwordsPromise = (async () => {
+      try {
+        await fetchDictHeadwords();
+        return state.dictHeadwords;
+      } catch (err) {
+        state.dictHeadwords = { files: [], entries: [] };
+        state.dictIndex = null;
+        renderDictFileList();
+        showToast('❌ 辭典詞頭載入失敗', 'error');
+        return state.dictHeadwords;
+      } finally {
+        dictHeadwordsPromise = null;
+      }
+    })();
+    return dictHeadwordsPromise;
   }
 
   // Fetches the dictionary headword list, revalidating with ETag so unchanged
@@ -3509,8 +3524,16 @@
     return out;
   }
 
-  function runDictSearch(query) {
-    const q = (query || '').trim();
+  async function runDictSearch(query) {
+    let q = (query || '').trim();
+    if (typeof toTraditional === 'function') {
+      const trad = toTraditional(q);
+      if (trad !== q) {
+        q = trad;
+        const input = $('dictSearchInput');
+        if (input && input.value !== trad) input.value = trad;
+      }
+    }
     if (!q) {
       state.dictFulltextCache = null;
       state.dictFulltextScrollTop = 0;
@@ -3518,9 +3541,14 @@
       return;
     }
     if (!state.dictHeadwords) {
-      ensureDictHeadwords().then(() => runDictSearch(q));
-      return;
+      await ensureDictHeadwords();
     }
+    // Re-check input in case it was updated while loading
+    const currentInputVal = ($('dictSearchInput')?.value || '').trim();
+    if (currentInputVal && currentInputVal !== q) {
+      q = (typeof toTraditional === 'function') ? toTraditional(currentInputVal) : currentInputVal;
+    }
+    if (!q) return;
     // Invalidate cached fulltext results if query has changed
     if (state.dictFulltextCache && state.dictFulltextCache.query !== q) {
       state.dictFulltextCache = null;
@@ -3564,6 +3592,10 @@
     for (let i = start; i < end; i++) {
       const it = sorted[i];
       if (it.hw.startsWith(q) && sel.has(it.fi)) matched.push(it);
+    }
+    if (matched.length === 0) {
+      // If exact prefix match yields no results, automatically fallback to fuzzy substring search
+      return dictSearchFuzzy(q);
     }
     renderDictHeadwordResults(matched, q);
   }
@@ -3756,20 +3788,30 @@
     state.pageSearchIndex = -1;
     state.pageSearchQuery = null;
 
-    if (!query || query.trim().length === 0) {
+    let q = (query || '').trim();
+    if (typeof toTraditional === 'function') {
+      const trad = toTraditional(q);
+      if (trad !== q) {
+        q = trad;
+        const input = $('pageSearchInput');
+        if (input && input.value !== trad) input.value = trad;
+      }
+    }
+
+    if (!q || q.length === 0) {
       $('pageSearchCount').textContent = '';
       return;
     }
 
     if (isVirtualMode()) {
-      await doPageSearchVirtual(query.trim());
+      await doPageSearchVirtual(q);
       return;
     }
 
     const body = $('markdownBody');
     if (!body || !body.textContent) return;
 
-    const matches = highlightTextNodes(body, query);
+    const matches = highlightTextNodes(body, q);
     state.pageSearchMatches = matches;
 
     if (matches.length > 0) {
@@ -3777,7 +3819,7 @@
       matches[0].classList.add('active');
       safeScrollToElement(matches[0], $('content'), 'center');
     } else {
-      showToast(`🔍 未找到符合「${query}」的內容`, 'warning');
+      showToast(`🔍 未找到符合「${q}」的內容`, 'warning');
     }
 
     $('pageSearchCount').textContent = matches.length > 0 ? `1/${matches.length}` : '0/0';
@@ -6643,12 +6685,15 @@
       if (searchPanel) searchPanel.classList.add('active');
       state.sidebarTab = 'search';
 
+      let rawSelected = (currentSelectedText || '').trim();
+      rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
+      const queryText = (typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const searchInput = $('globalSearchInput');
       if (searchInput) {
-        searchInput.value = currentSelectedText;
+        searchInput.value = queryText;
         searchInput.focus();
       }
-      performGlobalSearch(currentSelectedText);
+      performGlobalSearch(queryText);
     });
 
     // 2. 辭典查詢按鈕
@@ -6672,12 +6717,15 @@
         }
       }
 
+      let rawSelected = (currentSelectedText || '').trim();
+      rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
+      const queryText = (typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const dictInput = $('dictSearchInput');
       if (dictInput) {
-        dictInput.value = currentSelectedText;
+        dictInput.value = queryText;
         dictInput.focus();
       }
-      runDictSearch(currentSelectedText);
+      runDictSearch(queryText);
     });
 
     // 3. 分享指定行按鈕
