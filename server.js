@@ -8,6 +8,14 @@ const net = require('net');
 const readline = require('readline');
 const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
+let toTraditional = s => s, hasSimplified = () => false;
+try {
+  const s2t = require('./s2t');
+  toTraditional = s2t.toTraditional;
+  hasSimplified = s2t.hasSimplified;
+} catch (e) {
+  // Graceful fallback if s2t is not available
+}
 
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
@@ -3002,11 +3010,12 @@ async function handleDictSearch(req, res, query) {
   // (e.g. 一切) yields tens of thousands of matches, and the unbounded `results`
   // array plus the client-side render balloon memory on repeated searches.
   const DICT_SEARCH_MAX_PER_FILE = 1500;
-  const q = query.q;
-  if (!q || q.trim().length === 0) {
+  const rawQ = (query.q || '').trim();
+  const q = toTraditional(rawQ);
+  if (!q || q.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
-  const terms = q.trim().split(/\s+/).filter(Boolean);
+  const terms = q.split(/\s+/).filter(Boolean);
   if (terms.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
@@ -3157,12 +3166,13 @@ async function handleDictEvent(req, res) {
 // ── API: Full-text Search ────────────────────────────────────
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
-  const q = query.q;
-  if (!q || q.trim().length === 0) {
+  const rawQ = (query.q || '').trim();
+  const q = toTraditional(rawQ);
+  if (!q || q.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
 
-  const terms = q.trim().split(/\s+/).filter(Boolean);
+  const terms = q.split(/\s+/).filter(Boolean);
   if (terms.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
@@ -3380,13 +3390,14 @@ async function handleSearch(req, res, query) {
 // single file (ordered by line), scoped by entry so the client can jump to any
 // entry — not just the currently-mounted virtualization chunks.
 async function handleSearchFile(req, res, query) {
-  const q = query.q;
+  const rawQ = (query.q || '').trim();
+  const q = toTraditional(rawQ);
   const relPath = query.path;
-  if (!q || !q.trim() || !relPath) {
+  if (!q || !relPath) {
     return sendJSON(res, 400, { error: 'Missing query or path parameter' });
   }
 
-  const terms = q.trim().split(/\s+/).filter(Boolean);
+  const terms = q.split(/\s+/).filter(Boolean);
   if (terms.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
