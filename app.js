@@ -6697,8 +6697,9 @@
     });
 
     // 2. 辭典查詢按鈕
-    dictBtn.addEventListener('click', () => {
+    dictBtn.addEventListener('click', async () => {
       if (!currentSelectedText) return;
+      const selectedText = currentSelectedText; // capture before popup hides
       popup.classList.remove('visible');
 
       // Enable dictionary and open right sidebar
@@ -6717,7 +6718,10 @@
         }
       }
 
-      let rawSelected = (currentSelectedText || '').trim();
+      // Ensure dict headwords are loaded before searching
+      await ensureDictHeadwords();
+
+      let rawSelected = (selectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
       const queryText = (typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const dictInput = $('dictSearchInput');
