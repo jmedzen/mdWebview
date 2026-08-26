@@ -206,14 +206,15 @@ function parseMarkdown(body, filePath) {
 
   // ── 2. Inject line-number anchors ────────────────────────────
   const annotatedLines = [];
-  let inBlockquote = false;
   let inCodeBlock = false;
+  let inRawHtmlTable = false;
 
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i];
     const lineNum = i + 1;
     const trimmed = line.trim();
 
+    // 1. Code blocks: do not inject anchors
     if (trimmed.startsWith('```')) {
       inCodeBlock = !inCodeBlock;
       annotatedLines.push(line);
@@ -224,31 +225,73 @@ function parseMarkdown(body, filePath) {
       continue;
     }
 
+    // 2. Horizontal rules: leave clean so marked produces <hr>
+    if (/^(?:[-*_]\s*){3,}$/.test(trimmed)) {
+      annotatedLines.push(line);
+      continue;
+    }
+
+    // 3. Blockquotes
     const isQuoteLine = /^>/.test(trimmed);
     if (isQuoteLine) {
       const quoteContent = line.replace(/^>\s?/, '');
       annotatedLines.push(`> <span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${quoteContent}`);
-      inBlockquote = true;
       continue;
-    } else {
-      inBlockquote = false;
     }
 
-    // Heading: insert anchor inside the heading
+    // 4. Heading: insert anchor inside the heading text
     const headingMatch = line.match(/^(#{1,6}\s+)(.*)$/);
     if (headingMatch) {
       annotatedLines.push(`${headingMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${headingMatch[2]}`);
       continue;
     }
 
-    // List item: insert anchor inside the list item
+    // 5. List item: insert anchor inside the list item text
     const listMatch = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)(.*)$/);
     if (listMatch) {
       annotatedLines.push(`${listMatch[1]}<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${listMatch[2]}`);
       continue;
     }
 
-    // Regular line / paragraph start
+    // 6. GFM Markdown Table rows
+    // Delimiter row: e.g. | --- | :---: | ---: | or |---|---|
+    if (/^\|(?:\s*:?-+:?\s*\|)+\s*$/.test(trimmed)) {
+      annotatedLines.push(line);
+      continue;
+    }
+    // GFM Table row (starts and ends with |)
+    if (/^\|(.+)\|$/.test(trimmed)) {
+      const tableRowAnnotated = line.replace(/^(\s*\|\s*)(.*)$/, `$1<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>$2`);
+      annotatedLines.push(tableRowAnnotated);
+      continue;
+    }
+
+    // 7. Raw HTML Tables
+    if (/<table\b/i.test(trimmed)) inRawHtmlTable = true;
+    if (/<\/table>/i.test(trimmed)) {
+      inRawHtmlTable = false;
+      annotatedLines.push(line);
+      continue;
+    }
+
+    if (inRawHtmlTable) {
+      // For <td> or <th>, insert anchor inside the cell tag
+      if (/<(?:td|th)\b/i.test(line)) {
+        const cellAnnotated = line.replace(/(<(?:td|th)\b[^>]*>)/i, `$1<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>`);
+        annotatedLines.push(cellAnnotated);
+      } else {
+        annotatedLines.push(line);
+      }
+      continue;
+    }
+
+    // 8. Other Raw HTML block tags (<div>, <details>, <section>, etc.)
+    if (/^<\/?(?:div|details|summary|section|article|aside|header|footer|figure|figcaption|blockquote|pre|ul|ol|li|hr|p|style|script)\b/i.test(trimmed)) {
+      annotatedLines.push(line);
+      continue;
+    }
+
+    // 9. Regular line / paragraph start
     if (trimmed.length > 0) {
       annotatedLines.push(`<span id="L${lineNum}" data-line="${lineNum}" class="line-anchor"></span>${line}`);
     } else {
