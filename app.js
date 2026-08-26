@@ -5751,6 +5751,12 @@
       bigramCount.textContent = `${(data.index.uniqueBigrams || 0).toLocaleString()} 筆 (檔案: ${data.index.totalFiles} 個)`;
     }
 
+    const indexCacheSize = $('hwIndexCacheSize');
+    if (indexCacheSize) {
+      const bytes = (data.index && data.index.cacheSizeBytes) || (data.storage && data.storage.cacheSizeBytes) || 0;
+      indexCacheSize.textContent = formatBytes(bytes);
+    }
+
     const indexCreatedAt = $('hwIndexCreatedAt');
     if (indexCreatedAt) {
       const mtime = data.index.createdAt || data.index.lastModified;
