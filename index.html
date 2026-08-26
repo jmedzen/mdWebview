@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
-  <link rel="stylesheet" href="style.css?v=3.0.9">
+  <link rel="stylesheet" href="style.css?v=3.1.0">
 </head>
 <body>
   <div class="app">
@@ -779,8 +779,8 @@
             <div class="hardware-card-header">
               <span class="card-icon">🪷</span>
               <span class="card-title">服務與全文索引狀態</span>
-              <button type="button" id="hwRebuildDictIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描辭典目錄與建立辭典全文索引">📖 重建辭典索引</button>
-              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: 6px;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
+              <button type="button" id="hwRebuildIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: auto;" title="強制重新掃描檔庫與建立全文索引">⚡ 手動重建索引</button>
+              <button type="button" id="hwRebuildDictIndexBtn" class="modal-btn submit-btn small-btn" style="margin-left: 6px;" title="強制重新掃描辭典目錄與建立辭典全文索引">📖 重建辭典索引</button>
             </div>
             <div class="hardware-card-body">
               <div class="index-status-columns">
@@ -800,6 +800,10 @@
                       <span class="sub-val" id="hwBigramCount">--</span>
                     </div>
                     <div class="sub-metric">
+                      <span class="sub-label">索引檔案大小</span>
+                      <span class="sub-val" id="hwIndexCacheSize">--</span>
+                    </div>
+                    <div class="sub-metric full-width">
                       <span class="sub-label">索引檔案建立/修改時間</span>
                       <span class="sub-val" id="hwIndexCreatedAt">--</span>
                     </div>
@@ -1201,8 +1205,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js" crossorigin="anonymous" defer></script>
-  <script src="marked.min.js?v=3.0.9" defer></script>
-  <script src="s2t.js?v=3.0.9" defer></script>
-  <script src="app.js?v=3.0.9" defer></script>
+  <script src="marked.min.js?v=3.1.0" defer></script>
+  <script src="s2t.js?v=3.1.0" defer></script>
+  <script src="app.js?v=3.1.0" defer></script>
 </body>
 </html>

@@ -4596,6 +4596,7 @@ async function getSystemHardwareStats() {
       totalFiles: searchIndex.fileList ? searchIndex.fileList.length : 0,
       totalUnits: searchIndex.units ? searchIndex.units.length : 0,
       uniqueBigrams: searchIndex.bigrams ? searchIndex.bigrams.size : 0,
+      cacheSizeBytes: cacheSize,
       vaultSig: searchIndex.vaultSig || '',
       createdAt: indexFileMtime,
       lastModified: indexFileMtime
