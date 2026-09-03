@@ -3293,6 +3293,11 @@
     if (shouldOpen) {
       ensureDictHeadwords();
       startDictPolling();
+      const inputVal = ($('dictSearchInput')?.value || '').trim();
+      const results = $('dictResults');
+      if (!inputVal && results && (!results.querySelector('.dict-result-item') && !results.querySelector('.dict-placeholder'))) {
+        results.innerHTML = '<div class="dict-placeholder"><span>📖</span><span>輸入詞條開始查詢</span></div>';
+      }
     }
   }
 
