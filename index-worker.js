@@ -228,44 +228,47 @@ parentPort.on('message', async (msg) => {
       parentPort.postMessage({ jobId: msg.jobId, ok: true, result });
     } else if (msg.type === 'index-build-file') {
       const { fullPath, units } = msg;
-      const fh = await fs.promises.open(fullPath, 'r');
+      const fileBuf = await fs.promises.readFile(fullPath);
       const results = [];
-      try {
-        for (const u of units) {
-          const buf = Buffer.alloc(u.byteLength);
-          await fh.read(buf, 0, u.byteLength, u.byteOffset);
-          const bigrams = Array.from(extractBigramsFromText(buf.toString('utf-8')));
-          results.push({ unitId: u.unitId, bigrams });
+      const fileSize = fileBuf.length;
+      for (const u of units) {
+        const offset = u.byteOffset || 0;
+        const length = u.byteLength || 0;
+        if (offset >= fileSize) {
+          results.push({ unitId: u.unitId, bigrams: [] });
+          continue;
         }
-      } finally {
-        await fh.close();
+        const end = Math.min(fileSize, offset + length);
+        const slice = fileBuf.subarray(offset, end);
+        const bigrams = Array.from(extractBigramsFromText(slice.toString('utf-8')));
+        results.push({ unitId: u.unitId, bigrams });
       }
       parentPort.postMessage({ jobId: msg.jobId, ok: true, result: { results } });
     } else if (msg.type === 'search-scan') {
       const { fullPath, units, terms, maxProximityDist, maxPerFile } = msg;
       const cap = typeof maxPerFile === 'number' ? maxPerFile : Infinity;
-      const fh = await fs.promises.open(fullPath, 'r');
+      const fileBuf = await fs.promises.readFile(fullPath);
       const matches = [];
-      try {
-        for (const u of units) {
+      const fileSize = fileBuf.length;
+      for (const u of units) {
+        if (matches.length >= cap) break;
+        const offset = u.byteOffset || 0;
+        const length = u.byteLength || 0;
+        if (offset >= fileSize) continue;
+        const end = Math.min(fileSize, offset + length);
+        const slice = fileBuf.subarray(offset, end);
+        const ms = scanText(slice.toString('utf-8'), terms, maxProximityDist);
+        for (const m of ms) {
           if (matches.length >= cap) break;
-          const buf = Buffer.alloc(u.byteLength);
-          await fh.read(buf, 0, u.byteLength, u.byteOffset);
-          const ms = scanText(buf.toString('utf-8'), terms, maxProximityDist);
-          for (const m of ms) {
-            if (matches.length >= cap) break;
-            matches.push({
-              file: u.file,
-              fileName: u.fileName,
-              entryIndex: u.entryIndex,
-              headword: u.headword,
-              line: u.lineStart + m.line - 1,
-              snippet: m.snippet,
-            });
-          }
+          matches.push({
+            file: u.file,
+            fileName: u.fileName,
+            entryIndex: u.entryIndex,
+            headword: u.headword,
+            line: u.lineStart + m.line - 1,
+            snippet: m.snippet,
+          });
         }
-      } finally {
-        await fh.close();
       }
       parentPort.postMessage({ jobId: msg.jobId, ok: true, result: { matches } });
     } else {
