@@ -47,7 +47,7 @@
     currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
     defaultFontSize: appConfig.defaultFontSize ? parseInt(appConfig.defaultFontSize) : 16,
     fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize ? parseInt(appConfig.defaultFontSize) : 16),
-    textAlign: userAlign || (isMobile ? 'left' : 'justify'),
+    textAlign: userAlign || 'justify',
     lineHeight: userLineHeight || '1.8',
     maxWidth: (isMobile && (!userMaxWidth || userMaxWidth === '100%')) ? '95%' : (userMaxWidth || '800px'),
     autoReadProgress: userReadProgress !== 'false',
@@ -4041,10 +4041,21 @@
     const themeColor = THEME_HEADER_COLORS[theme] || '#181825';
     document.documentElement.style.backgroundColor = themeColor;
     if (document.body) document.body.style.backgroundColor = themeColor;
-    const metaEl = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
-    if (metaEl) {
-      metaEl.setAttribute('content', themeColor);
-    }
+    const header = $('appHeader');
+    if (header) header.style.backgroundColor = themeColor;
+
+    // Force WebKit / iOS PWA compositor to re-evaluate the status bar theme color:
+    // In WebKit, changing the content attribute alone does not always trigger status bar repainting.
+    // Removing and immediately re-appending a fresh meta tag forces WebKit to pick up the new color in real time.
+    const oldMetas = document.querySelectorAll('meta[name="theme-color"]');
+    oldMetas.forEach(m => m.remove());
+    setTimeout(() => {
+      const newMeta = document.createElement('meta');
+      newMeta.name = 'theme-color';
+      newMeta.id = 'metaThemeColor';
+      newMeta.content = themeColor;
+      document.head.appendChild(newMeta);
+    }, 0);
 
     // Force Mobile WebKit/Chromium GPU composite layer repaint for active file pill
     const activePill = $('headerActiveFile');
