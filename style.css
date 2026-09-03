@@ -78,7 +78,7 @@ body {
   --table-header-bg: rgba(69, 71, 90, 0.5);
   --table-stripe: rgba(49, 50, 68, 0.3);
   --shadow-color: rgba(0, 0, 0, 0.3);
-  --header-bg: rgba(24, 24, 37, 0.92);
+  --header-bg: #181825;
   --input-bg: #313244;
   --badge-bg: #45475a;
   --loading-bg: rgba(30, 30, 46, 0.85);
@@ -118,7 +118,7 @@ body {
   --table-header-bg: rgba(204, 208, 218, 0.5);
   --table-stripe: rgba(230, 233, 239, 0.5);
   --shadow-color: rgba(0, 0, 0, 0.08);
-  --header-bg: rgba(230, 233, 239, 0.95);
+  --header-bg: #e6e9ef;
   --input-bg: #dce0e8;
   --badge-bg: #ccd0da;
   --loading-bg: rgba(239, 241, 245, 0.85);
@@ -158,7 +158,7 @@ body {
   --table-header-bg: rgba(0, 43, 54, 0.7);
   --table-stripe: rgba(9, 65, 81, 0.3);
   --shadow-color: rgba(0, 0, 0, 0.35);
-  --header-bg: rgba(0, 43, 54, 0.95);
+  --header-bg: #002b36;
   --input-bg: #05232c;
   --badge-bg: #2a4f5a;
   --loading-bg: rgba(7, 54, 66, 0.85);
@@ -198,7 +198,7 @@ body {
   --table-header-bg: rgba(212, 201, 182, 0.5);
   --table-stripe: rgba(236, 229, 216, 0.5);
   --shadow-color: rgba(90, 78, 62, 0.1);
-  --header-bg: rgba(236, 229, 216, 0.96);
+  --header-bg: #ece5d8;
   --input-bg: #e0d6c4;
   --badge-bg: #d4c9b6;
   --loading-bg: rgba(245, 240, 232, 0.85);
@@ -238,7 +238,7 @@ body {
   --table-header-bg: rgba(80, 73, 69, 0.6);
   --table-stripe: rgba(60, 56, 54, 0.3);
   --shadow-color: rgba(0, 0, 0, 0.5);
-  --header-bg: rgba(29, 32, 33, 0.96);
+  --header-bg: #1d2021;
   --input-bg: #3c3836;
   --badge-bg: #504945;
   --loading-bg: rgba(40, 40, 40, 0.85);
@@ -295,9 +295,6 @@ body,
   padding-left: calc(16px + env(safe-area-inset-left, 0px));
   padding-right: calc(16px + env(safe-area-inset-right, 0px));
   background: var(--header-bg);
-  backdrop-filter: blur(12px);
-  will-change: transform;
-  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
   z-index: 100;
   user-select: none;
@@ -321,8 +318,6 @@ body,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   flex-shrink: 1;
   min-width: 0;
 }
@@ -2390,11 +2385,18 @@ kbd {
 
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  :root, html {
+    --content-max-width: 95%;
+  }
+
   .sidebar {
     position: fixed;
     left: 0;
     top: calc(48px + env(safe-area-inset-top, 0px));
-    bottom: env(safe-area-inset-bottom, 0px);
+    bottom: 0;
+    height: calc(100% - 48px - env(safe-area-inset-top, 0px));
+    height: calc(100dvh - 48px - env(safe-area-inset-top, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     z-index: 90;
     box-shadow: 4px 0 24px var(--shadow-color);
     width: 280px;

@@ -49,7 +49,7 @@
     fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize ? parseInt(appConfig.defaultFontSize) : 16),
     textAlign: userAlign || (isMobile ? 'left' : 'justify'),
     lineHeight: userLineHeight || '1.8',
-    maxWidth: userMaxWidth || (isMobile ? '100%' : '800px'),
+    maxWidth: (isMobile && (!userMaxWidth || userMaxWidth === '100%')) ? '95%' : (userMaxWidth || '800px'),
     autoReadProgress: userReadProgress !== 'false',
     isMobile: isMobile,
     recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
@@ -4133,7 +4133,7 @@
     const isMobile = isMobileBrowser();
     let currentVal = state.maxWidth;
     if (!currentVal) {
-      currentVal = isMobile ? '100%' : '800px';
+      currentVal = isMobile ? '95%' : '800px';
     }
 
     const options = isMobile ? [
@@ -4163,7 +4163,7 @@
 
   function applyMaxWidth(mw, saveToLocalStorage = true) {
     const isMobile = isMobileBrowser();
-    if (!mw) mw = isMobile ? '100%' : '800px';
+    if (!mw) mw = isMobile ? '95%' : '800px';
     state.maxWidth = mw;
     const topAnchor = isVirtualMode() ? captureTopAnchor() : null;
     document.documentElement.style.setProperty('--content-max-width', mw);
