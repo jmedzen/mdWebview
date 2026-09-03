@@ -3801,85 +3801,6 @@ function readJSONBody(req) {
   });
 }
 
-// ── HTTP Server ──────────────────────────────────────────────
-const server = http.createServer((req, res) => {
-  const reqStart = Date.now();
-  res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';
-  const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const pathname = parsed.pathname;
-  const query = Object.fromEntries(parsed.searchParams);
-  // Redact any ?token= session token so it never reaches the HTTP access log.
-  const logSearch = parsed.search ? parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]') : '';
-
-  // HTTP Access Logging Middleware
-  const origEnd = res.end;
-  res.end = function(...args) {
-    origEnd.apply(res, args);
-    const duration = Date.now() - reqStart;
-    const now = Date.now();
-
-    httpMetrics.totalRequests++;
-    httpMetrics.totalResponseTimeMs += duration;
-    httpMetrics.recentRequestTimes.push(now);
-    if (httpMetrics.recentRequestTimes.length > MAX_RECENT_REQUEST_TIMES) {
-      httpMetrics.recentRequestTimes.splice(0, httpMetrics.recentRequestTimes.length - MAX_RECENT_REQUEST_TIMES);
-    }
-
-    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
-    if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
-      Logger.info('HTTP', `${req.method} ${pathname}${logSearch || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
-    } else {
-      Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
-    }
-  };
-
-  // Log share link access if present
-  if ((pathname === '/' || pathname === '') && query.file) {
-    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`, req, { path: query.file });
-  }
-
-  // Global API Rate Limiting Check (30 req/sec max)
-  if (pathname.startsWith('/api/')) {
-    if (!checkApiRateLimit(req, res)) {
-      return;
-    }
-  }
-
-  // API routes
-  if (pathname === '/api/tree' && req.method === 'GET') {
-    return handleTree(req, res);
-  }
-  if (pathname === '/api/file' && req.method === 'GET') {
-    return handleFile(req, res, query);
-  }
-  if (pathname === '/api/media' && (req.method === 'GET' || req.method === 'HEAD')) {
-    return handleMedia(req, res, query);
-  }
-  if (pathname === '/api/render' && req.method === 'GET') {
-    return handleRender(req, res, query);
-  }
-  if (pathname === '/api/section-index' && req.method === 'GET') {
-    return handleSectionIndex(req, res, query);
-  }
-  if (pathname === '/api/render-chunk' && req.method === 'GET') {
-    return handleRenderChunk(req, res, query);
-  }
-  if (pathname === '/api/search' && req.method === 'GET') {
-    return handleSearch(req, res, query);
-  }
-  if (pathname === '/api/search-file' && req.method === 'GET') {
-    return handleSearchFile(req, res, query);
-  }
-  if (pathname === '/api/dict-headwords' && req.method === 'GET') {
-    return handleDictHeadwords(req, res);
-  }
-  if (pathname === '/api/dict-search' && req.method === 'GET') {
-    return handleDictSearch(req, res, query);
-  }
-  if (pathname === '/api/dict-event' && req.method === 'POST') {
-    return handleDictEvent(req, res);
-  }
-
 // ── Analytics Aggregator & Data Exporter ────────────────────────────────────
 const analyticsCache = new Map();
 const ANALYTICS_CACHE_TTL = 60000; // 60s in-memory cache
@@ -4245,9 +4166,18 @@ function createBlacklistChecker(blackList) {
   };
 }
 
+const HOT_LIST_CACHE_TTL = 60000; // 60s memory cache to avoid scanning 90-day logs on every suggest-list call
+let hotListCache = null;
+let hotListCacheTime = 0;
+let hotListCacheKey = "";
+
 async function buildHotList(blackList) {
   const isBlacklisted = createBlacklistChecker(blackList);
   const now = Date.now();
+  const cacheKey = JSON.stringify(blackList || []);
+  if (hotListCache && hotListCacheKey === cacheKey && (now - hotListCacheTime) < HOT_LIST_CACHE_TTL) {
+    return hotListCache;
+  }
 
   // Collect top files for 7d, 30d, 90d windows
   const windows = [7, 30, 90];
@@ -4335,6 +4265,9 @@ async function buildHotList(blackList) {
       }
     }
   }
+  hotListCache = result;
+  hotListCacheTime = now;
+  hotListCacheKey = cacheKey;
   return result;
 }
 
@@ -4728,6 +4661,85 @@ async function handleAnalyticsExport(req, res, query) {
     return res.end(JSON.stringify(data, null, 2));
   }
 }
+
+// ── HTTP Server ──────────────────────────────────────────────
+const server = http.createServer((req, res) => {
+  const reqStart = Date.now();
+  res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';
+  const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = parsed.pathname;
+  const query = Object.fromEntries(parsed.searchParams);
+  // Redact any ?token= session token so it never reaches the HTTP access log.
+  const logSearch = parsed.search ? parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]') : '';
+
+  // HTTP Access Logging Middleware
+  const origEnd = res.end;
+  res.end = function(...args) {
+    origEnd.apply(res, args);
+    const duration = Date.now() - reqStart;
+    const now = Date.now();
+
+    httpMetrics.totalRequests++;
+    httpMetrics.totalResponseTimeMs += duration;
+    httpMetrics.recentRequestTimes.push(now);
+    if (httpMetrics.recentRequestTimes.length > MAX_RECENT_REQUEST_TIMES) {
+      httpMetrics.recentRequestTimes.splice(0, httpMetrics.recentRequestTimes.length - MAX_RECENT_REQUEST_TIMES);
+    }
+
+    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
+    if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
+      Logger.info('HTTP', `${req.method} ${pathname}${logSearch || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
+    } else {
+      Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
+    }
+  };
+
+  // Log share link access if present
+  if ((pathname === '/' || pathname === '') && query.file) {
+    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`, req, { path: query.file });
+  }
+
+  // Global API Rate Limiting Check (30 req/sec max)
+  if (pathname.startsWith('/api/')) {
+    if (!checkApiRateLimit(req, res)) {
+      return;
+    }
+  }
+
+  // API routes
+  if (pathname === '/api/tree' && req.method === 'GET') {
+    return handleTree(req, res);
+  }
+  if (pathname === '/api/file' && req.method === 'GET') {
+    return handleFile(req, res, query);
+  }
+  if (pathname === '/api/media' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleMedia(req, res, query);
+  }
+  if (pathname === '/api/render' && req.method === 'GET') {
+    return handleRender(req, res, query);
+  }
+  if (pathname === '/api/section-index' && req.method === 'GET') {
+    return handleSectionIndex(req, res, query);
+  }
+  if (pathname === '/api/render-chunk' && req.method === 'GET') {
+    return handleRenderChunk(req, res, query);
+  }
+  if (pathname === '/api/search' && req.method === 'GET') {
+    return handleSearch(req, res, query);
+  }
+  if (pathname === '/api/search-file' && req.method === 'GET') {
+    return handleSearchFile(req, res, query);
+  }
+  if (pathname === '/api/dict-headwords' && req.method === 'GET') {
+    return handleDictHeadwords(req, res);
+  }
+  if (pathname === '/api/dict-search' && req.method === 'GET') {
+    return handleDictSearch(req, res, query);
+  }
+  if (pathname === '/api/dict-event' && req.method === 'POST') {
+    return handleDictEvent(req, res);
+  }
 
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
