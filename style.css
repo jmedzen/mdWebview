@@ -27,6 +27,7 @@ html {
   overflow: hidden;
   height: 100%;
   width: 100%;
+  background-color: var(--header-bg);
 }
 
 body {
@@ -39,6 +40,8 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
+  background-color: var(--header-bg);
+  color: var(--text-primary);
 }
 
 /* ── Theme 1: Obsidian Dark (Default) ──────────────────────── */
@@ -286,9 +289,11 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  min-height: 48px;
-  padding: 0 16px;
+  height: calc(48px + env(safe-area-inset-top, 0px));
+  min-height: calc(48px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: calc(16px + env(safe-area-inset-left, 0px));
+  padding-right: calc(16px + env(safe-area-inset-right, 0px));
   background: var(--header-bg);
   backdrop-filter: blur(12px);
   will-change: transform;
@@ -1828,8 +1833,8 @@ kbd {
 /* ── Back to Top ───────────────────────────────────────────── */
 .back-to-top {
   position: fixed;
-  bottom: 28px;
-  right: 28px;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  right: calc(28px + env(safe-area-inset-right, 0px));
   width: 40px;
   height: 40px;
   border: none;
@@ -1894,8 +1899,8 @@ kbd {
 /* ── Page Search Bar ───────────────────────────────────────── */
 .page-search-bar {
   position: fixed;
-  top: 56px;
-  right: 20px;
+  top: calc(56px + env(safe-area-inset-top, 0px));
+  right: calc(20px + env(safe-area-inset-right, 0px));
   z-index: 200;
   opacity: 0;
   transform: translateY(-10px) scale(0.97);
@@ -2388,8 +2393,8 @@ kbd {
   .sidebar {
     position: fixed;
     left: 0;
-    top: 48px;
-    bottom: 0;
+    top: calc(48px + env(safe-area-inset-top, 0px));
+    bottom: env(safe-area-inset-bottom, 0px);
     z-index: 90;
     box-shadow: 4px 0 24px var(--shadow-color);
     width: 280px;
@@ -2407,7 +2412,7 @@ kbd {
   }
 
   .content-wrapper {
-    padding: 16px 12px 60px;
+    padding: 16px calc(12px + env(safe-area-inset-right, 0px)) calc(60px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
   }
 
   .file-title {

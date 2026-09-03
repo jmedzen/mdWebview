@@ -4012,6 +4012,14 @@
   // THEME
   // ═══════════════════════════════════════════════════════════
 
+  const THEME_HEADER_COLORS = {
+    'obsidian-dark': '#181825',
+    'obsidian-light': '#e6e9ef',
+    'solarized': '#002b36',
+    'zen': '#ece5d8',
+    'gruvbox': '#1d2021'
+  };
+
   function applyTheme(theme, saveToLocalStorage = true, notify = false) {
     document.documentElement.setAttribute('data-theme', theme);
     const select = $('themeSelect');
@@ -4023,6 +4031,13 @@
       localStorage.setItem('mdWebview-user-theme', theme);
     }
     state.currentTheme = theme;
+
+    // Dynamically update <meta name="theme-color"> so iOS Safari / PWA status bar matches the active theme
+    const themeColor = THEME_HEADER_COLORS[theme] || '#181825';
+    const metaEl = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
+    if (metaEl) {
+      metaEl.setAttribute('content', themeColor);
+    }
 
     // Force Mobile WebKit/Chromium GPU composite layer repaint for active file pill
     const activePill = $('headerActiveFile');
