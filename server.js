@@ -3556,6 +3556,10 @@ async function handleSearchFile(req, res, query) {
   }
 }
 
+// ── Static Asset In-Memory Cache ─────────────────────────────
+const staticCache = new Map(); // resolvedPath -> { mtimeMs, size, etag, headers, data, cachedAt }
+const STATIC_CACHE_TTL_MS = 5000; // 5s revalidation window: zero fs.stat within 5s
+
 function serveStatic(req, res, pathname) {
   // Restrict methods for static files
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -3585,23 +3589,27 @@ function serveStatic(req, res, pathname) {
   const baseName = path.basename(resolved);
   const ext = path.extname(resolved).toLowerCase();
 
-  // 1. Blacklist Check: Block hidden files/folders, server backend source code, worker threads, and project config files
+  // 1. Blacklist Check: Block hidden files/folders, server backend source code, sensitive folders, and project config files
   const isHiddenFile = baseName.startsWith('.') || relative.split(path.sep).some(segment => segment.startsWith('.'));
-  const isServerSource = baseName === 'server.js' || baseName === 'render-worker.js' || baseName === 'md-worker.js' || baseName === 'index-worker.js';
+  // Note: md-worker.js is a client-side Web Worker, not server backend source.
+  const isServerSource = baseName === 'server.js' || baseName === 'render-worker.js' || baseName === 'index-worker.js';
+  const isSensitiveFolder = relative.split(path.sep).some(segment => [
+    'node_modules', 'logs', 'dicts', 'data', '.git', '.github'
+  ].includes(segment));
   const isSensitiveConfig = resolved === CONFIG_PATH || 
                             baseName === 'package.json' || 
                             baseName === 'package-lock.json' || 
                             baseName === 'Dockerfile' || 
                             baseName.toLowerCase() === 'readme.md';
 
-  if (!isSafe || isHiddenFile || isServerSource || isSensitiveConfig) {
+  if (!isSafe || isHiddenFile || isServerSource || isSensitiveFolder || isSensitiveConfig) {
     res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Forbidden');
     return;
   }
 
   // 2. Whitelist Check: Allow explicit public client assets and safe static media/font/document extensions
-  const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 'favicon.ico']);
+  const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 's2t.js', 'md-worker.js', 'favicon.ico']);
   const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf', '.pdf']);
 
   const isAllowedExact = ALLOWED_EXACT_FILES.has(baseName);
@@ -3638,8 +3646,28 @@ function serveStatic(req, res, pathname) {
     return;
   }
 
+  // Helper to send cached static asset with 304 support
+  const serveCached = (entry) => {
+    if (req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, Object.assign({ 'ETag': entry.etag, 'Cache-Control': entry.headers['Cache-Control'] }, SECURITY_HEADERS));
+      res.end();
+      return;
+    }
+    sendCompressed(req, res, 200, entry.headers, entry.data);
+  };
+
+  const now = Date.now();
+  const cached = staticCache.get(resolved);
+
+  // If cache entry is fresh within STATIC_CACHE_TTL_MS, serve immediately (0 fs.stat, 0 fs.readFile)
+  if (cached && (now - cached.cachedAt) < STATIC_CACHE_TTL_MS) {
+    serveCached(cached);
+    return;
+  }
+
   fs.stat(resolved, (err, stats) => {
     if (err || !stats.isFile()) {
+      if (cached) staticCache.delete(resolved);
       // Fallback to index.html for SPA routing
       const nonce = crypto.randomBytes(16).toString('base64');
       getIndexHtml(nonce, (err2, data) => {
@@ -3668,18 +3696,16 @@ function serveStatic(req, res, pathname) {
       return;
     }
 
-    // Static file found — generate weak ETag based on size and mtime
-    const mtime = stats.mtime.getTime();
+    // Revalidate cached entry: if mtime and size match, freshen timestamp and serve
+    const mtimeMs = stats.mtimeMs;
     const size = stats.size;
-    const etag = `W/"${size}-${mtime}"`;
-
-    if (req.headers['if-none-match'] === etag) {
-      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
-      res.end();
+    if (cached && cached.mtimeMs === mtimeMs && cached.size === size) {
+      cached.cachedAt = now;
+      serveCached(cached);
       return;
     }
 
-    const ext = path.extname(resolved).toLowerCase();
+    const etag = `W/"${size}-${Math.floor(mtimeMs)}"`;
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
     // Set Cache-Control: immutable for versioned assets, no-cache for code, long cache for images
@@ -3704,7 +3730,19 @@ function serveStatic(req, res, pathname) {
         res.end('Server Error');
         return;
       }
-      sendCompressed(req, res, 200, headers, data);
+      // Cache assets up to 5MB in memory
+      if (size <= 5 * 1024 * 1024) {
+        const entry = { mtimeMs, size, etag, headers, data, cachedAt: now };
+        staticCache.set(resolved, entry);
+        serveCached(entry);
+      } else {
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': cacheControl }, SECURITY_HEADERS));
+          res.end();
+          return;
+        }
+        sendCompressed(req, res, 200, headers, data);
+      }
     });
   });
 }
