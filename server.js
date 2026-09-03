@@ -1453,6 +1453,162 @@ async function handleSitemapXml(req, res) {
   }
 }
 
+// ── SEO: Crawler Detection & Dynamic SSR Pre-rendering ────────
+const CRAWLER_UA_REGEX = /googlebot|bingbot|yandex|baiduspider|duckduckbot|slurp|sogou|exabot|facebookexternalhit|facebot|twitterbot|rogerbot|linkedinbot|embedly|quoralinkpreview|showyoubot|outbrain|pinterest|slackbot|vkshare|w3c_validator/i;
+
+function isCrawlerRequest(req, query) {
+  if (query && (query.crawler === '1' || query.ssr === '1')) return true;
+  const ua = req.headers['user-agent'] || '';
+  return CRAWLER_UA_REGEX.test(ua);
+}
+
+function extractMarkdownMetadata(rawMarkdown, fallbackName) {
+  let title = fallbackName;
+  // Match first heading: '# Title' or '## Title'
+  const headingMatch = rawMarkdown.match(/^#{1,3}\s+(.+)$/m);
+  if (headingMatch) {
+    title = headingMatch[1].replace(/[*_~`]/g, '').trim();
+  }
+
+  // Extract description: first non-empty paragraph, stripped of markdown symbols
+  const lines = rawMarkdown.split('\n');
+  const descLines = [];
+  let inFrontmatter = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (descLines.length > 0) break;
+      continue;
+    }
+    if (trimmed === '---') {
+      inFrontmatter = !inFrontmatter;
+      continue;
+    }
+    if (inFrontmatter) continue;
+    if (trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('![')) continue; // skip images
+    if (trimmed.startsWith('```')) continue; // skip code blocks
+
+    const cleanLine = trimmed
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // link text
+      .replace(/[*_~`]/g, '')
+      .replace(/^>\s*/, '');
+    if (cleanLine) {
+      descLines.push(cleanLine);
+      if (descLines.join(' ').length >= 160) break;
+    }
+  }
+
+  let description = descLines.join(' ').slice(0, 180).trim();
+  if (!description) {
+    description = `${title} — 線上閱讀佛典經論釋記。`;
+  } else if (description.length >= 180) {
+    description += '...';
+  }
+
+  return { title, description };
+}
+
+async function handleCrawlerSsr(req, res, filePath, query) {
+  if (!filePath || filePath.includes('\0')) {
+    res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Invalid file parameter');
+  }
+
+  const fullPath = path.join(getMdRoot(), filePath);
+  const resolved = path.resolve(fullPath);
+  const relative = path.relative(getMdRoot(), resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Access denied');
+  }
+
+  try {
+    if (!(await isRealPathWithinMdRoot(resolved))) {
+      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+      return res.end('Access denied');
+    }
+
+    const rawMarkdown = await fs.promises.readFile(resolved, 'utf-8');
+    const fallbackName = path.basename(filePath, '.md');
+    const { title, description } = extractMarkdownMetadata(rawMarkdown, fallbackName);
+
+    // Render markdown to static HTML
+    let bodyHtml = '';
+    try {
+      bodyHtml = await renderWithWorker(rawMarkdown, filePath);
+    } catch (_) {
+      bodyHtml = marked.parse(rawMarkdown);
+    }
+
+    const nonce = crypto.randomBytes(16).toString('base64');
+    getIndexHtml(nonce, (err, baseHtmlBuffer) => {
+      if (err) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+        return res.end('Server Error');
+      }
+
+      let html = baseHtmlBuffer.toString('utf-8');
+      const baseUrl = getBaseUrl(req);
+      const canonicalUrl = `${baseUrl}/?file=${encodeURIComponent(filePath)}`;
+      const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
+      const pageTitle = `${escapeHtmlString(title)} — ${siteName}`;
+      const safeDesc = escapeHtmlString(description);
+
+      // 1. Replace Title
+      html = html.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
+
+      // 2. Replace Description
+      html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
+
+      // 3. Inject OpenGraph & Canonical & Schema.org JSON-LD into <head>
+      const jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": title,
+        "description": description,
+        "mainEntityOfPage": canonicalUrl,
+        "inLanguage": "zh-TW"
+      };
+
+      const seoHead = [
+        `<link rel="canonical" href="${canonicalUrl}">`,
+        `<meta property="og:title" content="${pageTitle}">`,
+        `<meta property="og:description" content="${safeDesc}">`,
+        `<meta property="og:type" content="article">`,
+        `<meta property="og:url" content="${canonicalUrl}">`,
+        `<meta name="twitter:card" content="summary">`,
+        `<meta name="twitter:title" content="${pageTitle}">`,
+        `<meta name="twitter:description" content="${safeDesc}">`,
+        `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>`
+      ].join('\n  ');
+
+      html = html.replace('</head>', `  ${seoHead}\n</head>`);
+
+      // 4. Hide welcomeScreen and reveal contentWrapper with pre-rendered markdown
+      html = html.replace(/<div class="welcome-screen" id="welcomeScreen">/i, '<div class="welcome-screen" id="welcomeScreen" style="display:none">');
+      html = html.replace(/<div class="content-wrapper" id="contentWrapper" style="display:none">/i, '<div class="content-wrapper" id="contentWrapper" style="display:block">');
+      html = html.replace(/<div class="content-header" id="contentHeader"><\/div>/i, `<div class="content-header" id="contentHeader"><h1 class="file-title">${escapeHtmlString(title)}</h1></div>`);
+      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, `<article class="markdown-body" id="markdownBody">${bodyHtml}</article>`);
+
+      const renderedBuf = Buffer.from(html, 'utf-8');
+      const headers = indexHtmlHeaders({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=1800'
+      }, nonce);
+      sendCompressed(req, res, 200, headers, renderedBuf);
+    });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+      return res.end('File not found');
+    }
+    Logger.error('SSR', 'Crawler SSR rendering failed', err, req);
+    res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    res.end('Server Error');
+  }
+}
+
 // ── API: File Content ────────────────────────────────────────
 async function handleFile(req, res, query) {
   const filePath = query.path;
@@ -5031,9 +5187,12 @@ const server = http.createServer((req, res) => {
     }
   };
 
-  // Log share link access if present
+  // Log share link access if present, and handle Crawler Dynamic SSR if requested by bot or debug param
   if ((pathname === '/' || pathname === '') && query.file) {
     Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`, req, { path: query.file });
+    if (isCrawlerRequest(req, query) && (req.method === 'GET' || req.method === 'HEAD')) {
+      return handleCrawlerSsr(req, res, query.file, query);
+    }
   }
 
   // Global API Rate Limiting Check (30 req/sec max)
