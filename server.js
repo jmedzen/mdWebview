@@ -1050,6 +1050,20 @@ function getIndexHtml(nonce, callback) {
     const defaultFontSize = parseInt(config.settings.defaultFontSize, 10) || 16;
     const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
 
+    // 4. Inject matching theme-color for iOS PWA / Safari status bar
+    const themeHeaderColors = {
+      'obsidian-dark': '#181825',
+      'obsidian-light': '#e6e9ef',
+      'solarized': '#002b36',
+      'zen': '#ece5d8',
+      'gruvbox': '#1d2021'
+    };
+    const initialThemeColor = themeHeaderColors[defaultTheme] || '#181825';
+    html = html.replace(
+      /<meta name="theme-color" id="metaThemeColor" content="[^"]*">/i,
+      `<meta name="theme-color" id="metaThemeColor" content="${initialThemeColor}">`
+    );
+
     // 1. Inject theme & font-size into <html> element
     html = html.replace(/<html([^>]*)>/i, (match, p1) => {
       let attrs = p1;
@@ -1060,9 +1074,9 @@ function getIndexHtml(nonce, callback) {
       }
 
       if (/style="[^"]*"/i.test(attrs)) {
-        attrs = attrs.replace(/style="([^"]*)"/i, `style="$1; --content-font-size: ${defaultFontSize}px;"`);
+        attrs = attrs.replace(/style="([^"]*)"/i, `style="$1; --content-font-size: ${defaultFontSize}px; background-color: ${initialThemeColor};"`);
       } else {
-        attrs += ` style="--content-font-size: ${defaultFontSize}px;"`;
+        attrs += ` style="--content-font-size: ${defaultFontSize}px; background-color: ${initialThemeColor};"`;
       }
       return `<html${attrs}>`;
     });
@@ -1083,27 +1097,13 @@ function getIndexHtml(nonce, callback) {
       `<span class="logo-text">${siteName}</span>`
     );
 
-    // 4. Inject matching theme-color for iOS PWA / Safari status bar
-    const themeHeaderColors = {
-      'obsidian-dark': '#181825',
-      'obsidian-light': '#e6e9ef',
-      'solarized': '#002b36',
-      'zen': '#ece5d8',
-      'gruvbox': '#1d2021'
-    };
-    const initialThemeColor = themeHeaderColors[defaultTheme] || '#181825';
-    html = html.replace(
-      /<meta name="theme-color" id="metaThemeColor" content="[^"]*">/i,
-      `<meta name="theme-color" id="metaThemeColor" content="${initialThemeColor}">`
-    );
-
-    // 4. Inject server config script
+    // 5. Inject server config script (with synchronous 0ms theme boot for iOS PWA)
     // Strip the absolute vault path: the frontend never reads mdRoot from this
     // payload, and shipping it on every page load would disclose the filesystem.
     const clientSettings = Object.assign({}, config.settings);
     delete clientSettings.mdRoot;
     delete clientSettings.dictionaryPath;
-    const configScript = `<script nonce="${nonce}">window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
+    const configScript = `<script nonce="${nonce}">(function(){try{var t=localStorage.getItem('mdWebview-user-theme')||${safeJsonForScript(defaultTheme)};var c={'obsidian-dark':'#181825','obsidian-light':'#e6e9ef','solarized':'#002b36','zen':'#ece5d8','gruvbox':'#1d2021'}[t]||'#181825';document.documentElement.setAttribute('data-theme',t);document.documentElement.style.backgroundColor=c;var m=document.getElementById('metaThemeColor');if(m)m.setAttribute('content',c);}catch(e){}})();window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
     } else {

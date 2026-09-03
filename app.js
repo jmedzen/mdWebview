@@ -4039,6 +4039,8 @@
 
     // Dynamically update <meta name="theme-color"> so iOS Safari / PWA status bar matches the active theme
     const themeColor = THEME_HEADER_COLORS[theme] || '#181825';
+    document.documentElement.style.backgroundColor = themeColor;
+    if (document.body) document.body.style.backgroundColor = themeColor;
     const metaEl = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
     if (metaEl) {
       metaEl.setAttribute('content', themeColor);
