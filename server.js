@@ -709,6 +709,146 @@ function renderWithWorker(body, filePath, lineOffset) {
   });
 }
 
+// ── Index & Search Worker Pool (Persistent Worker Pool for index-worker.js) ──
+const INDEX_POOL_SIZE = Math.max(2, Math.min((os.cpus().length || 4) - 1, 8));
+const indexWorkerPool = [];
+const indexJobCallbacks = new Map(); // jobId -> { resolve, reject, timeoutTimer }
+let indexJobSeq = 0;
+const indexJobQueue = []; // FIFO queue for pending index/search tasks
+
+function createIndexWorker(index) {
+  const WORKER_PATH = path.join(APP_ROOT, "index-worker.js");
+  const w = new Worker(WORKER_PATH);
+  w.idle = true;
+  w.currentJobId = null;
+  w.index = index;
+
+  w.on("message", (msg) => {
+    const { jobId, ok, result, error } = msg;
+    const cb = indexJobCallbacks.get(jobId);
+    if (cb) {
+      indexJobCallbacks.delete(jobId);
+      if (cb.timeoutTimer) clearTimeout(cb.timeoutTimer);
+      if (ok) cb.resolve(result);
+      else cb.reject(new Error(error || "index worker error"));
+    }
+    w.currentJobId = null;
+    w.idle = true;
+    flushIndexJobQueue();
+  });
+
+  w.on("error", (err) => {
+    Logger.error("IndexWorkerPool", `[Worker #${w.index}] Thread error`, err);
+    if (w.currentJobId) {
+      const cb = indexJobCallbacks.get(w.currentJobId);
+      if (cb) {
+        indexJobCallbacks.delete(w.currentJobId);
+        if (cb.timeoutTimer) clearTimeout(cb.timeoutTimer);
+        cb.reject(err);
+      }
+      w.currentJobId = null;
+    }
+    w.idle = true;
+    flushIndexJobQueue();
+  });
+
+  w.on("exit", (code) => {
+    if (w.terminated) return;
+    if (code !== 0) {
+      console.warn(`[IndexWorker ${w.index}] Exited with code ${code}. Re-spawning...`);
+    }
+    if (w.currentJobId) {
+      const cb = indexJobCallbacks.get(w.currentJobId);
+      if (cb) {
+        indexJobCallbacks.delete(w.currentJobId);
+        if (cb.timeoutTimer) clearTimeout(cb.timeoutTimer);
+        cb.reject(new Error(`Index worker thread terminated unexpectedly with code ${code}`));
+      }
+      w.currentJobId = null;
+    }
+    const idx = indexWorkerPool.indexOf(w);
+    if (idx !== -1) {
+      indexWorkerPool.splice(idx, 1);
+    }
+    const newWorker = createIndexWorker(w.index);
+    indexWorkerPool.push(newWorker);
+    flushIndexJobQueue();
+  });
+
+  return w;
+}
+
+function initIndexWorkerPool() {
+  if (indexWorkerPool.length > 0) return;
+  for (let i = 0; i < INDEX_POOL_SIZE; i++) {
+    const w = createIndexWorker(i);
+    indexWorkerPool.push(w);
+  }
+  console.log(`  Workers: ${INDEX_POOL_SIZE} index/search thread(s) ready`);
+}
+
+function getIndexWorkerPool() {
+  if (indexWorkerPool.length === 0) {
+    initIndexWorkerPool();
+  }
+  return indexWorkerPool;
+}
+
+function flushIndexJobQueue() {
+  if (indexJobQueue.length === 0) return;
+  const pool = getIndexWorkerPool();
+  const freeWorker = pool.find(w => w.idle);
+  if (!freeWorker) return;
+  const { jobId, message, resolve, reject, timeoutMs } = indexJobQueue.shift();
+  dispatchIndexJobToWorker(freeWorker, jobId, message, resolve, reject, timeoutMs);
+}
+
+function dispatchIndexJobToWorker(worker, jobId, message, resolve, reject, timeoutMs = JOB_TIMEOUT_MS) {
+  let timeoutTimer = null;
+  if (timeoutMs > 0) {
+    timeoutTimer = setTimeout(() => {
+      const cb = indexJobCallbacks.get(jobId);
+      if (cb) {
+        indexJobCallbacks.delete(jobId);
+        cb.reject(new Error(`Index worker job #${jobId} timed out after ${timeoutMs}ms`));
+        if (worker.currentJobId === jobId) {
+          Logger.warn("IndexWorkerPool", `[Worker #${worker.index}] Timed out on job #${jobId}. Terminating & respawning worker...`);
+          worker.terminated = true;
+          try { worker.terminate(); } catch (_) {}
+          const idx = indexWorkerPool.indexOf(worker);
+          if (idx !== -1) indexWorkerPool.splice(idx, 1);
+          const newWorker = createIndexWorker(worker.index);
+          indexWorkerPool.push(newWorker);
+          flushIndexJobQueue();
+        }
+      }
+    }, timeoutMs);
+  }
+
+  indexJobCallbacks.set(jobId, { resolve, reject, timeoutTimer });
+  worker.currentJobId = jobId;
+  worker.idle = false;
+  worker.postMessage({ jobId, ...message });
+}
+
+/**
+ * Universal single-job executor for index-worker tasks (e.g. section parsing, ad-hoc tasks).
+ * Callable from anywhere across the entire system.
+ */
+function executeIndexJob(type, payload, timeoutMs = JOB_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const pool = getIndexWorkerPool();
+    const jobId = `idx-${++indexJobSeq}`;
+    const message = { type, ...payload };
+    const freeWorker = pool.find(w => w.idle);
+    if (freeWorker) {
+      dispatchIndexJobToWorker(freeWorker, jobId, message, resolve, reject, timeoutMs);
+    } else {
+      indexJobQueue.push({ jobId, message, resolve, reject, timeoutMs });
+    }
+  });
+}
+
 const PORT = process.env.PORT || 8330;
 const APP_ROOT = path.resolve(process.cwd());
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(APP_ROOT, 'config.json');
@@ -1753,32 +1893,12 @@ function invalidateDictSectionIndexes() {
  * Section scanning is IO-bound, so files are parallelized across workers by the
  * caller (one worker per file), never within a single file.
  */
+/**
+ * Builds a section index for one file using the persistent IndexWorkerPool.
+ * Section scanning is offloaded to the pool, avoiding per-file OS thread spawning.
+ */
 function buildSectionIndex(relPath, fullPath) {
-  return new Promise((resolve, reject) => {
-    const WORKER_PATH = path.join(APP_ROOT, 'index-worker.js');
-    const w = new Worker(WORKER_PATH);
-    const jobId = `section-${++sectionJobSeq}`;
-    let settled = false;
-    let timeout = null;
-    const finish = (fn, arg) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      try { w.terminate(); } catch (_) {}
-      fn(arg);
-    };
-    // A hung section-scan worker would otherwise leave the request promise pending
-    // forever; time out and terminate it like the render pool does.
-    timeout = setTimeout(() => finish(reject, new Error('section worker timed out')), JOB_TIMEOUT_MS);
-    w.on('message', ({ jobId: rId, ok, result, error }) => {
-      if (rId !== jobId) return;
-      if (ok) finish(resolve, result);
-      else finish(reject, new Error(error || 'section worker failed'));
-    });
-    w.on('error', (err) => finish(reject, err));
-    w.on('exit', (code) => finish(reject, new Error(`section worker exited with code ${code}`)));
-    w.postMessage({ type: 'section', jobId, fullPath });
-  });
+  return executeIndexJob("section", { fullPath });
 }
 
 async function getSectionIndex(fullPath, stat, relPath) {
@@ -2312,66 +2432,42 @@ let activeIndexBuildId = 0;
 // Runs a pool of transient worker_threads over `tasks` with a shared counter.
 // `buildMessage(task)` → { type, payload } (jobId is added by the pool);
 // `onMessage(result, task)` processes one worker result (may throw to abort the pool).
+/**
+ * Runs batch tasks over the persistent IndexWorkerPool with controlled concurrency.
+ * Callable across the entire system for full-text search scans, file scans, and bigram index builds.
+ * @param {Array} tasks - Array of task items (e.g. file or unit groups).
+ * @param {Function} buildMessage - (task) => ({ type, payload }).
+ * @param {Function} onMessage - (result, task) => void (may throw to abort).
+ * @param {number} concurrency - maximum parallel tasks to run concurrently (defaults to pool size).
+ */
 async function runIndexWorkerPool(tasks, buildMessage, onMessage, concurrency) {
-  let next = 0;
-  const total = tasks.length;
-  if (total === 0) return;
+  if (!tasks || tasks.length === 0) return;
+  const pool = getIndexWorkerPool();
+  const poolCapacity = pool.length || INDEX_POOL_SIZE;
+  const limit = Math.max(1, Math.min(concurrency || poolCapacity, poolCapacity));
+  let taskIdx = 0;
+  let activeError = null;
 
-  async function runWorker(workerId) {
-    const w = new Worker(path.join(APP_ROOT, 'index-worker.js'));
-    let seq = 0;
-    const pending = new Map(); // jobId -> { resolve, reject }
-    w.on('message', (msg) => {
-      const p = pending.get(msg.jobId);
-      if (!p) return;
-      pending.delete(msg.jobId);
-      if (msg.ok) p.resolve(msg.result);
-      else p.reject(new Error(msg.error || 'index worker error'));
-    });
-    w.on('error', (err) => {
-      for (const p of pending.values()) p.reject(err);
-      pending.clear();
-    });
-    w.on('exit', (code) => {
-      if (code !== 0) {
-        for (const p of pending.values()) p.reject(new Error('index worker exited ' + code));
-        pending.clear();
-      }
-    });
-
-    const request = (type, payload) => new Promise((resolve, reject) => {
-      const jobId = `w${workerId}-${++seq}`;
-      // Time out a hung scan so the thread and pending request don't leak forever.
-      const timer = setTimeout(() => {
-        if (pending.has(jobId)) {
-          pending.delete(jobId);
-          reject(new Error('index worker job timed out'));
-        }
-      }, JOB_TIMEOUT_MS);
-      pending.set(jobId, {
-        resolve: (v) => { clearTimeout(timer); resolve(v); },
-        reject: (e) => { clearTimeout(timer); reject(e); },
-      });
-      w.postMessage({ type, jobId, ...payload });
-    });
-
-    try {
-      while (true) {
-        const i = next++;
-        if (i >= total) break;
-        const task = tasks[i];
-        const { type, payload } = buildMessage(task);
-        const result = await request(type, payload);
+  async function workerRunner() {
+    while (taskIdx < tasks.length && !activeError) {
+      const curIdx = taskIdx++;
+      const task = tasks[curIdx];
+      const msg = buildMessage(task);
+      try {
+        const result = await executeIndexJob(msg.type, msg.payload);
         onMessage(result, task);
+      } catch (err) {
+        activeError = err;
+        throw err;
       }
-    } finally {
-      try { w.terminate(); } catch (_) {}
     }
   }
 
-  const workers = [];
-  for (let i = 0; i < concurrency; i++) workers.push(runWorker(i));
-  await Promise.all(workers);
+  const runners = [];
+  for (let i = 0; i < limit; i++) {
+    runners.push(workerRunner());
+  }
+  await Promise.all(runners);
 }
 
 async function buildSearchIndexAsync(forceRebuild = false) {
@@ -4562,8 +4658,12 @@ async function getSystemHardwareStats() {
       activeSessions: activeSessions
     },
     workers: {
-      count: workerPool.length,
-      idle: workerPool.filter(w => w.idle).length
+      renderCount: workerPool.length,
+      renderIdle: workerPool.filter(w => w.idle).length,
+      indexCount: indexWorkerPool.length,
+      indexIdle: indexWorkerPool.filter(w => w.idle).length,
+      count: workerPool.length + indexWorkerPool.length,
+      idle: workerPool.filter(w => w.idle).length + indexWorkerPool.filter(w => w.idle).length
     }
   };
 }
@@ -5010,25 +5110,40 @@ const server = http.createServer((req, res) => {
 });
 
 initWorkerPool();
+initIndexWorkerPool();
 
-server.listen(PORT, () => {
-  console.log('');
-  console.log('  🪷  mdWebview is running');
-  console.log('  ───────────────────────');
-  console.log(`  Local:   http://localhost:${PORT}`);
-  console.log(`  Vault:   ${getMdRoot()}`);
-  console.log('');
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log('');
+    console.log('  🪷  mdWebview is running');
+    console.log('  ───────────────────────');
+    console.log(`  Local:   http://localhost:${PORT}`);
+    console.log(`  Vault:   ${getMdRoot()}`);
+    console.log('');
 
-  // Eagerly build Bigram Inverted Index in background on boot
-  buildSearchIndexAsync().catch(() => {});
+    // Eagerly build Bigram Inverted Index in background on boot
+    buildSearchIndexAsync().catch(() => {});
 
-  // Set up the dictionary directory watcher (and index) at boot so the index
-  // rebuilds automatically when dictionary files change — not only on fulltext.
-  if (config.settings.dictionaryEnabled) {
-    setupDictWatcher();
-    buildDictIndexAsync().catch(() => {});
-    // Warm the (large) dictionary section indexes so the first entry open is
-    // fast even after a restart, independent of the bigram index build above.
-    warmDictSectionIndexes().catch(() => {});
-  }
-});
+    // Set up the dictionary directory watcher (and index) at boot so the index
+    // rebuilds automatically when dictionary files change — not only on fulltext.
+    if (config.settings.dictionaryEnabled) {
+      setupDictWatcher();
+      buildDictIndexAsync().catch(() => {});
+      // Warm the (large) dictionary section indexes so the first entry open is
+      // fast even after a restart, independent of the bigram index build above.
+      warmDictSectionIndexes().catch(() => {});
+    }
+  });
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    server,
+    workerPool,
+    indexWorkerPool,
+    executeIndexJob,
+    runIndexWorkerPool,
+    renderWithWorker,
+    buildSectionIndex
+  };
+}
