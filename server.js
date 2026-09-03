@@ -1183,6 +1183,7 @@ function sendJSON(res, statusCode, data) {
 }
 
 let cachedTree = null;
+let cachedSitemapXml = null;
 let treeWatcher = null;
 const searchCache = new Map(); // key: "folder::q" -> { time, data }
 const SEARCH_CACHE_MAX = 30;
@@ -1225,8 +1226,9 @@ function setupTreeWatcher() {
           return;
         }
 
-        // Invalidate tree and search cache
+        // Invalidate tree, search and sitemap cache
         cachedTree = null;
+        cachedSitemapXml = null;
         searchCache.clear();
         invalidateSectionIndexes();
 
@@ -1258,6 +1260,7 @@ function resetTreeWatcher() {
     treeWatcher = null;
   }
   cachedTree = null;
+  cachedSitemapXml = null;
   searchCache.clear();
   searchIndex.ready = false;
   Logger.info('Index', 'Vault configuration changed: Resetting tree watcher and Bigram Index');
@@ -1291,12 +1294,18 @@ async function scanDirAsync(dir, relativePath) {
       );
     } else if (entry.name.endsWith('.md')) {
       let fileSize = 0;
-      try { fileSize = fs.statSync(fullPath).size; } catch (_) {}
+      let fileMtime = null;
+      try {
+        const st = fs.statSync(fullPath);
+        fileSize = st.size;
+        fileMtime = st.mtime;
+      } catch (_) {}
       result.push({
         name: entry.name.replace(/\.md$/, ''),
         path: relPath,
         type: 'file',
-        size: fileSize
+        size: fileSize,
+        mtime: fileMtime
       });
     }
   }
@@ -1321,6 +1330,126 @@ async function handleTree(req, res) {
   } catch (err) {
     Logger.error('Tree', 'Failed to scan vault directory', err, req);
     sendJSON(res, 500, { error: 'Failed to load file tree' });
+  }
+}
+
+// ── SEO: Helper Functions & Handlers ─────────────────────────
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function getBaseUrl(req) {
+  if (process.env.SITE_URL) {
+    return process.env.SITE_URL.replace(/\/+$/, '');
+  }
+  const rawProto = req.headers['x-forwarded-proto'] || (req.socket && req.socket.encrypted ? 'https' : 'http');
+  const proto = rawProto.split(',')[0].trim();
+  const rawHost = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+  const host = rawHost.split(',')[0].trim();
+  return `${proto}://${host}`;
+}
+
+function flattenMarkdownFiles(nodes, acc = []) {
+  if (!Array.isArray(nodes)) return acc;
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      acc.push(node);
+    } else if (node.type === 'directory' && Array.isArray(node.children)) {
+      flattenMarkdownFiles(node.children, acc);
+    }
+  }
+  return acc;
+}
+
+function handleRobotsTxt(req, res) {
+  const baseUrl = getBaseUrl(req);
+  const robots = [
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /api/',
+    '',
+    `Sitemap: ${baseUrl}/sitemap.xml`,
+    ''
+  ].join('\n');
+
+  res.writeHead(200, Object.assign({
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'public, max-age=86400',
+    'X-Content-Type-Options': 'nosniff'
+  }, SECURITY_HEADERS));
+  res.end(robots);
+}
+
+async function handleSitemapXml(req, res) {
+  setupTreeWatcher();
+  const baseUrl = getBaseUrl(req);
+
+  if (cachedSitemapXml) {
+    res.writeHead(200, Object.assign({
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Content-Type-Options': 'nosniff'
+    }, SECURITY_HEADERS));
+    return res.end(cachedSitemapXml);
+  }
+
+  try {
+    let tree = cachedTree;
+    if (!tree) {
+      tree = await scanDirAsync(getMdRoot(), '');
+      cachedTree = tree;
+    }
+
+    const files = flattenMarkdownFiles(tree);
+    const today = new Date().toISOString().slice(0, 10);
+
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+    // 1. Homepage
+    xml += '  <url>\n';
+    xml += `    <loc>${escapeXml(baseUrl)}/</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>1.0</priority>\n';
+    xml += '  </url>\n';
+
+    // 2. All Markdown Files
+    for (const file of files) {
+      const locUrl = `${baseUrl}/?file=${encodeURIComponent(file.path)}`;
+      let lastmod = today;
+      if (file.mtime) {
+        try {
+          lastmod = new Date(file.mtime).toISOString().slice(0, 10);
+        } catch (_) {}
+      }
+      xml += '  <url>\n';
+      xml += `    <loc>${escapeXml(locUrl)}</loc>\n`;
+      xml += `    <lastmod>${lastmod}</lastmod>\n`;
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.8</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>\n';
+
+    cachedSitemapXml = xml;
+
+    res.writeHead(200, Object.assign({
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Content-Type-Options': 'nosniff'
+    }, SECURITY_HEADERS));
+    res.end(xml);
+  } catch (err) {
+    Logger.error('SEO', 'Failed to generate sitemap.xml', err, req);
+    res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    res.end('Failed to generate sitemap.xml');
   }
 }
 
@@ -3623,8 +3752,8 @@ function serveStatic(req, res, pathname) {
   }
 
   // 2. Whitelist Check: Allow explicit public client assets and safe static media/font/document extensions
-  const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 's2t.js', 'md-worker.js', 'favicon.ico']);
-  const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf', '.pdf']);
+  const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 's2t.js', 'md-worker.js', 'favicon.ico', 'robots.txt', 'sitemap.xml']);
+  const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf', '.pdf', '.xml', '.txt']);
 
   const isAllowedExact = ALLOWED_EXACT_FILES.has(baseName);
   const isAllowedExt = ALLOWED_EXTENSIONS.has(ext);
@@ -4912,6 +5041,14 @@ const server = http.createServer((req, res) => {
     if (!checkApiRateLimit(req, res)) {
       return;
     }
+  }
+
+  // SEO routes
+  if (pathname === '/robots.txt' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleRobotsTxt(req, res);
+  }
+  if (pathname === '/sitemap.xml' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleSitemapXml(req, res);
   }
 
   // API routes
