@@ -902,7 +902,7 @@ function loadConfig() {
       if (parsed.settings) {
         config.settings = { ...config.settings, ...parsed.settings };
       }
-      if (parsed.admin) {
+      if (parsed.admin !== undefined) {
         config.admin = parsed.admin;
       }
     }
@@ -1081,6 +1081,20 @@ function getIndexHtml(nonce, callback) {
     html = html.replace(
       /<span class="logo-text">.*?<\/span>/i,
       `<span class="logo-text">${siteName}</span>`
+    );
+
+    // 4. Inject matching theme-color for iOS PWA / Safari status bar
+    const themeHeaderColors = {
+      'obsidian-dark': '#181825',
+      'obsidian-light': '#e6e9ef',
+      'solarized': '#002b36',
+      'zen': '#ece5d8',
+      'gruvbox': '#1d2021'
+    };
+    const initialThemeColor = themeHeaderColors[defaultTheme] || '#181825';
+    html = html.replace(
+      /<meta name="theme-color" id="metaThemeColor" content="[^"]*">/i,
+      `<meta name="theme-color" id="metaThemeColor" content="${initialThemeColor}">`
     );
 
     // 4. Inject server config script
@@ -3769,14 +3783,18 @@ const MAX_LOGIN_ENTRIES = 10000;
 
 function getClientIP(req) {
   let ip = '';
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded && typeof forwarded === 'string') {
-    ip = forwarded.split(',')[0].trim();
-  }
-  if (!ip || !net.isIP(ip)) {
-    const realIp = req.headers['x-real-ip'];
-    if (realIp && typeof realIp === 'string' && net.isIP(realIp.trim())) {
-      ip = realIp.trim();
+  // Only trust X-Forwarded-For / X-Real-IP when TRUST_PROXY environment variable is set
+  const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1';
+  if (trustProxy) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded && typeof forwarded === 'string') {
+      ip = forwarded.split(',')[0].trim();
+    }
+    if (!ip || !net.isIP(ip)) {
+      const realIp = req.headers['x-real-ip'];
+      if (realIp && typeof realIp === 'string' && net.isIP(realIp.trim())) {
+        ip = realIp.trim();
+      }
     }
   }
   if (!ip || !net.isIP(ip)) {
@@ -4264,32 +4282,84 @@ function createBlacklistChecker(blackList) {
     return () => false;
   }
 
+  // Guard: Cap max rules to 100 and max length to 200 chars to prevent rule-flooding DoS
+  const MAX_RULES = 100;
+  const MAX_RULE_LENGTH = 200;
+
   const rules = blackList
-    .map(p => String(p).trim().replace(/\\/g, '/'))
-    .filter(Boolean);
+    .slice(0, MAX_RULES)
+    .map(p => String(p || '').trim().replace(/\\/g, '/'))
+    .filter(p => p.length > 0 && p.length <= MAX_RULE_LENGTH);
 
   if (rules.length === 0) return () => false;
 
-  const matchers = rules.map(rule => {
+  const matchers = rules.map(rawRule => {
+    // Collapse consecutive asterisks to prevent exponential backtracking
+    let rule = rawRule.replace(/\*+/g, '*');
+
+    // 1. Directory prefix match: e.g. "20-辭典/"
+    if (rule.endsWith('/') && !rule.includes('*') && !rule.includes('?')) {
+      const prefix = rule.toLowerCase();
+      return (path) => path.toLowerCase().startsWith(prefix);
+    }
+
+    // 2. Optimized safe wildcard patterns
     if (rule.includes('*') || rule.includes('?')) {
-      const regexStr = '^' + rule
-        .replace(/([.+^${}()|[\]\\])/g, '\\$1')
-        .replace(/\*/g, '.*')
-        .replace(/\?/g, '.') + '$';
-      const regex = new RegExp(regexStr, 'i');
-      return (path) => regex.test(path) || regex.test(path.replace(/\.md$/, ''));
+      // 2a. Match all: "*"
+      if (rule === '*') return () => true;
+
+      // 2b. Simple suffix match: e.g. "*辭典.md" (only 1 star at start)
+      if (rule.startsWith('*') && !rule.slice(1).includes('*') && !rule.includes('?')) {
+        const suffix = rule.slice(1).toLowerCase();
+        const suffixNoMd = suffix.endsWith('.md') ? suffix.slice(0, -3) : suffix;
+        return (path) => {
+          const lp = path.toLowerCase();
+          return lp.endsWith(suffix) || lp.endsWith(suffixNoMd);
+        };
+      }
+
+      // 2c. Simple prefix match: e.g. "20-辭典/*" (only 1 star at end)
+      if (rule.endsWith('*') && !rule.slice(0, -1).includes('*') && !rule.includes('?')) {
+        const prefix = rule.slice(0, -1).toLowerCase();
+        return (path) => path.toLowerCase().startsWith(prefix);
+      }
+
+      // 2d. Simple substring contains: e.g. "*辭典*" (only 2 stars at ends)
+      if (rule.startsWith('*') && rule.endsWith('*') && !rule.slice(1, -1).includes('*') && !rule.includes('?')) {
+        const needle = rule.slice(1, -1).toLowerCase();
+        return (path) => path.toLowerCase().includes(needle);
+      }
+
+      // 2e. General glob: Limit wildcards to max 4 to guarantee linear regex complexity
+      const wildcardsCount = (rule.match(/[*?]/g) || []).length;
+      if (wildcardsCount > 4) {
+        // Fallback to safe substring matching for pathological patterns
+        const cleaned = rule.replace(/[*?]/g, '').toLowerCase();
+        return (path) => path.toLowerCase().includes(cleaned);
+      }
+
+      try {
+        // Use segment-bounded [^/]* instead of .* so it never backtracks across directories
+        const regexStr = '^' + rule
+          .replace(/([.+^${}()|[\]\\])/g, '\\$1')
+          .replace(/\*/g, '[^/]*')
+          .replace(/\?/g, '[^/]') + '$';
+        const regex = new RegExp(regexStr, 'i');
+        return (path) => regex.test(path) || regex.test(path.replace(/\.md$/, ''));
+      } catch (_) {
+        return () => false;
+      }
     }
 
-    if (rule.endsWith('/')) {
-      return (path) => path.startsWith(rule);
-    }
-
-    const ruleWithMd = rule.endsWith('.md') ? rule : rule + '.md';
-    const ruleWithoutMd = rule.endsWith('.md') ? rule.slice(0, -3) : rule;
+    // 3. Exact file match (with or without .md)
+    const ruleLower = rule.toLowerCase();
+    const ruleWithMd = ruleLower.endsWith('.md') ? ruleLower : ruleLower + '.md';
+    const ruleWithoutMd = ruleLower.endsWith('.md') ? ruleLower.slice(0, -3) : ruleLower;
 
     return (path) => {
-      const pathWithoutMd = path.endsWith('.md') ? path.slice(0, -3) : path;
-      return path === rule || path === ruleWithMd || pathWithoutMd === ruleWithoutMd;
+      const lp = path.toLowerCase();
+      const pathWithoutMd = lp.endsWith('.md') ? lp.slice(0, -3) : lp;
+      return lp === ruleLower || lp === ruleWithMd || pathWithoutMd === ruleWithoutMd;
     };
   });
 
@@ -4908,12 +4978,8 @@ const server = http.createServer((req, res) => {
     if (config.admin) {
       return sendJSON(res, 400, { error: 'Admin already configured' });
     }
-    // First-run admin creation must originate from loopback so a remote attacker
-    // cannot claim admin on a fresh (unconfigured) deployment first-come-first-served.
-    const ip = getClientIP(req);
-    if (ip !== '127.0.0.1' && ip !== '::1') {
-      return sendJSON(res, 403, { error: 'Admin setup is only allowed from localhost' });
-    }
+    // Scheme A: First-run admin creation allows remote setup upon initial deployment.
+    // Once configured, config.admin is persisted to disk and /api/admin/setup is permanently disabled.
     return readJSONBody(req).then(data => {
       const { username, password } = data;
       if (!username || !password || username.trim() === '' || password.trim() === '') {
@@ -4929,6 +4995,7 @@ const server = http.createServer((req, res) => {
           salt: salt
         };
         saveConfig();
+        Logger.info('Admin', `Admin account "${username.trim()}" successfully initialized from ${getClientIP(req)}`, null, req);
         return sendJSON(res, 200, { success: true });
       });
     }).catch(err => {
