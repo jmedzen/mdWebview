@@ -603,13 +603,16 @@ body,
 .sidebar-panel {
   display: none;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   animation: fadeIn 0.2s ease;
 }
 
 .sidebar-panel.active {
   display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .panel-header {
@@ -802,7 +805,8 @@ body,
 
 /* ── File Tree ─────────────────────────────────────────────── */
 .file-tree {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 0 60px 0;
@@ -1006,7 +1010,8 @@ body,
 }
 
 .search-results {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 4px;
 }
@@ -1133,7 +1138,8 @@ body,
 
 /* ── Obsidian-Style Outline / TOC ─────────────────────────── */
 .toc-list {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 6px 8px;
   position: relative;
@@ -2394,9 +2400,11 @@ kbd {
     left: 0;
     top: calc(48px + env(safe-area-inset-top, 0px));
     bottom: 0;
-    height: calc(100% - 48px - env(safe-area-inset-top, 0px));
-    height: calc(100dvh - 48px - env(safe-area-inset-top, 0px));
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    height: auto;
+    max-height: none;
+    padding-bottom: 0;
+    display: flex;
+    flex-direction: column;
     z-index: 90;
     box-shadow: 4px 0 24px var(--shadow-color);
     width: 280px;
@@ -2407,6 +2415,22 @@ kbd {
   .sidebar.collapsed {
     transform: translateX(-100%);
     width: 280px;
+  }
+
+  .sidebar-panel.active {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .file-tree,
+  .search-results,
+  .toc-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   }
 
   .resize-handle {
