@@ -1003,6 +1003,9 @@ const MIME_TYPES = {
   '.svg':  'image/svg+xml',
   '.ico':  'image/x-icon',
   '.pdf':  'application/pdf',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf':  'font/ttf',
 };
 
 // Security Headers

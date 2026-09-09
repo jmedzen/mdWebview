@@ -8,6 +8,7 @@ RUN npm install --production
 
 # Copy all essential application files
 COPY server.js app.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js s2t.js ./
+COPY vendor/ ./vendor/
 
 # Create data, logs, md, and dicts directory
 RUN mkdir -p /data /data/logs /data/md /data/dicts
