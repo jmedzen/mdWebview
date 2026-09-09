@@ -4,7 +4,7 @@
    ================================================================ */
 
 /* global importScripts, marked, self */
-importScripts('https://cdn.jsdelivr.net/npm/marked/marked.min.js');
+importScripts('marked.min.js');
 
 marked.setOptions({
   breaks: true,
