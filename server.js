@@ -1006,6 +1006,7 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.ttf':  'font/ttf',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
 // Security Headers
@@ -1565,11 +1566,13 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
 
       // 3. Inject OpenGraph & Canonical & Schema.org JSON-LD into <head>
+      const ogImageUrl = `${baseUrl}/og-preview.png`;
       const jsonLd = {
         "@context": "https://schema.org",
         "@type": "Article",
         "headline": title,
         "description": description,
+        "image": ogImageUrl,
         "mainEntityOfPage": canonicalUrl,
         "inLanguage": "zh-TW"
       };
@@ -1580,9 +1583,14 @@ async function handleCrawlerSsr(req, res, filePath, query) {
         `<meta property="og:description" content="${safeDesc}">`,
         `<meta property="og:type" content="article">`,
         `<meta property="og:url" content="${canonicalUrl}">`,
-        `<meta name="twitter:card" content="summary">`,
+        `<meta property="og:image" content="${ogImageUrl}">`,
+        `<meta property="og:image:width" content="1200">`,
+        `<meta property="og:image:height" content="630">`,
+        `<meta property="og:image:type" content="image/png">`,
+        `<meta name="twitter:card" content="summary_large_image">`,
         `<meta name="twitter:title" content="${pageTitle}">`,
         `<meta name="twitter:description" content="${safeDesc}">`,
+        `<meta name="twitter:image" content="${ogImageUrl}">`,
         `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>`
       ].join('\n  ');
 
@@ -3911,7 +3919,11 @@ function serveStatic(req, res, pathname) {
   }
 
   // 2. Whitelist Check: Allow explicit public client assets and safe static media/font/document extensions
-  const ALLOWED_EXACT_FILES = new Set(['index.html', 'app.js', 'style.css', 'marked.min.js', 's2t.js', 'md-worker.js', 'favicon.ico', 'robots.txt', 'sitemap.xml']);
+  const ALLOWED_EXACT_FILES = new Set([
+    'index.html', 'app.js', 'style.css', 'marked.min.js', 's2t.js', 'md-worker.js', 
+    'favicon.ico', 'robots.txt', 'sitemap.xml', 'manifest.json', 'sw.js',
+    'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon-32.png', 'icon.svg', 'og-preview.png'
+  ]);
   const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf', '.pdf', '.xml', '.txt']);
 
   const isAllowedExact = ALLOWED_EXACT_FILES.has(baseName);
@@ -4012,12 +4024,16 @@ function serveStatic(req, res, pathname) {
 
     // Set Cache-Control: immutable for versioned assets, no-cache for code, long cache for images
     let cacheControl = 'no-cache';
-    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const hasVersionQuery = urlObj.search && /[?&]v=/.test(urlObj.search);
-    if (hasVersionQuery) {
-      cacheControl = 'public, max-age=31536000, immutable';
-    } else if (ext === '.png' || ext === '.jpg' || ext === '.ico') {
-      cacheControl = 'public, max-age=86400';
+    if (baseName === 'sw.js') {
+      cacheControl = 'no-cache, no-store, must-revalidate';
+    } else {
+      const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const hasVersionQuery = urlObj.search && /[?&]v=/.test(urlObj.search);
+      if (hasVersionQuery) {
+        cacheControl = 'public, max-age=31536000, immutable';
+      } else if (ext === '.png' || ext === '.jpg' || ext === '.ico') {
+        cacheControl = 'public, max-age=86400';
+      }
     }
 
     const headers = Object.assign({
@@ -4025,6 +4041,12 @@ function serveStatic(req, res, pathname) {
       'Cache-Control': cacheControl,
       'ETag': etag
     }, SECURITY_HEADERS);
+
+    if (baseName === 'sw.js') {
+      headers['Service-Worker-Allowed'] = '/';
+    } else if (baseName === 'manifest.json') {
+      headers['Content-Type'] = 'application/manifest+json; charset=utf-8';
+    }
 
     fs.readFile(resolved, (err3, data) => {
       if (err3) {

@@ -308,6 +308,39 @@
     };
     window.addEventListener('hashchange', handleUrlChange);
     window.addEventListener('popstate', handleUrlChange);
+
+    initPwaServiceWorker();
+  }
+
+  function initPwaServiceWorker() {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => {
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    showToast('🎉 發現新版本！已在背景準備就緒，重新載入即可生效', 'info', 5000);
+                  }
+                });
+              }
+            });
+          })
+          .catch(err => {
+            console.warn('[PWA] Service Worker registration failed:', err);
+          });
+      });
+    }
+
+    // Network status monitoring
+    window.addEventListener('offline', () => {
+      showToast('📶 目前處於離線狀態，可繼續閱讀已快取經文', 'warning', 4000);
+    });
+    window.addEventListener('online', () => {
+      showToast('🌐 網路連線已恢復', 'success', 3000);
+    });
   }
 
   function getFileFromURL() {
