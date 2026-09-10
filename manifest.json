@@ -1,0 +1,43 @@
+{
+  "id": "/",
+  "name": "大覺藏集 — 佛典經論閱讀器",
+  "short_name": "大覺藏集",
+  "description": "Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。",
+  "start_url": "/?pwa=1",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#181825",
+  "theme_color": "#181825",
+  "lang": "zh-TW",
+  "categories": [
+    "books",
+    "education",
+    "lifestyle"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
