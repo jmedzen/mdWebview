@@ -32,7 +32,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.3.0">
+  <link rel="stylesheet" href="style.css?v=3.3.1">
 </head>
 <body>
   <div class="app">
@@ -303,7 +303,7 @@
         <span class="modal-icon">🪷</span>
         <h2>設定管理員帳戶</h2>
       </div>
-      <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號與密碼。</p>
+      <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與首頁權威 URL。</p>
       <form id="adminSetupForm" class="modal-form">
         <div class="form-group">
           <label for="setupUsername">帳號名稱</label>
@@ -316,6 +316,11 @@
         <div class="form-group">
           <label for="setupPasswordConfirm">確認密碼</label>
           <input type="password" id="setupPasswordConfirm" placeholder="再次輸入密碼" required autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="setupSiteUrl">首頁權威 URL (Canonical URL)</label>
+          <input type="text" id="setupSiteUrl" placeholder="例如: https://mbt.mahabodhi.co" required>
+          <span class="field-hint">設定對外權威網址，用於 SEO Canonical、Sitemap 與社群分享卡片。</span>
         </div>
         <div id="setupErrorMsg" class="form-error" style="display: none;"></div>
         <button type="submit" class="modal-btn submit-btn">完成設定並啟動</button>
@@ -545,6 +550,11 @@
                   <label for="settingsSiteName">網站名稱 (Website Name)</label>
                   <input type="text" id="settingsSiteName" placeholder="例如: mdWebview" required>
                   <span class="field-hint">替代系統標頭與 Logo 品牌名稱。</span>
+                </div>
+                <div class="form-group">
+                  <label for="settingsSiteUrl">首頁權威 URL (Canonical URL)</label>
+                  <input type="text" id="settingsSiteUrl" placeholder="例如: https://mbt.mahabodhi.co">
+                  <span class="field-hint">設定對外權威網址，用於 SEO Canonical、Sitemap 與社群分享卡片。</span>
                 </div>
                 <div class="form-group">
                   <label for="settingsMdRoot">Vault 目錄路徑 (Vault Path)</label>
@@ -1229,8 +1239,8 @@
 
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/mermaid/mermaid.min.js" defer></script>
-  <script src="marked.min.js?v=3.3.0" defer></script>
-  <script src="s2t.js?v=3.3.0" defer></script>
-  <script src="app.js?v=3.3.0" defer></script>
+  <script src="marked.min.js?v=3.3.1" defer></script>
+  <script src="s2t.js?v=3.3.1" defer></script>
+  <script src="app.js?v=3.3.1" defer></script>
 </body>
 </html>

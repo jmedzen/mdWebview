@@ -860,6 +860,7 @@ let config = {
     defaultFontSize: parseInt(process.env.DEFAULT_FONT_SIZE, 10) || 16,
     defaultTheme: process.env.DEFAULT_THEME || 'obsidian-dark',
     siteName: process.env.SITE_NAME || 'mdWebview',
+    siteUrl: process.env.SITE_URL || '',
     enableVersion: process.env.ENABLE_VERSION ? process.env.ENABLE_VERSION === 'true' : false,
     version: process.env.VERSION || '',
     enableDownload: process.env.ENABLE_DOWNLOAD ? process.env.ENABLE_DOWNLOAD === 'true' : false,
@@ -880,6 +881,7 @@ function loadConfig() {
   try {
     // 1. Initial environment variables as base defaults
     if (process.env.SITE_NAME) config.settings.siteName = process.env.SITE_NAME;
+    if (process.env.SITE_URL) config.settings.siteUrl = process.env.SITE_URL;
     if (process.env.ENABLE_VERSION !== undefined) config.settings.enableVersion = process.env.ENABLE_VERSION === 'true';
     if (process.env.VERSION !== undefined) config.settings.version = process.env.VERSION;
     if (process.env.ENABLE_DOWNLOAD !== undefined) config.settings.enableDownload = process.env.ENABLE_DOWNLOAD === 'true';
@@ -1348,6 +1350,9 @@ function escapeXml(str) {
 }
 
 function getBaseUrl(req) {
+  if (config && config.settings && config.settings.siteUrl && config.settings.siteUrl.trim()) {
+    return config.settings.siteUrl.trim().replace(/\/+$/, '');
+  }
   if (process.env.SITE_URL) {
     return process.env.SITE_URL.replace(/\/+$/, '');
   }
@@ -5303,8 +5308,16 @@ const server = http.createServer((req, res) => {
     // Once configured, config.admin is persisted to disk and /api/admin/setup is permanently disabled.
     return readJSONBody(req).then(data => {
       const { username, password } = data;
+      const siteUrl = (data.siteUrl || data.settingsSiteUrl || '').trim();
       if (!username || !password || username.trim() === '' || password.trim() === '') {
         return sendJSON(res, 400, { error: 'Username and password are required' });
+      }
+      if (!siteUrl) {
+        return sendJSON(res, 400, { error: '首頁權威 URL (Canonical URL) 為必填項目' });
+      }
+      const cleanSiteUrl = siteUrl.replace(/\/+$/, '');
+      if (!/^https?:\/\//i.test(cleanSiteUrl)) {
+        return sendJSON(res, 400, { error: '首頁權威 URL 格式不正確，必須以 http:// 或 https:// 開頭' });
       }
       if (password.length < 8) {
         return sendJSON(res, 400, { error: '密碼長度至少需為 8 個字元' });
@@ -5315,8 +5328,9 @@ const server = http.createServer((req, res) => {
           passwordHash: hash,
           salt: salt
         };
+        config.settings.siteUrl = cleanSiteUrl;
         saveConfig();
-        Logger.info('Admin', `Admin account "${username.trim()}" successfully initialized from ${getClientIP(req)}`, null, req);
+        Logger.info('Admin', `Admin account "${username.trim()}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, null, req);
         return sendJSON(res, 200, { success: true });
       });
     }).catch(err => {
@@ -5397,7 +5411,7 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
@@ -5421,6 +5435,9 @@ const server = http.createServer((req, res) => {
         }
         if (siteName !== undefined) {
           config.settings.siteName = siteName.trim() || 'mdWebview';
+        }
+        if (siteUrl !== undefined) {
+          config.settings.siteUrl = String(siteUrl).trim().replace(/\/+$/, '');
         }
         if (enableVersion !== undefined) {
           config.settings.enableVersion = !!enableVersion;

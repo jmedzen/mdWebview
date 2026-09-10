@@ -550,6 +550,10 @@
       // If admin is not set, force show setup overlay
       if (!data.isSetup) {
         $('adminSetupOverlay').style.display = 'flex';
+        const setupSiteUrlEl = $('setupSiteUrl');
+        if (setupSiteUrlEl && !setupSiteUrlEl.value) {
+          setupSiteUrlEl.value = (data.settings && data.settings.siteUrl) ? data.settings.siteUrl : (window.location.origin || '');
+        }
       } else {
         $('adminSetupOverlay').style.display = 'none';
       }
@@ -5318,7 +5322,20 @@
       const username = $('setupUsername').value;
       const password = $('setupPassword').value;
       const confirm = $('setupPasswordConfirm').value;
+      const siteUrl = ($('setupSiteUrl') ? $('setupSiteUrl').value : '').trim();
       const errorEl = $('setupErrorMsg');
+
+      if (!siteUrl) {
+        errorEl.textContent = '請填寫首頁權威 URL';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      if (!/^https?:\/\//i.test(siteUrl)) {
+        errorEl.textContent = '首頁權威 URL 格式不正確，必須以 http:// 或 https:// 開頭';
+        errorEl.style.display = 'block';
+        return;
+      }
 
       if (password !== confirm) {
         errorEl.textContent = '密碼與確認密碼不符';
@@ -5330,7 +5347,7 @@
         const res = await fetch('/api/admin/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, siteUrl })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -5423,6 +5440,7 @@
     // ── Settings Form Submission ──
     async function performSaveSettings(createIfNotExists = false, closeAfterSave = false) {
       const siteName = $('settingsSiteName').value;
+      const siteUrl = ($('settingsSiteUrl') || {}).value || '';
       const mdRoot = $('settingsMdRoot').value;
       const defaultFontSize = parseInt($('settingsFontSize').value);
       const defaultTheme = $('settingsTheme').value;
@@ -5445,7 +5463,7 @@
           },
           body: JSON.stringify({
             settings: {
-              siteName, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
+              siteName, siteUrl, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
               enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance
             }
           })
@@ -6148,6 +6166,7 @@
       }
       const data = await res.json();
       $('settingsSiteName').value = data.settings.siteName || 'mdWebview';
+      if ($('settingsSiteUrl')) $('settingsSiteUrl').value = data.settings.siteUrl || '';
       $('settingsMdRoot').value = data.settings.mdRoot;
       $('settingsFontSize').value = data.settings.defaultFontSize;
       $('settingsTheme').value = data.settings.defaultTheme;
