@@ -1049,14 +1049,44 @@ function safeJsonForScript(obj) {
 }
 
 let rawIndexHtml = null;
-function getIndexHtml(nonce, callback) {
+function getIndexHtml(nonce, req, callback) {
+  if (typeof req === 'function') {
+    callback = req;
+    req = null;
+  }
   const renderDynamicIndex = (templateBuf, nonce) => {
     let html = templateBuf.toString('utf-8');
     const defaultTheme = escapeHtmlString(config.settings.defaultTheme || 'obsidian-dark');
     const defaultFontSize = parseInt(config.settings.defaultFontSize, 10) || 16;
     const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
+    const baseUrl = getBaseUrl(req);
+    const canonicalBase = baseUrl ? `${baseUrl}/` : '/';
+    const ogImageUrl = baseUrl ? `${baseUrl}/og-preview.png` : '/og-preview.png';
 
-    // 4. Inject matching theme-color for iOS PWA / Safari status bar
+    // 1. Dynamic Canonical URL for homepage
+    if (html.includes('<link rel="canonical"')) {
+      html = html.replace(/<link rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalBase}">`);
+    } else if (baseUrl) {
+      html = html.replace('</head>', `  <link rel="canonical" href="${canonicalBase}">\n</head>`);
+    }
+
+    // 2. Dynamic og:url
+    if (html.includes('<meta property="og:url"')) {
+      html = html.replace(/<meta property="og:url"[^>]*>/i, `<meta property="og:url" content="${canonicalBase}">`);
+    } else if (baseUrl) {
+      html = html.replace('</head>', `  <meta property="og:url" content="${canonicalBase}">\n</head>`);
+    }
+
+    // 3. Absolute og:image and twitter:image
+    html = html.replace(/<meta property="og:image" content="[^"]*">/i, `<meta property="og:image" content="${ogImageUrl}">`);
+    html = html.replace(/<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${ogImageUrl}">`);
+
+    // 4. Dynamic site name into title, og tags, and logo
+    html = html.replace(/<meta property="og:site_name" content="[^"]*">/i, `<meta property="og:site_name" content="${siteName}">`);
+    html = html.replace(/<meta property="og:title" content="[^"]*">/i, `<meta property="og:title" content="${siteName} — 佛典經論閱讀器">`);
+    html = html.replace(/<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${siteName} — 佛典經論閱讀器">`);
+
+    // 5. Inject matching theme-color for iOS PWA / Safari status bar
     const themeHeaderColors = {
       'obsidian-dark': '#181825',
       'obsidian-light': '#e6e9ef',
@@ -1070,7 +1100,7 @@ function getIndexHtml(nonce, callback) {
       `<meta name="theme-color" id="metaThemeColor" content="${initialThemeColor}">`
     );
 
-    // 1. Inject theme & font-size into <html> element
+    // 6. Inject theme & font-size into <html> element
     html = html.replace(/<html([^>]*)>/i, (match, p1) => {
       let attrs = p1;
       if (/data-theme="[^"]*"/i.test(attrs)) {
@@ -1087,13 +1117,13 @@ function getIndexHtml(nonce, callback) {
       return `<html${attrs}>`;
     });
 
-    // 2. Inject font size display value
+    // 7. Inject font size display value
     html = html.replace(
       /<span id="fontSizeDisplay" class="font-size-display">\d+<\/span>/i,
       `<span id="fontSizeDisplay" class="font-size-display">${defaultFontSize}</span>`
     );
 
-    // 3. Inject site name into title and logo
+    // 8. Inject site name into title and logo
     html = html.replace(
       /<title>.*?<\/title>/i,
       `<title>${siteName} — 佛典經論閱讀器</title>`
@@ -1103,13 +1133,13 @@ function getIndexHtml(nonce, callback) {
       `<span class="logo-text">${siteName}</span>`
     );
 
-    // 5. Inject server config script (with synchronous 0ms theme boot for iOS PWA)
+    // 9. Inject server config script (with synchronous 0ms theme & font boot for iOS PWA)
     // Strip the absolute vault path: the frontend never reads mdRoot from this
     // payload, and shipping it on every page load would disclose the filesystem.
     const clientSettings = Object.assign({}, config.settings);
     delete clientSettings.mdRoot;
     delete clientSettings.dictionaryPath;
-    const configScript = `<script nonce="${nonce}">(function(){try{var t=localStorage.getItem('mdWebview-user-theme')||${safeJsonForScript(defaultTheme)};var c={'obsidian-dark':'#181825','obsidian-light':'#e6e9ef','solarized':'#002b36','zen':'#ece5d8','gruvbox':'#1d2021'}[t]||'#181825';document.documentElement.setAttribute('data-theme',t);document.documentElement.style.backgroundColor=c;var m=document.getElementById('metaThemeColor');if(m)m.setAttribute('content',c);}catch(e){}})();window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
+    const configScript = `<script nonce="${nonce}">(function(){try{var t=localStorage.getItem('mdWebview-user-theme')||${safeJsonForScript(defaultTheme)};var c={'obsidian-dark':'#181825','obsidian-light':'#e6e9ef','solarized':'#002b36','zen':'#ece5d8','gruvbox':'#1d2021'}[t]||'#181825';document.documentElement.setAttribute('data-theme',t);document.documentElement.style.backgroundColor=c;var m=document.getElementById('metaThemeColor');if(m)m.setAttribute('content',c);var f=localStorage.getItem('mdWebview-user-fontsize');if(f){document.documentElement.style.setProperty('--content-font-size',f+'px');}}catch(e){}})();window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
     } else {
@@ -1551,7 +1581,7 @@ async function handleCrawlerSsr(req, res, filePath, query) {
     }
 
     const nonce = crypto.randomBytes(16).toString('base64');
-    getIndexHtml(nonce, (err, baseHtmlBuffer) => {
+    getIndexHtml(nonce, req, (err, baseHtmlBuffer) => {
       if (err) {
         res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
         return res.end('Server Error');
@@ -1564,14 +1594,23 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       const pageTitle = `${escapeHtmlString(title)} — ${siteName}`;
       const safeDesc = escapeHtmlString(description);
 
-      // 1. Replace Title
+      // 1. Replace Title & Description
       html = html.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
-
-      // 2. Replace Description
       html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
 
-      // 3. Inject OpenGraph & Canonical & Schema.org JSON-LD into <head>
+      // 2. Replace Canonical & OpenGraph & Twitter tags
       const ogImageUrl = `${baseUrl}/og-preview.png`;
+      html = html.replace(/<link rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalUrl}">`);
+      html = html.replace(/<meta property="og:url"[^>]*>/i, `<meta property="og:url" content="${canonicalUrl}">`);
+      html = html.replace(/<meta property="og:title"[^>]*>/i, `<meta property="og:title" content="${pageTitle}">`);
+      html = html.replace(/<meta property="og:description"[^>]*>/i, `<meta property="og:description" content="${safeDesc}">`);
+      html = html.replace(/<meta property="og:type"[^>]*>/i, `<meta property="og:type" content="article">`);
+      html = html.replace(/<meta property="og:image" content="[^"]*">/i, `<meta property="og:image" content="${ogImageUrl}">`);
+      html = html.replace(/<meta name="twitter:title"[^>]*>/i, `<meta name="twitter:title" content="${pageTitle}">`);
+      html = html.replace(/<meta name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${safeDesc}">`);
+      html = html.replace(/<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${ogImageUrl}">`);
+
+      // 3. Inject Schema.org JSON-LD into <head>
       const jsonLd = {
         "@context": "https://schema.org",
         "@type": "Article",
@@ -1581,25 +1620,8 @@ async function handleCrawlerSsr(req, res, filePath, query) {
         "mainEntityOfPage": canonicalUrl,
         "inLanguage": "zh-TW"
       };
-
-      const seoHead = [
-        `<link rel="canonical" href="${canonicalUrl}">`,
-        `<meta property="og:title" content="${pageTitle}">`,
-        `<meta property="og:description" content="${safeDesc}">`,
-        `<meta property="og:type" content="article">`,
-        `<meta property="og:url" content="${canonicalUrl}">`,
-        `<meta property="og:image" content="${ogImageUrl}">`,
-        `<meta property="og:image:width" content="1200">`,
-        `<meta property="og:image:height" content="630">`,
-        `<meta property="og:image:type" content="image/png">`,
-        `<meta name="twitter:card" content="summary_large_image">`,
-        `<meta name="twitter:title" content="${pageTitle}">`,
-        `<meta name="twitter:description" content="${safeDesc}">`,
-        `<meta name="twitter:image" content="${ogImageUrl}">`,
-        `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>`
-      ].join('\n  ');
-
-      html = html.replace('</head>', `  ${seoHead}\n</head>`);
+      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>`;
+      html = html.replace('</head>', `  ${jsonLdTag}\n</head>`);
 
       // 4. Hide welcomeScreen and reveal contentWrapper with pre-rendered markdown
       html = html.replace(/<div class="welcome-screen" id="welcomeScreen">/i, '<div class="welcome-screen" id="welcomeScreen" style="display:none">');
@@ -3875,7 +3897,7 @@ async function handleSearchFile(req, res, query) {
 const staticCache = new Map(); // resolvedPath -> { mtimeMs, size, etag, headers, data, cachedAt }
 const STATIC_CACHE_TTL_MS = 5000; // 5s revalidation window: zero fs.stat within 5s
 
-function serveStatic(req, res, pathname) {
+function serveStatic(req, res, pathname, query) {
   // Restrict methods for static files
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
@@ -3935,15 +3957,15 @@ function serveStatic(req, res, pathname) {
   const isAllowedExt = ALLOWED_EXTENSIONS.has(ext);
 
   if (!isAllowedExact && !isAllowedExt) {
-    res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
-    res.end('Access Denied');
+    res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, SECURITY_HEADERS));
+    res.end('Not Found');
     return;
   }
 
   // Intercept root or index.html requests to serve dynamic index with injected config.settings
   if (pathname === '/' || pathname === '' || path.basename(resolved) === 'index.html') {
     const nonce = crypto.randomBytes(16).toString('base64');
-    getIndexHtml(nonce, (err, data) => {
+    getIndexHtml(nonce, req, (err, data) => {
       if (err) {
         res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
         res.end('Server Error');
@@ -3987,9 +4009,24 @@ function serveStatic(req, res, pathname) {
   fs.stat(resolved, (err, stats) => {
     if (err || !stats.isFile()) {
       if (cached) staticCache.delete(resolved);
-      // Fallback to index.html for SPA routing
+
+      // 1. If requesting a static file with an extension that does not exist, return 404
+      if (ext && ext !== '.html') {
+        res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, SECURITY_HEADERS));
+        res.end('Not Found');
+        return;
+      }
+
+      // 2. If a search engine crawler is requesting an unknown path, return 404 (prevent Soft 404)
+      if (isCrawlerRequest(req, query)) {
+        res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, SECURITY_HEADERS));
+        res.end('Not Found');
+        return;
+      }
+
+      // 3. Fallback to index.html for SPA routing
       const nonce = crypto.randomBytes(16).toString('base64');
-      getIndexHtml(nonce, (err2, data) => {
+      getIndexHtml(nonce, req, (err2, data) => {
         if (err2) {
           res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
           res.end('Not Found');
@@ -5549,7 +5586,7 @@ const server = http.createServer((req, res) => {
   }
 
   // Static files
-  serveStatic(req, res, pathname);
+  serveStatic(req, res, pathname, query);
 });
 
 initWorkerPool();
