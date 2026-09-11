@@ -278,6 +278,15 @@
     applyMaxWidth(state.maxWidth, false);
     applyAutoReadProgress(state.autoReadProgress, false);
 
+    // Ensure initial user preferences are saved in localStorage so subsequent changes
+    // to defaultTheme or defaultFontSize by the administrator do not override existing users.
+    if (!localStorage.getItem('mdWebview-user-theme') && state.currentTheme) {
+      localStorage.setItem('mdWebview-user-theme', state.currentTheme);
+    }
+    if (!localStorage.getItem('mdWebview-user-fontsize') && state.fontSize) {
+      localStorage.setItem('mdWebview-user-fontsize', state.fontSize);
+    }
+
     updateWelcomeShortcuts();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
@@ -5485,11 +5494,17 @@
           if (data.settings.defaultFontSize) {
             state.defaultFontSize = parseInt(data.settings.defaultFontSize);
             const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
-            applyFontSize(userSavedFont ? parseInt(userSavedFont) : state.defaultFontSize, !!userSavedFont);
+            if (userSavedFont) {
+              applyFontSize(parseInt(userSavedFont), true);
+            } else {
+              applyFontSize(state.defaultFontSize, false);
+            }
           }
           if (data.settings.defaultTheme) {
-            localStorage.removeItem('mdWebview-user-theme');
-            applyTheme(data.settings.defaultTheme, false);
+            const userSavedTheme = localStorage.getItem('mdWebview-user-theme');
+            if (!userSavedTheme) {
+              applyTheme(data.settings.defaultTheme, false);
+            }
           }
           if (data.settings.siteName) {
             state.siteName = data.settings.siteName;
