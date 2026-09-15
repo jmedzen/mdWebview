@@ -58,7 +58,7 @@ function isCrawlerRequest(req, query) {
 // ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
 const ANALYTICS_STORE_PATH = path.join(LOG_DIR, 'analytics-aggregates.json');
-const ANALYTICS_STORE_VERSION = 2;
+const ANALYTICS_STORE_VERSION = 3;
 let analyticsStore = null;
 let analyticsStoreReady = null;
 let analyticsStoreWrite = Promise.resolve();
@@ -108,12 +108,76 @@ function getAnalyticsEventId(entry) {
   return crypto.createHash('sha256').update(identity).digest('hex');
 }
 
+function formatTimestampInTz(timestamp, tz = 'auto', format = 'date') {
+  try {
+    const d = new Date(timestamp);
+    if (Number.isNaN(d.getTime())) return '';
+    const timeZone = (tz && tz !== 'auto') ? tz : 'UTC';
+    if (format === 'hour') {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(d);
+      const y = parts.find(p => p.type === 'year')?.value;
+      const m = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const h = parts.find(p => p.type === 'hour')?.value;
+      return `${y}-${m}-${day} ${h}:00`;
+    }
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(d);
+  } catch (_) {
+    const d = new Date(timestamp);
+    return format === 'hour'
+      ? `${d.toISOString().substring(0, 10)} ${d.toISOString().substring(11, 13)}:00`
+      : d.toISOString().split('T')[0];
+  }
+}
+
+function isBotEntry(entry) {
+  if (!entry) return false;
+  if (entry.isBot) return true;
+  if (entry.bot) return true;
+  if (entry.tag === 'SSR') return true;
+  if (entry.tag === 'ShareLink') return true;
+  if (entry.tag === 'Index') return true;
+  if (entry.tag === 'Process') return true;
+  if (entry.level === 'DEBUG' && entry.tag !== 'Render') return true;
+  if (entry.message) {
+    if (/\[Bot:\s*[^\]]+\]/i.test(entry.message)) return true;
+    if (entry.message.includes('/robots.txt') || entry.message.includes('/sitemap.xml')) return true;
+    if (entry.message.includes('/favicon.ico') ||
+        entry.message.includes('/apple-touch-icon') ||
+        entry.message.includes('/apple-touch-icon-precomposed.png') ||
+        entry.message.includes('/style.css') ||
+        entry.message.includes('/marked.min.js') ||
+        entry.message.includes('/null') ||
+        entry.message.includes('Indexing progress')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function extractAnalyticsPath(entry) {
   if (entry.path) return entry.path;
   if (!entry.message) return '';
   const access = entry.message.match(/Access file: "([^"]+)"/);
   if (access) return access[1];
-  const pathMatch = entry.message.match(/path=([^&\\s]+)/);
+  const loaded = entry.message.match(/Loaded document(?: \(.*?\))?: "([^"]+)"/);
+  if (loaded) return loaded[1];
+  const notMod = entry.message.match(/304 Not Modified: "([^"]+)"/);
+  if (notMod) return notMod[1];
+  const pathMatch = entry.message.match(/path=([^&\s]+)/);
   if (!pathMatch) return '';
   try { return decodeURIComponent(pathMatch[1]); } catch (_) { return pathMatch[1]; }
 }
@@ -166,16 +230,22 @@ function updateAnalyticsStoreEntry(store, entry) {
   if (store.processedIds[id]) return false;
   store.processedIds[id] = timestamp.toISOString();
 
-  // Prune oldest processedIds if exceeding capacity
-  const pKeys = Object.keys(store.processedIds);
-  if (pKeys.length > MAX_PROCESSED_IDS) {
-    for (let i = 0; i < pKeys.length - MAX_PROCESSED_IDS; i++) {
-      delete store.processedIds[pKeys[i]];
+  // Prune oldest processedIds in batches if exceeding capacity
+  if (!store._processedCount) store._processedCount = Object.keys(store.processedIds).length;
+  store._processedCount++;
+  if (store._processedCount > MAX_PROCESSED_IDS + 1000) {
+    const pKeys = Object.keys(store.processedIds);
+    const toPrune = pKeys.length - MAX_PROCESSED_IDS;
+    if (toPrune > 0) {
+      for (let i = 0; i < toPrune; i++) {
+        delete store.processedIds[pKeys[i]];
+      }
     }
+    store._processedCount = Object.keys(store.processedIds).length;
   }
 
   // Filter out crawler / bot traffic from real reader analytics
-  if (entry.isBot) {
+  if (isBotEntry(entry)) {
     return true;
   }
 
@@ -334,20 +404,9 @@ const LOG_PRUNE_AGE_MS = LOG_PRUNE_AGE_DAYS * 24 * 60 * 60 * 1000;
 
 function pruneAnalyticsLogEntry(entry) {
   if (!entry || !entry.timestamp) return null;
-  if (entry.isBot) return null;
+  if (isBotEntry(entry)) return null;
 
   const tag = entry.tag || '';
-  if (tag === 'Index' || tag === 'ShareLink') return null;
-
-  if (entry.message) {
-    if (entry.message.includes('/favicon.ico') ||
-        entry.message.includes('/style.css') ||
-        entry.message.includes('/marked.min.js') ||
-        entry.message.includes('/apple-touch-icon') ||
-        entry.message.includes('Indexing progress')) {
-      return null;
-    }
-  }
 
   const docPath = extractAnalyticsPath(entry);
   const query = extractAnalyticsQuery(entry);
@@ -1870,7 +1929,7 @@ async function handleRender(req, res, query) {
     }
     const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
     if (req.headers['if-none-match'] === etag) {
-      Logger.debug('Render', `304 Not Modified: "${filePath}" (${Date.now() - renderStart}ms)`);
+      Logger.info('Render', `Loaded document (cached 304): "${filePath}" (${Date.now() - renderStart}ms)`, req, { path: filePath });
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
       res.end();
       return;
@@ -1990,6 +2049,7 @@ async function handleSectionIndex(req, res, query) {
 
     const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
     if (req.headers['if-none-match'] === etag) {
+      Logger.info('Render', `Loaded document (virtualized 304): "${r.relPath}"`, req, { path: r.relPath });
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
       res.end();
       return;
@@ -4445,11 +4505,37 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
   let totalDictSearches = 0;
   let totalDictLookups = 0;
   const globalUniqueIps = new Set();
+  const seenEntryIds = new Set();
+
+  const isOneDay = rangeKey === '1d';
+
+  // Pre-populate time slots to guarantee continuous timeline
+  if (isOneDay) {
+    for (let offset = 24; offset >= 0; offset--) {
+      const slotTime = new Date(now - (offset * 60 * 60 * 1000));
+      const slotKey = formatTimestampInTz(slotTime, requestedTz, 'hour');
+      if (!dailyMap.has(slotKey)) {
+        dailyMap.set(slotKey, { date: slotKey, views: 0, ips: new Set() });
+      }
+    }
+  } else {
+    for (let offset = rangeDays - 1; offset >= 0; offset--) {
+      const slotTime = new Date(now - (offset * 24 * 60 * 60 * 1000));
+      const slotKey = formatTimestampInTz(slotTime, requestedTz, 'date');
+      if (!dailyMap.has(slotKey)) {
+        dailyMap.set(slotKey, { date: slotKey, views: 0, ips: new Set() });
+      }
+    }
+  }
 
   function processEntry(entry) {
-    if (entry.isBot) return;
+    if (isBotEntry(entry)) return;
     const t = new Date(entry.timestamp).getTime();
     if (Number.isNaN(t) || t < cutoffTime) return;
+
+    const id = entry.id || getAnalyticsEventId(entry);
+    if (seenEntryIds.has(id)) return;
+    seenEntryIds.add(id);
 
     const ip = entry.ip || '127.0.0.1';
     globalUniqueIps.add(ip);
@@ -4464,26 +4550,19 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       ipStat.lastAccess = entry.timestamp;
     }
 
-    const dObj = new Date(entry.timestamp);
-    const dateStr = dObj.toISOString().split('T')[0];
-    let daily = dailyMap.get(dateStr);
+    const timeKey = isOneDay
+      ? formatTimestampInTz(entry.timestamp, requestedTz, 'hour')
+      : formatTimestampInTz(entry.timestamp, requestedTz, 'date');
+
+    let daily = dailyMap.get(timeKey);
     if (!daily) {
-      daily = { date: dateStr, views: 0, ips: new Set() };
-      dailyMap.set(dateStr, daily);
+      daily = { date: timeKey, views: 0, ips: new Set() };
+      dailyMap.set(timeKey, daily);
     }
     daily.ips.add(ip);
 
     if (entry.tag === 'Render') {
-      let docPath = entry.path;
-      if (!docPath && entry.message) {
-        const match = entry.message.match(/path=([^&\s]+)/);
-        if (match) docPath = safeDecodeURIComponent(match[1]);
-      }
-      if (!docPath && entry.message && entry.message.includes('Loaded document:')) {
-        const match = entry.message.match(/Loaded document(?: \(virtualized\))?: "([^"]+)"/);
-        if (match) docPath = match[1];
-      }
-
+      const docPath = extractAnalyticsPath(entry);
       if (docPath) {
         totalViews++;
         daily.views++;
@@ -4502,22 +4581,13 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     }
 
     if (entry.tag === 'Search') {
-      let q = entry.query;
-      if (!q && entry.message) {
-        const match = entry.message.match(/Query: "([^"]+)"/);
-        if (match) q = match[1];
-      }
-      if (!q && entry.message) {
-        const match = entry.message.match(/q=([^&\s]+)/);
-        if (match) q = safeDecodeURIComponent(match[1]);
-      }
-      if (q && q.trim().length > 0) {
+      const q = extractAnalyticsQuery(entry);
+      if (q && q.length > 0) {
         totalSearches++;
-        const cleanQ = q.trim();
-        let sStat = searchMap.get(cleanQ);
+        let sStat = searchMap.get(q);
         if (!sStat) {
-          sStat = { query: cleanQ, count: 0, lastSearch: entry.timestamp };
-          searchMap.set(cleanQ, sStat);
+          sStat = { query: q, count: 0, lastSearch: entry.timestamp };
+          searchMap.set(q, sStat);
         }
         sStat.count++;
         if (new Date(entry.timestamp) > new Date(sStat.lastSearch)) {
@@ -4527,8 +4597,8 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     }
 
     if (entry.tag === 'DictSearch') {
-      const q = (entry.query || '').trim();
-      if (q.length > 0) {
+      const q = extractAnalyticsQuery(entry);
+      if (q && q.length > 0) {
         totalDictSearches++;
         let sStat = dictSearchMap.get(q);
         if (!sStat) {
@@ -4543,11 +4613,11 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     }
 
     if (entry.tag === 'DictLookup') {
-      const headword = (entry.query || '').trim();
-      const docPath = entry.path || '';
+      const headword = extractAnalyticsQuery(entry);
+      const docPath = extractAnalyticsPath(entry);
       if (headword || docPath) {
         totalDictLookups++;
-        const key = `${docPath}::${headword}`;
+        const key = `${docPath || ''}::${headword || ''}`;
         let lStat = dictLookupMap.get(key);
         if (!lStat) {
           lStat = { headword, path: docPath, count: 0, lastLookup: entry.timestamp };
@@ -4578,7 +4648,7 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
     } catch (_) {}
   }
 
-  // Merge in-memory buffer items directly
+  // Merge in-memory buffer items directly (safely deduplicated by seenEntryIds)
   for (const memItem of systemLogBuffer) {
     processEntry(memItem);
   }
@@ -4767,6 +4837,33 @@ async function buildHotList(blackList) {
 
   const maxCutoff = now - (90 * 24 * 60 * 60 * 1000);
 
+  const seenHotIds = new Set();
+
+  function processHotEntry(item) {
+    if (isBotEntry(item)) return;
+    if (item.tag !== 'Render') return;
+    const id = item.id || getAnalyticsEventId(item);
+    if (seenHotIds.has(id)) return;
+    seenHotIds.add(id);
+
+    let docPath = extractAnalyticsPath(item);
+    if (!docPath) return;
+    docPath = docPath.trim().replace(/\\/g, '/');
+    if (isBlacklisted(docPath)) return;
+
+    const t = new Date(item.timestamp).getTime();
+    if (Number.isNaN(t)) return;
+    windows.forEach((days, idx) => {
+      if (t >= now - (days * 24 * 60 * 60 * 1000)) {
+        const m = windowMaps[idx];
+        const fileName = docPath.split('/').pop().replace(/\.md$/, '');
+        let stat = m.get(docPath);
+        if (!stat) { stat = { path: docPath, fileName, views: 0 }; m.set(docPath, stat); }
+        stat.views++;
+      }
+    });
+  }
+
   for (const file of files) {
     if (!file.endsWith('.jsonl')) continue;
     const filePath = path.join(LOG_DIR, file);
@@ -4779,55 +4876,14 @@ async function buildHotList(blackList) {
 
       for await (const line of rl) {
         if (!line.trim()) continue;
-        try {
-          const item = JSON.parse(line);
-          if (item.tag !== 'Render' && item.tag !== 'ShareLink') continue;
-
-          let docPath = item.path;
-          if (!docPath && item.message) {
-            const m1 = item.message.match(/Access file: "([^"]+)"/);
-            if (m1) docPath = m1[1];
-          }
-          if (!docPath) continue;
-          docPath = docPath.trim().replace(/\\/g, '/');
-          if (isBlacklisted(docPath)) continue;
-
-          const t = new Date(item.timestamp).getTime();
-          windows.forEach((days, idx) => {
-            if (t >= now - (days * 24 * 60 * 60 * 1000)) {
-              const m = windowMaps[idx];
-              const fileName = docPath.split('/').pop().replace(/\.md$/, '');
-              let stat = m.get(docPath);
-              if (!stat) { stat = { path: docPath, fileName, views: 0 }; m.set(docPath, stat); }
-              stat.views++;
-            }
-          });
-        } catch (_) {}
+        try { processHotEntry(JSON.parse(line)); } catch (_) {}
       }
     } catch (_) {}
   }
 
-  // Also scan in-memory buffer
+  // Also scan in-memory buffer (safely deduplicated by seenHotIds)
   for (const item of systemLogBuffer) {
-    if (item.tag !== 'Render' && item.tag !== 'ShareLink') continue;
-    let docPath = item.path;
-    if (!docPath && item.message) {
-      const m1 = item.message.match(/Access file: "([^"]+)"/);
-      if (m1) docPath = m1[1];
-    }
-    if (!docPath) continue;
-    docPath = docPath.trim().replace(/\\/g, '/');
-    if (isBlacklisted(docPath)) continue;
-    const t = new Date(item.timestamp).getTime();
-    windows.forEach((days, idx) => {
-      if (t >= now - (days * 24 * 60 * 60 * 1000)) {
-        const m = windowMaps[idx];
-        const fileName = docPath.split('/').pop().replace(/\.md$/, '');
-        let stat = m.get(docPath);
-        if (!stat) { stat = { path: docPath, fileName, views: 0 }; m.set(docPath, stat); }
-        stat.views++;
-      }
-    });
+    processHotEntry(item);
   }
 
   // Merge: 7d top5 -> 30d top5 -> 90d top5, deduplicated
@@ -5473,7 +5529,7 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
@@ -5500,6 +5556,9 @@ const server = http.createServer((req, res) => {
         }
         if (siteUrl !== undefined) {
           config.settings.siteUrl = String(siteUrl).trim().replace(/\/+$/, '');
+        }
+        if (timezone !== undefined) {
+          config.settings.timezone = String(timezone).trim() || 'auto';
         }
         if (enableVersion !== undefined) {
           config.settings.enableVersion = !!enableVersion;
@@ -5655,6 +5714,10 @@ if (typeof module !== "undefined" && module.exports) {
     getAnalyticsData,
     pushToLogBuffer,
     updateAnalyticsStoreEntry,
-    initializeAnalyticsStore
+    initializeAnalyticsStore,
+    formatTimestampInTz,
+    isBotEntry,
+    extractAnalyticsPath,
+    extractAnalyticsQuery
   };
 }

@@ -34,7 +34,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.3.3">
+  <link rel="stylesheet" href="style.css?v=3.3.4">
 </head>
 <body>
   <div class="app">
@@ -563,6 +563,18 @@
                   <input type="text" id="settingsMdRoot" placeholder="例如: /path/to/mdWebview/md" required>
                   <span class="field-hint">伺服器端存放 Markdown 檔案之絕對路徑。</span>
                 </div>
+                <div class="form-group">
+                  <label for="settingsTimezone">系統管理時區 (Admin Timezone)</label>
+                  <select id="settingsTimezone" class="theme-select-inline" style="width: 100%;">
+                    <option value="auto">🌐 自動偵測時區 (瀏覽器預設)</option>
+                    <option value="Asia/Taipei">🌏 台北 / 香港 (UTC+8)</option>
+                    <option value="UTC">🌐 協調世界時 (UTC+0)</option>
+                    <option value="Asia/Tokyo">🇯🇵 東京 (UTC+9)</option>
+                    <option value="America/New_York">🇺🇸 紐約 (UTC-4/-5)</option>
+                    <option value="Europe/London">🇪🇺 倫敦 (UTC+0/+1)</option>
+                  </select>
+                  <span class="field-hint">用於後台系統日誌、數據分析圖表與導出報表的時間顯示時區。</span>
+                </div>
               </div>
             </div>
 
@@ -941,14 +953,6 @@
         <div class="admin-logs-header">
           <span class="admin-logs-count" id="adminLogsCount">最近 600 條系統日誌紀錄</span>
           <div class="admin-logs-actions">
-            <select id="adminLogTimezoneSelect" class="admin-tz-select" title="選擇時間顯示時區">
-              <option value="auto">🌐 自動偵測時區</option>
-              <option value="Asia/Taipei">🌏 台北 / 香港 (UTC+8)</option>
-              <option value="UTC">🌐 協調世界時 (UTC+0)</option>
-              <option value="Asia/Tokyo">🇯🇵 東京 (UTC+9)</option>
-              <option value="America/New_York">🇺🇸 紐約 (UTC-4/-5)</option>
-              <option value="Europe/London">🇪🇺 倫敦 (UTC+0/+1)</option>
-            </select>
             <input type="text" id="adminLogSearchInput" class="admin-log-search" placeholder="搜尋 (如: IP, HTTP, Error)...">
             <button type="button" id="adminLogRefreshBtn" class="modal-btn submit-btn small-btn">🔄 重新整理</button>
           </div>
@@ -1242,8 +1246,8 @@
 
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/mermaid/mermaid.min.js" defer></script>
-  <script src="marked.min.js?v=3.3.3" defer></script>
-  <script src="s2t.js?v=3.3.3" defer></script>
-  <script src="app.js?v=3.3.3" defer></script>
+  <script src="marked.min.js?v=3.3.4" defer></script>
+  <script src="s2t.js?v=3.3.4" defer></script>
+  <script src="app.js?v=3.3.4" defer></script>
 </body>
 </html>
