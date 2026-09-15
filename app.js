@@ -5460,6 +5460,8 @@
       const dictionaryEnabled = ($('settingsEnableDictionary') || {}).checked;
       const dictionaryPath = ($('settingsDictionaryPath') || {}).value;
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
+      const timezone = ($('settingsTimezone') || {}).value || 'auto';
+      localStorage.setItem('mdWebview-admin-tz', timezone);
       const errorEl = $('settingsErrorMsg');
       const successEl = $('settingsSuccessMsg');
 
@@ -5473,7 +5475,7 @@
           body: JSON.stringify({
             settings: {
               siteName, siteUrl, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance
+              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, timezone
             }
           })
         });
@@ -5702,7 +5704,12 @@
     dailyTrend.forEach((d, i) => {
       if (i % step === 0 || i === count - 1) {
         const xPos = getX(i);
-        const shortDate = d.date.length >= 10 ? d.date.substring(5) : d.date;
+        let shortDate = d.date;
+        if (d.date.includes(' ')) {
+          shortDate = d.date.split(' ')[1];
+        } else if (d.date.length >= 10) {
+          shortDate = d.date.substring(5);
+        }
         xLabels += `<text x="${xPos}" y="${height - 8}" font-size="10" fill="var(--text-muted)" text-anchor="middle">${shortDate}</text>`;
       }
     });
@@ -6195,6 +6202,8 @@
       if (dictPathEl) dictPathEl.value = data.settings.dictionaryPath || '';
       const proxEl = $('settingsMaxProximityDistance');
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
+      const tzEl = $('settingsTimezone');
+      if (tzEl) tzEl.value = data.settings.timezone || localStorage.getItem('mdWebview-admin-tz') || 'auto';
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');
@@ -6215,10 +6224,10 @@
   // ── Admin Logs Tab Logic ─────────────────────────────────
   let stateAdminLogs = [];
 
-  // Timezone Formatting Helper
-  function getEffectiveTimezone(selectId = 'adminLogTimezoneSelect') {
-    const sel = $(selectId);
-    const val = sel ? sel.value : 'auto';
+  // Timezone Formatting Helper (Centralized Admin Timezone)
+  function getEffectiveTimezone() {
+    const sel = $('settingsTimezone');
+    const val = sel ? sel.value : (localStorage.getItem('mdWebview-admin-tz') || 'auto');
     if (val && val !== 'auto') return val;
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Taipei';
@@ -6274,7 +6283,7 @@
     const filterText = searchInput ? searchInput.value.trim().toLowerCase() : '';
     if (!viewer) return;
 
-    const currentTz = getEffectiveTimezone('adminLogTimezoneSelect');
+    const currentTz = getEffectiveTimezone();
 
     let filtered = stateAdminLogs;
     if (filterText) {
@@ -6328,7 +6337,7 @@
       if (state.adminToken) {
         headers['X-Admin-Token'] = state.adminToken;
       }
-      const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+      const tz = getEffectiveTimezone();
       const res = await fetch(`/api/admin/analytics?range=${stateAnalyticsRange}&tz=${encodeURIComponent(tz)}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -6342,7 +6351,7 @@
 
   function renderAdminAnalytics(data) {
     if (!data) return;
-    const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+    const tz = getEffectiveTimezone();
 
     const totalViewsEl = $('analyticsTotalViews');
     const uniqueIpsEl = $('analyticsUniqueIps');
@@ -6471,8 +6480,7 @@
     const paneSuggest = $('adminPaneSuggest');
     const refreshBtn = $('adminLogRefreshBtn');
     const searchInput = $('adminLogSearchInput');
-    const logTzSelect = $('adminLogTimezoneSelect');
-    const analyticsTzSelect = $('analyticsTimezoneSelect');
+    const settingsTzSelect = $('settingsTimezone');
 
     function hideAllPanes() {
       if (hwAutoRefreshTimer) {
@@ -6528,12 +6536,15 @@
       });
     }
 
-    if (logTzSelect) {
-      logTzSelect.addEventListener('change', () => renderAdminLogs());
-    }
-
-    if (analyticsTzSelect) {
-      analyticsTzSelect.addEventListener('change', () => loadAdminAnalytics());
+    if (settingsTzSelect) {
+      settingsTzSelect.addEventListener('change', () => {
+        const val = settingsTzSelect.value;
+        localStorage.setItem('mdWebview-admin-tz', val);
+        if (stateAdminLogs && stateAdminLogs.length > 0) renderAdminLogs();
+        if ($('adminPaneAnalytics') && $('adminPaneAnalytics').style.display !== 'none') {
+          loadAdminAnalytics();
+        }
+      });
     }
 
     const rangeNav = $('analyticsRangeNav');
@@ -6553,7 +6564,7 @@
 
     if (csvExportBtn) {
       csvExportBtn.addEventListener('click', () => {
-        const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+        const tz = getEffectiveTimezone();
         window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=csv&tz=${encodeURIComponent(tz)}`, '_blank');
         showToast('📥 已成功導出分析數據報告 (CSV)', 'success');
       });
@@ -6561,7 +6572,7 @@
 
     if (jsonExportBtn) {
       jsonExportBtn.addEventListener('click', () => {
-        const tz = getEffectiveTimezone('analyticsTimezoneSelect');
+        const tz = getEffectiveTimezone();
         window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=json&tz=${encodeURIComponent(tz)}`, '_blank');
         showToast('📥 已成功導出分析數據報告 (JSON)', 'success');
       });
