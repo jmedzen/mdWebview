@@ -41,10 +41,24 @@ marked.use({
 const MAX_LOG_BUFFER = 600;
 const systemLogBuffer = [];
 
+// ── SEO & Bot Detection ────────────────────────────────────────────────────
+const CRAWLER_UA_REGEX = /googlebot|bingbot|yandex|baiduspider|duckduckbot|slurp|sogou|exabot|facebookexternalhit|facebot|twitterbot|rogerbot|linkedinbot|embedly|quoralinkpreview|showyoubot|outbrain|pinterest|slackbot|vkshare|w3c_validator|applebot|petalbot|bytespider|semrushbot|ahrefsbot/i;
+
+function getCrawlerName(req, query) {
+  if (query && (query.crawler === '1' || query.ssr === '1')) return 'crawler-debug';
+  const ua = req && req.headers ? (req.headers['user-agent'] || '') : '';
+  const match = ua.match(CRAWLER_UA_REGEX);
+  return match ? match[0].toLowerCase() : null;
+}
+
+function isCrawlerRequest(req, query) {
+  return Boolean(getCrawlerName(req, query));
+}
+
 // ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
 const ANALYTICS_STORE_PATH = path.join(LOG_DIR, 'analytics-aggregates.json');
-const ANALYTICS_STORE_VERSION = 1;
+const ANALYTICS_STORE_VERSION = 2;
 let analyticsStore = null;
 let analyticsStoreReady = null;
 let analyticsStoreWrite = Promise.resolve();
@@ -160,6 +174,11 @@ function updateAnalyticsStoreEntry(store, entry) {
     }
   }
 
+  // Filter out crawler / bot traffic from real reader analytics
+  if (entry.isBot) {
+    return true;
+  }
+
   const ip = entry.ip || '127.0.0.1';
   const dateKey = timestamp.toISOString().split('T')[0];
   const bucket = store.daily[dateKey] || (store.daily[dateKey] = {
@@ -176,7 +195,10 @@ function updateAnalyticsStoreEntry(store, entry) {
   bucketIp.requests++;
   updateLatest(bucketIp, entry.timestamp);
 
-  if (entry.tag === 'Render' || entry.tag === 'ShareLink') {
+  // Note: Only actual 'Render' events (when document content is served to a real reader)
+  // count as views. 'ShareLink' is the initial navigation route which crawlers also hit,
+  // and which is already followed by 'Render' for real users.
+  if (entry.tag === 'Render') {
     const docPath = extractAnalyticsPath(entry);
     if (docPath) {
       lifetime.views++;
@@ -282,18 +304,20 @@ async function initializeAnalyticsStore() {
   analyticsStoreReady = (async () => {
     let loaded = null;
     try { loaded = JSON.parse(await fs.promises.readFile(ANALYTICS_STORE_PATH, 'utf-8')); } catch (_) {}
-    analyticsStore = loaded && loaded.version === ANALYTICS_STORE_VERSION ? loaded : createEmptyAnalyticsStore();
-    if (!analyticsStore.lifetime || !analyticsStore.daily || !analyticsStore.processedIds) analyticsStore = createEmptyAnalyticsStore();
+    const needsBackfill = !loaded || loaded.version !== ANALYTICS_STORE_VERSION || !loaded.lifetime || !loaded.daily || !loaded.processedIds;
+    analyticsStore = needsBackfill ? createEmptyAnalyticsStore() : loaded;
 
-    const files = await fs.promises.readdir(LOG_DIR).catch(() => []);
-    for (const file of files) {
-      if (!file.endsWith('.jsonl')) continue;
-      await readAnalyticsFile(path.join(LOG_DIR, file), entry => {
-        if (!entry.id) entry.id = getAnalyticsEventId(entry);
-        updateAnalyticsStoreEntry(analyticsStore, entry);
-      });
+    if (needsBackfill) {
+      const files = (await fs.promises.readdir(LOG_DIR).catch(() => [])).sort();
+      for (const file of files) {
+        if (!file.endsWith('.jsonl')) continue;
+        await readAnalyticsFile(path.join(LOG_DIR, file), entry => {
+          if (!entry.id) entry.id = getAnalyticsEventId(entry);
+          updateAnalyticsStoreEntry(analyticsStore, entry);
+        });
+      }
+      await saveAnalyticsStore();
     }
-    await saveAnalyticsStore();
     analyticsStoreInitialized = true;
     return analyticsStore;
   })().catch(err => {
@@ -310,9 +334,10 @@ const LOG_PRUNE_AGE_MS = LOG_PRUNE_AGE_DAYS * 24 * 60 * 60 * 1000;
 
 function pruneAnalyticsLogEntry(entry) {
   if (!entry || !entry.timestamp) return null;
+  if (entry.isBot) return null;
 
   const tag = entry.tag || '';
-  if (tag === 'Index') return null;
+  if (tag === 'Index' || tag === 'ShareLink') return null;
 
   if (entry.message) {
     if (entry.message.includes('/favicon.ico') ||
@@ -350,7 +375,7 @@ function pruneAnalyticsLogEntry(entry) {
     };
   }
 
-  if (tag === 'Render' || tag === 'ShareLink' || docPath) {
+  if (tag === 'Render') {
     if (!docPath) return null;
     return {
       timestamp: entry.timestamp,
@@ -502,6 +527,8 @@ function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
   }
 
   const clientIp = extractIpFromParam(reqOrIp);
+  const crawlerName = (extra && extra.bot) || (reqOrIp && typeof reqOrIp === 'object' && reqOrIp.headers ? getCrawlerName(reqOrIp, extra.queryObj || null) : null);
+  const isBot = Boolean(extra && extra.isBot !== undefined ? extra.isBot : crawlerName);
 
   let safePath = extra.path;
   if (safePath && typeof safePath === 'string' && safePath.length > 500) {
@@ -515,6 +542,8 @@ function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     tag,
     ip: clientIp,
     message: messageStr,
+    ...(isBot ? { isBot: true } : {}),
+    ...(crawlerName ? { bot: crawlerName } : {}),
     ...(safePath ? { path: safePath } : {}),
     ...(extra.query ? { query: String(extra.query).substring(0, 300) } : {}),
     ...(extra.durationMs ? { durationMs: extra.durationMs } : {})
@@ -539,25 +568,25 @@ const Logger = {
   info(tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
     const ip = extractIpFromParam(reqOrIp);
-    pushToLogBuffer('INFO', tag, decoded, ip, extra);
+    pushToLogBuffer('INFO', tag, decoded, reqOrIp, extra);
     console.log(`[${this.formatTimestamp()}] [INFO] [${tag}] [IP:${ip}] ${decoded}`);
   },
   warn(tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
     const ip = extractIpFromParam(reqOrIp);
-    pushToLogBuffer('WARN', tag, decoded, ip, extra);
+    pushToLogBuffer('WARN', tag, decoded, reqOrIp, extra);
     console.warn(`[${this.formatTimestamp()}] [WARN] [${tag}] [IP:${ip}] ${decoded}`);
   },
   error(tag, msg, err, reqOrIp = '127.0.0.1', extra = {}) {
     const decodedMsg = safeDecodeURI(err ? `${msg}: ${err.message || err}` : msg);
     const ip = extractIpFromParam(reqOrIp);
-    pushToLogBuffer('ERROR', tag, decodedMsg, ip, extra);
+    pushToLogBuffer('ERROR', tag, decodedMsg, reqOrIp, extra);
     console.error(`[${this.formatTimestamp()}] [ERROR] [${tag}] [IP:${ip}] ${decodedMsg}`, err ? (err.stack || err) : '');
   },
   debug(tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
     const decoded = safeDecodeURI(msg);
     const ip = extractIpFromParam(reqOrIp);
-    pushToLogBuffer('DEBUG', tag, decoded, ip, extra);
+    pushToLogBuffer('DEBUG', tag, decoded, reqOrIp, extra);
     if (process.env.DEBUG) {
       console.log(`[${this.formatTimestamp()}] [DEBUG] [${tag}] [IP:${ip}] ${decoded}`);
     }
@@ -1492,14 +1521,7 @@ async function handleSitemapXml(req, res) {
   }
 }
 
-// ── SEO: Crawler Detection & Dynamic SSR Pre-rendering ────────
-const CRAWLER_UA_REGEX = /googlebot|bingbot|yandex|baiduspider|duckduckbot|slurp|sogou|exabot|facebookexternalhit|facebot|twitterbot|rogerbot|linkedinbot|embedly|quoralinkpreview|showyoubot|outbrain|pinterest|slackbot|vkshare|w3c_validator/i;
-
-function isCrawlerRequest(req, query) {
-  if (query && (query.crawler === '1' || query.ssr === '1')) return true;
-  const ua = req.headers['user-agent'] || '';
-  return CRAWLER_UA_REGEX.test(ua);
-}
+// ── SEO: Dynamic SSR Pre-rendering ────────────────────────────
 
 function extractMarkdownMetadata(rawMarkdown, fallbackName) {
   let title = fallbackName;
@@ -4425,6 +4447,7 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
   const globalUniqueIps = new Set();
 
   function processEntry(entry) {
+    if (entry.isBot) return;
     const t = new Date(entry.timestamp).getTime();
     if (Number.isNaN(t) || t < cutoffTime) return;
 
@@ -4448,22 +4471,22 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
       daily = { date: dateStr, views: 0, ips: new Set() };
       dailyMap.set(dateStr, daily);
     }
-    daily.views++;
     daily.ips.add(ip);
 
-    if (entry.tag === 'Render' || entry.tag === 'ShareLink') {
+    if (entry.tag === 'Render') {
       let docPath = entry.path;
       if (!docPath && entry.message) {
         const match = entry.message.match(/path=([^&\s]+)/);
         if (match) docPath = safeDecodeURIComponent(match[1]);
       }
-      if (!docPath && entry.message && entry.message.includes('Access file:')) {
-        const match = entry.message.match(/Access file: "([^"]+)"/);
+      if (!docPath && entry.message && entry.message.includes('Loaded document:')) {
+        const match = entry.message.match(/Loaded document(?: \(virtualized\))?: "([^"]+)"/);
         if (match) docPath = match[1];
       }
 
       if (docPath) {
         totalViews++;
+        daily.views++;
         let fStat = fileMap.get(docPath);
         if (!fStat) {
           const fileName = docPath.split('/').pop().replace(/\.md$/, '');
@@ -5256,8 +5279,10 @@ const server = http.createServer((req, res) => {
 
   // Log share link access if present, and handle Crawler Dynamic SSR if requested by bot or debug param
   if ((pathname === '/' || pathname === '') && query.file) {
-    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}`, req, { path: query.file });
-    if (isCrawlerRequest(req, query) && (req.method === 'GET' || req.method === 'HEAD')) {
+    const isBot = isCrawlerRequest(req, query);
+    const botName = getCrawlerName(req, query);
+    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}${isBot ? ` [Bot: ${botName}]` : ''}`, req, { path: query.file, isBot, bot: botName, queryObj: query });
+    if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
       return handleCrawlerSsr(req, res, query.file, query);
     }
   }
@@ -5624,6 +5649,12 @@ if (typeof module !== "undefined" && module.exports) {
     executeIndexJob,
     runIndexWorkerPool,
     renderWithWorker,
-    buildSectionIndex
+    buildSectionIndex,
+    isCrawlerRequest,
+    getCrawlerName,
+    getAnalyticsData,
+    pushToLogBuffer,
+    updateAnalyticsStoreEntry,
+    initializeAnalyticsStore
   };
 }
