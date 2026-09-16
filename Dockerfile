@@ -19,7 +19,8 @@ ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
     LOG_DIR=/data/logs \
     MD_ROOT=/data/md \
-    DICTIONARY_PATH=/data/dicts
+    DICTIONARY_PATH=/data/dicts \
+    TRUST_PROXY=true
 
 # Expose default port
 EXPOSE 8330

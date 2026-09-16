@@ -4215,26 +4215,95 @@ const MAX_ATTEMPTS = 5;
 const LOCK_DURATION = 15 * 60 * 1000; // 15 minutes lockout
 const MAX_LOGIN_ENTRIES = 10000;
 
+function isPrivateIP(ip) {
+  if (!ip || typeof ip !== 'string') return false;
+  let clean = ip.trim();
+  if (clean.startsWith('::ffff:')) {
+    clean = clean.substring(7);
+  }
+  if (net.isIPv4(clean)) {
+    return (
+      clean.startsWith('127.') ||
+      clean.startsWith('10.') ||
+      clean.startsWith('192.168.') ||
+      clean.startsWith('169.254.') ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(clean)
+    );
+  }
+  if (net.isIPv6(clean)) {
+    const lower = clean.toLowerCase();
+    return (
+      lower === '::1' ||
+      lower.startsWith('fc') ||
+      lower.startsWith('fd') ||
+      /^fe[89ab]/i.test(lower)
+    );
+  }
+  return false;
+}
+
 function getClientIP(req) {
+  if (!req) return '127.0.0.1';
   let ip = '';
-  // Only trust X-Forwarded-For / X-Real-IP when TRUST_PROXY environment variable is set
-  const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1';
-  if (trustProxy) {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded && typeof forwarded === 'string') {
-      ip = forwarded.split(',')[0].trim();
+  const socketIp = req.socket ? (req.socket.remoteAddress || '127.0.0.1') : '127.0.0.1';
+  const cleanSocketIp = socketIp.startsWith('::ffff:') ? socketIp.substring(7) : socketIp;
+
+  // Trust proxy headers if explicitly configured via TRUST_PROXY env var,
+  // OR if the direct TCP socket connection comes from an internal/private network (Docker bridge, localhost, Cloudflare Tunnel container)
+  const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1' || isPrivateIP(cleanSocketIp);
+
+  if (trustProxy && req.headers) {
+    // 1. Cloudflare Connecting IP (authoritative visitor IP injected by Cloudflare edge)
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (cfIp && typeof cfIp === 'string') {
+      const trimmed = cfIp.trim();
+      const cleanCf = trimmed.startsWith('::ffff:') ? trimmed.substring(7) : trimmed;
+      if (net.isIP(cleanCf)) {
+        ip = cleanCf;
+      }
     }
-    if (!ip || !net.isIP(ip)) {
+
+    // 2. True-Client-IP (Cloudflare Enterprise / Akamai)
+    if (!ip) {
+      const trueClientIp = req.headers['true-client-ip'];
+      if (trueClientIp && typeof trueClientIp === 'string') {
+        const trimmed = trueClientIp.trim();
+        const cleanTrue = trimmed.startsWith('::ffff:') ? trimmed.substring(7) : trimmed;
+        if (net.isIP(cleanTrue)) {
+          ip = cleanTrue;
+        }
+      }
+    }
+
+    // 3. X-Forwarded-For (standard reverse proxy header, take first client IP)
+    if (!ip) {
+      const forwarded = req.headers['x-forwarded-for'];
+      if (forwarded && typeof forwarded === 'string') {
+        const candidate = forwarded.split(',')[0].trim();
+        const cleanFwd = candidate.startsWith('::ffff:') ? candidate.substring(7) : candidate;
+        if (net.isIP(cleanFwd)) {
+          ip = cleanFwd;
+        }
+      }
+    }
+
+    // 4. X-Real-IP (Nginx / standard proxy header)
+    if (!ip) {
       const realIp = req.headers['x-real-ip'];
-      if (realIp && typeof realIp === 'string' && net.isIP(realIp.trim())) {
-        ip = realIp.trim();
+      if (realIp && typeof realIp === 'string') {
+        const trimmed = realIp.trim();
+        const cleanReal = trimmed.startsWith('::ffff:') ? trimmed.substring(7) : trimmed;
+        if (net.isIP(cleanReal)) {
+          ip = cleanReal;
+        }
       }
     }
   }
+
+  // Fallback to TCP socket remote address
   if (!ip || !net.isIP(ip)) {
-    ip = req.socket ? (req.socket.remoteAddress || '127.0.0.1') : '127.0.0.1';
+    ip = cleanSocketIp;
   }
-  // Remove IPv6 mapped IPv4 prefix if present (::ffff:127.0.0.1 -> 127.0.0.1)
   if (ip.startsWith('::ffff:')) {
     ip = ip.substring(7);
   }
