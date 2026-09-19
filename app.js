@@ -653,6 +653,7 @@
     disconnectScrollSpy();
     headingTextMap.clear();
     cachedLineAnchors = [];
+    updateEntryNav();
 
     const welcome = $('welcomeScreen');
     const wrapper = $('contentWrapper');
@@ -1725,7 +1726,10 @@
   // another file or returning home doesn't pin them in memory for the session.
   function teardownVirtual() {
     const v = state.virtual;
-    if (!v) return;
+    if (!v) {
+      updateEntryNav();
+      return;
+    }
     const content = $('content');
     if (v._scrollHandler && content) content.removeEventListener('scroll', v._scrollHandler);
     if (v._scrollRaf) { cancelAnimationFrame(v._scrollRaf); v._scrollRaf = null; }
@@ -1750,6 +1754,7 @@
     v.groups = null;
     v.chunkRanges = null;
     state.virtual = null;
+    updateEntryNav();
   }
 
   // Disconnect the full-render scroll-spy IntersectionObserver (if any) so it
@@ -1975,6 +1980,7 @@
 
     addRecentFile(filePath);
     updateBookmarkButtonUI(filePath);
+    updateEntryNav();
 
     // If search selector is set to __CURRENT_FILE__, automatically update search results for newly opened file
     const searchFolderSelect = $('searchFolderSelect');
@@ -3825,7 +3831,8 @@
     const nav = $('entryNav');
     if (!nav) return;
     if (!state.currentFile || !state.currentFile.startsWith('dict:') || !isVirtualMode()) {
-      if (nav.style.display !== 'none') { nav.style.display = 'none'; _entryNavEi = -1; }
+      nav.style.display = 'none';
+      _entryNavEi = -1;
       return;
     }
     const v = state.virtual;
