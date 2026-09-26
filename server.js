@@ -18,7 +18,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.1';
+let APP_VERSION = '3.4.2';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -192,9 +192,9 @@ function extractAnalyticsPath(entry) {
 function extractAnalyticsQuery(entry) {
   if (entry.query) return String(entry.query).trim();
   if (!entry.message) return '';
-  const queryMatch = entry.message.match(/Query: "([^"]+)"/);
+  const queryMatch = entry.message.match(/(?:Dict(?:ionary)? )?Query: "([^"]+)"/i);
   if (queryMatch) return queryMatch[1].trim();
-  const paramMatch = entry.message.match(/q=([^&\\s]+)/);
+  const paramMatch = entry.message.match(/q=([^&\s]+)/);
   if (!paramMatch) return '';
   try { return decodeURIComponent(paramMatch[1]).trim(); } catch (_) { return paramMatch[1].trim(); }
 }
@@ -259,7 +259,7 @@ function updateAnalyticsStoreEntry(store, entry) {
   const ip = entry.ip || '127.0.0.1';
   const dateKey = timestamp.toISOString().split('T')[0];
   const bucket = store.daily[dateKey] || (store.daily[dateKey] = {
-    requests: 0, views: 0, searches: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0
+    requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0
   });
   const lifetime = store.lifetime;
   lifetime.requests++;
@@ -276,8 +276,9 @@ function updateAnalyticsStoreEntry(store, entry) {
   // count as views. 'ShareLink' is the initial navigation route which crawlers also hit,
   // and which is already followed by 'Render' for real users.
   if (entry.tag === 'Render') {
-    const docPath = extractAnalyticsPath(entry);
+    let docPath = extractAnalyticsPath(entry);
     if (docPath) {
+      docPath = docPath.replace(/\\/g, '/').replace(/^\/+/, '');
       lifetime.views++;
       bucket.views++;
       const file = analyticsMapGetOrCreate(lifetime.files, docPath, () => ({ views: 0, ips: {}, lastAccess: entry.timestamp }));
@@ -301,10 +302,11 @@ function updateAnalyticsStoreEntry(store, entry) {
     const query = extractAnalyticsQuery(entry);
     if (query) {
       lifetime.searchCount++;
-      bucket.searches++;
+      bucket.searchCount = (bucket.searchCount || 0) + 1;
       const search = analyticsMapGetOrCreate(lifetime.searches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       search.count++;
       updateLatest(search, entry.timestamp, 'lastSearch');
+      if (!bucket.searches || typeof bucket.searches !== 'object') bucket.searches = {};
       const bucketSearch = analyticsMapGetOrCreate(bucket.searches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       bucketSearch.count++;
       updateLatest(bucketSearch, entry.timestamp, 'lastSearch');
@@ -383,6 +385,20 @@ async function initializeAnalyticsStore() {
     try { loaded = JSON.parse(await fs.promises.readFile(ANALYTICS_STORE_PATH, 'utf-8')); } catch (_) {}
     const needsBackfill = !loaded || loaded.version !== ANALYTICS_STORE_VERSION || !loaded.lifetime || !loaded.daily || !loaded.processedIds;
     analyticsStore = needsBackfill ? createEmptyAnalyticsStore() : loaded;
+
+    if (!needsBackfill && analyticsStore && analyticsStore.daily) {
+      for (const bucket of Object.values(analyticsStore.daily)) {
+        if (typeof bucket.searches === 'number' || Number.isNaN(bucket.searches)) {
+          bucket.searchCount = Number.isFinite(bucket.searches) ? bucket.searches : (bucket.searchCount || 0);
+          bucket.searches = {};
+        } else if (!bucket.searches || typeof bucket.searches !== 'object') {
+          bucket.searches = {};
+        }
+        if (bucket.searchCount === undefined) {
+          bucket.searchCount = 0;
+        }
+      }
+    }
 
     if (needsBackfill) {
       const files = (await fs.promises.readdir(LOG_DIR).catch(() => [])).sort();
@@ -4525,10 +4541,23 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
   const ipEntries = Object.entries(lifetime.ips || {});
   const dictSearchEntries = Object.entries(lifetime.dictSearches || {});
   const dictLookupEntries = Object.entries(lifetime.dictLookups || {});
-  const dailyTrend = Object.entries(store.daily || {}).map(([date, bucket]) => ({
-    date,
-    views: bucket.views || 0,
-    uniqueIps: Object.keys(bucket.ips || {}).length
+  const trendMap = new Map();
+  Object.entries(store.daily || {}).forEach(([date, bucket]) => {
+    let dateKey = date;
+    if (requestedTz && requestedTz !== 'auto') {
+      try {
+        dateKey = formatTimestampInTz(new Date(`${date}T12:00:00Z`), requestedTz, 'date') || date;
+      } catch (_) {}
+    }
+    const existing = trendMap.get(dateKey) || { date: dateKey, views: 0, ips: new Set() };
+    existing.views += (bucket.views || 0);
+    Object.keys(bucket.ips || {}).forEach(ip => existing.ips.add(ip));
+    trendMap.set(dateKey, existing);
+  });
+  const dailyTrend = Array.from(trendMap.values()).map(item => ({
+    date: item.date,
+    views: item.views,
+    uniqueIps: item.ips.size
   })).sort((a, b) => a.date.localeCompare(b.date));
 
   return {
@@ -4544,7 +4573,7 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
     },
     topFiles: fileEntries.map(([filePath, stat]) => ({
       path: filePath,
-      fileName: filePath.split('/').pop().replace(/\\.md$/, ''),
+      fileName: filePath.split('/').pop().replace(/\.md$/, ''),
       views: stat.views || 0,
       uniqueIps: Object.keys(stat.ips || {}).length,
       lastAccess: stat.lastAccess
@@ -4556,7 +4585,7 @@ function buildAggregateAnalyticsData(requestedTz, rangeKey) {
     topLookups: dictLookupEntries.map(([key, stat]) => ({
       headword: stat.headword || '',
       path: stat.path || '',
-      fileName: (stat.path || '').replace(/^dict:/, '').replace(/\.md$/, ''),
+      fileName: (stat.path || '').replace(/^dict:/, '').replace(/\.md$/, '') || stat.headword || '',
       count: stat.count || 0,
       lastLookup: stat.lastLookup
     })).sort((a, b) => b.count - a.count).slice(0, 50),
@@ -4740,10 +4769,16 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
 
   for (const file of files) {
     if (!file.endsWith('.jsonl')) continue;
-    const filePath = path.join(LOG_DIR, file);
     try {
-      const stats = await fs.promises.stat(filePath);
-      if (stats.mtimeMs < cutoffTime - (24 * 60 * 60 * 1000)) continue;
+      const filePath = path.join(LOG_DIR, file);
+      const dateMatch = file.match(/^access-(\d{4}-\d{2}-\d{2})\.jsonl$/);
+      if (dateMatch) {
+        const fileEndTime = new Date(`${dateMatch[1]}T23:59:59.999Z`).getTime();
+        if (!Number.isNaN(fileEndTime) && fileEndTime < cutoffTime) continue;
+      } else {
+        const stats = await fs.promises.stat(filePath);
+        if (stats.mtimeMs < cutoffTime - (24 * 60 * 60 * 1000)) continue;
+      }
 
       const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
       const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
@@ -4781,10 +4816,10 @@ async function getAnalyticsData(rangeKey = '30d', requestedTz = 'auto') {
 
   const topLookups = Array.from(dictLookupMap.values())
     .map(l => ({
-      headword: l.headword,
-      path: l.path,
-      fileName: l.path.replace(/^dict:/, '').replace(/\.md$/, ''),
-      count: l.count,
+      headword: l.headword || '',
+      path: l.path || '',
+      fileName: (l.path || '').replace(/^dict:/, '').replace(/\.md$/, '') || l.headword || '',
+      count: l.count || 0,
       lastLookup: l.lastLookup
     }))
     .sort((a, b) => b.count - a.count)
@@ -5523,11 +5558,86 @@ async function handleAnalyticsExport(req, res, query) {
   const data = await getAnalyticsData(rangeKey, query.tz || 'auto');
 
   if (format === 'csv') {
+    const tz = query.tz || 'auto';
+    const formatTime = (ts) => {
+      if (!ts) return '';
+      try {
+        const d = new Date(ts);
+        if (Number.isNaN(d.getTime())) return String(ts);
+        const timeZone = (tz && tz !== 'auto') ? tz : 'UTC';
+        return new Intl.DateTimeFormat('zh-TW', {
+          timeZone,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false
+        }).format(d).replace(/\//g, '-');
+      } catch (_) {
+        return String(ts);
+      }
+    };
+
     let csv = '\uFEFF';
+    // 1. Report Metadata & Summary
+    csv += `[數據分析報表 - mdWebview]\n`;
+    csv += `時間範圍,${rangeKey},統計時區,${tz},報表生成時間,${formatTime(new Date())}\n\n`;
+
+    csv += `[數據摘要]\n`;
+    csv += `指標項目,數值\n`;
+    csv += `總閱讀點閱數 (PV),${data.summary.totalViews || 0}\n`;
+    csv += `獨立訪客數 (UV),${data.summary.uniqueIps || 0}\n`;
+    csv += `搜尋總次數,${data.summary.totalSearches || 0}\n`;
+    csv += `活躍文章數,${data.summary.activeFiles || 0}\n`;
+    const avgViews = (data.summary.activeFiles > 0) ? (data.summary.totalViews / data.summary.activeFiles).toFixed(1) : '0';
+    csv += `平均每篇點閱數,${avgViews}\n`;
+    csv += `辭典搜尋次數,${data.summary.dictSearches || 0}\n`;
+    csv += `辭典查閱詞條數,${data.summary.dictLookups || 0}\n\n`;
+
+    // 2. Top Files
+    csv += `[熱門閱讀經論排行 (Top ${data.topFiles.length})]\n`;
     csv += '排名,文章標題/檔名,文章路徑,總點閱數,獨立IP數,最後閱讀時間\n';
     data.topFiles.forEach((f, idx) => {
-      csv += `${idx + 1},${sanitizeCsvField(f.fileName)},${sanitizeCsvField(f.path)},${f.views},${f.uniqueIps},${sanitizeCsvField(f.lastAccess)}\n`;
+      csv += `${idx + 1},${sanitizeCsvField(f.fileName)},${sanitizeCsvField(f.path)},${f.views || 0},${f.uniqueIps || 0},${sanitizeCsvField(formatTime(f.lastAccess))}\n`;
     });
+    csv += '\n';
+
+    // 3. Top Searches
+    if (data.topSearches && data.topSearches.length > 0) {
+      csv += `[熱門全文搜尋關鍵字 (Top ${data.topSearches.length})]\n`;
+      csv += '排名,搜尋關鍵字,搜尋次數,最後搜尋時間\n';
+      data.topSearches.forEach((s, idx) => {
+        csv += `${idx + 1},${sanitizeCsvField(s.query)},${s.count || 0},${sanitizeCsvField(formatTime(s.lastSearch))}\n`;
+      });
+      csv += '\n';
+    }
+
+    // 4. Top Dict Lookups
+    if (data.topLookups && data.topLookups.length > 0) {
+      csv += `[熱門辭典查閱詞條 (Top ${data.topLookups.length})]\n`;
+      csv += '排名,查閱詞條,所屬辭典,查閱次數,最後查閱時間\n';
+      data.topLookups.forEach((l, idx) => {
+        csv += `${idx + 1},${sanitizeCsvField(l.headword)},${sanitizeCsvField(l.fileName || l.path)},${l.count || 0},${sanitizeCsvField(formatTime(l.lastLookup))}\n`;
+      });
+      csv += '\n';
+    }
+
+    // 5. Top Dict Searches
+    if (data.topDictSearches && data.topDictSearches.length > 0) {
+      csv += `[熱門辭典搜尋關鍵字 (Top ${data.topDictSearches.length})]\n`;
+      csv += '排名,辭典關鍵字,搜尋次數,最後搜尋時間\n';
+      data.topDictSearches.forEach((s, idx) => {
+        csv += `${idx + 1},${sanitizeCsvField(s.query)},${s.count || 0},${sanitizeCsvField(formatTime(s.lastSearch))}\n`;
+      });
+      csv += '\n';
+    }
+
+    // 6. Top IPs
+    if (data.ipDistribution && data.ipDistribution.length > 0) {
+      csv += `[訪客來源 IP 分佈 (Top ${data.ipDistribution.length})]\n`;
+      csv += '排名,IP 地址,請求次數,最後訪問時間\n';
+      data.ipDistribution.forEach((ip, idx) => {
+        csv += `${idx + 1},${sanitizeCsvField(ip.ip)},${ip.requests || 0},${sanitizeCsvField(formatTime(ip.lastAccess))}\n`;
+      });
+    }
 
     res.writeHead(200, Object.assign({
       'Content-Type': 'text/csv; charset=utf-8',
@@ -5970,6 +6080,8 @@ if (typeof module !== "undefined" && module.exports) {
     isBotEntry,
     extractAnalyticsPath,
     extractAnalyticsQuery,
+    buildAggregateAnalyticsData,
+    handleAnalyticsExport,
     getDailyWords,
     mulberry32,
     invalidateDailyWordCache,

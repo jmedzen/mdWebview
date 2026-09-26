@@ -296,6 +296,11 @@
     updateWelcomeShortcuts();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
+    if (isMobileBrowser() || window.innerWidth <= 768) {
+      const sidebar = $('sidebar');
+      if (sidebar) sidebar.classList.add('collapsed');
+      state.sidebarCollapsed = true;
+    }
     await loadTree();
     fetchSuggestList(); // Load recommend & hot list for homepage
 
@@ -1479,12 +1484,8 @@
     const line = v.entries[entryIndex] ? v.entries[entryIndex].ls : 1;
     await scrollToLineVirtual(line, null);
     updateEntryNav();
-    if (isMobileBrowser()) {
-      const sidebar = $('sidebar');
-      if (sidebar && !sidebar.classList.contains('collapsed')) {
-        sidebar.classList.add('collapsed');
-        state.sidebarCollapsed = true;
-      }
+    if (isMobileBrowser() || window.innerWidth <= 768) {
+      closeMobileSidebars();
     }
   }
 
@@ -2052,13 +2053,9 @@
       history.pushState(null, '', newUrl);
     }
 
-    // Auto-collapse sidebar on mobile screens when opening a file
-    if (window.innerWidth <= 768) {
-      const sidebar = $('sidebar');
-      if (!sidebar.classList.contains('collapsed')) {
-        sidebar.classList.add('collapsed');
-        state.sidebarCollapsed = true;
-      }
+    // Auto-collapse sidebars on mobile screens when opening a file
+    if (isMobileBrowser() || window.innerWidth <= 768) {
+      closeMobileSidebars();
     }
 
     // Large files take the virtualized path (chunked render + lazy TOC) to keep the UI responsive.
@@ -3043,12 +3040,8 @@
         // Immediate visual active feedback
         rows.forEach(r => r.classList.remove('active'));
         row.classList.add('active');
-        if (isMobileBrowser()) {
-          const sidebar = $('sidebar');
-          if (sidebar && !sidebar.classList.contains('collapsed')) {
-            sidebar.classList.add('collapsed');
-            state.sidebarCollapsed = true;
-          }
+        if (isMobileBrowser() || window.innerWidth <= 768) {
+          closeMobileSidebars();
         }
       });
 
@@ -3478,20 +3471,56 @@
     if (!state.dictionaryEnabled) toggleDictSidebar(false);
   }
 
+  function updateSidebarBackdrop() {
+    const backdrop = $('sidebarBackdrop');
+    if (!backdrop) return;
+    const isNarrow = isMobileBrowser() || window.innerWidth <= 768;
+    const leftOpen = !$('sidebar')?.classList.contains('collapsed');
+    const rightOpen = state.dictSidebarOpen && !$('dictSidebar')?.classList.contains('collapsed');
+    if (isNarrow && (leftOpen || rightOpen)) {
+      backdrop.classList.add('active');
+    } else {
+      backdrop.classList.remove('active');
+    }
+  }
+
+  function closeMobileSidebars() {
+    const isNarrow = isMobileBrowser() || window.innerWidth <= 768;
+    if (!isNarrow) return;
+    const sidebar = $('sidebar');
+    if (sidebar && !sidebar.classList.contains('collapsed')) {
+      sidebar.classList.add('collapsed');
+      state.sidebarCollapsed = true;
+    }
+    if (state.dictSidebarOpen) {
+      toggleDictSidebar(false);
+    }
+    updateSidebarBackdrop();
+  }
+
   function toggleDictSidebar(force) {
     const sidebar = $('dictSidebar');
     if (!sidebar) return;
+    const isNarrow = isMobileBrowser() || window.innerWidth <= 768;
     const shouldOpen = typeof force === 'boolean' ? force : !state.dictSidebarOpen;
     state.dictSidebarOpen = shouldOpen;
     sidebar.classList.toggle('collapsed', !shouldOpen);
     if (shouldOpen) {
-      sidebar.style.width = state.dictSidebarWidth ? state.dictSidebarWidth + 'px' : '';
+      // Mutual exclusion on mobile: collapse left sidebar
+      if (isNarrow) {
+        const leftSidebar = $('sidebar');
+        if (leftSidebar && !leftSidebar.classList.contains('collapsed')) {
+          leftSidebar.classList.add('collapsed');
+          state.sidebarCollapsed = true;
+        }
+      }
+      sidebar.style.width = (!isNarrow && state.dictSidebarWidth) ? state.dictSidebarWidth + 'px' : '';
     } else {
       sidebar.style.width = '';
       stopDictPolling();
     }
     const handle = $('dictResizeHandle');
-    if (handle) handle.style.display = shouldOpen ? 'block' : 'none';
+    if (handle) handle.style.display = (shouldOpen && !isNarrow) ? 'block' : 'none';
     const btn = $('dictToggleBtn');
     if (btn) btn.classList.toggle('active', shouldOpen);
     if (shouldOpen) {
@@ -3503,6 +3532,7 @@
         results.innerHTML = '<div class="dict-placeholder"><span>📖</span><span>輸入詞條開始查詢</span></div>';
       }
     }
+    updateSidebarBackdrop();
   }
 
   // Toggles the collapsible "辭典選擇" file-list box with a slide animation.
@@ -4764,8 +4794,20 @@
     // ── Sidebar toggle ──
     $('sidebarToggle').addEventListener('click', () => {
       const sidebar = $('sidebar');
+      const isNarrow = isMobileBrowser() || window.innerWidth <= 768;
+      const willOpen = sidebar.classList.contains('collapsed');
       sidebar.classList.toggle('collapsed');
       state.sidebarCollapsed = sidebar.classList.contains('collapsed');
+      // Mutual exclusion on mobile: if opening left sidebar, close right dictionary
+      if (willOpen && isNarrow && state.dictSidebarOpen) {
+        toggleDictSidebar(false);
+      }
+      updateSidebarBackdrop();
+    });
+
+    // ── Mobile: Backdrop click to close open sidebars ──
+    $('sidebarBackdrop')?.addEventListener('click', () => {
+      closeMobileSidebars();
     });
 
     // ── Logo / site name → go home ──
@@ -4773,16 +4815,25 @@
       goHome();
     });
 
-    // ── Mobile: Close sidebar when clicking content area ──
+    // ── Mobile: Close sidebars when clicking content area ──
     $('content').addEventListener('click', () => {
-      if (window.innerWidth <= 768) {
-        const sidebar = $('sidebar');
-        if (!sidebar.classList.contains('collapsed')) {
-          sidebar.classList.add('collapsed');
-          state.sidebarCollapsed = true;
-        }
+      if (isMobileBrowser() || window.innerWidth <= 768) {
+        closeMobileSidebars();
       }
     });
+
+    // ── Mobile & Desktop: Window resize / orientation change sync ──
+    window.addEventListener('resize', debounce(() => {
+      const isNarrow = isMobileBrowser() || window.innerWidth <= 768;
+      if (isNarrow) {
+        const leftOpen = !$('sidebar')?.classList.contains('collapsed');
+        const rightOpen = state.dictSidebarOpen && !$('dictSidebar')?.classList.contains('collapsed');
+        if (leftOpen && rightOpen) {
+          toggleDictSidebar(false);
+        }
+      }
+      updateSidebarBackdrop();
+    }, 150));
 
     // ── Sidebar tabs ──
     $$('.sidebar-tab').forEach((tab) => {
@@ -5310,6 +5361,14 @@
           closePageSearch();
           return;
         }
+        if (state.dictSidebarOpen) {
+          toggleDictSidebar(false);
+          return;
+        }
+        if ((isMobileBrowser() || window.innerWidth <= 768) && !$('sidebar')?.classList.contains('collapsed')) {
+          closeMobileSidebars();
+          return;
+        }
       }
 
       // Ctrl/Cmd + F → page search
@@ -5748,7 +5807,7 @@
     renderBookmarksList();
     fetchSuggestList();
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6501,7 +6560,7 @@
   async function loadAdminAnalytics() {
     const tableBody = $('analyticsTopFilesTable');
     if (tableBody) {
-      tableBody.innerHTML = '<tr><td colspan="6" class="analytics-empty">載入數據中…</td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="5" class="analytics-empty">載入數據中…</td></tr>';
     }
     try {
       const headers = {};
@@ -6515,7 +6574,7 @@
       renderAdminAnalytics(data);
     } catch (err) {
       if (tableBody) {
-        tableBody.innerHTML = `<tr><td colspan="6" class="analytics-empty">⚠️ 載入失敗: ${escHtml(err.message)}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="5" class="analytics-empty">⚠️ 載入失敗: ${escHtml(err.message)}</td></tr>`;
       }
     }
   }
@@ -6568,8 +6627,7 @@
             e.preventDefault();
             const filePath = e.currentTarget.getAttribute('data-path');
             if (filePath) {
-              const modal = $('adminSettingsOverlay');
-              if (modal) modal.style.display = 'none';
+              closeAdminModal();
               openFile(filePath);
             }
           });
@@ -6736,7 +6794,8 @@
     if (csvExportBtn) {
       csvExportBtn.addEventListener('click', () => {
         const tz = getEffectiveTimezone();
-        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=csv&tz=${encodeURIComponent(tz)}`, '_blank');
+        const tokenParam = state.adminToken ? `&token=${encodeURIComponent(state.adminToken)}` : '';
+        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=csv&tz=${encodeURIComponent(tz)}${tokenParam}`, '_blank');
         showToast('📥 已成功導出分析數據報告 (CSV)', 'success');
       });
     }
@@ -6744,7 +6803,8 @@
     if (jsonExportBtn) {
       jsonExportBtn.addEventListener('click', () => {
         const tz = getEffectiveTimezone();
-        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=json&tz=${encodeURIComponent(tz)}`, '_blank');
+        const tokenParam = state.adminToken ? `&token=${encodeURIComponent(state.adminToken)}` : '';
+        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=json&tz=${encodeURIComponent(tz)}${tokenParam}`, '_blank');
         showToast('📥 已成功導出分析數據報告 (JSON)', 'success');
       });
     }
@@ -7131,6 +7191,10 @@
         sidebar.classList.remove('collapsed');
         state.sidebarCollapsed = false;
       }
+      if (isMobileBrowser() || window.innerWidth <= 768) {
+        if (state.dictSidebarOpen) toggleDictSidebar(false);
+      }
+      updateSidebarBackdrop();
 
       // Switch tab to search
       $$('.sidebar-tab').forEach((t) => t.classList.remove('active'));
@@ -7165,15 +7229,6 @@
         syncDictToggleVisibility();
       }
       toggleDictSidebar(true);
-
-      // On mobile, collapse left sidebar to avoid overlap
-      if (isMobileBrowser()) {
-        const sidebar = $('sidebar');
-        if (sidebar && !sidebar.classList.contains('collapsed')) {
-          sidebar.classList.add('collapsed');
-          state.sidebarCollapsed = true;
-        }
-      }
 
       // Ensure dict headwords are loaded before searching
       await ensureDictHeadwords();
