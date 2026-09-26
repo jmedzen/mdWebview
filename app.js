@@ -60,6 +60,10 @@
     pageSearchMatches: [],
     pageSearchIndex: -1,
     scrollSpyObserver: null,
+    scrollSpyHandler: null,
+    scrollSpyResizeHandler: null,
+    scrollSpyRaf: null,
+    refreshScrollSpy: null,
     adminToken: localStorage.getItem('mdWebview-admin-token') || null,
     siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
@@ -1515,25 +1519,42 @@
     return entryIndexForLine(topLine);
   }
 
+  function findVisibleAncestorEntry(v, entryIdx) {
+    if (entryIdx < 0 || !v || !v.entries || !v.entries[entryIdx]) return entryIdx;
+    if (v._tocEntryItemIndex && v._tocEntryItemIndex.has(entryIdx)) {
+      return entryIdx;
+    }
+    let targetLevel = v.entries[entryIdx].level || 1;
+    for (let i = entryIdx - 1; i >= 0; i--) {
+      const curLevel = v.entries[i].level || 1;
+      if (curLevel < targetLevel) {
+        targetLevel = curLevel;
+        if (v._tocEntryItemIndex && v._tocEntryItemIndex.has(i)) {
+          return i;
+        }
+      }
+    }
+    return entryIdx;
+  }
+
   function updateVirtualScrollSpy(line) {
     const v = state.virtual;
     if (!v || !v._tocItems || v._tocItems.length === 0) return;
     let ei = topVisibleEntryIndex();
     if (ei < 0) ei = entryIndexForLine(line); // no anchors mounted yet → fall back
-    if (ei === v._activeTocEntry) return;
-    if (v._activeTocEntry != null) {
-      const prevRow = v._tocRowEls.get(v._activeTocEntry);
-      if (prevRow) prevRow.classList.remove('active');
+
+    // Always clear active class on rendered rows first
+    if (v._tocRowEls) {
+      v._tocRowEls.forEach(el => el.classList.remove('active'));
     }
+
     v._activeTocEntry = ei;
-    let row = v._tocRowEls.get(ei);
+    const visibleEntry = findVisibleAncestorEntry(v, ei);
+
+    let row = v._tocRowEls.get(visibleEntry);
     if (!row && isTocPanelVisible()) {
-      // Active entry is outside the mounted window — recenter and re-render.
-      // Only do this while the panel is visible: writing scrollTop on a
-      // display:none element is a no-op, so recentering is deferred to the tab
-      // open handler (see the sidebar-tab click listener) when hidden.
-      centerTocOnEntry(ei);
-      row = v._tocRowEls.get(ei);
+      centerTocOnEntry(visibleEntry);
+      row = v._tocRowEls.get(visibleEntry);
     }
     if (row) {
       row.classList.add('active');
@@ -1684,6 +1705,8 @@
           v._tocRenderedStart = -1;
           v._tocRenderedEnd = -1;
           renderTocWindow();
+          syncTocCollapseBtnState();
+          updateVirtualScrollSpy(estimateLineFromScrollTop());
         });
       }
       el.appendChild(chevron);
@@ -1701,9 +1724,10 @@
     win.appendChild(frag);
     v._tocSpacerBottom.style.height = (v._tocTotalHeight - offsets[end + 1]) + 'px';
 
-    // Re-apply the active highlight if the active entry is still mounted.
+    // Re-apply the active highlight if the active entry (or visible ancestor) is mounted.
     if (v._activeTocEntry != null) {
-      const active = v._tocRowEls.get(v._activeTocEntry);
+      const visibleEntry = findVisibleAncestorEntry(v, v._activeTocEntry);
+      const active = v._tocRowEls.get(visibleEntry);
       if (active) active.classList.add('active');
     }
   }
@@ -1712,7 +1736,8 @@
     const v = state.virtual;
     const tocList = $('tocList');
     if (!v || !v._tocOffsets || !v._tocEntryItemIndex) return;
-    const itemIdx = v._tocEntryItemIndex.get(ei);
+    const visibleEntry = findVisibleAncestorEntry(v, ei);
+    const itemIdx = v._tocEntryItemIndex.get(visibleEntry);
     if (itemIdx == null) return;
     const target = v._tocOffsets[itemIdx];
     const viewportH = tocList.clientHeight || 400;
@@ -1757,13 +1782,27 @@
     updateEntryNav();
   }
 
-  // Disconnect the full-render scroll-spy IntersectionObserver (if any) so it
-  // stops observing the previous document's headings.
+  // Disconnect full-render scroll-spy handlers & observers so they stop
+  // observing the previous document's headings.
   function disconnectScrollSpy() {
+    if (state.scrollSpyHandler) {
+      const content = $('content');
+      if (content) content.removeEventListener('scroll', state.scrollSpyHandler);
+      state.scrollSpyHandler = null;
+    }
+    if (state.scrollSpyResizeHandler) {
+      window.removeEventListener('resize', state.scrollSpyResizeHandler);
+      state.scrollSpyResizeHandler = null;
+    }
+    if (state.scrollSpyRaf) {
+      cancelAnimationFrame(state.scrollSpyRaf);
+      state.scrollSpyRaf = null;
+    }
     if (state.scrollSpyObserver) {
       state.scrollSpyObserver.disconnect();
       state.scrollSpyObserver = null;
     }
+    state.refreshScrollSpy = null;
   }
 
   // Build the TOC directly from the section index (not from DOM headings). For
@@ -1806,6 +1845,7 @@
     tocList.addEventListener('scroll', onTocScroll, { passive: true });
 
     renderTocWindow();
+    syncTocCollapseBtnState();
     updateVirtualScrollSpy(1);
   }
 
@@ -2921,13 +2961,14 @@
 
     // Filter valid headings & extract clean text (stripping .line-anchor spans)
     const validItems = [];
-    headings.forEach((h) => {
+    headings.forEach((h, idx) => {
+      if (!h.id) h.id = 'heading-' + idx;
       const clone = h.cloneNode(true);
       clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
       const rawText = clone.textContent.trim();
       const text = cleanHeadingText(rawText);
       if (text) {
-        validItems.push({ h, text, level: parseInt(h.tagName.charAt(1)) });
+        validItems.push({ h, text, level: parseInt(h.tagName.charAt(1)) || 1 });
       }
     });
 
@@ -2973,19 +3014,29 @@
       row.appendChild(chevron);
       row.appendChild(label);
 
-      row.addEventListener('click', (e) => {
-        if (e.target === chevron && !chevron.classList.contains('empty')) {
-          e.stopPropagation();
-          const isCollapsed = row.classList.toggle('collapsed');
-          toggleSubtreeVisibility(rows, idx, isCollapsed);
-        } else {
-          safeScrollToElement(h, $('content'), 'start');
-          if (isMobileBrowser()) {
-            const sidebar = $('sidebar');
-            if (sidebar && !sidebar.classList.contains('collapsed')) {
-              sidebar.classList.add('collapsed');
-              state.sidebarCollapsed = true;
-            }
+      // Dedicated click handler on chevron to prevent mis-clicks triggering page jump
+      chevron.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (chevron.classList.contains('empty')) return;
+        const isCollapsed = row.classList.toggle('collapsed');
+        chevron.title = isCollapsed ? '展開' : '摺疊';
+        toggleSubtreeVisibility(rows, idx, isCollapsed);
+        syncTocCollapseBtnState();
+        if (state.refreshScrollSpy) {
+          state.refreshScrollSpy(false);
+        }
+      });
+
+      row.addEventListener('click', () => {
+        safeScrollToElement(h, $('content'), 'start');
+        // Immediate visual active feedback
+        rows.forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        if (isMobileBrowser()) {
+          const sidebar = $('sidebar');
+          if (sidebar && !sidebar.classList.contains('collapsed')) {
+            sidebar.classList.add('collapsed');
+            state.sidebarCollapsed = true;
           }
         }
       });
@@ -3001,31 +3052,47 @@
       if (nextRow && parseInt(nextRow.getAttribute('data-level')) > curLevel) {
         const chev = rows[i].querySelector('.toc-item-chevron');
         chev.classList.remove('empty');
+        chev.title = '摺疊';
       }
     }
 
     tocList.appendChild(fragment);
+    syncTocCollapseBtnState();
     setupScrollSpy(validItems.map(item => item.h));
   }
 
   function toggleSubtreeVisibility(rows, parentIdx, isCollapsed) {
     const parentLevel = parseInt(rows[parentIdx].getAttribute('data-level'));
+    let hideBelowLevel = isCollapsed ? parentLevel : Infinity;
+
     for (let i = parentIdx + 1; i < rows.length; i++) {
       const curLevel = parseInt(rows[i].getAttribute('data-level'));
-      if (curLevel <= parentLevel) break; // End of subtree
+      if (curLevel <= parentLevel) break; // Exited the subtree
 
-      if (isCollapsed) {
+      if (curLevel > hideBelowLevel) {
         rows[i].classList.add('is-hidden');
       } else {
         rows[i].classList.remove('is-hidden');
         if (rows[i].classList.contains('collapsed')) {
-          const childLevel = parseInt(rows[i].getAttribute('data-level'));
-          while (i + 1 < rows.length && parseInt(rows[i + 1].getAttribute('data-level')) > childLevel) {
-            i++;
-            rows[i].classList.add('is-hidden');
-          }
+          hideBelowLevel = curLevel;
+        } else {
+          hideBelowLevel = Infinity;
         }
       }
+    }
+  }
+
+  function syncTocCollapseBtnState() {
+    const btn = $('tocCollapseAllBtn');
+    if (!btn) return;
+    if (isVirtualMode()) {
+      const v = state.virtual;
+      const isExpanded = !v || !v._collapsedEntries || v._collapsedEntries.size === 0;
+      updateCollapseBtnUI(btn, isExpanded);
+    } else {
+      const rows = $$('.toc-item-row', $('tocList'));
+      const anyCollapsed = Array.from(rows).some(el => el.classList.contains('collapsed'));
+      updateCollapseBtnUI(btn, !anyCollapsed);
     }
   }
 
@@ -3038,7 +3105,6 @@
       if (v._collapsedEntries.size > 0) {
         // Expand all
         v._collapsedEntries.clear();
-        updateCollapseBtnUI(btn, true);
       } else {
         // Collapse all parents with children
         for (let i = 0; i < v.entries.length; i++) {
@@ -3048,12 +3114,13 @@
             v._collapsedEntries.add(i);
           }
         }
-        updateCollapseBtnUI(btn, false);
       }
       buildVirtualTocItems(v);
       v._tocRenderedStart = -1;
       v._tocRenderedEnd = -1;
       renderTocWindow();
+      syncTocCollapseBtnState();
+      updateVirtualScrollSpy(estimateLineFromScrollTop());
       return;
     }
 
@@ -3067,36 +3134,48 @@
       rows.forEach(r => {
         r.classList.remove('collapsed');
         r.classList.remove('is-hidden');
-      });
-      updateCollapseBtnUI(btn, true);
-    } else {
-      // Collapse top parents
-      const minLevel = Math.min(...Array.from(rows).map(r => parseInt(r.getAttribute('data-level'))));
-      rows.forEach(r => {
-        const level = parseInt(r.getAttribute('data-level'));
-        if (level === minLevel) {
-          const chev = r.querySelector('.toc-item-chevron');
-          if (chev && !chev.classList.contains('empty')) {
-            r.classList.add('collapsed');
-          }
-        } else {
-          r.classList.add('is-hidden');
+        const chev = r.querySelector('.toc-item-chevron');
+        if (chev && !chev.classList.contains('empty')) {
+          chev.title = '摺疊';
         }
       });
-      updateCollapseBtnUI(btn, false);
+    } else {
+      // Collapse all parents while preserving tree hierarchy
+      const minLevel = Math.min(...Array.from(rows).map(r => parseInt(r.getAttribute('data-level'))));
+      rows.forEach((r, i) => {
+        const chev = r.querySelector('.toc-item-chevron');
+        const hasChildren = chev && !chev.classList.contains('empty');
+        if (hasChildren) {
+          r.classList.add('collapsed');
+          chev.title = '展開';
+        }
+        const level = parseInt(r.getAttribute('data-level'));
+        if (level > minLevel) {
+          r.classList.add('is-hidden');
+        } else {
+          r.classList.remove('is-hidden');
+        }
+      });
+    }
+    syncTocCollapseBtnState();
+    if (state.refreshScrollSpy) {
+      state.refreshScrollSpy(false);
     }
   }
 
   function setupScrollSpy(headings) {
-    if (state.scrollSpyObserver) {
-      state.scrollSpyObserver.disconnect();
-    }
+    disconnectScrollSpy();
 
     const tocList = $('tocList');
-    const tocItems = $$('.toc-item-row', tocList);
+    const tocItems = Array.from($$('.toc-item-row', tocList));
     if (tocItems.length === 0) return;
 
-    headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
+    const content = $('content');
+    if (!content) return;
+
+    headings = headings || Array.from($$('h1, h2, h3, h4, h5, h6', $('markdownBody')));
+    const validHeadings = headings.filter(h => h && h.isConnected);
+    if (validHeadings.length === 0) return;
 
     const tocMap = new Map();
     tocItems.forEach((item) => {
@@ -3104,45 +3183,107 @@
       if (target) tocMap.set(target, item);
     });
 
-    let currentActiveItem = tocList.querySelector('.toc-item-row.active');
+    let currentActiveTarget = null;
     let scrollIntoViewTimeout = null;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let lastIntersectingId = null;
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            lastIntersectingId = entry.target.id;
-          }
-        });
-
-        if (lastIntersectingId) {
-          const nextActiveItem = tocMap.get(lastIntersectingId);
-          if (nextActiveItem && nextActiveItem !== currentActiveItem) {
-            if (currentActiveItem) {
-              currentActiveItem.classList.remove('active');
-            }
-            nextActiveItem.classList.add('active');
-            currentActiveItem = nextActiveItem;
-
-            if (scrollIntoViewTimeout) {
-              clearTimeout(scrollIntoViewTimeout);
-            }
-            scrollIntoViewTimeout = setTimeout(() => {
-              nextActiveItem.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-            }, 50);
+    function findVisibleRow(row) {
+      if (!row || !row.classList.contains('is-hidden')) return row;
+      const level = parseInt(row.getAttribute('data-level')) || 1;
+      const idx = parseInt(row.getAttribute('data-index')) || 0;
+      let targetLevel = level;
+      for (let i = idx - 1; i >= 0; i--) {
+        const curLevel = parseInt(tocItems[i].getAttribute('data-level')) || 1;
+        if (curLevel < targetLevel) {
+          targetLevel = curLevel;
+          if (!tocItems[i].classList.contains('is-hidden')) {
+            return tocItems[i];
           }
         }
-      },
-      {
-        root: $('content'),
-        rootMargin: '-48px 0px -70% 0px',
-        threshold: 0,
       }
-    );
+      return row;
+    }
 
-    headings.forEach((h) => observer.observe(h));
-    state.scrollSpyObserver = observer;
+    function updateActiveHeading(forceScroll = false) {
+      if (isVirtualMode()) return;
+      if (!headings || validHeadings.length === 0) return;
+
+      const contentRect = content.getBoundingClientRect();
+      const contentScrollTop = content.scrollTop;
+      const isAtBottom = contentScrollTop + content.clientHeight >= content.scrollHeight - 20;
+
+      let activeH = null;
+
+      if (isAtBottom) {
+        // At bottom of page, activate last heading
+        activeH = validHeadings[validHeadings.length - 1];
+      } else {
+        // Find the last heading whose top edge is <= reading offset line (70px below content top)
+        const readingLine = 70;
+        for (let i = 0; i < validHeadings.length; i++) {
+          const h = validHeadings[i];
+          const rect = h.getBoundingClientRect();
+          const topRel = rect.top - contentRect.top;
+          if (topRel <= readingLine) {
+            activeH = h;
+          } else {
+            break;
+          }
+        }
+        // If before the first heading, but near top of document (scrollTop < 120), activate first heading
+        if (!activeH && contentScrollTop < 120 && validHeadings.length > 0) {
+          activeH = validHeadings[0];
+        }
+      }
+
+      const activeTargetId = activeH ? activeH.id : null;
+      if (!activeTargetId) return;
+
+      const targetRow = tocMap.get(activeTargetId);
+      if (!targetRow) return;
+
+      const visibleRow = findVisibleRow(targetRow);
+
+      if (currentActiveTarget !== activeTargetId || forceScroll) {
+        currentActiveTarget = activeTargetId;
+
+        // Remove active from all rows
+        tocItems.forEach(r => r.classList.remove('active'));
+
+        if (visibleRow) {
+          visibleRow.classList.add('active');
+
+          if (isTocPanelVisible()) {
+            if (scrollIntoViewTimeout) clearTimeout(scrollIntoViewTimeout);
+            scrollIntoViewTimeout = setTimeout(() => {
+              visibleRow.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+            }, forceScroll ? 10 : 50);
+          }
+        }
+      } else if (visibleRow && !visibleRow.classList.contains('active')) {
+        tocItems.forEach(r => r.classList.remove('active'));
+        visibleRow.classList.add('active');
+      }
+    }
+
+    let rafPending = false;
+    const scrollHandler = () => {
+      if (rafPending) return;
+      rafPending = true;
+      state.scrollSpyRaf = requestAnimationFrame(() => {
+        rafPending = false;
+        state.scrollSpyRaf = null;
+        updateActiveHeading(false);
+      });
+    };
+
+    content.addEventListener('scroll', scrollHandler, { passive: true });
+    window.addEventListener('resize', scrollHandler, { passive: true });
+    state.scrollSpyHandler = scrollHandler;
+    state.scrollSpyResizeHandler = scrollHandler;
+    state.refreshScrollSpy = (forceScroll) => updateActiveHeading(forceScroll);
+
+    // Initial check on load
+    updateActiveHeading(false);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -4648,15 +4789,17 @@
           setTimeout(() => $('globalSearchInput').focus(), 100);
         }
 
-        // When the TOC tab is opened on a virtualized file, recenter its
-        // window on the active entry. While hidden, scrollTop writes are
-        // no-ops, so the window may be stale; defer until after layout.
-        if (tabName === 'toc' && isVirtualMode()) {
+        // When the TOC tab is opened, recenter/refresh on the active heading.
+        // While hidden, scrollTop/scrollIntoView writes are no-ops; defer until after layout.
+        if (tabName === 'toc') {
           requestAnimationFrame(() => {
-            if (!isVirtualMode()) return;
-            const v = state.virtual;
-            const ei = (v && v._activeTocEntry >= 0) ? v._activeTocEntry : 0;
-            centerTocOnEntry(ei);
+            if (isVirtualMode()) {
+              const v = state.virtual;
+              const ei = (v && v._activeTocEntry >= 0) ? v._activeTocEntry : 0;
+              centerTocOnEntry(ei);
+            } else if (state.refreshScrollSpy) {
+              state.refreshScrollSpy(true);
+            }
           });
         }
       });
