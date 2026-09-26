@@ -18,7 +18,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.0';
+let APP_VERSION = '3.4.1';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -4068,8 +4068,8 @@ function serveStatic(req, res, pathname, query) {
   // 2. Whitelist Check: Allow explicit public client assets and safe static media/font/document extensions
   const ALLOWED_EXACT_FILES = new Set([
     'index.html', 'app.js', 'style.css', 'marked.min.js', 's2t.js', 'md-worker.js', 
-    'favicon.ico', 'robots.txt', 'sitemap.xml', 'manifest.json', 'sw.js',
-    'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon-32.png', 'icon.svg', 'og-preview.png'
+    'favicon.ico', 'favicon.svg', 'robots.txt', 'sitemap.xml', 'manifest.json', 'sw.js',
+    'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon-32.png', 'favicon-16.png', 'icon.svg', 'og-preview.png'
   ]);
   const ALLOWED_EXTENSIONS = new Set(['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.woff', '.woff2', '.ttf', '.pdf', '.xml', '.txt']);
 
@@ -5038,7 +5038,8 @@ async function getDailyWords() {
   const root = getDictionaryPath();
   if (!root) return [];
 
-  const count = Math.max(0, parseInt(sl.dailyWordCount) ?? 3);
+  const rawCount = parseInt(sl.dailyWordCount, 10);
+  const count = Number.isFinite(rawCount) ? Math.max(0, Math.min(20, rawCount)) : 3;
   if (count <= 0) return [];
 
   const rotateHour = Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour) || 12));
@@ -5145,8 +5146,10 @@ async function handleSuggestList(req, res) {
   try {
     const sl = config.settings.suggestList || {};
     const adminList = Array.isArray(sl.adminList) ? sl.adminList : [];
-    const adminPickCount = Math.max(0, parseInt(sl.adminPickCount) || 3);
-    const hotPickCount = Math.max(0, parseInt(sl.hotPickCount) || 5);
+    const parsedAdminPick = parseInt(sl.adminPickCount, 10);
+    const adminPickCount = Number.isFinite(parsedAdminPick) ? Math.max(0, Math.min(20, parsedAdminPick)) : 3;
+    const parsedHotPick = parseInt(sl.hotPickCount, 10);
+    const hotPickCount = Number.isFinite(parsedHotPick) ? Math.max(0, Math.min(20, parsedHotPick)) : 5;
     const blackList = Array.isArray(sl.blackList) ? sl.blackList : [];
     const isBlacklisted = createBlacklistChecker(blackList);
 
@@ -5171,9 +5174,10 @@ async function handleSuggestList(req, res) {
 
     // Hot picks: from log analysis
     const hotRaw = await buildHotList(blackList);
-    const adminPathSet = new Set(adminPicks.map(a => a.path));
+    const normalizePath = p => (p || '').replace(/\\/g, '/').replace(/\.md$/i, '').trim().toLowerCase();
+    const adminPathSet = new Set(adminPicks.map(a => normalizePath(a.path)));
     const hotPicks = hotRaw
-      .filter(h => !adminPathSet.has(h.path))
+      .filter(h => !adminPathSet.has(normalizePath(h.path)))
       .slice(0, hotPickCount)
       .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source }));
 
@@ -5824,15 +5828,16 @@ const server = http.createServer((req, res) => {
           const existing = config.settings.suggestList || {};
           config.settings.suggestList = {
             adminList: Array.isArray(sl.adminList) ? sl.adminList.map(String).filter(p => p.trim()) : existing.adminList || [],
-            adminPickCount: Number.isFinite(parseInt(sl.adminPickCount)) ? Math.max(0, parseInt(sl.adminPickCount)) : (existing.adminPickCount ?? 3),
+            adminPickCount: Number.isFinite(parseInt(sl.adminPickCount, 10)) ? Math.max(0, Math.min(20, parseInt(sl.adminPickCount, 10))) : (existing.adminPickCount ?? 3),
             blackList: Array.isArray(sl.blackList) ? sl.blackList.map(String).filter(p => p.trim()) : existing.blackList || [],
-            hotPickCount: Number.isFinite(parseInt(sl.hotPickCount)) ? Math.max(0, parseInt(sl.hotPickCount)) : (existing.hotPickCount ?? 5),
-            dailyWordCount: Number.isFinite(parseInt(sl.dailyWordCount)) ? Math.max(0, parseInt(sl.dailyWordCount)) : (existing.dailyWordCount ?? 3),
+            hotPickCount: Number.isFinite(parseInt(sl.hotPickCount, 10)) ? Math.max(0, Math.min(20, parseInt(sl.hotPickCount, 10))) : (existing.hotPickCount ?? 5),
+            dailyWordCount: Number.isFinite(parseInt(sl.dailyWordCount, 10)) ? Math.max(0, Math.min(20, parseInt(sl.dailyWordCount, 10))) : (existing.dailyWordCount ?? 3),
             dailyWordDicts: Array.isArray(sl.dailyWordDicts) ? sl.dailyWordDicts.map(String).filter(p => p.trim()) : (existing.dailyWordDicts || []),
-            dailyWordRotateHour: Number.isFinite(parseInt(sl.dailyWordRotateHour)) ? Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour))) : (existing.dailyWordRotateHour ?? 12),
+            dailyWordRotateHour: Number.isFinite(parseInt(sl.dailyWordRotateHour, 10)) ? Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour, 10))) : (existing.dailyWordRotateHour ?? 12),
             enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true)
           };
           invalidateDailyWordCache();
+          hotListCache = null;
         }
         if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
           config.settings.dictionaryEnabled = nextDictEnabled;
