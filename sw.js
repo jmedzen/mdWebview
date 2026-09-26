@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.4.0';
+const CACHE_VERSION = 'v3.4.1';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -18,6 +18,10 @@ const SHELL_ASSETS = [
   '/s2t.js',
   '/md-worker.js',
   '/manifest.json',
+  '/favicon.svg',
+  '/favicon-32.png',
+  '/favicon-16.png',
+  '/favicon.ico',
   '/icon-192.png',
   '/icon-512.png',
   '/icon-maskable-512.png',

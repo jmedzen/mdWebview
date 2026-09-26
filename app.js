@@ -89,6 +89,8 @@
     dictPollTimer: null,
   };
 
+  let _lastAdminSettings = null;
+
   // Files at/above this byte size use virtualized rendering (must match server LARGE_FILE_MIN_BYTES).
   const LARGE_FILE_MIN_BYTES = 1048576;
 
@@ -5652,6 +5654,7 @@
         errorEl.style.display = 'none';
 
         if (data.settings) {
+          _lastAdminSettings = data.settings;
           if (data.settings.defaultFontSize) {
             state.defaultFontSize = parseInt(data.settings.defaultFontSize);
             const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
@@ -5745,7 +5748,7 @@
     renderBookmarksList();
     fetchSuggestList();
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6793,10 +6796,23 @@
 
       const adminListRaw = ($('suggestAdminList') || {}).value || '';
       const blackListRaw = ($('suggestBlackList') || {}).value || '';
-      const adminPickCount = parseInt(($('suggestAdminPickCount') || {}).value || '3');
-      const hotPickCount = parseInt(($('suggestHotPickCount') || {}).value || '5');
-      const dailyWordCount = parseInt(($('suggestDailyWordCount') || {}).value || '3');
-      const dailyWordRotateHour = parseInt(($('suggestDailyWordRotateHour') || {}).value || '12');
+      const adminPickCountRaw = ($('suggestAdminPickCount') || {}).value;
+      const hotPickCountRaw = ($('suggestHotPickCount') || {}).value;
+      const dailyWordCountRaw = ($('suggestDailyWordCount') || {}).value;
+      const dailyWordRotateHourRaw = ($('suggestDailyWordRotateHour') || {}).value;
+
+      const parsedAdminPick = parseInt(adminPickCountRaw, 10);
+      const adminPickCount = Number.isFinite(parsedAdminPick) ? Math.max(0, Math.min(20, parsedAdminPick)) : 3;
+
+      const parsedHotPick = parseInt(hotPickCountRaw, 10);
+      const hotPickCount = Number.isFinite(parsedHotPick) ? Math.max(0, Math.min(20, parsedHotPick)) : 5;
+
+      const parsedDailyCount = parseInt(dailyWordCountRaw, 10);
+      const dailyWordCount = Number.isFinite(parsedDailyCount) ? Math.max(0, Math.min(20, parsedDailyCount)) : 3;
+
+      const parsedDailyRotate = parseInt(dailyWordRotateHourRaw, 10);
+      const dailyWordRotateHour = Number.isFinite(parsedDailyRotate) ? Math.max(1, Math.min(168, parsedDailyRotate)) : 12;
+
       const enabled = !!(($('suggestEnabled') || {}).checked);
 
       // Collect checked dictionaries
@@ -6843,9 +6859,9 @@
                 adminPickCount,
                 blackList,
                 hotPickCount,
-                dailyWordCount: isNaN(dailyWordCount) ? 3 : Math.max(0, dailyWordCount),
+                dailyWordCount,
                 dailyWordDicts: checkedDicts,
-                dailyWordRotateHour: isNaN(dailyWordRotateHour) ? 12 : Math.max(1, Math.min(168, dailyWordRotateHour)),
+                dailyWordRotateHour,
                 enabled
               }
             }
@@ -6853,6 +6869,8 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '儲存失敗');
+
+        _lastAdminSettings = data.settings || null;
 
         if (successEl) {
           successEl.textContent = '推薦設定已儲存';
@@ -6869,8 +6887,6 @@
       }
     });
   }
-
-  let _lastAdminSettings = null;
 
   async function loadSuggestSettings(passedSettings = null) {
     const dictListContainer = $('suggestDictCheckboxList');
