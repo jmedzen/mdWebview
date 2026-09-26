@@ -2537,10 +2537,36 @@ kbd {
   animation: slideInFromLeft 0.2s ease both;
 }
 
+/* ── Mobile Sidebar Backdrop ────────────────────────────────── */
+.sidebar-backdrop {
+  display: none;
+}
+
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root, html {
     --content-max-width: 95%;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: calc(48px + env(safe-area-inset-top, 0px));
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 85;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .sidebar {
@@ -2555,14 +2581,19 @@ kbd {
     flex-direction: column;
     z-index: 90;
     box-shadow: 4px 0 24px var(--shadow-color);
-    width: 280px;
+    width: 280px !important;
+    max-width: calc(100vw - 44px) !important;
     transform: translateX(0);
-    transition: transform 0.3s ease;
+    transition: transform 0.3s ease, visibility 0.3s ease;
+    visibility: visible;
   }
 
   .sidebar.collapsed {
     transform: translateX(-100%);
-    width: 280px;
+    width: 280px !important;
+    box-shadow: none;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .sidebar-panel.active {
@@ -5323,14 +5354,28 @@ details.callout[open] > summary .callout-fold-icon {
 
 @media (max-width: 768px) {
   .dict-sidebar {
-    position: absolute;
-    top: 0;
+    position: fixed;
+    top: calc(48px + env(safe-area-inset-top, 0px));
     right: 0;
     bottom: 0;
-    width: 300px;
+    height: auto;
+    max-height: none;
+    width: 320px !important;
+    max-width: calc(100vw - 44px) !important;
+    z-index: 90;
+    box-shadow: -4px 0 24px var(--shadow-color);
+    transform: translateX(0);
+    transition: transform 0.3s ease, visibility 0.3s ease;
+    visibility: visible;
+    border-left: 1px solid var(--border-subtle);
   }
   .dict-sidebar.collapsed {
-    width: 0;
+    transform: translateX(100%);
+    width: 320px !important;
+    border-left: none;
+    box-shadow: none;
+    visibility: hidden;
+    pointer-events: none;
   }
   .dict-resize-handle {
     display: none !important;
