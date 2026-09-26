@@ -17,6 +17,13 @@ try {
   // Graceful fallback if s2t is not available
 }
 
+// Read application version from package.json
+let APP_VERSION = '3.4.0';
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+  if (pkg && pkg.version) APP_VERSION = pkg.version;
+} catch (e) {}
+
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
 marked.use({
@@ -960,6 +967,9 @@ let config = {
       adminPickCount: 3,
       blackList: [],
       hotPickCount: 5,
+      dailyWordCount: 3,
+      dailyWordDicts: [],
+      dailyWordRotateHour: 12,
       enabled: false
     }
   }
@@ -1227,6 +1237,7 @@ function getIndexHtml(nonce, req, callback) {
     const clientSettings = Object.assign({}, config.settings);
     delete clientSettings.mdRoot;
     delete clientSettings.dictionaryPath;
+    clientSettings.appVersion = APP_VERSION;
     const configScript = `<script nonce="${nonce}">(function(){try{var t=localStorage.getItem('mdWebview-user-theme')||${safeJsonForScript(defaultTheme)};var c={'obsidian-dark':'#181825','obsidian-light':'#e6e9ef','solarized':'#002b36','zen':'#ece5d8','gruvbox':'#1d2021'}[t]||'#181825';document.documentElement.setAttribute('data-theme',t);document.documentElement.style.backgroundColor=c;var m=document.getElementById('metaThemeColor');if(m)m.setAttribute('content',c);var f=localStorage.getItem('mdWebview-user-fontsize');if(f){document.documentElement.style.setProperty('--content-font-size',f+'px');}}catch(e){}})();window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
@@ -2305,6 +2316,7 @@ function invalidateSectionIndexes() {
 function invalidateDictSectionIndexes() {
   dictSectionIndexCache.clear();
   dictSectionIndexBinLoaded = false;
+  invalidateDailyWordCache();
 }
 
 /**
@@ -3409,6 +3421,7 @@ function invalidateDictIndex() {
   activeDictIndexBuildId++;
   dictIndex.ready = false;
   dictIndex.building = false;
+  invalidateDailyWordCache();
 }
 
 /**
@@ -3516,6 +3529,31 @@ async function handleDictHeadwords(req, res) {
   } catch (err) {
     Logger.error('Dict', 'Failed to list dictionary headwords', err);
     sendJSON(res, 500, { error: 'Failed to list dictionary headwords' });
+  }
+}
+
+// ── API: Dictionary Files (lightweight list for Admin UI) ────────────────
+async function handleDictFiles(req, res) {
+  try {
+    const root = getDictionaryPath();
+    const enabled = config.settings.dictionaryEnabled === true && !!root;
+    if (!enabled) {
+      return sendJSON(res, 200, { enabled: false, files: [] });
+    }
+    const files = await scanDictFiles();
+    const result = files.map(f => ({
+      name: f.name.replace(/\.md$/, ''),
+      fileName: f.name,
+      relPath: f.relPath,
+      size: f.size
+    }));
+    return sendJSON(res, 200, {
+      enabled: true,
+      files: result
+    });
+  } catch (err) {
+    Logger.error('Dict', 'Failed to list dict files', err);
+    sendJSON(res, 500, { error: 'Failed to list dictionary files' });
   }
 }
 
@@ -4975,6 +5013,134 @@ async function buildHotList(blackList) {
   return result;
 }
 
+// ── Daily Words (Word of the Day) ────────────────────────────────────────
+let dailyWordCache = null;
+
+function invalidateDailyWordCache() {
+  dailyWordCache = null;
+}
+
+function mulberry32(seed) {
+  return function() {
+    let t = (seed += 0x6D2B79F5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+async function getDailyWords() {
+  const sl = config.settings.suggestList || {};
+  // Condition 1: suggestList must be enabled
+  if (sl.enabled === false) return [];
+  // Condition 2: dictionaryEnabled must be true with a valid dictionaryPath
+  if (!config.settings.dictionaryEnabled) return [];
+  const root = getDictionaryPath();
+  if (!root) return [];
+
+  const count = Math.max(0, parseInt(sl.dailyWordCount) ?? 3);
+  if (count <= 0) return [];
+
+  const rotateHour = Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour) || 12));
+  const slotMs = rotateHour * 3600 * 1000;
+  const currentSlot = Math.floor(Date.now() / slotMs);
+
+  const selectedDicts = Array.isArray(sl.dailyWordDicts) ? sl.dailyWordDicts.filter(Boolean) : [];
+  const cacheKey = `${currentSlot}_${count}_${rotateHour}_${selectedDicts.slice().sort().join(',')}`;
+
+  if (dailyWordCache && dailyWordCache.cacheKey === cacheKey) {
+    return dailyWordCache.items;
+  }
+
+  const allDictFiles = await scanDictFiles();
+  if (!allDictFiles || allDictFiles.length === 0) return [];
+
+  // Filter dictionary files based on selectedDicts
+  let targetFiles = allDictFiles;
+  if (selectedDicts.length > 0) {
+    const selectedSet = new Set(selectedDicts);
+    targetFiles = allDictFiles.filter(f =>
+      selectedSet.has(f.name) ||
+      selectedSet.has(f.name.replace(/\.md$/, '')) ||
+      selectedSet.has(f.relPath)
+    );
+  }
+
+  if (targetFiles.length === 0) {
+    dailyWordCache = { cacheKey, items: [] };
+    return [];
+  }
+
+  targetFiles.sort((a, b) => a.relPath.localeCompare(b.relPath));
+
+  // Load section index for each target file
+  const dictCandidates = [];
+  for (const f of targetFiles) {
+    let stat = null;
+    try { stat = await fs.promises.stat(f.fullPath); } catch (_) {}
+    if (!stat) continue;
+    let idx = null;
+    try {
+      idx = await getSectionIndex(f.fullPath, stat, f.relPath);
+    } catch (_) {}
+    if (idx && idx.entries && idx.entries.length > 0) {
+      const validEntries = [];
+      for (const e of idx.entries) {
+        const hw = cleanHeadword(e.headword);
+        if (hw && hw.length > 0) {
+          validEntries.push({ headword: hw, lineStart: e.lineStart });
+        }
+      }
+      if (validEntries.length > 0) {
+        dictCandidates.push({
+          relPath: f.relPath,
+          name: f.name.replace(/\.md$/, ''),
+          entries: validEntries
+        });
+      }
+    }
+  }
+
+  if (dictCandidates.length === 0) {
+    dailyWordCache = { cacheKey, items: [] };
+    return [];
+  }
+
+  // Deterministic Mulberry32 seeded by currentSlot
+  const seed = ((currentSlot * 1664525 + 1013904223) ^ 0x5deece66) >>> 0;
+  const rng = mulberry32(seed);
+
+  const pickedWords = new Set();
+  const result = [];
+  const maxAttempts = count * 30;
+  let attempts = 0;
+
+  // Rotate starting dictionary deterministically
+  let dictIdx = Math.floor(rng() * dictCandidates.length);
+
+  while (result.length < count && attempts < maxAttempts) {
+    attempts++;
+    const dict = dictCandidates[dictIdx % dictCandidates.length];
+    dictIdx++;
+
+    const entryIdx = Math.floor(rng() * dict.entries.length);
+    const entry = dict.entries[entryIdx];
+    if (!pickedWords.has(entry.headword)) {
+      pickedWords.add(entry.headword);
+      result.push({
+        path: dict.relPath,
+        fileName: entry.headword,
+        dictName: dict.name,
+        line: entry.lineStart,
+        type: 'dict'
+      });
+    }
+  }
+
+  dailyWordCache = { cacheKey, items: result };
+  return result;
+}
+
 async function handleSuggestList(req, res) {
   try {
     const sl = config.settings.suggestList || {};
@@ -5011,13 +5177,16 @@ async function handleSuggestList(req, res) {
       .slice(0, hotPickCount)
       .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source }));
 
-    const items = [...adminPicks, ...hotPicks];
-    // Randomly shuffle combined items so admin and hot picks interleave
+    // Daily word picks: from installed dictionaries
+    const dailyWordPicks = await getDailyWords();
+
+    const items = [...adminPicks, ...hotPicks, ...dailyWordPicks];
+    // Randomly shuffle combined items so admin, hot picks and daily words interleave
     for (let i = items.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
     }
-    sendJSON(res, 200, { items, adminPickCount, hotPickCount, enabled: sl.enabled !== false });
+    sendJSON(res, 200, { items, adminPickCount, hotPickCount, dailyWordCount: dailyWordPicks.length, enabled: sl.enabled !== false });
   } catch (err) {
     Logger.error('Suggest', 'Failed to build suggestion list', err, req);
     sendJSON(res, 500, { error: 'Failed to load suggestions' });
@@ -5461,6 +5630,9 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/dict-event' && req.method === 'POST') {
     return handleDictEvent(req, res);
   }
+  if (pathname === '/api/dict-files' && req.method === 'GET') {
+    return handleDictFiles(req, res);
+  }
 
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
@@ -5655,8 +5827,12 @@ const server = http.createServer((req, res) => {
             adminPickCount: Number.isFinite(parseInt(sl.adminPickCount)) ? Math.max(0, parseInt(sl.adminPickCount)) : (existing.adminPickCount ?? 3),
             blackList: Array.isArray(sl.blackList) ? sl.blackList.map(String).filter(p => p.trim()) : existing.blackList || [],
             hotPickCount: Number.isFinite(parseInt(sl.hotPickCount)) ? Math.max(0, parseInt(sl.hotPickCount)) : (existing.hotPickCount ?? 5),
+            dailyWordCount: Number.isFinite(parseInt(sl.dailyWordCount)) ? Math.max(0, parseInt(sl.dailyWordCount)) : (existing.dailyWordCount ?? 3),
+            dailyWordDicts: Array.isArray(sl.dailyWordDicts) ? sl.dailyWordDicts.map(String).filter(p => p.trim()) : (existing.dailyWordDicts || []),
+            dailyWordRotateHour: Number.isFinite(parseInt(sl.dailyWordRotateHour)) ? Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour))) : (existing.dailyWordRotateHour ?? 12),
             enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true)
           };
+          invalidateDailyWordCache();
         }
         if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
           config.settings.dictionaryEnabled = nextDictEnabled;
@@ -5772,6 +5948,7 @@ if (require.main === module) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     server,
+    config,
     workerPool,
     indexWorkerPool,
     executeIndexJob,
@@ -5787,6 +5964,12 @@ if (typeof module !== "undefined" && module.exports) {
     formatTimestampInTz,
     isBotEntry,
     extractAnalyticsPath,
-    extractAnalyticsQuery
+    extractAnalyticsQuery,
+    getDailyWords,
+    mulberry32,
+    invalidateDailyWordCache,
+    scanDictFiles,
+    handleSuggestList,
+    handleDictFiles
   };
 }
