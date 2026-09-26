@@ -34,7 +34,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.3.7">
+  <link rel="stylesheet" href="style.css?v=3.4.0">
 </head>
 <body>
   <div class="app">
@@ -335,7 +335,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理</h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.4.0</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -471,6 +471,10 @@
         <div class="settings-tab-pane" id="pane-system" style="display: none;">
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
+              <span class="status-icon">🏷️</span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.4.0</strong></span>
+            </div>
+            <div class="status-info-row">
               <span class="status-icon">🔐</span>
               <span id="adminStatusText">管理員登入狀態：檢查中…</span>
             </div>
@@ -482,8 +486,9 @@
         </div>
       </div>
 
-      <div class="modal-actions">
+      <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.4.0</span>
       </div>
     </div>
   </div>
@@ -1227,6 +1232,41 @@
                 </div>
               </div>
 
+              <!-- Daily Word -->
+              <div class="suggest-section suggest-section-daily-word">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">📖</span>
+                    每日單詞
+                  </div>
+                  <div class="suggest-count-control">
+                    <label for="suggestDailyWordCount">顯示</label>
+                    <input type="number" id="suggestDailyWordCount" min="0" max="20" value="3">
+                    <span>筆</span>
+                  </div>
+                </div>
+
+                <div class="suggest-rotate-row">
+                  <span class="suggest-rotate-label">更新頻率：每</span>
+                  <input type="number" id="suggestDailyWordRotateHour" class="suggest-rotate-input" min="1" max="168" value="12">
+                  <span class="suggest-rotate-unit">小時輪替一次</span>
+                </div>
+
+                <div class="suggest-dict-select-header">
+                  <span class="suggest-dict-select-title">參與單詞之辭典：</span>
+                  <div class="suggest-dict-btn-group">
+                    <button type="button" id="suggestDictSelectAllBtn">全選</button>
+                    <button type="button" id="suggestDictSelectNoneBtn">全不選</button>
+                  </div>
+                </div>
+
+                <div id="suggestDictCheckboxList" class="suggest-dict-checkbox-list">
+                  <span class="suggest-dict-loading">載入辭典清單中…</span>
+                </div>
+                <div id="suggestDictNotice" class="suggest-dict-notice" style="display: none;"></div>
+                <span class="suggest-hint">條件：需同時啟用「首頁推薦閱讀」與「辭典查詢」，並由勾選辭典隨機挑選詞條。</span>
+              </div>
+
             </div>
           </div>
 
@@ -1246,8 +1286,8 @@
 
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/mermaid/mermaid.min.js" defer></script>
-  <script src="marked.min.js?v=3.3.7" defer></script>
-  <script src="s2t.js?v=3.3.7" defer></script>
-  <script src="app.js?v=3.3.7" defer></script>
+  <script src="marked.min.js?v=3.4.0" defer></script>
+  <script src="s2t.js?v=3.4.0" defer></script>
+  <script src="app.js?v=3.4.0" defer></script>
 </body>
 </html>

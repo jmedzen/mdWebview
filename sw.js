@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.3.7';
+const CACHE_VERSION = 'v3.4.0';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -64,13 +64,12 @@ self.addEventListener('fetch', event => {
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // A. Admin & Heavy Search APIs -> Network-Only (never stale, avoid quota bloat)
-  if (
-    url.pathname.startsWith('/api/admin') ||
-    url.pathname.startsWith('/api/search') ||
-    url.pathname.startsWith('/api/dict-search')
-  ) {
-    return;
+  // A. Dynamic APIs -> Network-Only (never stale, avoid quota bloat)
+  // All /api/ routes except /api/file and /api/tree are strictly network-only
+  if (url.pathname.startsWith('/api/')) {
+    if (url.pathname !== '/api/file' && url.pathname !== '/api/tree') {
+      return;
+    }
   }
 
   // B. Navigation requests (HTML page loads) -> Network-First, fallback to cached App Shell

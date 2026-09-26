@@ -748,6 +748,7 @@
 
   function resolveSuggestPath(rawPath) {
     if (!rawPath) return '';
+    if (rawPath.startsWith('dict:')) return rawPath;
     // Normalize slashes and trim spaces around path segments
     const cleanPath = rawPath
       .replace(/\\/g, '/')
@@ -800,17 +801,25 @@
       const targetPath = resolveSuggestPath(item.path);
       li.title = targetPath || item.path || '';
 
+      const isDict = item.type === 'dict';
+      const isHot = item.type === 'hot';
+
       const icon = document.createElement('span');
       icon.className = 'suggest-item-icon';
-      icon.textContent = item.type === 'hot' ? '✨' : '🪷';
+      icon.textContent = isDict ? '📖' : (isHot ? '✨' : '🪷');
 
       const name = document.createElement('span');
       name.className = 'suggest-item-name';
-      name.textContent = item.fileName || item.path;
+      if (isDict) {
+        name.innerHTML = `<span class="suggest-dict-word">${escHtml(item.fileName)}</span>` +
+          (item.dictName ? ` <span class="suggest-dict-source">(${escHtml(item.dictName)})</span>` : '');
+      } else {
+        name.textContent = item.fileName || item.path;
+      }
 
       const badge = document.createElement('span');
-      badge.className = 'suggest-item-badge ' + (item.type === 'hot' ? 'suggest-badge-hot' : 'suggest-badge-admin');
-      badge.textContent = item.type === 'hot' ? '熱門' : '推薦';
+      badge.className = 'suggest-item-badge ' + (isDict ? 'suggest-badge-dict' : (isHot ? 'suggest-badge-hot' : 'suggest-badge-admin'));
+      badge.textContent = isDict ? '單詞' : (isHot ? '熱門' : '推薦');
 
       li.appendChild(icon);
       li.appendChild(name);
@@ -819,7 +828,7 @@
       li.addEventListener('click', () => {
         const pathToOpen = resolveSuggestPath(item.path);
         if (pathToOpen) {
-          openFile(pathToOpen);
+          openFile(pathToOpen, item.line || null);
           if (closeOverlayOnClick) {
             const overlay = $('userSettingsOverlay');
             if (overlay) overlay.style.display = 'none';
@@ -5736,6 +5745,15 @@
     renderBookmarksList();
     fetchSuggestList();
 
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.0';
+    const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
+    const headerVer = $('userSettingsHeaderVersion');
+    const footerVer = $('userSettingsFooterVersion');
+    const systemVer = $('systemTabVersion');
+    if (headerVer) headerVer.textContent = cleanVer;
+    if (footerVer) footerVer.textContent = '版本 ' + cleanVer;
+    if (systemVer) systemVer.textContent = cleanVer;
+
     const statusText = $('adminStatusText');
     const loginBtn = $('menuOpenAdminLoginBtn');
     const vaultBtn = $('menuOpenVaultSettingsBtn');
@@ -6361,7 +6379,7 @@
       // Preload data for all admin tabs (Suggest, Analytics, Logs) so that
       // all 4 tabs and data analytics tables are populated immediately upon login/open
       Promise.all([
-        loadSuggestSettings().catch(() => {}),
+        loadSuggestSettings(data.settings).catch(() => {}),
         loadAdminAnalytics().catch(() => {}),
         fetchAdminLogs().catch(() => {})
       ]);
@@ -6748,6 +6766,21 @@
     if (_suggestFormEventsSetup) return;
     _suggestFormEventsSetup = true;
 
+    const selectAllBtn = $('suggestDictSelectAllBtn');
+    const selectNoneBtn = $('suggestDictSelectNoneBtn');
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', () => {
+        const cbs = document.querySelectorAll('.suggest-dict-cb');
+        cbs.forEach(cb => { cb.checked = true; });
+      });
+    }
+    if (selectNoneBtn) {
+      selectNoneBtn.addEventListener('click', () => {
+        const cbs = document.querySelectorAll('.suggest-dict-cb');
+        cbs.forEach(cb => { cb.checked = false; });
+      });
+    }
+
     const form = $('adminSuggestForm');
     if (!form) return;
 
@@ -6762,7 +6795,14 @@
       const blackListRaw = ($('suggestBlackList') || {}).value || '';
       const adminPickCount = parseInt(($('suggestAdminPickCount') || {}).value || '3');
       const hotPickCount = parseInt(($('suggestHotPickCount') || {}).value || '5');
+      const dailyWordCount = parseInt(($('suggestDailyWordCount') || {}).value || '3');
+      const dailyWordRotateHour = parseInt(($('suggestDailyWordRotateHour') || {}).value || '12');
       const enabled = !!(($('suggestEnabled') || {}).checked);
+
+      // Collect checked dictionaries
+      const checkedDicts = [];
+      const cbs = document.querySelectorAll('.suggest-dict-cb:checked');
+      cbs.forEach(cb => { if (cb.value) checkedDicts.push(cb.value); });
 
       // Parse textarea lines
       const adminList = adminListRaw.split('\n').map(l => l.trim()).filter(Boolean);
@@ -6789,11 +6829,25 @@
               defaultFontSize: s.defaultFontSize,
               defaultTheme: s.defaultTheme,
               siteName: s.siteName,
+              siteUrl: s.siteUrl,
+              timezone: s.timezone,
               enableVersion: s.enableVersion,
               version: s.version,
               enableDownload: s.enableDownload,
               downloadUrl: s.downloadUrl,
-              suggestList: { adminList, adminPickCount, blackList, hotPickCount, enabled }
+              maxProximityDistance: s.maxProximityDistance,
+              dictionaryEnabled: s.dictionaryEnabled,
+              dictionaryPath: s.dictionaryPath,
+              suggestList: {
+                adminList,
+                adminPickCount,
+                blackList,
+                hotPickCount,
+                dailyWordCount: isNaN(dailyWordCount) ? 3 : Math.max(0, dailyWordCount),
+                dailyWordDicts: checkedDicts,
+                dailyWordRotateHour: isNaN(dailyWordRotateHour) ? 12 : Math.max(1, Math.min(168, dailyWordRotateHour)),
+                enabled
+              }
             }
           })
         });
@@ -6816,27 +6870,104 @@
     });
   }
 
-  async function loadSuggestSettings() {
+  let _lastAdminSettings = null;
+
+  async function loadSuggestSettings(passedSettings = null) {
+    const dictListContainer = $('suggestDictCheckboxList');
+    const dictNoticeEl = $('suggestDictNotice');
+
     try {
-      const res = await fetch('/api/admin/settings', {
-        headers: { 'X-Admin-Token': state.adminToken }
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const sl = (data.settings && data.settings.suggestList) || {};
+      // 1. Kick off fetching dict files immediately in parallel
+      const dictPromise = fetch('/api/dict-files')
+        .then(r => r.ok ? r.json() : { enabled: false, files: [] })
+        .catch(err => {
+          console.warn('[Admin] Failed to fetch dict files:', err);
+          return { enabled: false, files: [] };
+        });
+
+      // 2. Resolve settings: use passed, cached, or fetch
+      let settings = passedSettings || _lastAdminSettings;
+      if (!settings) {
+        try {
+          const res = await fetch('/api/admin/settings', {
+            headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+          });
+          if (res.ok) {
+            const data = await res.json();
+            settings = data.settings || {};
+            _lastAdminSettings = settings;
+          }
+        } catch (err) {
+          console.warn('[Admin] Failed to fetch admin settings:', err);
+        }
+      } else {
+        _lastAdminSettings = settings;
+      }
+
+      const sl = (settings && settings.suggestList) || {};
+      const dictEnabled = settings ? (settings.dictionaryEnabled === true) : true;
 
       const adminListEl = $('suggestAdminList');
       const blackListEl = $('suggestBlackList');
       const adminPickEl = $('suggestAdminPickCount');
       const hotPickEl = $('suggestHotPickCount');
+      const dailyCountEl = $('suggestDailyWordCount');
+      const dailyRotateEl = $('suggestDailyWordRotateHour');
       const enabledEl = $('suggestEnabled');
 
-      if (adminListEl) adminListEl.value = (sl.adminList || []).join('\n');
-      if (blackListEl) blackListEl.value = (sl.blackList || []).join('\n');
-      if (adminPickEl) adminPickEl.value = sl.adminPickCount ?? 3;
-      if (hotPickEl) hotPickEl.value = sl.hotPickCount ?? 5;
-      if (enabledEl) enabledEl.checked = sl.enabled === true;
-    } catch (_) {}
+      if (adminListEl && settings) adminListEl.value = (sl.adminList || []).join('\n');
+      if (blackListEl && settings) blackListEl.value = (sl.blackList || []).join('\n');
+      if (adminPickEl && settings) adminPickEl.value = sl.adminPickCount ?? 3;
+      if (hotPickEl && settings) hotPickEl.value = sl.hotPickCount ?? 5;
+      if (dailyCountEl && settings) dailyCountEl.value = sl.dailyWordCount ?? 3;
+      if (dailyRotateEl && settings) dailyRotateEl.value = sl.dailyWordRotateHour ?? 12;
+      if (enabledEl && settings) enabledEl.checked = sl.enabled === true;
+
+      // 3. Render dictionary files
+      const dictData = await dictPromise;
+      const files = dictData.files || [];
+
+      if (!dictEnabled || !dictData.enabled) {
+        if (dictNoticeEl) {
+          dictNoticeEl.textContent = '⚠️ 系統尚未開啟「辭典查詢」功能（請至「網站設定」Tab 啟用），目前無法抽取每日單詞。';
+          dictNoticeEl.style.display = 'block';
+        }
+      } else {
+        if (dictNoticeEl) dictNoticeEl.style.display = 'none';
+      }
+
+      if (dictListContainer) {
+        if (files.length === 0) {
+          dictListContainer.innerHTML = '<span class="suggest-dict-loading">尚未安裝任何辭典檔案</span>';
+        } else {
+          const selectedDicts = new Set(sl.dailyWordDicts || []);
+          const checkAllByDefault = (!sl.dailyWordDicts || sl.dailyWordDicts.length === 0);
+
+          dictListContainer.innerHTML = '';
+          for (const df of files) {
+            const label = document.createElement('label');
+            label.className = 'suggest-dict-checkbox-item';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = df.name;
+            cb.checked = checkAllByDefault || selectedDicts.has(df.name) || selectedDicts.has(df.fileName) || selectedDicts.has(df.relPath);
+            cb.className = 'suggest-dict-cb';
+
+            const span = document.createElement('span');
+            span.textContent = df.name;
+
+            label.appendChild(cb);
+            label.appendChild(span);
+            dictListContainer.appendChild(label);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Admin] Error loading suggest settings:', err);
+      if (dictListContainer) {
+        dictListContainer.innerHTML = '<span class="suggest-dict-loading">無法載入辭典清單</span>';
+      }
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
