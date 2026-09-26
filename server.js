@@ -4197,7 +4197,7 @@ function serveStatic(req, res, pathname, query) {
 
 // Session store mapping: token -> { expiry: timestamp }
 const sessions = new Map();
-const SESSION_DURATION = 2 * 60 * 60 * 1000; // 2 hours session expiry
+const SESSION_DURATION = 6 * 60 * 60 * 1000; // 6 hours session expiry
 
 // Periodic background cleanup of expired session tokens (every 15 minutes)
 setInterval(() => {
