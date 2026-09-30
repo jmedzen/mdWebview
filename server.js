@@ -670,6 +670,16 @@ function extractIpFromParam(reqOrIp) {
   return '127.0.0.1';
 }
 
+/**
+ * 將一筆結構化日誌記錄推入記憶體緩衝，同時非同步寫入 90 天持久化日誌檔案。
+ * 這是伺服器端所有日誌的統一入口（Logger.info / warn / error 均呼叫此函數）。
+ *
+ * @param {'info'|'warn'|'error'} level  - 日誌等級
+ * @param {string}                tag    - 模組標籤（如 'Tree'、'Search'、'Auth'），用於過濾
+ * @param {string|Error}          msg    - 訊息文字；若傳入 Error 物件則取 .stack 或 .message
+ * @param {http.IncomingMessage|string} [reqOrIp='127.0.0.1'] - HTTP 請求物件（用於萃取 IP/UA/bot）或純 IP 字串
+ * @param {Object}                [extra={}] - 附加欄位，可包含 { path, bot, isBot, queryObj }
+ */
 function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
   let messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
   messageStr = safeDecodeURI(messageStr);
@@ -1081,6 +1091,15 @@ let config = {
   }
 };
 
+/**
+ * 從三個優先層級載入並合併設定，優先級由低到高：
+ *   1. 程式碼內建預設值（config.settings 初始值）
+ *   2. APP_ROOT/config.json（隨 Docker image 打包的靜態預設）
+ *   3. CONFIG_PATH（/data/config.json，容器外掛的持久化設定，最高優先級）
+ *
+ * 此函數在啟動時呼叫一次，並在 CONFIG_PATH 異動時由 fs.watch 觸發重新載入。
+ * 注意：僅 config.settings 與 config.admin 被合併；其餘欄位不受影響。
+ */
 function loadConfig() {
   try {
     // 1. Initial environment variables as base defaults
@@ -1119,6 +1138,10 @@ function loadConfig() {
   }
 }
 
+/**
+ * 將目前的 config 物件序列化為 JSON 並寫入 CONFIG_PATH（/data/config.json）。
+ * 此路徑為容器的持久化卷（Docker volume），確保容器重啟後設定不流失。
+ */
 function saveConfig() {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
@@ -1404,6 +1427,17 @@ function getIndexHtml(nonce, req, callback) {
   });
 }
 
+/**
+ * 以 gzip 壓縮方式傳送 HTTP 回應（若客戶端支援且內容可壓縮）。
+ * 可壓縮的 Content-Type：text/*、javascript、json、xml。
+ * 僅壓縮 > 1024 bytes 的內容；小型回應直接傳送以避免壓縮開銷。
+ *
+ * @param {http.IncomingMessage} req        - HTTP 請求物件（用於讀取 Accept-Encoding）
+ * @param {http.ServerResponse}  res        - HTTP 回應物件
+ * @param {number}               statusCode - HTTP 狀態碼
+ * @param {Object}               headers    - 回應標頭物件（必須包含 Content-Type）
+ * @param {Buffer|string}        data       - 回應內容
+ */
 function sendCompressed(req, res, statusCode, headers, data) {
   const acceptEncoding = req.headers['accept-encoding'] || '';
   const contentType = headers['Content-Type'] || '';
@@ -1598,6 +1632,14 @@ async function scanDirAsync(dir, relativePath) {
 }
 
 // ── API: Directory Tree ──────────────────────────────────────
+/**
+ * 傳回整個 Markdown 保管庫的目錄樹（GET /api/tree）。
+ * 首次呼叫時掃描磁碟並快取；後續呼叫命中記憶體快取。
+ * 當 fs.watch 偵測到目錄異動時快取會被清除，觸發下次請求重新掃描。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @param {http.ServerResponse}  res - HTTP 回應物件
+ */
 async function handleTree(req, res) {
   setupTreeWatcher();
   if (cachedTree) {
@@ -1836,6 +1878,22 @@ function extractMarkdownMetadata(rawMarkdown, fallbackName) {
   return { title, description };
 }
 
+/**
+ * 為爬蟲/搜尋引擎機器人執行 SSR 預渲染（伺服器端渲染），傳回完整 HTML。
+ * 一般使用者請求則由前端 SPA 處理，不進入此函數。
+ *
+ * 處理流程：
+ *   1. 路徑驗證與 symlink 逃逸防護
+ *   2. 讀取目標 Markdown 檔案
+ *   3. 透過 Markdown Worker Thread Pool 渲染為 HTML
+ *   4. 萃取標題/描述（extractMarkdownMetadata）
+ *   5. 注入 SSR 內容到 index.html 模板（meta 標籤、Schema.org JSON-LD、正文）
+ *
+ * @param {http.IncomingMessage} req      - HTTP 請求物件
+ * @param {http.ServerResponse}  res      - HTTP 回應物件
+ * @param {string}               filePath - 相對於 mdRoot 的 Markdown 路徑
+ * @param {Object}               query    - 已解析的 URL 查詢參數
+ */
 async function handleCrawlerSsr(req, res, filePath, query) {
   if (!filePath || filePath.includes('\0')) {
     res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
@@ -1936,6 +1994,14 @@ async function handleCrawlerSsr(req, res, filePath, query) {
 }
 
 // ── API: File Content ────────────────────────────────────────
+/**
+ * 傳回指定 Markdown 檔案的原始內容（GET /api/file?path=...）。
+ * 包含路徑遍歷防護與 symlink 逃逸檢查；所有路徑均限制在 mdRoot 內。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`；可選 `line`（開啟時捲動至目標行）
+ */
 async function handleFile(req, res, query) {
   const filePath = query.path;
   if (!filePath) {
@@ -1975,6 +2041,18 @@ async function handleFile(req, res, query) {
 }
 
 // ── API: Media & Image File Server ───────────────────────────
+/**
+ * 提供 Markdown 文件引用的媒體檔案（圖片、PDF、音訊等，GET /api/media?path=...）。
+ * 支援多層路徑解析策略：
+ *   1. 相對於文件資料夾（query.doc 指定文件位置）
+ *   2. 相對於 mdRoot 根目錄
+ *   3. 全庫模糊搜尋（依 basename 比對）
+ * 包含 MIME 類型推斷、ETag + Cache-Control、範圍請求（Range）支援。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件（可含 Range 標頭）
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`；可選 `doc`（來源文件路徑）
+ */
 async function handleMedia(req, res, query) {
   let rawPath = query.path ? safeDecodeURIComponent(query.path).trim() : '';
   if (!rawPath) {
@@ -2102,6 +2180,15 @@ async function handleMedia(req, res, query) {
 }
 
 
+/**
+ * 渲染大型 Markdown 檔案的指定分塊（GET /api/render?path=...&chunk=N）。
+ * 大型檔案（> 1MB）分為多個分塊以避免一次性渲染阻塞主線程。
+ * 渲染工作透過 Worker Thread Pool 非同步執行；結果加入 LRU 記憶體快取。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：path（必要）、chunk（可選，預設 0）
+ */
 async function handleRender(req, res, query) {
   let filePath = query.path;
   if (!filePath || filePath.includes('\0')) {
@@ -2236,6 +2323,16 @@ function resolveMdPath(filePath) {
   return { resolved, relPath: outRelPath, root };
 }
 
+/**
+ * 傳回大型 Markdown 檔案的 Section Index（GET /api/section-index?path=...）。
+ * 若檔案小於 LARGE_FILE_MIN_BYTES（1MB），回傳 `{ large: false }`，前端以普通模式渲染。
+ * 若超過閾值，回傳 Section Index 供前端進行虛擬化分塊渲染。
+ * Section Index 由 Worker Thread Pool 建立並快取於記憶體與磁碟（.bin）。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`
+ */
 async function handleSectionIndex(req, res, query) {
   const r = resolveMdPath(query.path);
   if (!r) return sendJSON(res, 404, { error: 'File not found' });
@@ -2528,6 +2625,20 @@ function buildSectionIndex(relPath, fullPath) {
   return executeIndexJob("section", { fullPath });
 }
 
+/**
+ * 取得指定檔案的 Section Index（三層快取策略）：
+ *   1. 記憶體快取（LRU，依 size + mtime 驗證有效性）
+ *   2. 磁碟二進位快取（.bin 檔案，啟動時批量載入）
+ *   3. 以 Worker Thread 即時掃描建立（最慢路徑）
+ *
+ * 辭典檔案使用獨立的無邊界快取（dictSectionIndexCache），
+ * 避免其大型索引被保管庫的 20 條目 LRU 淘汰。
+ *
+ * @param {string}         fullPath - 檔案的絕對路徑
+ * @param {fs.Stats}       stat     - 檔案的 stat 物件（用於 size/mtime 快取驗證）
+ * @param {string}         relPath  - 相對路徑（辭典檔案以 'dict:' 前綴標識）
+ * @returns {Promise<Object>}        Section Index 物件，包含 entries、groups 等欄位
+ */
 async function getSectionIndex(fullPath, stat, relPath) {
   // Dictionary files use a separate, unbounded cache + dedicated bin so their
   // (large) section indexes are never evicted by the vault's 20-entry LRU.
@@ -3510,6 +3621,20 @@ async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
   }
 }
 
+/**
+ * 非同步建立/重建辭典專用的 Bigram 雙字元倒排索引。
+ * 辭典索引與全庫主索引完全分離，使用獨立的快取路徑（.dict.bin）與 buildId 機制。
+ *
+ * 流程與 buildSearchIndexAsync 相同但針對辭典檔案：
+ *   1. 掃描辭典目錄（dictRoot），計算辭典簽章（dictSig）
+ *   2. 若 dictSig 未變且非強制重建，直接回傳（跳過重建）
+ *   3. 嘗試從磁碟 .bin 快取載入（loadDictIndexFromBinCacheAsync）
+ *   4. 快取無效則透過 Worker Thread Pool 全量分詞建立
+ *   5. 完成後非同步觸發 warmDictSectionIndexes() 預熱 section index
+ *
+ * @param {boolean} [forceRebuild=false] - 是否強制忽略磁碟快取全量重建
+ * @returns {Promise<void>}
+ */
 async function buildDictIndexAsync(forceRebuild = false) {
   if (dictIndex.building && !forceRebuild) return;
 
@@ -3673,6 +3798,14 @@ function resetDictWatcher() {
 }
 
 // ── API: Dictionary Headwords (client-side prefix/fuzzy index) ────────────
+/**
+ * 傳回所有辭典詞條索引（GET /api/dict/headwords），供前端在本地執行前綴搜尋。
+ * 包含每個辭典檔案的名稱、詞條清單與詞條數量，並附加 ETag 支援 304 Not Modified。
+ * 若辭典索引尚未就緒則等待建立完成後再回傳。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件（可含 If-None-Match 標頭）
+ * @param {http.ServerResponse}  res - HTTP 回應物件
+ */
 async function handleDictHeadwords(req, res) {
   try {
     setupDictWatcher();
@@ -3762,6 +3895,15 @@ async function handleDictFiles(req, res) {
 }
 
 // ── API: Dictionary Full-text Search ──────────────────────────────────────
+/**
+ * 在辭典獨立 Bigram 索引中執行全文搜尋（GET /api/dict/search?q=...）。
+ * 支援簡繁轉換（toTraditional）；按 proximity 距離排序結果。
+ * 每個辭典檔案最多回傳 DICT_SEARCH_MAX_PER_FILE（1500）筆命中，防止記憶體膨脹。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：q（必要）、files（可選，逗號分隔的辭典路徑限制）
+ */
 async function handleDictSearch(req, res, query) {
   // Cap full-text matches per selected dictionary. Without this, a common term
   // (e.g. 一切) yields tens of thousands of matches, and the unbounded `results`
@@ -3921,6 +4063,15 @@ async function handleDictEvent(req, res) {
 }
 
 // ── API: Full-text Search ────────────────────────────────────
+/**
+ * 在全庫 Bigram 倒排索引中執行全文搜尋（GET /api/search?q=...）。
+ * 支援多詞 AND 交集搜尋、簡繁轉換、資料夾範圍限制（folder 參數）。
+ * 結果按 60 秒記憶體快取（cacheKey = folder::q），命中快取直接回傳。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：q（必要）、folder（可選，限制搜尋範圍）
+ */
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
   const rawQ = (query.q || '').trim();
@@ -4599,6 +4750,16 @@ function timingSafeCompare(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/**
+ * 使用 PBKDF2-SHA512 對密碼進行雜湊（非同步，100,000 次迭代）。
+ * 若未提供 salt 則自動產生隨機 16 bytes salt（首次設定密碼時）。
+ * 重新驗證時傳入既有的 salt 以還原相同雜湊值。
+ *
+ * @param {string}  password              - 明文密碼
+ * @param {string|null} [salt=null]       - 16 bytes hex 字串；null 則自動產生
+ * @param {number}  [iterations=100000]   - PBKDF2 迭代次數
+ * @returns {Promise<{salt: string, hash: string, iterations: number}>}
+ */
 function hashPassword(password, salt, iterations = 100000) {
   return new Promise((resolve, reject) => {
     if (!salt) {
@@ -4657,6 +4818,17 @@ function verifySameOrigin(req) {
   return true;
 }
 
+/**
+ * 驗證 HTTP 請求是否已通過後台管理員認證。
+ * 驗證流程：
+ *   1. Same-Origin 檢查（Origin / Referer 標頭必須與 Host 一致）
+ *   2. 讀取 X-Admin-Token 標頭，查找 sessions Map
+ *   3. 檢查 session 是否已過期（SESSION_DURATION = 6 小時）
+ *   4. 有效請求滑動延長 session 有效期
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @returns {boolean} 通過認證則為 true，否則為 false
+ */
 function isAuthenticated(req) {
   if (!verifySameOrigin(req)) return false;
   const token = req.headers['x-admin-token'];
@@ -5365,6 +5537,21 @@ async function getDailyWords() {
   return result;
 }
 
+/**
+ * 傳回首頁推薦列表（GET /api/suggest-list），包含公告資訊與推薦項目。
+ *
+ * 推薦項目組成（依後台設定的數量交錯排列）：
+ *   - 管理員手選清單（adminList，從後台設定讀取）
+ *   - 熱門閱讀（buildHotList，依 analytics 統計）
+ *   - 辭典每日推薦詞（getDailyWords，按 Mulberry32 輪換）
+ *
+ * 關鍵設計：排序使用 Mulberry32 確定性 RNG，以 currentSlot（當前輪換槽）為種子。
+ * 同一輪換視窗內（如 12 小時）的所有請求產生相同排序，避免前端簽章漂移
+ * 導致公告彈窗誤觸發。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @param {http.ServerResponse}  res - HTTP 回應物件
+ */
 async function handleSuggestList(req, res) {
   try {
     const sl = config.settings.suggestList || {};
@@ -5734,6 +5921,14 @@ async function handleRebuildDictIndex(req, res) {
   }
 }
 
+/**
+ * 傳回已聚合的 Analytics 統計資料（GET /api/admin/analytics?range=...&tz=...）。
+ * 需要後台認證（isAuthenticated）。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：range（7d/30d/90d，預設 30d）、tz（時區）
+ */
 async function handleAnalytics(req, res, query) {
   if (!isAuthenticated(req)) {
     return sendJSON(res, 401, { error: 'Unauthorized' });

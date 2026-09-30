@@ -3,29 +3,30 @@
    版本 3.4.8 | Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
-   §0  Globals & State          (L1-190)   LRU cache, Web Worker, state{}
-   §1  Init & Boot Hooks        (L195-560) loadSettings, initUI, URL params
-   §2  Site Name & Footer       (L560-785) updateSiteNameUI, updateWelcomeFooter
-   §3  Suggest List             (L785-906) fetchSuggestList, renderSuggestList
-   §4  Announcement Modal       (L906-998) checkAndShowAnnouncementModal, openAnnouncementModal
-   §5  File Tree                (L1124-1378) buildTree, renderTree, sortTree
-   §6  Markdown Viewer          (L1378-3014) openFile, virtualized rendering, footnotes
-   §7  Wikilink Resolver        (L3014-3235) wikilinkIndex, resolveWikilink
-   §8  Table of Contents        (L3235-3566) buildToc, renderToc, scrollSpy
-   §9  Global Search            (L3566-3737) doSearch, renderSearchResults
-   §10 Dictionary Sidebar       (L3737-4320) dictPanel, prefix/fulltext lookup
-   §11 In-Page Search (Ctrl+F)  (L4320-4524) pageSearch, highlightMatches
-   §12 Theme                    (L4524-4582) applyTheme, persistTheme
-   §13 Font Size                (L4582-4615) changeFontSize, persistFontSize
-   §14 Text/Layout Preferences  (L4615-4720) textAlign, lineHeight, maxWidth, readProgress
-   §15 Recent Files & Bookmarks (L4720-4928) recentFiles, bookmarks (localStorage)
-   §16 Toast Notifications      (L4780-4830) showToast
-   §17 Read Progress            (L4928-4990) autoSaveProgress, restoreProgress
-   §18 Sidebar Resize           (L4990-5062) drag-to-resize sidebar width
-   §19 Event Listeners          (L5062-6159) keyboard, click, popstate wiring
-   §20 Admin Panel              (L6159-7375) settings UI, analytics, logs
-   §21 Utilities                (L7375-7641) escHtml, formatDate, helpers
-   §22 Boot Entry               (L7641-end) DOMContentLoaded → init()
+   §0  Globals & State          (L1-297)   LRU cache, Web Worker, state{}
+   §1  Init & Boot Hooks        (L298-745) loadSettings, initUI, URL params
+   §2  Site Name & Footer       (L746-892) updateSiteNameUI, updateWelcomeFooter
+   §3  Suggest List             (L893-1020) fetchSuggestList, renderSuggestList
+   §4  Announcement Modal       (L1021-1258) checkAndShowAnnouncementModal, openAnnouncementModal
+   §5  File Tree                (L1259-1512) buildTree, renderTree, sortTree
+   §6  Markdown Viewer          (L1513-3144) openFile, virtualized rendering, footnotes
+   §7  Wikilink Resolver        (L3145-3365) wikilinkIndex, resolveWikilink
+   §8  Table of Contents        (L3366-3696) buildToc, renderToc, scrollSpy
+   §9  Global Search            (L3697-3867) doSearch, renderSearchResults
+   §10 Dictionary Sidebar       (L3868-4450) dictPanel, prefix/fulltext lookup
+   §11 In-Page Search (Ctrl+F)  (L4451-4654) pageSearch, highlightMatches
+   §12 Theme                    (L4655-4712) applyTheme, persistTheme
+   §13 Font Size                (L4713-4745) changeFontSize, persistFontSize
+   §14 Text/Layout Preferences  (L4746-4850) textAlign, lineHeight, maxWidth, readProgress
+   §15 Recent Files             (L4851-4912) recentFiles (localStorage, max 20)
+   §16 Bookmarks                (L4913-4963) bookmarks (localStorage)
+   §17 Toast Notifications      (L4964-5062) showToast
+   §18 Read Progress            (L5063-5126) autoSaveProgress, restoreProgress
+   §19 Sidebar Resize           (L5127-5198) drag-to-resize sidebar width
+   §20 Event Listeners          (L5199-6295) keyboard, click, popstate wiring
+   §21 Admin Panel              (L6296-7513) settings UI, analytics, logs
+   §22 Utilities                (L7514-7779) escHtml, formatDate, helpers
+   §23 Boot Entry               (L7780-end)  DOMContentLoaded → init()
    ================================================================ */
 
 (function () {
@@ -297,6 +298,11 @@
   // ═══════════════════════════════════════════════════════════
   // §1 INIT & BOOT HOOKS (loadSettings, initUI, URL params)
   // ═══════════════════════════════════════════════════════════
+  /**
+   * 應用程式主要啟動函數，由 DOMContentLoaded 事件觸發。
+   * 按序執行：marked 初始化 → 載入使用者設定 → 初始化 UI 元件 →
+   * 取得目錄樹 → 取得推薦列表並觸發公告彈窗 → 處理 URL 深連結。
+   */
   async function init() {
     // Configure marked once at startup (not on every render)
     marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
@@ -893,6 +899,14 @@
   // §3 SUGGEST LIST (Homepage Recommend & Hot)
   // ═══════════════════════════════════════════════════════════
 
+  /**
+   * 從 /api/suggest-list 取得首頁推薦列表與公告資訊，並更新前端狀態。
+   *
+   * @param {boolean} [triggerModal=false] - 是否在取得資料後觸發公告彈窗檢查。
+   *   只有開機 boot 階段（init() 呼叫時）傳 `true`；
+   *   其他呼叫點（切換分頁、開啟使用者設定、後台儲存）一律傳 `false`，
+   *   避免非首次開啟場景重複觸發彈窗。
+   */
   async function fetchSuggestList(triggerModal = false) {
     try {
       const res = await fetch('/api/suggest-list');
@@ -1039,6 +1053,20 @@
       .join('|');
   }
 
+  /**
+   * 根據三個觸發條件決定是否顯示公告彈窗。已閱讀後不會因換日而重複彈出。
+   *
+   * 觸發條件（任一成立即顯示）：
+   *   1. 公告更新：訊息文字變更，或 announcementUpdatedAt 時間戳推進
+   *   2. 推薦項目更新：推薦清單內容簽章（type+path+fileName+line）與已儲存簽章不符
+   *   3. 後台推薦設定更新：suggestListUpdatedAt 時間戳大於已儲存的值
+   *
+   * 注意：舊版依「換日（todayDateKey !== ack.dateKey）」觸發的邏輯已在 v3.4.8 移除。
+   *
+   * @param {Object[]} items           - /api/suggest-list 回傳的推薦項目陣列
+   * @param {Object}   announcementData - 公告物件 { enabled, message, updatedAt }
+   * @param {number}   suggestUpdatedAt - 後台推薦設定最後儲存時間戳（毫秒 epoch）
+   */
   function checkAndShowAnnouncementModal(items, announcementData, suggestUpdatedAt) {
     const ann = announcementData || (appConfig && appConfig.announcement) || {};
     const isEnabled = ann.enabled !== undefined
@@ -1125,6 +1153,17 @@
     openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
   }
 
+  /**
+   * 開啟公告彈窗並填入推薦列表與公告訊息。
+   * 將本次開啟的資料快照存入 state._announcementModalContext，
+   * 供 closeAnnouncementModal 關閉時寫入 localStorage（作為下次的比對基準）。
+   *
+   * @param {Object[]} items           - 推薦項目陣列（渲染至彈窗內的推薦列表）
+   * @param {string}   message         - 公告訊息文字（空字串則隱藏訊息區塊）
+   * @param {number}   updatedAt       - 公告最後更新時間戳（毫秒 epoch）
+   * @param {number}   suggestUpdatedAt - 後台推薦設定最後儲存時間戳（毫秒 epoch）
+   * @param {string}   itemsSig         - 推薦項目內容簽章（pipe 分隔的 type:path:fileName:line）
+   */
   function openAnnouncementModal(items, message, updatedAt, suggestUpdatedAt, itemsSig) {
     const overlay = $('announcementModalOverlay');
     if (!overlay) return;
@@ -1181,6 +1220,16 @@
     overlay.setAttribute('aria-hidden', 'false');
   }
 
+  /**
+   * 關閉公告彈窗。
+   * 若 markAsAcknowledged 為 true，將 state._announcementModalContext 寫入
+   * localStorage（ANNOUNCEMENT_ACK_KEY），記錄使用者已閱讀的狀態，
+   * 下次開啟時以此為基準判斷是否需要重新顯示。
+   *
+   * 使用 setProperty('display','none','important') 確保覆蓋 CSS !important 規則。
+   *
+   * @param {boolean} [markAsAcknowledged=true] - 是否寫入已讀記錄至 localStorage
+   */
   function closeAnnouncementModal(markAsAcknowledged = true) {
     const overlay = $('announcementModalOverlay');
     if (!overlay) return;
@@ -4663,6 +4712,14 @@
     'gruvbox': '#1d2021'
   };
 
+  /**
+   * 套用指定主題，更新 data-theme 屬性、所有主題下拉選單、狀態列顏色。
+   * 特殊處理：強制移除並重新插入 <meta name="theme-color"> 以觸發 iOS WebKit 狀態列重繪。
+   *
+   * @param {string}  theme                  - 主題 ID ('obsidian-dark'|'obsidian-light'|'solarized'|'zen'|'gruvbox')
+   * @param {boolean} [saveToLocalStorage=true] - 是否將選擇持久化至 localStorage
+   * @param {boolean} [notify=false]            - 是否以 Toast 通知使用者
+   */
   function applyTheme(theme, saveToLocalStorage = true, notify = false) {
     document.documentElement.setAttribute('data-theme', theme);
     const select = $('themeSelect');
@@ -4932,6 +4989,16 @@
     setTimeout(() => el.remove(), TOAST_HIDE_MS);
   }
 
+  /**
+   * 顯示一個堆疊式 Toast 通知。
+   * type 決定邊框顏色，若訊息未含 emoji 則自動在前方插入對應圖示。
+   * duration 為 0 或 Infinity 時為持久型 Toast（需手動呼叫 dismiss()）。
+   *
+   * @param {string}  msg             - 通知文字
+   * @param {'info'|'success'|'warning'|'error'|'loading'} [type='info'] - 類型
+   * @param {number}  [duration=2200] - 顯示毫秒數（0 = 持久）
+   * @returns {{ el: HTMLElement, dismiss: Function }} - 可手動關閉的 handle
+   */
   function showToast(msg, type = 'info', duration = 2200) {
     const container = $('toastContainer');
     if (!container) return { dismiss() {} };
@@ -4961,7 +5028,9 @@
     return { el, dismiss() { dismissToast(el); } };
   }
 
-  // ── §15 Bookmarks ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // §16 BOOKMARKS (localStorage)
+  // ═══════════════════════════════════════════════════════════
   function toggleBookmark(filePath, title) {
     if (!filePath) {
       showToast('⚠️ 請先開啟一本經文檔案');
