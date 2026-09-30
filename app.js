@@ -1,6 +1,6 @@
 /* ================================================================
    mdWebview — Application Logic (app.js)
-   版本 3.4.6 | Tree · Viewer · Search · Theme · Dict · Admin
+   版本 3.4.7 | Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
    §0  Globals & State          (L1-190)   LRU cache, Web Worker, state{}
@@ -1158,6 +1158,7 @@
     }
 
     document.body.classList.add('modal-open');
+    overlay.style.setProperty('display', 'flex', 'important');
     overlay.style.display = 'flex';
     overlay.setAttribute('aria-hidden', 'false');
   }
@@ -1173,6 +1174,7 @@
     }
 
     document.body.classList.remove('modal-open');
+    overlay.style.setProperty('display', 'none', 'important');
     overlay.style.display = 'none';
     overlay.setAttribute('aria-hidden', 'true');
   }
@@ -6245,7 +6247,7 @@
     renderBookmarksList();
     fetchSuggestList();
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');

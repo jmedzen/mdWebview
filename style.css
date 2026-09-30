@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.4.6
+   mdWebview — Style System (style.css) v3.4.7
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -5566,18 +5566,22 @@ body.modal-open {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 1050;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   /* iPhone safe area padding: keeps modal completely below Dynamic Island / Notch and above Home Indicator */
-  padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
-  padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
-  padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
-  box-sizing: border-box !important;
-  overflow-y: auto !important;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(16px + env(safe-area-inset-left, 0px));
+  padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   animation: fadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.announcement-modal-overlay[style*="display: none"] {
+  display: none !important;
 }
 
 @keyframes announcementPopIn {
@@ -5601,12 +5605,12 @@ body.modal-open {
   /* Card height strictly fits within the safe area so header and footer are never clipped */
   max-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 36px) !important;
   max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 36px) !important;
-  display: flex !important;
-  flex-direction: column !important;
-  margin: auto !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  box-sizing: border-box !important;
+  display: flex;
+  flex-direction: column;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
   animation: announcementPopIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
   position: relative;
