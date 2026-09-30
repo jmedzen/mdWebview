@@ -1,52 +1,48 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.4.8
+   mdWebview — Style System (style.css)
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
-   §1  Reset                  L6
-   §2  Theme Definitions      L47-248   (5 主題色系 CSS variables)
-   §3  Smooth Theme Transition L247
-   §4  App Layout             L271      (.app, app-header, app-body)
-   §5  Header                 L287-520  (Logo, active-file, controls)
-   §6  Sidebar                L529-805  (tabs, panels, panel-actions,
-                                         sort-dropdown)
-   §7  File Tree              L806-921
-   §8  Search                 L922-1138
-   §9  TOC (Outline)          L1139-1330 (含 virtualized TOC)
-   §10 Resize Handle          L1331
-   §11 Content Area           L1360-1446
-   §12 Welcome Screen         L1447-1532
-   §13 Suggest List           L1533-1682
-   §14 Admin Suggest Pane     L1683-1984
-   §15 Daily Word Admin UI    L1864
-   §16 Back to Top            L1985
-   §17 Content Loading        L2019
-   §18 Spinner                L2035
-   §19 Page Search Bar        L2051
-   §20 Markdown Body          L2129-2492 (headings, lists, tables,
-                                           blockquotes, code, wikilinks,
-                                           footnotes, callouts)
-   §21 Scrollbar              L2493
-   §22 Animations             L2518
-   §23 Mobile Sidebar Backdrop L2543
-   §24 Responsive             L2548-2766
-   §25 Print                  L2753
-   §26 Admin Settings Modals  L2767-3387
-   §27 Selection Action Popup L3388
-   §28 Line Highlight         L3443
-   §29 User Settings Modal    L3475-3827
-   §30 Toast Notification     L3828
-   §31 Admin Tabs & Log Viewer L3892
-   §32 Admin Analytics        L4105
-   §33 Callouts               L4291-4575
-   §34 Hardware Dashboard     L4576
-   §35 Dictionary Sidebar     L4892-5393
-   §36 Markdown Enhancements  L5394-5480 (highlights, task lists,
-                                           math/KaTeX, Mermaid)
-   §37 Announcement Modal     L5481-5895 (方案二：現代微光玻璃浮島)
+   §1  Reset
+   §2  Theme Definitions       (5 主題色系 CSS variables)
+   §3  Smooth Theme Transition
+   §4  App Layout              (.app, app-header, app-body)
+   §5  Header                  (Logo, active-file, controls)
+   §6  Sidebar                 (tabs, panels, panel-actions, sort-dropdown)
+   §7  File Tree
+   §8  Search
+   §9  TOC (Outline)           (含 virtualized TOC)
+   §10 Resize Handle
+   §11 Content Area
+   §12 Welcome Screen
+   §13 Suggest List
+   §14 Admin Suggest Pane
+   §15 Daily Word Admin UI
+   §16 Back to Top
+   §17 Content Loading
+   §18 Spinner
+   §19 Page Search Bar
+   §20 Markdown Body           (headings, lists, tables, blockquotes, code, wikilinks, footnotes, callouts)
+   §21 Scrollbar
+   §22 Animations
+   §23 Mobile Sidebar Backdrop
+   §24 Responsive
+   §25 Print
+   §26 Admin Settings Modals
+   §27 Selection Action Popup
+   §28 Line Highlight
+   §29 User Settings Modal
+   §30 Toast Notification
+   §31 Admin Tabs & Log Viewer
+   §32 Admin Analytics
+   §33 Callouts
+   §34 Hardware Dashboard
+   §35 Dictionary Sidebar
+   §36 Markdown Enhancements   (highlights, task lists, math/KaTeX, Mermaid)
+   §37 Announcement Modal      (微光玻璃浮島)
    ================================================================ */
 
-/* ── Reset ──────────────────────────────────────────────────── */
+/* ── §1 Reset ───────────────────────────────────────────────── */
 *, *::before, *::after {
   margin: 0;
   padding: 0;
@@ -87,6 +83,7 @@ body {
   color: var(--text-primary);
 }
 
+/* ── §2 Theme Definitions ───────────────────────────────────── */
 /* ── Theme 1: Obsidian Dark (Default) ──────────────────────── */
 [data-theme="obsidian-dark"] {
   --bg-primary: #1e1e2e;
@@ -287,7 +284,7 @@ body {
   --loading-bg: rgba(40, 40, 40, 0.85);
 }
 
-/* ── Smooth Theme Transition ───────────────────────────────── */
+/* ── §3 Smooth Theme Transition ────────────────────────────── */
 html {
   transition: background-color 0.4s ease, color 0.4s ease;
 }
@@ -311,7 +308,7 @@ body,
   transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease;
 }
 
-/* ── App Layout ────────────────────────────────────────────── */
+/* ── §4 App Layout ─────────────────────────────────────────── */
 .app {
   display: flex;
   flex-direction: column;
@@ -327,7 +324,7 @@ body,
   color: var(--text-primary);
 }
 
-/* ── Header ────────────────────────────────────────────────── */
+/* ── §5 Header ─────────────────────────────────────────────── */
 .app-header {
   display: flex;
   align-items: center;
@@ -569,7 +566,7 @@ body,
   position: relative;
 }
 
-/* ── Sidebar ───────────────────────────────────────────────── */
+/* ── §6 Sidebar ────────────────────────────────────────────── */
 .sidebar {
   width: 300px;
   min-width: 220px;
@@ -846,7 +843,7 @@ body,
   opacity: 0.5;
 }
 
-/* ── File Tree ─────────────────────────────────────────────── */
+/* ── §7 File Tree ──────────────────────────────────────────── */
 .file-tree {
   flex: 1 1 auto;
   min-height: 0;
@@ -962,7 +959,7 @@ body,
   flex-shrink: 0;
 }
 
-/* ── Search ────────────────────────────────────────────────── */
+/* ── §8 Search ──────────────────────────────────────────────── */
 .search-folder-wrapper {
   width: 98%;
   margin: 0 auto 6px;
@@ -1179,7 +1176,7 @@ body,
   font-size: var(--sidebar-font-size);
 }
 
-/* ── Obsidian-Style Outline / TOC ─────────────────────────── */
+/* ── §9 TOC (Outline) ───────────────────────────────────────── */
 .toc-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -1371,7 +1368,7 @@ section.chunk.chunk-error {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ── Resize Handle ─────────────────────────────────────────── */
+/* ── §10 Resize Handle ──────────────────────────────────────── */
 .resize-handle {
   width: 5px;
   cursor: col-resize;
@@ -1400,7 +1397,7 @@ section.chunk.chunk-error {
   background: var(--accent);
 }
 
-/* ── Content Area ──────────────────────────────────────────── */
+/* ── §11 Content Area ───────────────────────────────────────── */
 .content {
   flex: 1;
   overflow-y: auto;
@@ -1487,7 +1484,7 @@ section.chunk.chunk-error {
   margin-top: 6px;
 }
 
-/* ── Welcome Screen ────────────────────────────────────────── */
+/* ── §12 Welcome Screen ────────────────────────────────────── */
 .welcome-screen {
   display: flex;
   flex-direction: column;
@@ -1573,7 +1570,7 @@ section.chunk.chunk-error {
   text-decoration: underline;
 }
 
-/* ── Suggest List (Zen Pill & Minimalist Ethereal B+E Style) ─ */
+/* ── §13 Suggest List ───────────────────────────────────────── */
 .suggest-list-container {
   margin: 20px auto 32px;
   width: 100%;
@@ -1723,7 +1720,7 @@ section.chunk.chunk-error {
   margin-left: 4px;
 }
 
-/* ── Admin Suggest Pane ─────────────────────────────────────── */
+/* ── §14 Admin Suggest Pane ─────────────────────────────────── */
 .suggest-admin-form {
   padding: 4px 0;
   display: flex;
@@ -1904,7 +1901,7 @@ section.chunk.chunk-error {
   margin: 0;
 }
 
-/* ── Daily Word Admin UI ─────────────────────────────────────── */
+/* ── §15 Daily Word Admin UI ─────────────────────────────────── */
 .suggest-section-daily-word {
   gap: 8px;
 }
@@ -2025,7 +2022,7 @@ kbd {
   margin: 0 2px;
 }
 
-/* ── Back to Top ───────────────────────────────────────────── */
+/* ── §16 Back to Top ────────────────────────────────────────── */
 .back-to-top {
   position: fixed;
   bottom: calc(28px + env(safe-area-inset-bottom, 0px));
@@ -2059,7 +2056,7 @@ kbd {
   box-shadow: 0 6px 20px var(--shadow-color);
 }
 
-/* ── Content Loading ───────────────────────────────────────── */
+/* ── §17 Content Loading ────────────────────────────────────── */
 .content-loading {
   position: absolute;
   inset: 0;
@@ -2075,7 +2072,7 @@ kbd {
   z-index: 30;
 }
 
-/* ── Spinner ───────────────────────────────────────────────── */
+/* ── §18 Spinner ────────────────────────────────────────────── */
 .spinner {
   width: 18px;
   height: 18px;
@@ -2091,7 +2088,7 @@ kbd {
   border-width: 3px;
 }
 
-/* ── Page Search Bar ───────────────────────────────────────── */
+/* ── §19 Page Search Bar ────────────────────────────────────── */
 .page-search-bar {
   position: fixed;
   top: calc(56px + env(safe-area-inset-top, 0px));
@@ -2169,7 +2166,7 @@ kbd {
   color: var(--text-primary);
 }
 
-/* ── Markdown Body ─────────────────────────────────────────── */
+/* ── §20 Markdown Body ──────────────────────────────────────── */
 .markdown-body {
   font-family: 'Noto Serif TC', serif;
   font-size: var(--content-font-size, 16px);
@@ -2533,7 +2530,7 @@ kbd {
   box-shadow: 0 0 0 2px var(--search-active);
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
+/* ── §21 Scrollbar ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -2558,7 +2555,7 @@ kbd {
   width: 5px;
 }
 
-/* ── Animations ────────────────────────────────────────────── */
+/* ── §22 Animations ─────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2583,12 +2580,12 @@ kbd {
   animation: slideInFromLeft 0.2s ease both;
 }
 
-/* ── Mobile Sidebar Backdrop ────────────────────────────────── */
+/* ── §23 Mobile Sidebar Backdrop ────────────────────────────── */
 .sidebar-backdrop {
   display: none;
 }
 
-/* ── Responsive ────────────────────────────────────────────── */
+/* ── §24 Responsive ─────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root, html {
     --content-max-width: 95%;
@@ -2793,7 +2790,7 @@ kbd {
   }
 }
 
-/* ── Print ─────────────────────────────────────────────────── */
+/* ── §25 Print ──────────────────────────────────────────────── */
 @media print {
   .sidebar, .app-header, .page-search-bar, .back-to-top, .resize-handle {
     display: none !important;
@@ -2807,7 +2804,7 @@ kbd {
   }
 }
 
-/* ── Admin Settings & Modals ───────────────────────────────── */
+/* ── §26 Admin Settings Modals ───────────────────────────────── */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -3428,7 +3425,7 @@ kbd {
   background: rgba(243, 139, 168, 0.2);
 }
 
-/* ── Selection Action Popup ── */
+/* ── §27 Selection Action Popup ─────────────────────────────── */
 .selection-share-popup {
   position: absolute;
   z-index: 1000;
@@ -3483,7 +3480,7 @@ kbd {
   flex-shrink: 0;
 }
 
-/* ── Line Highlight ── */
+/* ── §28 Line Highlight ─────────────────────────────────────── */
 .line-highlight {
   position: relative;
   border-radius: 4px;
@@ -3515,7 +3512,7 @@ mark.search-keyword-highlight {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── User Settings & Preferences Menu Modal ───────────────────── */
+/* ── §29 User Settings Modal ─────────────────────────────────── */
 .user-settings-card {
   max-width: 620px;
   width: 92vw;
@@ -3868,7 +3865,7 @@ mark.search-keyword-highlight {
   gap: 8px;
 }
 
-/* Toast Notification */
+/* ── §30 Toast Notification ─────────────────────────────────── */
 .toast-container {
   position: fixed;
   bottom: 28px;
@@ -3932,7 +3929,7 @@ mark.search-keyword-highlight {
   box-shadow: 0 4px 18px rgba(52, 152, 219, 0.25);
 }
 
-/* ── Admin Tabs & Log Viewer ────────────────────────────── */
+/* ── §31 Admin Tabs & Log Viewer ────────────────────────────── */
 /* ── Admin Tabs & Log Viewer ────────────────────────────── */
 .modal-card.settings-card {
   max-width: 920px;
@@ -4145,7 +4142,7 @@ mark.search-keyword-highlight {
   white-space: pre-wrap;
 }
 
-/* ── Admin Analytics & Timezone Styles ────────────────────────── */
+/* ── §32 Admin Analytics ────────────────────────────────────── */
 .admin-tz-select {
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -4331,7 +4328,7 @@ mark.search-keyword-highlight {
 }
 
 
-/* ── Obsidian Callouts Styling (Obsidian Native Aesthetic) ────────────────── */
+/* ── §33 Callouts ───────────────────────────────────────────── */
 .callout {
   --callout-color: #9e978e;
   --callout-bg: rgba(255, 255, 255, 0.04);
@@ -4616,7 +4613,7 @@ details.callout[open] > summary .callout-fold-icon {
   --callout-border: rgba(146, 77, 69, 0.22);
 }
 
-/* ── Hardware Dashboard ─────────────────────────────────── */
+/* ── §34 Hardware Dashboard ─────────────────────────────────── */
 .hardware-header-row {
   display: flex;
   justify-content: space-between;
@@ -4932,9 +4929,7 @@ details.callout[open] > summary .callout-fold-icon {
   --callout-border: rgba(158, 72, 72, 0.22);
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Dictionary Lookup Panel (right hidden menu)
-   ═══════════════════════════════════════════════════════════ */
+/* ── §35 Dictionary Sidebar ─────────────────────────────────── */
 .dict-sidebar {
   width: 320px;
   min-width: 0;
@@ -5434,7 +5429,7 @@ details.callout[open] > summary .callout-fold-icon {
   }
 }
 
-/* ── Obsidian Markdown Enhancements (Highlights, Task Lists, Math, Mermaid) ── */
+/* ── §36 Markdown Enhancements ──────────────────────────────── */
 mark.obsidian-highlight,
 .markdown-body mark {
   background-color: rgba(255, 220, 0, 0.35);
@@ -5556,6 +5551,7 @@ body.modal-open {
   overflow: hidden !important;
 }
 
+/* ── §37 Announcement Modal ──────────────────────────────────── */
 .announcement-modal-overlay {
   position: fixed;
   top: 0;

@@ -1,6 +1,5 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.4.8
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -12,53 +11,27 @@
  *   - PWA 支援（動態 manifest.json、robots.txt、sitemap.xml）
  *
  * ── 段落索引（Section Map）────────────────────────────────────
- *   System Log Buffer / SEO Bot Detection
- *   90-Day Persistent Analytics Log & IP Tracking
- *   7-Day Log Pruning Job (cleanOldLogsJob)
- *   Logger Utility (pushToLogBuffer)
- *   Last-resort Uncaught Exception Handler
- *   Markdown Render Worker Thread Pool (render-worker.js)
- *       POOL_SIZE = max(2, CPU_COUNT - 1); job queue + callback map
- *   Index & Search Worker Pool (index-worker.js)
- *       Persistent pool; dispatches bigram build/search jobs
- *   Global Constants (PORT, APP_ROOT, CONFIG_PATH)
- *   Config Schema & Defaults (config.settings.*)
- *   loadConfig() — 3-level priority: env → APP_ROOT/config.json → CONFIG_PATH
- *   Symlink Escape Defense (getRootRealpath, isRealPathWithinMdRoot)
- *   SECURITY_HEADERS (CSP, HSTS, X-Frame-Options…)
- *   indexHtmlHeaders() — per-request nonce injection for CSP
- *   getIndexHtml() — SSR: inject siteName, theme, fontsize, announcement into index.html
- *   sendCompressed() — gzip response helper
- *   Tree Watcher (fs.watch on mdRoot → invalidate cachedTree)
- *   handleTree() — GET /api/tree
- *   SEO Helpers: escapeXml, getBaseUrl, flattenMarkdownFiles
- *   handleRobotsTxt() — GET /robots.txt
- *   handleManifestJson() — GET /manifest.json (dynamic siteName injection)
- *   handleSitemapXml() — GET /sitemap.xml
- *   extractMarkdownMetadata() — extract title/description for SSR
- *   handleCrawlerSsr() — SSR pre-render for bot/crawler requests
- *   handleFile() — GET /api/file (serve .md content)
- *   handleMedia() — GET /api/media (images, PDFs, audio)
- *   handleSectionIndex() — GET /api/section-index (large file chunk map)
- *   handleRender() — GET /api/render (render one chunk of a large file)
- *   handleSearch() — GET /api/search (bigram full-text search)
- *   Bigram Full-Text Inverted Index Engine
- *   Document Section Index (large-file chunking + entry-level search)
- *   Dictionary Bigram Index (separate index for dict files)
- *   handleDictHeadwords() — GET /api/dict/headwords
- *   handleDictFiles() — GET /api/dict/files
- *   handleDictSearch() — GET /api/dict/search
- *   handleDictAnalytics() — POST /api/dict/analytics
- *   handleFileSearch() — GET /api/file-search (filename-only search)
- *   handlePageSearch() — GET /api/page-search (in-page Ctrl+F)
- *   Static Asset In-Memory Cache (STATIC_CACHE_TTL_MS = 5s)
- *   Session Store (SESSION_DURATION = 6h)
- *   Global API Rate Limiter (30 req/s sliding window per IP)
- *   Analytics Aggregator & CSV/JSON Data Exporter
- *   Daily Words / Word of the Day (deterministic rotation by hour)
- *   handleSuggestList() — GET /api/suggest-list (homepage recommend)
- *   HTTP Server & Main Request Router
- *   Admin API Routes (/api/admin/*)
+ *   §0  Globals & Logging        System log buffer, bot detection, logger utility
+ *   §1  Analytics & Log Pruning  90-day analytics store, 7-day pruning job
+ *   §2  Worker Thread Pools      render-worker & persistent index-worker pools
+ *   §3  Config & Symlink Defense loadConfig, saveConfig, symlink traversal check
+ *   §4  Security Headers & SSR   CSP nonce, getIndexHtml() SSR injection
+ *   §5  Compression & Helpers    sendCompressed (gzip), sendJSON
+ *   §6  File Tree & Watcher      handleTree (/api/tree), fs.watch cache invalidation
+ *   §7  SEO & Manifest           robots.txt, manifest.json, sitemap.xml
+ *   §8  Crawler SSR              handleCrawlerSsr() pre-render for bots
+ *   §9  File & Media Servers     handleFile (/api/file), handleMedia (/api/media)
+ *   §10 Large-File Chunked API   handleSectionIndex, handleRender
+ *   §11 Section Index Engine     getSectionIndex, binary disk cache (.bin)
+ *   §12 Bigram Search Engine     buildSearchIndexAsync, binary cache, worker jobs
+ *   §13 Dictionary Index & API   buildDictIndexAsync, handleDictHeadwords, handleDictSearch
+ *   §14 Search Handlers          handleSearch (/api/search), handleFileSearch, handlePageSearch
+ *   §15 Static Asset Cache       serveStatic, LRU memory cache, ETag
+ *   §16 Auth & Rate Limiting     PBKDF2 hash, session store, sliding window rate limiter
+ *   §17 Analytics API            handleAnalytics, handleAnalyticsExport (CSV/JSON)
+ *   §18 Daily Words & Suggest    Mulberry32 deterministic RNG, handleSuggestList
+ *   §19 System Hardware Stats    getSystemHardwareStats, handleHardwareStats
+ *   §20 HTTP Server & Router     Main request dispatch & admin API routes
  */
 
 const http = require('http');
@@ -107,7 +80,7 @@ marked.use({
   }
 });
 
-// ── System Log Buffer (Recent 600 logs) ────────────────────────────────────
+// ── §0 System Log Buffer & Bot Detection ────────────────────────────────────
 const MAX_LOG_BUFFER = 600;
 const systemLogBuffer = [];
 
@@ -125,7 +98,7 @@ function isCrawlerRequest(req, query) {
   return Boolean(getCrawlerName(req, query));
 }
 
-// ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
+// ── §1 90-Day Persistent Analytics & Retention ──────────────────────────────
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
 const ANALYTICS_STORE_PATH = path.join(LOG_DIR, 'analytics-aggregates.json');
 const ANALYTICS_STORE_VERSION = 3;
@@ -767,7 +740,7 @@ process.on('unhandledRejection', (reason) => {
   Logger.error('Process', 'Unhandled rejection', reason instanceof Error ? reason : new Error(String(reason)));
 });
 
-// ── Worker Thread Pool ─────────────────────────────────────────────────────
+// ── §2 Worker Thread Pool (Render & Search) ─────────────────────────────────
 // 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
 const numCpus = os.cpus().length || 4;
 const POOL_SIZE = Math.max(2, numCpus - 1);
@@ -1210,7 +1183,7 @@ function deriveDictRoot(mdRoot) {
   return path.join(path.dirname(path.resolve(base)), 'dicts');
 }
 
-// ── Realpath confinement (symlink escape defense) ──────────────────────────
+// ── §3 Config & Symlink Escape Defense ──────────────────────────────────────
 // Lexical `path.relative` checks are bypassable by a symlink inside the vault: a
 // link pointing outside still lexically "resolves" inside, so the `..` guard passes
 // while the OS follows the link out. Resolving both the target and the vault root to
@@ -1256,6 +1229,7 @@ const MIME_TYPES = {
 };
 
 // Security Headers
+// ── §4 Security Headers & SSR Entry ─────────────────────────────────────────
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
@@ -1427,6 +1401,7 @@ function getIndexHtml(nonce, req, callback) {
   });
 }
 
+// ── §5 Compression & Response Helpers ───────────────────────────────────────
 /**
  * 以 gzip 壓縮方式傳送 HTTP 回應（若客戶端支援且內容可壓縮）。
  * 可壓縮的 Content-Type：text/*、javascript、json、xml。
@@ -1631,7 +1606,7 @@ async function scanDirAsync(dir, relativePath) {
   return result;
 }
 
-// ── API: Directory Tree ──────────────────────────────────────
+// ── §6 API: Directory Tree & Watcher ─────────────────────────
 /**
  * 傳回整個 Markdown 保管庫的目錄樹（GET /api/tree）。
  * 首次呼叫時掃描磁碟並快取；後續呼叫命中記憶體快取。
@@ -1655,7 +1630,7 @@ async function handleTree(req, res) {
   }
 }
 
-// ── SEO: Helper Functions & Handlers ─────────────────────────
+// ── §7 SEO: Robots, Manifest & Sitemap ───────────────────────
 function escapeXml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -1829,7 +1804,7 @@ async function handleSitemapXml(req, res) {
   }
 }
 
-// ── SEO: Dynamic SSR Pre-rendering ────────────────────────────
+// ── §8 Crawler SSR Pre-rendering ─────────────────────────────
 
 function extractMarkdownMetadata(rawMarkdown, fallbackName) {
   let title = fallbackName;
@@ -1993,7 +1968,7 @@ async function handleCrawlerSsr(req, res, filePath, query) {
   }
 }
 
-// ── API: File Content ────────────────────────────────────────
+// ── §9 API: File & Media Servers ─────────────────────────────
 /**
  * 傳回指定 Markdown 檔案的原始內容（GET /api/file?path=...）。
  * 包含路徑遍歷防護與 symlink 逃逸檢查；所有路徑均限制在 mdRoot 內。
@@ -2291,7 +2266,7 @@ async function handleRender(req, res, query) {
   }
 }
 
-// ── API: Section Index (large-file chunk metadata) ────────────────────────
+// ── §10 API: Large-File Chunked Rendering ─────────────────────────────────
 // Multi-root path resolution. Dictionary files live outside the vault in
 // config.settings.dictionaryPath and are addressed with a `dict:` prefix that rides
 // through the client's opaque path string. `fsRel` is joined against the root on
@@ -2515,7 +2490,7 @@ async function handleRenderChunk(req, res, query) {
   }
 }
 
-// ── API: Full-text Search ────────────────────────────────────
+// ── §14 Search Handlers (Full-Text, Filename, In-Page) ───────
 async function collectFilesAsync(dir, relativePath = '') {
   let entries;
   try {
@@ -2563,7 +2538,7 @@ function flattenTreeToFiles(nodes, mdRoot) {
   return files;
 }
 
-// ── Full-Text Bigram Inverted Index ──────────────────────────────
+// ── §12 Full-Text Bigram Search Engine ───────────────────────────
 const SEARCH_INDEX_CACHE_FILE = path.join(LOG_DIR, 'search-index-cache.json');
 const SEARCH_INDEX_CACHE_BIN = path.join(LOG_DIR, 'search-index-cache.bin');
 
@@ -2578,7 +2553,7 @@ let searchIndex = {
   bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array of unitId
 };
 
-// ── Document Section Index (large-file chunking + entry-level search) ────────
+// ── §11 Document Section Index Engine ─────────────────────────
 const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
 const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
 const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
@@ -3363,7 +3338,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
   }
 }
 
-// ── Dictionary Index (dedicated full-text bigram index for dictionary files) ─
+// ── §13 Dictionary Bigram Index & API ─────────────────────────
 // Separate from the vault `searchIndex`: dictionaries live in their own root
 // (config.settings.dictionaryPath), are entry-level (one unit per headword), and
 // are served by `/api/dict-headwords` + `/api/dict-search` only — never mixed into
@@ -4368,7 +4343,7 @@ async function handleSearchFile(req, res, query) {
   }
 }
 
-// ── Static Asset In-Memory Cache ─────────────────────────────
+// ── §15 Static Asset In-Memory Cache ──────────────────────────
 const staticCache = new Map(); // resolvedPath -> { mtimeMs, size, etag, headers, data, cachedAt }
 const STATIC_CACHE_TTL_MS = 5000; // 5s revalidation window: zero fs.stat within 5s
 
@@ -4706,7 +4681,7 @@ function getClientIP(req) {
   return ip.substring(0, 45);
 }
 
-// ── Global API Rate Limiter (Sliding Window per IP: max 30 req/sec) ─────────
+// ── §16 Auth & API Rate Limiting ──────────────────────────────
 const apiRateLimits = new Map();
 const API_RATE_LIMIT_WINDOW_MS = 1000;
 const API_RATE_LIMIT_MAX = 30;
@@ -4870,7 +4845,7 @@ function readJSONBody(req) {
   });
 }
 
-// ── Analytics Aggregator & Data Exporter ────────────────────────────────────
+// ── §17 Analytics Aggregator & Export ───────────────────────────────────────
 const analyticsCache = new Map();
 const ANALYTICS_CACHE_TTL = 60000; // 60s in-memory cache
 const ANALYTICS_CACHE_MAX = 20;
@@ -5408,7 +5383,7 @@ async function buildHotList(blackList) {
   return result;
 }
 
-// ── Daily Words (Word of the Day) ────────────────────────────────────────
+// ── §18 Daily Words & Suggest List ───────────────────────────────────────
 let dailyWordCache = null;
 
 function invalidateDailyWordCache() {
@@ -5702,6 +5677,7 @@ function isDockerContainer() {
   return false;
 }
 
+// ── §19 System Hardware Stats & Monitor ───────────────────────
 async function getSystemHardwareStats() {
   const cpus = os.cpus() || [];
   const loadAvg = os.loadavg() || [0, 0, 0];
@@ -6056,7 +6032,7 @@ async function handleAnalyticsExport(req, res, query) {
   }
 }
 
-// ── HTTP Server ──────────────────────────────────────────────
+// ── §20 HTTP Server & Main Request Router ────────────────────
 const server = http.createServer((req, res) => {
   const reqStart = Date.now();
   res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';

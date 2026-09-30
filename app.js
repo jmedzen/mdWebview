@@ -1,36 +1,40 @@
 /* ================================================================
    mdWebview — Application Logic (app.js)
-   版本 3.4.8 | Tree · Viewer · Search · Theme · Dict · Admin
+   Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
-   §0  Globals & State          (L1-297)   LRU cache, Web Worker, state{}
-   §1  Init & Boot Hooks        (L298-745) loadSettings, initUI, URL params
-   §2  Site Name & Footer       (L746-892) updateSiteNameUI, updateWelcomeFooter
-   §3  Suggest List             (L893-1020) fetchSuggestList, renderSuggestList
-   §4  Announcement Modal       (L1021-1258) checkAndShowAnnouncementModal, openAnnouncementModal
-   §5  File Tree                (L1259-1512) buildTree, renderTree, sortTree
-   §6  Markdown Viewer          (L1513-3144) openFile, virtualized rendering, footnotes
-   §7  Wikilink Resolver        (L3145-3365) wikilinkIndex, resolveWikilink
-   §8  Table of Contents        (L3366-3696) buildToc, renderToc, scrollSpy
-   §9  Global Search            (L3697-3867) doSearch, renderSearchResults
-   §10 Dictionary Sidebar       (L3868-4450) dictPanel, prefix/fulltext lookup
-   §11 In-Page Search (Ctrl+F)  (L4451-4654) pageSearch, highlightMatches
-   §12 Theme                    (L4655-4712) applyTheme, persistTheme
-   §13 Font Size                (L4713-4745) changeFontSize, persistFontSize
-   §14 Text/Layout Preferences  (L4746-4850) textAlign, lineHeight, maxWidth, readProgress
-   §15 Recent Files             (L4851-4912) recentFiles (localStorage, max 20)
-   §16 Bookmarks                (L4913-4963) bookmarks (localStorage)
-   §17 Toast Notifications      (L4964-5062) showToast
-   §18 Read Progress            (L5063-5126) autoSaveProgress, restoreProgress
-   §19 Sidebar Resize           (L5127-5198) drag-to-resize sidebar width
-   §20 Event Listeners          (L5199-6295) keyboard, click, popstate wiring
-   §21 Admin Panel              (L6296-7513) settings UI, analytics, logs
-   §22 Utilities                (L7514-7779) escHtml, formatDate, helpers
-   §23 Boot Entry               (L7780-end)  DOMContentLoaded → init()
+   §0  Globals & State           LRU cache, Web Worker, state{}
+   §1  Init & Boot Hooks         loadSettings, initUI, URL params
+   §2  Site Name & Footer        updateSiteNameUI, updateWelcomeFooter
+   §3  Suggest List              fetchSuggestList, renderSuggestList
+   §4  Announcement Modal        checkAndShowAnnouncementModal, openAnnouncementModal
+   §5  File Tree                 buildTree, renderTree, sortTree
+   §6  Markdown Viewer           openFile, virtualized rendering, footnotes
+   §7  Wikilink Resolver         wikilinkIndex, resolveWikilink
+   §8  Table of Contents         buildToc, renderToc, scrollSpy
+   §9  Global Search             doSearch, renderSearchResults
+   §10 Dictionary Sidebar        dictPanel, prefix/fulltext lookup
+   §11 In-Page Search (Ctrl+F)   pageSearch, highlightMatches
+   §12 Theme                     applyTheme, persistTheme
+   §13 Font Size                 changeFontSize, persistFontSize
+   §14 Text/Layout Preferences   textAlign, lineHeight, maxWidth, readProgress
+   §15 Recent Files              recentFiles (localStorage, max 20)
+   §16 Toast Notifications       showToast
+   §17 Bookmarks                 bookmarks (localStorage)
+   §18 Read Progress             autoSaveProgress, restoreProgress
+   §19 Sidebar Resize            drag-to-resize sidebar width
+   §20 Event Listeners           keyboard, click, popstate wiring
+   §21 Admin Panel               settings UI, analytics, logs
+   §22 Utilities                 escHtml, formatDate, helpers
+   §23 Boot Entry                DOMContentLoaded → init()
    ================================================================ */
 
 (function () {
   'use strict';
+
+  // ═══════════════════════════════════════════════════════════
+  // §0 GLOBALS & STATE (LRU cache, Web Worker, state{})
+  // ═══════════════════════════════════════════════════════════
 
   const appConfig = window.__APP_CONFIG__ || {};
   const userFont = localStorage.getItem('mdWebview-user-fontsize');
@@ -5029,7 +5033,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §16 BOOKMARKS (localStorage)
+  // §17 BOOKMARKS (localStorage)
   // ═══════════════════════════════════════════════════════════
   function toggleBookmark(filePath, title) {
     if (!filePath) {
@@ -5129,7 +5133,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §17 READ PROGRESS AUTO-SAVE / RESTORE
+  // §18 READ PROGRESS AUTO-SAVE / RESTORE
   // ═══════════════════════════════════════════════════════════
   let _saveProgressTimer = null;
   function saveReadProgress(filePath) {
@@ -5193,7 +5197,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §18 SIDEBAR RESIZE
+  // §19 SIDEBAR RESIZE
   // ═══════════════════════════════════════════════════════════
 
   function setupResizeHandle() {
@@ -5265,7 +5269,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §19 EVENT LISTENERS (Keyboard, Click, Popstate Wiring)
+  // §20 EVENT LISTENERS (Keyboard, Click, Popstate Wiring)
   // ═══════════════════════════════════════════════════════════
 
   function setupEventListeners() {
@@ -6362,7 +6366,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §20 ADMIN & USER PREFERENCES PANELS
+  // §21 ADMIN & USER PREFERENCES PANELS
   // ═══════════════════════════════════════════════════════════
   let hwAutoRefreshTimer = null;
   let indexRebuildPollingTimer = null;
@@ -7580,7 +7584,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §21 UTILITIES (escHtml, formatDate, debounce, helpers)
+  // §22 UTILITIES (escHtml, formatDate, debounce, helpers)
   // ═══════════════════════════════════════════════════════════
 
   function debounce(fn, delay) {
@@ -7846,7 +7850,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §22 BOOT ENTRY (DOMContentLoaded → init)
+  // §23 BOOT ENTRY (DOMContentLoaded → init)
   // ═══════════════════════════════════════════════════════════
   document.addEventListener('DOMContentLoaded', init);
 })();
