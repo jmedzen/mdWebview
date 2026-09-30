@@ -1,6 +1,31 @@
 /* ================================================================
-   mdWebview — Application Logic
-   Tree · Viewer · Search · Theme · FontSize
+   mdWebview — Application Logic (app.js)
+   版本 3.4.6 | Tree · Viewer · Search · Theme · Dict · Admin
+
+   ── 段落索引（Section Map）─────────────────────────────────────
+   §0  Globals & State          (L1-190)   LRU cache, Web Worker, state{}
+   §1  Init & Boot Hooks        (L195-560) loadSettings, initUI, URL params
+   §2  Site Name & Footer       (L560-785) updateSiteNameUI, updateWelcomeFooter
+   §3  Suggest List             (L785-906) fetchSuggestList, renderSuggestList
+   §4  Announcement Modal       (L906-998) checkAndShowAnnouncementModal, openAnnouncementModal
+   §5  File Tree                (L1124-1378) buildTree, renderTree, sortTree
+   §6  Markdown Viewer          (L1378-3014) openFile, virtualized rendering, footnotes
+   §7  Wikilink Resolver        (L3014-3235) wikilinkIndex, resolveWikilink
+   §8  Table of Contents        (L3235-3566) buildToc, renderToc, scrollSpy
+   §9  Global Search            (L3566-3737) doSearch, renderSearchResults
+   §10 Dictionary Sidebar       (L3737-4320) dictPanel, prefix/fulltext lookup
+   §11 In-Page Search (Ctrl+F)  (L4320-4524) pageSearch, highlightMatches
+   §12 Theme                    (L4524-4582) applyTheme, persistTheme
+   §13 Font Size                (L4582-4615) changeFontSize, persistFontSize
+   §14 Text/Layout Preferences  (L4615-4720) textAlign, lineHeight, maxWidth, readProgress
+   §15 Recent Files & Bookmarks (L4720-4928) recentFiles, bookmarks (localStorage)
+   §16 Toast Notifications      (L4780-4830) showToast
+   §17 Read Progress            (L4928-4990) autoSaveProgress, restoreProgress
+   §18 Sidebar Resize           (L4990-5062) drag-to-resize sidebar width
+   §19 Event Listeners          (L5062-6159) keyboard, click, popstate wiring
+   §20 Admin Panel              (L6159-7375) settings UI, analytics, logs
+   §21 Utilities                (L7375-7641) escHtml, formatDate, helpers
+   §22 Boot Entry               (L7641-end) DOMContentLoaded → init()
    ================================================================ */
 
 (function () {
@@ -42,6 +67,83 @@
   const isMobile = isMobileBrowser();
 
   // ── State ─────────────────────────────────────────────────
+  /**
+   * @typedef {Object} AppState
+   * @description 前端全域應用狀態。所有 UI 狀態與快取集中於此，
+   *              避免散落全域變數。透過直接屬性賦值更新（無 proxy）。
+   *
+   * ── 核心閱讀狀態 ──────────────────────────────────────────────
+   * @property {string|null}  currentFile       - 當前開啟的檔案路徑（null = 首頁歡迎畫面）
+   * @property {string}       currentTheme      - 主題 ID ('obsidian-dark'|'obsidian-light'|'solarized'|'zen'|'gruvbox')
+   * @property {number}       defaultFontSize   - 伺服器設定的預設字體大小（px），作為重置基準
+   * @property {number}       fontSize          - 目前閱讀字體大小（px），使用者可調整
+   * @property {string}       textAlign         - 文字對齊 ('justify'|'left')
+   * @property {string}       lineHeight        - 行高倍數字串 ('1.6'|'1.8'|'2.0')
+   * @property {string}       maxWidth          - 閱讀區最大寬度 CSS 值 ('800px'|'100%'|…)
+   * @property {boolean}      autoReadProgress  - 是否自動記錄與恢復閱讀進度
+   * @property {boolean}      isMobile          - 是否為行動裝置（UA 或視窗寬度 <= 768px）
+   *
+   * ── 站台設定 ──────────────────────────────────────────────────
+   * @property {string}       siteName          - 站台名稱（來自 config.settings.siteName，預設 'mdWebview'）
+   *
+   * ── 檔案系統 ──────────────────────────────────────────────────
+   * @property {Array|null}   treeData          - 檔案樹資料（null = 尚未載入；由 /api/tree 回傳）
+   * @property {string}       fileSort          - 檔案樹排序方式 ('name-asc'|'name-desc'|'modified-asc'|'modified-desc')
+   * @property {Map}          fileSizes         - filePath → 檔案大小（bytes）的 Map，用於判斷是否需要虛擬化
+   *
+   * ── 歷史與書籤 ────────────────────────────────────────────────
+   * @property {string[]}     recentFiles       - 最近開啟的檔案路徑列表（最多 20 筆，持久化於 localStorage）
+   * @property {Object[]}     bookmarks         - 書籤物件列表（{path, title, line, ts}，持久化於 localStorage）
+   *
+   * ── 側邊欄 ────────────────────────────────────────────────────
+   * @property {string}       sidebarTab        - 目前選中的側邊欄分頁 ('files'|'search'|'toc')
+   * @property {boolean}      sidebarCollapsed  - 側邊欄是否已收合
+   *
+   * ── 頁內搜尋（Ctrl+F）──────────────────────────────────────────
+   * @property {Object[]}     pageSearchMatches - 頁內搜尋命中節點列表
+   * @property {number}       pageSearchIndex   - 目前高亮的命中項目索引（-1 = 無）
+   * @property {string|null}  pageSearchQuery   - 最後一次頁內搜尋的關鍵詞
+   *
+   * ── 全文搜尋 ──────────────────────────────────────────────────
+   * @property {string}       searchSort        - 全文搜尋結果排序 ('relevance'|'file-asc'|'file-desc'|'count-desc')
+   * @property {Object|null}  lastSearchData    - 最後一次搜尋回傳資料（用於換頁排序時不重新請求）
+   * @property {number}       searchRenderLimit - 已渲染的搜尋結果筆數（分批渲染計數）
+   *
+   * ── ScrollSpy（閱讀進度 & TOC 追蹤）──────────────────────────
+   * @property {IntersectionObserver|null} scrollSpyObserver    - 用於 TOC 高亮的 IntersectionObserver
+   * @property {Function|null}             scrollSpyHandler     - scroll 事件 handler 參考（用於移除）
+   * @property {Function|null}             scrollSpyResizeHandler - resize 事件 handler 參考
+   * @property {number|null}               scrollSpyRaf         - requestAnimationFrame ID
+   * @property {Function|null}             refreshScrollSpy     - 重新初始化 ScrollSpy 的函數參考
+   *
+   * ── 大型檔案虛擬化（> 1MB）────────────────────────────────────
+   * @property {Object|null}  virtual           - 虛擬化狀態物件（null = 非虛擬化模式）
+   *                                              {si: SectionIndex, chunks: Chunk[], currentChunk: number,
+   *                                               totalEntries: number, visibleStart: number, visibleEnd: number}
+   * @property {Map}          sectionIndexCache - filePath → {etag, si} 的 section index 快取
+   *
+   * ── 辭典側邊欄 ────────────────────────────────────────────────
+   * @property {boolean}      dictionaryEnabled  - 後台是否啟用辭典功能
+   * @property {Object|null}  dictHeadwords      - 辭典詞條索引（由 /api/dict/headwords 載入）
+   * @property {Object|null}  dictIndex          - 當前辭典條目詳情
+   * @property {string|null}  dictSelected       - 目前查詢的辭典詞條
+   * @property {string[]|null} dictFileOrder     - 辭典檔案顯示順序
+   * @property {boolean}      dictSidebarOpen    - 辭典側邊欄是否開啟
+   * @property {string}       dictMode           - 查詢模式 ('prefix'|'fulltext')
+   * @property {AbortController|null} dictAbortController - 用於取消進行中的辭典請求
+   * @property {Object|null}  dictFulltextCache  - 辭典全文搜尋快取（避免重複請求）
+   * @property {number}       dictFulltextScrollTop - 辭典全文搜尋結果的滾動位置
+   * @property {number|null}  dictSidebarWidth   - 辭典側邊欄寬度（px，使用者可拖拉調整）
+   * @property {string|null}  dictHeadwordsETag  - 辭典 headwords 的 ETag（用於 304 Not Modified）
+   * @property {number|null}  dictPollTimer      - 辭典輪詢 timer ID（檢查辭典更新）
+   *
+   * ── 後台管理 ──────────────────────────────────────────────────
+   * @property {string|null}  adminToken         - 管理員 session token（持久化於 localStorage）
+   *
+   * ── 公告彈窗 ──────────────────────────────────────────────────
+   * @property {Object|null}  _announcementModalContext  - 公告彈窗最後一次開啟時的資料快照（用於判斷是否需要重新顯示）
+   * @property {Object[]|null} _cachedSuggestItems        - 最後一次 /api/suggest-list 回傳的推薦項目快取
+   */
   const state = {
     currentFile: null,
     currentTheme: userTheme || appConfig.defaultTheme || 'obsidian-dark',
@@ -192,7 +294,9 @@
   const $ = (id) => document.getElementById(id);
   const $$ = (sel, root) => (root || document).querySelectorAll(sel);
 
-  // ── Init ──────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // §1 INIT & BOOT HOOKS (loadSettings, initUI, URL params)
+  // ═══════════════════════════════════════════════════════════
   async function init() {
     // Configure marked once at startup (not on every render)
     marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
@@ -638,6 +742,9 @@
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // §2 SITE NAME & FOOTER (updateSiteNameUI, updateWelcomeFooter)
+  // ═══════════════════════════════════════════════════════════
   function updateSiteNameUI() {
     $$('.logo-text').forEach(el => el.textContent = state.siteName);
     $$('.welcome-title').forEach(el => el.textContent = state.siteName);
@@ -783,7 +890,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // SUGGEST LIST (Homepage Recommend & Hot)
+  // §3 SUGGEST LIST (Homepage Recommend & Hot)
   // ═══════════════════════════════════════════════════════════
 
   async function fetchSuggestList() {
@@ -904,7 +1011,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // ANNOUNCEMENT & DAILY RECOMMEND MODAL (Opening Page Landing Popup)
+  // §4 ANNOUNCEMENT & DAILY RECOMMEND MODAL (Opening Page Landing Popup)
   // ═══════════════════════════════════════════════════════════
 
   const ANNOUNCEMENT_ACK_KEY = 'mdWebview-announcement-modal-ack';
@@ -1045,6 +1152,12 @@
       renderAnnouncementSuggestList(listEl, items);
     }
 
+    const modalBody = overlay.querySelector('.announcement-modal-body');
+    if (modalBody) {
+      modalBody.scrollTop = 0;
+    }
+
+    document.body.classList.add('modal-open');
     overlay.style.display = 'flex';
     overlay.setAttribute('aria-hidden', 'false');
   }
@@ -1059,6 +1172,7 @@
       } catch (_) {}
     }
 
+    document.body.classList.remove('modal-open');
     overlay.style.display = 'none';
     overlay.setAttribute('aria-hidden', 'true');
   }
@@ -1122,7 +1236,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // TREE VIEW
+  // §5 TREE VIEW (File Browser)
   // ═══════════════════════════════════════════════════════════
 
   async function loadTree() {
@@ -1376,11 +1490,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // FILE VIEWER
-  // ═══════════════════════════════════════════════════════════
-
-  // ═══════════════════════════════════════════════════════════
-  // VIRTUALIZED LARGE-FILE RENDERING
+  // §6 MARKDOWN VIEWER & VIRTUALIZED LARGE-FILE RENDERING
   // ═══════════════════════════════════════════════════════════
 
   function isVirtualMode() {
@@ -3012,7 +3122,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // OBSIDIAN WIKILINK SUPPORT
+  // §7 OBSIDIAN WIKILINK SUPPORT
   // ═══════════════════════════════════════════════════════════
 
   /**
@@ -3233,7 +3343,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // TABLE OF CONTENTS
+  // §8 TABLE OF CONTENTS (TOC & ScrollSpy)
   // ═══════════════════════════════════════════════════════════
 
   function generateTOC(headings) {
@@ -3564,7 +3674,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // GLOBAL SEARCH
+  // §9 GLOBAL SEARCH (Bigram Full-Text & Filename Search)
   // ═══════════════════════════════════════════════════════════
 
   let searchAbortController = null;
@@ -3735,7 +3845,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // DICTIONARY LOOKUP PANEL (right hidden menu)
+  // §10 DICTIONARY LOOKUP PANEL (Right Hidden Sidebar)
   // ═══════════════════════════════════════════════════════════
 
   function syncDictToggleVisibility() {
@@ -4318,7 +4428,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // PAGE SEARCH (In-page)
+  // §11 PAGE SEARCH (In-page Ctrl+F)
   // ═══════════════════════════════════════════════════════════
 
   function openPageSearch() {
@@ -4522,7 +4632,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // THEME
+  // §12 THEME
   // ═══════════════════════════════════════════════════════════
 
   const THEME_HEADER_COLORS = {
@@ -4580,7 +4690,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // FONT SIZE
+  // §13 FONT SIZE
   // ═══════════════════════════════════════════════════════════
 
   function applyFontSize(size, saveToLocalStorage = true) {
@@ -4613,7 +4723,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // TEXT ALIGN, LINE HEIGHT, MAX WIDTH, READ PROGRESS
+  // §14 TEXT ALIGN, LINE HEIGHT, MAX WIDTH, READ PROGRESS
   // ═══════════════════════════════════════════════════════════
 
   function applyTextAlign(align, saveToLocalStorage = true) {
@@ -4717,7 +4827,9 @@
     }
   }
 
-  // ── Recent Files (Top 20) ──────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // §15 RECENT FILES (Top 20)
+  // ═══════════════════════════════════════════════════════════
   function addRecentFile(filePath, title) {
     if (!filePath) return;
     const cleanPath = filePath.startsWith('dict:') ? filePath.slice(5) : filePath;
@@ -4777,7 +4889,9 @@
     });
   }
 
-  // ── Toast Notification ────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // §16 TOAST NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════
   // Stacked, queue-aware toasts. `type` picks a border color and, when the
   // message doesn't already carry an emoji, a matching icon. `type: 'loading'`
   // (or duration 0/Infinity) yields a persistent toast; dismiss it via the
@@ -4827,7 +4941,7 @@
     return { el, dismiss() { dismissToast(el); } };
   }
 
-  // ── Bookmarks ──────────────────────────────────────────────
+  // ── §15 Bookmarks ──────────────────────────────────────────
   function toggleBookmark(filePath, title) {
     if (!filePath) {
       showToast('⚠️ 請先開啟一本經文檔案');
@@ -4925,7 +5039,9 @@
     });
   }
 
-  // ── Read Progress Auto-Save / Restore ─────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // §17 READ PROGRESS AUTO-SAVE / RESTORE
+  // ═══════════════════════════════════════════════════════════
   let _saveProgressTimer = null;
   function saveReadProgress(filePath) {
     if (!filePath || !state.autoReadProgress) return;
@@ -4988,7 +5104,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // SIDEBAR RESIZE
+  // §18 SIDEBAR RESIZE
   // ═══════════════════════════════════════════════════════════
 
   function setupResizeHandle() {
@@ -5060,7 +5176,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // EVENT LISTENERS
+  // §19 EVENT LISTENERS (Keyboard, Click, Popstate Wiring)
   // ═══════════════════════════════════════════════════════════
 
   function setupEventListeners() {
@@ -6129,7 +6245,7 @@
     renderBookmarksList();
     fetchSuggestList();
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.5';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.6';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6156,7 +6272,9 @@
     document.body.classList.add('modal-open');
   }
 
-  // ── Helper functions for admin & user panels ──
+  // ═══════════════════════════════════════════════════════════
+  // §20 ADMIN & USER PREFERENCES PANELS
+  // ═══════════════════════════════════════════════════════════
   let hwAutoRefreshTimer = null;
   let indexRebuildPollingTimer = null;
   let dictIndexRebuildPollingTimer = null;
@@ -7373,7 +7491,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // UTILITIES
+  // §21 UTILITIES (escHtml, formatDate, debounce, helpers)
   // ═══════════════════════════════════════════════════════════
 
   function debounce(fn, delay) {
@@ -7638,6 +7756,8 @@
     return bestAnchor ? parseInt(bestAnchor.getAttribute('data-line')) : null;
   }
 
-  // ── Boot ──────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // §22 BOOT ENTRY (DOMContentLoaded → init)
+  // ═══════════════════════════════════════════════════════════
   document.addEventListener('DOMContentLoaded', init);
 })();

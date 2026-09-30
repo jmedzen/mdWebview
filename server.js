@@ -1,3 +1,66 @@
+/**
+ * @file server.js — mdWebview Backend Server
+ * @version 3.4.6
+ *
+ * 單一 Node.js HTTP 伺服器（無外部框架），提供：
+ *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
+ *   - 靜態資源服務（記憶體 LRU 快取 + ETag + Gzip）
+ *   - Markdown Worker Thread Pool（SSR 爬蟲預渲染）
+ *   - Bigram 雙字元倒排索引（全文搜尋 + 辭典搜尋）
+ *   - 90 天持久化 Analytics Log + 7 天修剪排程
+ *   - 後台管理 API（PBKDF2 auth + session + 設定儲存）
+ *   - PWA 支援（動態 manifest.json、robots.txt、sitemap.xml）
+ *
+ * ── 段落索引（Section Map）────────────────────────────────────
+ *   System Log Buffer / SEO Bot Detection
+ *   90-Day Persistent Analytics Log & IP Tracking
+ *   7-Day Log Pruning Job (cleanOldLogsJob)
+ *   Logger Utility (pushToLogBuffer)
+ *   Last-resort Uncaught Exception Handler
+ *   Markdown Render Worker Thread Pool (render-worker.js)
+ *       POOL_SIZE = max(2, CPU_COUNT - 1); job queue + callback map
+ *   Index & Search Worker Pool (index-worker.js)
+ *       Persistent pool; dispatches bigram build/search jobs
+ *   Global Constants (PORT, APP_ROOT, CONFIG_PATH)
+ *   Config Schema & Defaults (config.settings.*)
+ *   loadConfig() — 3-level priority: env → APP_ROOT/config.json → CONFIG_PATH
+ *   Symlink Escape Defense (getRootRealpath, isRealPathWithinMdRoot)
+ *   SECURITY_HEADERS (CSP, HSTS, X-Frame-Options…)
+ *   indexHtmlHeaders() — per-request nonce injection for CSP
+ *   getIndexHtml() — SSR: inject siteName, theme, fontsize, announcement into index.html
+ *   sendCompressed() — gzip response helper
+ *   Tree Watcher (fs.watch on mdRoot → invalidate cachedTree)
+ *   handleTree() — GET /api/tree
+ *   SEO Helpers: escapeXml, getBaseUrl, flattenMarkdownFiles
+ *   handleRobotsTxt() — GET /robots.txt
+ *   handleManifestJson() — GET /manifest.json (dynamic siteName injection)
+ *   handleSitemapXml() — GET /sitemap.xml
+ *   extractMarkdownMetadata() — extract title/description for SSR
+ *   handleCrawlerSsr() — SSR pre-render for bot/crawler requests
+ *   handleFile() — GET /api/file (serve .md content)
+ *   handleMedia() — GET /api/media (images, PDFs, audio)
+ *   handleSectionIndex() — GET /api/section-index (large file chunk map)
+ *   handleRender() — GET /api/render (render one chunk of a large file)
+ *   handleSearch() — GET /api/search (bigram full-text search)
+ *   Bigram Full-Text Inverted Index Engine
+ *   Document Section Index (large-file chunking + entry-level search)
+ *   Dictionary Bigram Index (separate index for dict files)
+ *   handleDictHeadwords() — GET /api/dict/headwords
+ *   handleDictFiles() — GET /api/dict/files
+ *   handleDictSearch() — GET /api/dict/search
+ *   handleDictAnalytics() — POST /api/dict/analytics
+ *   handleFileSearch() — GET /api/file-search (filename-only search)
+ *   handlePageSearch() — GET /api/page-search (in-page Ctrl+F)
+ *   Static Asset In-Memory Cache (STATIC_CACHE_TTL_MS = 5s)
+ *   Session Store (SESSION_DURATION = 6h)
+ *   Global API Rate Limiter (30 req/s sliding window per IP)
+ *   Analytics Aggregator & CSV/JSON Data Exporter
+ *   Daily Words / Word of the Day (deterministic rotation by hour)
+ *   handleSuggestList() — GET /api/suggest-list (homepage recommend)
+ *   HTTP Server & Main Request Router
+ *   Admin API Routes (/api/admin/*)
+ */
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +81,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.5';
+let APP_VERSION = '3.4.6';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -230,6 +293,14 @@ function analyticsMapGetOrCreate(map, key, make, maxKeys = MAX_ANALYTICS_KEYS) {
   return entry;
 }
 
+/**
+ * 更新記憶體中的 Analytics 統計 store。
+ * 處理重複事件過濾（processedIds）、時區時間戳解析、即時熱門點閱與全時段訪問累計。
+ *
+ * @param {Object} store - 記憶體中的 Analytics store 物件
+ * @param {Object} entry - 單筆日誌事件（包含 timestamp, path, query, ip, ua 等）
+ * @returns {boolean} 若為新事件並成功累計返回 true；若為重複/無效事件返回 false
+ */
 function updateAnalyticsStoreEntry(store, entry) {
   const timestamp = new Date(entry.timestamp);
   if (Number.isNaN(timestamp.getTime())) return false;
@@ -779,6 +850,15 @@ function flushQueue() {
 
 const JOB_TIMEOUT_MS = 30000; // 30 seconds
 
+/**
+ * 調度背景 Worker Thread Pool (render-worker.js) 執行 Markdown SSR 渲染。
+ * 包含超時中斷保護 (30s) 與卡死 Worker 重啟復原機制。
+ *
+ * @param {string} body - 原始 Markdown 文字內容
+ * @param {string} filePath - 文件相對路徑（用於生成錨點與標題關聯）
+ * @param {number} [lineOffset=0] - 行號位移（用於分塊渲染時校正行號）
+ * @returns {Promise<string>} 渲染完成的 HTML 字串
+ */
 function renderWithWorker(body, filePath, lineOffset) {
   lineOffset = lineOffset || 0;
   return new Promise((resolve, reject) => {
@@ -943,8 +1023,14 @@ function dispatchIndexJobToWorker(worker, jobId, message, resolve, reject, timeo
 }
 
 /**
- * Universal single-job executor for index-worker tasks (e.g. section parsing, ad-hoc tasks).
- * Callable from anywhere across the entire system.
+ * 通用 Index Worker 任務調度器 (index-worker.js)。
+ * 將任務分發給專門的索引 Worker 線程執行（如 section parsing, 搜尋、建立索引），
+ * 支援佇列排隊與超時拒絕機制。
+ *
+ * @param {string} type - 任務類型名稱（如 'search', 'parseSections', 'buildIndex' 等）
+ * @param {Object} payload - 傳遞給 Worker 的任務參數
+ * @param {number} [timeoutMs=30000] - 任務超時時間（毫秒）
+ * @returns {Promise<any>} Worker 處理回傳的結果資料
  */
 function executeIndexJob(type, payload, timeoutMs = JOB_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
@@ -1183,6 +1269,18 @@ function safeJsonForScript(obj) {
 }
 
 let rawIndexHtml = null;
+/**
+ * 取得並預渲染 SPA 首頁 index.html。
+ * 執行即時動態 SSR 注入：
+ * 1. 注入每請求獨立 CSP Nonce
+ * 2. 注入 window.__APP_CONFIG__ (主題、字型、站名、公告訊息等)
+ * 3. 替換 canonical URL, og:url, og:image
+ * 4. 替換 .welcome-title 與 #announcementModalTitle
+ *
+ * @param {string} nonce - 當次請求的 CSP 隨機 Nonce
+ * @param {http.IncomingMessage} [req] - 傳入的 HTTP 請求物件（用於判定 baseUrl 與壓縮支援）
+ * @param {Function} callback - 回呼函數 (err, htmlBuffer)
+ */
 function getIndexHtml(nonce, req, callback) {
   if (typeof req === 'function') {
     callback = req;
@@ -1570,6 +1668,14 @@ function handleRobotsTxt(req, res) {
 }
 
 let cachedManifestRaw = null;
+/**
+ * 動態 PWA Web App Manifest 處理器 (GET /manifest.json)。
+ * 依據伺服器當前 config.settings.siteName 動態替換 manifest 中的 name 與 short_name，
+ * 並提供 ETag 與 1 小時快取控制。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @param {http.ServerResponse} res - HTTP 回應物件
+ */
 function handleManifestJson(req, res) {
   const manifestPath = path.join(APP_ROOT, 'manifest.json');
   const generateAndSend = (rawStr) => {
@@ -2990,6 +3096,14 @@ async function runIndexWorkerPool(tasks, buildMessage, onMessage, concurrency) {
   await Promise.all(runners);
 }
 
+/**
+ * 非同步建立/重建全庫 Bigram 雙字元倒排搜尋索引。
+ * 遍歷 mdRoot 所有 Markdown 檔案，透過二進位磁碟快取 (.bin) 或工作執行緒分詞，
+ * 支援中止正在執行的舊建置任務 (buildId 機制)。
+ *
+ * @param {boolean} [forceRebuild=false] - 是否強制忽略磁碟快取全量重建
+ * @returns {Promise<void>}
+ */
 async function buildSearchIndexAsync(forceRebuild = false) {
   if (searchIndex.building && !forceRebuild) return;
 

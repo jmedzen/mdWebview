@@ -1,6 +1,49 @@
 /* ================================================================
-   mdWebview — Style System
+   mdWebview — Style System (style.css) v3.4.6
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
+
+   ── 段落索引（Section Map）──────────────────────────────────────
+   §1  Reset                  L6
+   §2  Theme Definitions      L47-248   (5 主題色系 CSS variables)
+   §3  Smooth Theme Transition L247
+   §4  App Layout             L271      (.app, app-header, app-body)
+   §5  Header                 L287-520  (Logo, active-file, controls)
+   §6  Sidebar                L529-805  (tabs, panels, panel-actions,
+                                         sort-dropdown)
+   §7  File Tree              L806-921
+   §8  Search                 L922-1138
+   §9  TOC (Outline)          L1139-1330 (含 virtualized TOC)
+   §10 Resize Handle          L1331
+   §11 Content Area           L1360-1446
+   §12 Welcome Screen         L1447-1532
+   §13 Suggest List           L1533-1682
+   §14 Admin Suggest Pane     L1683-1984
+   §15 Daily Word Admin UI    L1864
+   §16 Back to Top            L1985
+   §17 Content Loading        L2019
+   §18 Spinner                L2035
+   §19 Page Search Bar        L2051
+   §20 Markdown Body          L2129-2492 (headings, lists, tables,
+                                           blockquotes, code, wikilinks,
+                                           footnotes, callouts)
+   §21 Scrollbar              L2493
+   §22 Animations             L2518
+   §23 Mobile Sidebar Backdrop L2543
+   §24 Responsive             L2548-2766
+   §25 Print                  L2753
+   §26 Admin Settings Modals  L2767-3387
+   §27 Selection Action Popup L3388
+   §28 Line Highlight         L3443
+   §29 User Settings Modal    L3475-3827
+   §30 Toast Notification     L3828
+   §31 Admin Tabs & Log Viewer L3892
+   §32 Admin Analytics        L4105
+   §33 Callouts               L4291-4575
+   §34 Hardware Dashboard     L4576
+   §35 Dictionary Sidebar     L4892-5393
+   §36 Markdown Enhancements  L5394-5480 (highlights, task lists,
+                                           math/KaTeX, Mermaid)
+   §37 Announcement Modal     L5481-5895 (方案二：現代微光玻璃浮島)
    ================================================================ */
 
 /* ── Reset ──────────────────────────────────────────────────── */
@@ -1670,7 +1713,7 @@ section.chunk.chunk-error {
 }
 
 .suggest-dict-word {
-  font-weight: 500;
+  font-weight: normal;
 }
 
 .suggest-dict-source {
@@ -2980,7 +3023,7 @@ kbd {
 }
 
 @media (max-width: 768px) {
-  .modal-overlay {
+  .modal-overlay:not(.announcement-modal-overlay) {
     padding: 0 !important;
     align-items: stretch !important;
   }
@@ -5509,21 +5552,31 @@ mark.obsidian-highlight,
   cursor: not-allowed;
 }
 
+body.modal-open {
+  overflow: hidden !important;
+}
+
 .announcement-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.62);
+  background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 1050;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  box-sizing: border-box;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  /* iPhone safe area padding: keeps modal completely below Dynamic Island / Notch and above Home Indicator */
+  padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+  padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+  box-sizing: border-box !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
   animation: fadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -5545,14 +5598,18 @@ mark.obsidian-highlight,
   border-radius: 18px;
   width: 100%;
   max-width: 520px;
-  max-height: 86vh;
-  max-height: 86dvh;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-  box-sizing: border-box;
+  /* Card height strictly fits within the safe area so header and footer are never clipped */
+  max-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 36px) !important;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 36px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  margin: auto !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
   animation: announcementPopIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  position: relative;
 }
 
 .announcement-modal-header {
@@ -5565,6 +5622,26 @@ mark.obsidian-highlight,
   flex-shrink: 0;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  position: relative;
+  gap: 12px;
+}
+
+.announcement-modal-header .modal-close-btn {
+  position: static !important;
+  transform: none !important;
+  flex-shrink: 0 !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+.announcement-modal-header .modal-close-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .announcement-header-left {
@@ -5797,7 +5874,7 @@ mark.obsidian-highlight,
 }
 
 .announcement-suggest-list .suggest-item .suggest-dict-word {
-  font-weight: 600;
+  font-weight: normal;
   color: var(--text-primary);
 }
 
@@ -5863,23 +5940,83 @@ mark.obsidian-highlight,
 /* Mobile responsive rules */
 @media (max-width: 600px) {
   .announcement-modal-overlay {
-    padding: 12px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-left: calc(12px + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(12px + env(safe-area-inset-right, 0px)) !important;
+    align-items: center !important;
   }
 
   .announcement-modal-card {
-    max-width: 100%;
-    max-height: 90vh;
-    max-height: 90dvh;
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 28px) !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 28px) !important;
     border-radius: 16px;
+    margin: auto !important;
   }
 
   .announcement-modal-header {
-    padding: 12px 16px;
+    padding: 14px 16px;
+    gap: 10px;
+  }
+
+  .announcement-header-left {
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .announcement-header-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 17px;
+    border-radius: 11px;
+    flex-shrink: 0;
+  }
+
+  .announcement-header-text {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .announcement-header-title-row {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .announcement-header-title {
+    font-size: 15px;
+    line-height: 1.25;
+    word-break: break-word;
+  }
+
+  .announcement-header-badge {
+    font-size: 9.5px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
+
+  .announcement-header-date {
+    font-size: 11px;
+    margin-top: 2px;
   }
 
   .announcement-modal-body {
     padding: 14px 16px;
     gap: 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .announcement-notice-box {
+    padding: 12px 14px;
+    border-radius: 14px;
+    gap: 8px;
+  }
+
+  .announcement-notice-content {
+    font-size: 13.5px;
+    line-height: 1.55;
   }
 
   .announcement-modal-footer {
@@ -5889,6 +6026,7 @@ mark.obsidian-highlight,
   .announcement-ack-btn {
     width: 100%;
     min-height: 42px;
+    font-size: 14.5px;
   }
 }
 

@@ -43,20 +43,28 @@
 
 ### 📂 專案結構
 
+> 📐 **深入架構說明**：請參閱 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，含系統架構圖、API 路由索引、State 物件說明、config 欄位一覽。
+
 ```text
 mdWebview/
-├── md/                 # 存放佛典經論 Markdown 檔案的目錄（支援多層資料夾）
-├── index.html          # 主頁面結構與佈局
-├── app.js              # 前端邏輯（樹狀圖、大綱、搜尋、字型、主題、LRU 快取、Wikilink、Toast）
-├── style.css           # 樣式表（含主題色彩定義、自適應排版、Wikilink 樣式、Modal 彈窗）
-├── md-worker.js        # 前端 Web Worker Markdown 解析器
-├── render-worker.js    # Node.js Worker Thread SSR Markdown 渲染器
-├── marked.min.js       # 本地託管 Marked.js 引擎
-├── server.js           # Node.js 後端服務（Bigram 倒排索引、全非同步 API、Worker Pool、Gzip、後台）
-├── config.json         # 系統設定檔 (包含後台管理員與 maxProximityDistance 設定)
-├── Dockerfile          # Docker 容器構建設定檔
-├── docker-compose.yml  # Docker Compose 部署設定檔
-├── package.json        # 專案設定檔 (v1.13.1)
+├── md/                 # 存放 Markdown 文件庫（支援多層資料夾）
+├── dicts/              # 辭典檔案目錄（.txt 格式，每條目 === 分隔）
+├── index.html          # 前端 SPA Shell（含 PWA manifest 引用、SSR 注入點）
+├── app.js              # 前端邏輯（狀態管理、樹狀圖、大綱、搜尋、辭典、主題、管理員面板）
+├── style.css           # 樣式系統（5 主題、響應式、Glassmorphism、Markdown 增強）
+├── sw.js               # Service Worker（PWA 離線快取）
+├── md-worker.js        # 前端 Web Worker：Markdown 解析（在瀏覽器背景執行緒執行）
+├── render-worker.js    # Node.js Worker Thread：SSR Markdown 渲染（伺服器端）
+├── index-worker.js     # Node.js Worker Thread：Bigram 倒排索引建立與搜尋
+├── marked.min.js       # 本地託管 Marked.js 引擎（無外部 CDN 依賴）
+├── s2t.js              # 簡繁轉換模組（搜尋時自動處理簡體輸入）
+├── manifest.json       # PWA Manifest 靜態預設（執行期由 server.js 動態覆寫）
+├── server.js           # Node.js 後端主服務（HTTP、API、Worker Pool、Analytics、Admin）
+├── config.json         # 系統設定（站名、主題、辭典、公告、推薦清單等，後台儲存後持久化）
+├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
+├── Dockerfile          # Docker 容器構建設定
+├── docker-compose.yml  # Docker Compose 部署設定
+├── package.json        # Node.js 套件設定（v3.4.6）
 └── README.md           # 本說明文件
 ```
 
@@ -177,20 +185,28 @@ docker-compose up -d
 
 ### 📂 Project Structure
 
+> 📐 **Deep-dive architecture**: See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for system diagrams, API route index, State field reference, and config field reference.
+
 ```text
 mdWebview/
-├── md/                 # Directory containing Buddhist commentary Markdown files
-├── index.html          # Main HTML application page
-├── app.js              # Frontend logic (Tree view, TOC, search, themes, LRU cache, Wikilinks, Toast)
-├── style.css           # Styling (Themes, responsive layout, Wikilinks, Modals)
-├── md-worker.js        # Frontend Web Worker Markdown parser
-├── render-worker.js    # Node.js Worker Thread SSR Markdown renderer
-├── marked.min.js       # Self-hosted Marked.js engine
-├── server.js           # Node.js backend server (Bigram index, Async APIs, Worker Pool, Gzip, Admin)
-├── config.json         # Configuration file (Admin setup & maxProximityDistance)
+├── md/                 # Markdown document vault (supports nested directories)
+├── dicts/              # Dictionary files directory (.txt, entries separated by ===)
+├── index.html          # Frontend SPA shell (SSR injection point, PWA manifest link)
+├── app.js              # Frontend logic (state, tree, TOC, search, dict, themes, admin panel)
+├── style.css           # Style system (5 themes, responsive, Glassmorphism, Markdown enhancements)
+├── sw.js               # Service Worker (PWA offline caching)
+├── md-worker.js        # Frontend Web Worker: Markdown parsing (browser background thread)
+├── render-worker.js    # Node.js Worker Thread: SSR Markdown rendering (server-side)
+├── index-worker.js     # Node.js Worker Thread: Bigram inverted index build & search
+├── marked.min.js       # Self-hosted Marked.js engine (zero external CDN dependency)
+├── s2t.js              # Simplified-to-Traditional Chinese converter (for search input)
+├── manifest.json       # PWA Manifest static defaults (overridden at runtime by server.js)
+├── server.js           # Node.js backend (HTTP, APIs, Worker Pool, Analytics, Admin)
+├── config.json         # System config (site name, theme, dict, announcements, suggest list)
+├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v1.13.1)
+├── package.json        # Node.js package manifest (v3.4.6)
 └── README.md           # Project documentation
 ```
 
