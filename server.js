@@ -1060,7 +1060,18 @@ let config = {
       dailyWordDicts: [],
       dailyWordRotateHour: 12,
       enabled: false
-    }
+    },
+    seoSiteDescription: process.env.SEO_SITE_DESCRIPTION || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。',
+    seoKeywords: process.env.SEO_KEYWORDS || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview',
+    seoOgImage: process.env.SEO_OG_IMAGE || '/og-preview.png',
+    seoRobotsIndex: process.env.SEO_ROBOTS_INDEX !== undefined ? process.env.SEO_ROBOTS_INDEX === 'true' : true,
+    seoBlockAiBots: process.env.SEO_BLOCK_AI_BOTS !== undefined ? process.env.SEO_BLOCK_AI_BOTS === 'true' : true,
+    seoDisallowPaths: process.env.SEO_DISALLOW_PATHS || '/api/\n/vendor/',
+    googleSiteVerification: process.env.GOOGLE_SITE_VERIFICATION || 'HGnOpfVbx1BCukVzCzfcLj0VPyeawv0-1aLkG1tdRik',
+    bingSiteVerification: process.env.BING_SITE_VERIFICATION || '',
+    baiduSiteVerification: process.env.BAIDU_SITE_VERIFICATION || '',
+    seoEnableSearchBox: process.env.SEO_ENABLE_SEARCH_BOX !== undefined ? process.env.SEO_ENABLE_SEARCH_BOX === 'true' : true,
+    seoHomepageSummary: process.env.SEO_HOMEPAGE_SUMMARY || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。'
   }
 };
 
@@ -1084,6 +1095,17 @@ function loadConfig() {
     if (process.env.DOWNLOAD_URL !== undefined) config.settings.downloadUrl = process.env.DOWNLOAD_URL;
     if (process.env.ENABLE_ANNOUNCEMENT !== undefined) config.settings.enableAnnouncement = process.env.ENABLE_ANNOUNCEMENT === 'true';
     if (process.env.ANNOUNCEMENT_MESSAGE !== undefined) config.settings.announcementMessage = process.env.ANNOUNCEMENT_MESSAGE;
+    if (process.env.SEO_SITE_DESCRIPTION !== undefined) config.settings.seoSiteDescription = process.env.SEO_SITE_DESCRIPTION;
+    if (process.env.SEO_KEYWORDS !== undefined) config.settings.seoKeywords = process.env.SEO_KEYWORDS;
+    if (process.env.SEO_OG_IMAGE !== undefined) config.settings.seoOgImage = process.env.SEO_OG_IMAGE;
+    if (process.env.SEO_ROBOTS_INDEX !== undefined) config.settings.seoRobotsIndex = process.env.SEO_ROBOTS_INDEX === 'true';
+    if (process.env.SEO_BLOCK_AI_BOTS !== undefined) config.settings.seoBlockAiBots = process.env.SEO_BLOCK_AI_BOTS === 'true';
+    if (process.env.SEO_DISALLOW_PATHS !== undefined) config.settings.seoDisallowPaths = process.env.SEO_DISALLOW_PATHS;
+    if (process.env.GOOGLE_SITE_VERIFICATION !== undefined) config.settings.googleSiteVerification = process.env.GOOGLE_SITE_VERIFICATION;
+    if (process.env.BING_SITE_VERIFICATION !== undefined) config.settings.bingSiteVerification = process.env.BING_SITE_VERIFICATION;
+    if (process.env.BAIDU_SITE_VERIFICATION !== undefined) config.settings.baiduSiteVerification = process.env.BAIDU_SITE_VERIFICATION;
+    if (process.env.SEO_ENABLE_SEARCH_BOX !== undefined) config.settings.seoEnableSearchBox = process.env.SEO_ENABLE_SEARCH_BOX === 'true';
+    if (process.env.SEO_HOMEPAGE_SUMMARY !== undefined) config.settings.seoHomepageSummary = process.env.SEO_HOMEPAGE_SUMMARY;
 
     // 2. Try reading local config.json in APP_ROOT if present
     const defaultConfigPath = path.join(APP_ROOT, 'config.json');
@@ -1291,7 +1313,16 @@ function getIndexHtml(nonce, req, callback) {
     const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
     const baseUrl = getBaseUrl(req);
     const canonicalBase = baseUrl ? `${baseUrl}/` : '/';
-    const ogImageUrl = baseUrl ? `${baseUrl}/og-preview.png` : '/og-preview.png';
+    let rawOgImage = (config.settings.seoOgImage || '/og-preview.png').trim();
+    const ogImageUrl = rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')
+      ? rawOgImage
+      : (baseUrl ? `${baseUrl}${rawOgImage.startsWith('/') ? '' : '/'}${rawOgImage}` : rawOgImage);
+    const siteDesc = escapeHtmlString(config.settings.seoSiteDescription || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。');
+    const siteKeywords = escapeHtmlString(config.settings.seoKeywords || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview');
+    const robotsContent = config.settings.seoRobotsIndex === false ? 'noindex, nofollow' : 'index, follow';
+    const gVer = escapeHtmlString(config.settings.googleSiteVerification || '');
+    const bingVer = escapeHtmlString(config.settings.bingSiteVerification || '');
+    const baiduVer = escapeHtmlString(config.settings.baiduSiteVerification || '');
 
     // 1. Dynamic Canonical URL for homepage
     if (html.includes('<link rel="canonical"')) {
@@ -1315,6 +1346,64 @@ function getIndexHtml(nonce, req, callback) {
     html = html.replace(/<meta property="og:site_name" content="[^"]*">/i, `<meta property="og:site_name" content="${siteName}">`);
     html = html.replace(/<meta property="og:title" content="[^"]*">/i, `<meta property="og:title" content="${siteName} — 佛典經論閱讀器">`);
     html = html.replace(/<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${siteName} — 佛典經論閱讀器">`);
+
+    // 5. Dynamic SEO Meta Description & Keywords
+    html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${siteDesc}">`);
+    html = html.replace(/<meta property="og:description" content="[^"]*">/i, `<meta property="og:description" content="${siteDesc}">`);
+    html = html.replace(/<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${siteDesc}">`);
+
+    if (html.includes('<meta name="keywords"')) {
+      html = html.replace(/<meta name="keywords" content="[^"]*">/i, `<meta name="keywords" content="${siteKeywords}">`);
+    } else {
+      html = html.replace('</head>', `  <meta name="keywords" content="${siteKeywords}">\n</head>`);
+    }
+
+    // 6. Robots & Webmaster Verification Meta Tags
+    if (html.includes('<meta name="robots"')) {
+      html = html.replace(/<meta name="robots" content="[^"]*">/i, `<meta name="robots" content="${robotsContent}">`);
+    } else {
+      html = html.replace('</head>', `  <meta name="robots" content="${robotsContent}">\n</head>`);
+    }
+    if (gVer) {
+      if (html.includes('<meta name="google-site-verification"')) {
+        html = html.replace(/<meta name="google-site-verification" content="[^"]*">/i, `<meta name="google-site-verification" content="${gVer}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="google-site-verification" content="${gVer}">\n</head>`);
+      }
+    }
+    if (bingVer) {
+      if (html.includes('<meta name="msvalidate.01"')) {
+        html = html.replace(/<meta name="msvalidate.01" content="[^"]*">/i, `<meta name="msvalidate.01" content="${bingVer}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="msvalidate.01" content="${bingVer}">\n</head>`);
+      }
+    }
+    if (baiduVer) {
+      if (html.includes('<meta name="baidu-site-verification"')) {
+        html = html.replace(/<meta name="baidu-site-verification" content="[^"]*">/i, `<meta name="baidu-site-verification" content="${baiduVer}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="baidu-site-verification" content="${baiduVer}">\n</head>`);
+      }
+    }
+
+    // 7. Homepage WebSite + SearchAction Schema.org JSON-LD
+    if (config.settings.seoEnableSearchBox !== false && baseUrl) {
+      const homeJsonLd = {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": config.settings.siteName || 'mdWebview',
+        "url": canonicalBase,
+        "description": config.settings.seoSiteDescription || '線上佛典經論閱讀器',
+        "inLanguage": "zh-TW",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": `${canonicalBase}?search={search_term_string}`,
+          "query-input": "required name=search_term_string"
+        }
+      };
+      const jsonLdScript = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(homeJsonLd)}</script>`;
+      html = html.replace('</head>', `  ${jsonLdScript}\n</head>`);
+    }
 
     // 5. Inject matching theme-color for iOS PWA / Safari status bar
     const themeHeaderColors = {
@@ -1668,15 +1757,41 @@ function flattenMarkdownFiles(nodes, acc = []) {
 
 function handleRobotsTxt(req, res) {
   const baseUrl = getBaseUrl(req);
-  const robots = [
-    'User-agent: *',
-    'Allow: /',
-    'Disallow: /api/',
-    '',
-    `Sitemap: ${baseUrl}/sitemap.xml`,
-    ''
-  ].join('\n');
+  const lines = [];
 
+  if (config.settings && config.settings.seoRobotsIndex === false) {
+    lines.push('User-agent: *');
+    lines.push('Disallow: /');
+  } else {
+    lines.push('User-agent: *');
+    lines.push('Allow: /');
+
+    const disallowRaw = (config.settings && config.settings.seoDisallowPaths) || '/api/\n/vendor/';
+    const disallowList = String(disallowRaw)
+      .split(/[\r\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    for (const p of disallowList) {
+      lines.push(`Disallow: ${p.startsWith('/') ? p : '/' + p}`);
+    }
+
+    if (config.settings && config.settings.seoBlockAiBots !== false) {
+      lines.push('');
+      lines.push('# Block AI Training & Scraper Bots');
+      const aiBots = ['GPTBot', 'CCBot', 'ClaudeBot', 'Google-Extended', 'Bytespider', 'Diffbot'];
+      for (const bot of aiBots) {
+        lines.push(`User-agent: ${bot}`);
+        lines.push('Disallow: /');
+      }
+    }
+  }
+
+  lines.push('');
+  lines.push(`Sitemap: ${baseUrl}/sitemap.xml`);
+  lines.push('');
+
+  const robots = lines.join('\n');
   res.writeHead(200, Object.assign({
     'Content-Type': 'text/plain; charset=utf-8',
     'Cache-Control': 'public, max-age=86400',
@@ -1870,7 +1985,70 @@ function extractMarkdownMetadata(rawMarkdown, fallbackName) {
  * @param {Object}               query    - 已解析的 URL 查詢參數
  */
 async function handleCrawlerSsr(req, res, filePath, query) {
-  if (!filePath || filePath.includes('\0')) {
+  const baseUrl = getBaseUrl(req);
+  const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
+  let rawOgImage = (config.settings.seoOgImage || '/og-preview.png').trim();
+  const ogImageUrl = rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')
+    ? rawOgImage
+    : (baseUrl ? `${baseUrl}${rawOgImage.startsWith('/') ? '' : '/'}${rawOgImage}` : rawOgImage);
+
+  // ── Mode A: Crawler Homepage SSR (Rich Semantic Landing Page) ──────────
+  if (!filePath) {
+    const nonce = crypto.randomBytes(16).toString('base64');
+    return getIndexHtml(nonce, req, async (err, baseHtmlBuffer) => {
+      if (err) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+        return res.end('Server Error');
+      }
+
+      let html = baseHtmlBuffer.toString('utf-8');
+      const canonicalUrl = `${baseUrl}/`;
+      const pageTitle = `${siteName} — 佛典經論閱讀器`;
+      const homeSummary = config.settings.seoHomepageSummary || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。';
+      const safeDesc = escapeHtmlString(config.settings.seoSiteDescription || homeSummary);
+
+      // Render rich semantic homepage content for bots to eliminate Soft 404
+      let crawlBody = `<div class="crawler-homepage-content" style="max-width:860px;margin:32px auto;padding:24px;line-height:1.8;">`;
+      crawlBody += `<h1 style="font-size:2rem;margin-bottom:16px;">${siteName}</h1>`;
+      crawlBody += `<p style="font-size:1.1rem;color:#555;margin-bottom:24px;">${escapeHtmlString(homeSummary)}</p>`;
+
+      // Inject structured links to suggest list or vault
+      try {
+        const sl = config.settings.suggestList || {};
+        if (sl.adminList && sl.adminList.length > 0) {
+          crawlBody += `<h2 style="font-size:1.4rem;margin:24px 0 12px;">精選推薦經文</h2><ul>`;
+          for (const item of sl.adminList.slice(0, 15)) {
+            const cleanPath = String(item).trim();
+            const displayName = path.basename(cleanPath, '.md');
+            crawlBody += `<li><a href="${baseUrl}/?file=${encodeURIComponent(cleanPath)}">${escapeHtmlString(displayName)}</a></li>`;
+          }
+          crawlBody += `</ul>`;
+        }
+      } catch (_) {}
+
+      crawlBody += `<p style="margin-top:32px;"><a href="${baseUrl}/sitemap.xml">檢視全站經文索引 Sitemap.xml</a></p>`;
+      crawlBody += `</div>`;
+
+      // Replace Title & Description
+      html = html.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
+
+      // Reveal contentWrapper with rich homepage intro
+      html = html.replace(/<div class="welcome-screen" id="welcomeScreen">/i, '<div class="welcome-screen" id="welcomeScreen" style="display:none">');
+      html = html.replace(/<div class="content-wrapper" id="contentWrapper" style="display:none">/i, '<div class="content-wrapper" id="contentWrapper" style="display:block">');
+      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, `<article class="markdown-body" id="markdownBody">${crawlBody}</article>`);
+
+      const renderedBuf = Buffer.from(html, 'utf-8');
+      const headers = indexHtmlHeaders({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=1800'
+      }, nonce);
+      return sendCompressed(req, res, 200, headers, renderedBuf);
+    });
+  }
+
+  // ── Mode B: Crawler Sutra Document SSR ──────────────────────────────────
+  if (filePath.includes('\0')) {
     res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     return res.end('Invalid file parameter');
   }
@@ -1909,9 +2087,7 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       }
 
       let html = baseHtmlBuffer.toString('utf-8');
-      const baseUrl = getBaseUrl(req);
       const canonicalUrl = `${baseUrl}/?file=${encodeURIComponent(filePath)}`;
-      const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
       const pageTitle = `${escapeHtmlString(title)} — ${siteName}`;
       const safeDesc = escapeHtmlString(description);
 
@@ -1920,7 +2096,6 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
 
       // 2. Replace Canonical & OpenGraph & Twitter tags
-      const ogImageUrl = `${baseUrl}/og-preview.png`;
       html = html.replace(/<link rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalUrl}">`);
       html = html.replace(/<meta property="og:url"[^>]*>/i, `<meta property="og:url" content="${canonicalUrl}">`);
       html = html.replace(/<meta property="og:title"[^>]*>/i, `<meta property="og:title" content="${pageTitle}">`);
@@ -1931,17 +2106,55 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       html = html.replace(/<meta name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${safeDesc}">`);
       html = html.replace(/<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${ogImageUrl}">`);
 
-      // 3. Inject Schema.org JSON-LD into <head>
-      const jsonLd = {
+      // 3. Construct Breadcrumbs & Rich Article Schema.org JSON-LD
+      const pathSegments = filePath.split('/').filter(Boolean);
+      const breadcrumbItems = [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": config.settings.siteName || '首頁',
+          "item": `${baseUrl}/`
+        }
+      ];
+      for (let bi = 0; bi < pathSegments.length; bi++) {
+        const seg = pathSegments[bi];
+        const isLast = bi === pathSegments.length - 1;
+        breadcrumbItems.push({
+          "@type": "ListItem",
+          "position": bi + 2,
+          "name": isLast ? title : seg.replace(/\.md$/, ''),
+          "item": isLast ? canonicalUrl : `${baseUrl}/?folder=${encodeURIComponent(pathSegments.slice(0, bi + 1).join('/'))}`
+        });
+      }
+
+      const jsonLdGraph = {
         "@context": "https://schema.org",
-        "@type": "Article",
-        "headline": title,
-        "description": description,
-        "image": ogImageUrl,
-        "mainEntityOfPage": canonicalUrl,
-        "inLanguage": "zh-TW"
+        "@graph": [
+          {
+            "@type": "Article",
+            "headline": title,
+            "description": description,
+            "image": ogImageUrl,
+            "mainEntityOfPage": canonicalUrl,
+            "inLanguage": "zh-TW",
+            "publisher": {
+              "@type": "Organization",
+              "name": config.settings.siteName || 'mdWebview',
+              "url": `${baseUrl}/`
+            },
+            "isPartOf": {
+              "@type": "WebSite",
+              "name": config.settings.siteName || 'mdWebview',
+              "url": `${baseUrl}/`
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": breadcrumbItems
+          }
+        ]
       };
-      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>`;
+      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLdGraph)}</script>`;
       html = html.replace('</head>', `  ${jsonLdTag}\n</head>`);
 
       // 4. Hide welcomeScreen and reveal contentWrapper with pre-rendered markdown
@@ -6064,13 +6277,18 @@ const server = http.createServer((req, res) => {
     }
   };
 
-  // Log share link access if present, and handle Crawler Dynamic SSR if requested by bot or debug param
-  if ((pathname === '/' || pathname === '') && query.file) {
+  // Log share link access if present, and handle Crawler Dynamic SSR for Homepage or Specific Markdown File
+  if (pathname === '/' || pathname === '') {
     const isBot = isCrawlerRequest(req, query);
     const botName = getCrawlerName(req, query);
-    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}${isBot ? ` [Bot: ${botName}]` : ''}`, req, { path: query.file, isBot, bot: botName, queryObj: query });
-    if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
-      return handleCrawlerSsr(req, res, query.file, query);
+    if (query.file) {
+      Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}${isBot ? ` [Bot: ${botName}]` : ''}`, req, { path: query.file, isBot, bot: botName, queryObj: query });
+      if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
+        return handleCrawlerSsr(req, res, query.file, query);
+      }
+    } else if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
+      Logger.info('Crawler', `Homepage access from bot: ${botName}`, req, { isBot, bot: botName, queryObj: query });
+      return handleCrawlerSsr(req, res, null, query);
     }
   }
 
@@ -6261,12 +6479,35 @@ const server = http.createServer((req, res) => {
     }
     return sendJSON(res, 200, { settings: config.settings });
   }
+  if (pathname === '/api/admin/seo-stats' && req.method === 'GET') {
+    if (!isAuthenticated(req)) {
+      return sendJSON(res, 401, { error: 'Unauthorized' });
+    }
+    const baseUrl = getBaseUrl(req);
+    const files = cachedTree ? flattenMarkdownFiles(cachedTree) : [];
+    return sendJSON(res, 200, {
+      totalMarkdownFiles: files.length,
+      siteUrl: config.settings.siteUrl || '',
+      effectiveBaseUrl: baseUrl,
+      sitemapUrl: `${baseUrl}/sitemap.xml`,
+      robotsUrl: `${baseUrl}/robots.txt`,
+      sitemapCached: !!cachedSitemapXml,
+      robotsIndex: config.settings.seoRobotsIndex !== false,
+      blockAiBots: config.settings.seoBlockAiBots !== false
+    });
+  }
   if (pathname === '/api/admin/settings' && req.method === 'POST') {
     if (!isAuthenticated(req)) {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage } = data.settings || {};
+      const {
+        mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists,
+        enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance,
+        dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
+        seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
+        googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoEnableSearchBox, seoHomepageSummary
+      } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
@@ -6346,6 +6587,21 @@ const server = http.createServer((req, res) => {
           invalidateDailyWordCache();
           hotListCache = null;
         }
+
+        // ── SEO Settings ──
+        if (seoSiteDescription !== undefined) config.settings.seoSiteDescription = String(seoSiteDescription).trim();
+        if (seoKeywords !== undefined) config.settings.seoKeywords = String(seoKeywords).trim();
+        if (seoOgImage !== undefined) config.settings.seoOgImage = String(seoOgImage).trim();
+        if (seoRobotsIndex !== undefined) config.settings.seoRobotsIndex = (seoRobotsIndex === true || seoRobotsIndex === 'true' || seoRobotsIndex === 1 || seoRobotsIndex === '1');
+        if (seoBlockAiBots !== undefined) config.settings.seoBlockAiBots = (seoBlockAiBots === true || seoBlockAiBots === 'true' || seoBlockAiBots === 1 || seoBlockAiBots === '1');
+        if (seoDisallowPaths !== undefined) config.settings.seoDisallowPaths = String(seoDisallowPaths).trim();
+        if (googleSiteVerification !== undefined) config.settings.googleSiteVerification = String(googleSiteVerification).trim();
+        if (bingSiteVerification !== undefined) config.settings.bingSiteVerification = String(bingSiteVerification).trim();
+        if (baiduSiteVerification !== undefined) config.settings.baiduSiteVerification = String(baiduSiteVerification).trim();
+        if (seoEnableSearchBox !== undefined) config.settings.seoEnableSearchBox = (seoEnableSearchBox === true || seoEnableSearchBox === 'true' || seoEnableSearchBox === 1 || seoEnableSearchBox === '1');
+        if (seoHomepageSummary !== undefined) config.settings.seoHomepageSummary = String(seoHomepageSummary).trim();
+        cachedSitemapXml = null; // Invalidate sitemap cache on SEO config change
+
         if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
           config.settings.dictionaryEnabled = nextDictEnabled;
           config.settings.dictionaryPath = nextDictPath;

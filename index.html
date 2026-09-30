@@ -21,6 +21,7 @@
                 #announcementModal   — 公告訊息 & 每日推薦 Modal
                 #adminSettingsOverlay — 後台管理系統 Modal
                   ├─ 系統設定 Tab (config)
+                  ├─ 搜尋優化 Tab (seo)
                   ├─ 硬體監控 Tab (hardware)
                   ├─ 推薦閱讀 Tab (suggest)
                   ├─ 統計分析 Tab (analytics)
@@ -637,6 +638,7 @@
       <!-- Admin Tabs Navigation -->
       <div class="admin-tabs-nav" id="adminTabsNav">
         <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
+        <button type="button" class="admin-tab-btn" data-tab="seo" id="adminTabSeoBtn">🔍 搜尋優化</button>
         <button type="button" class="admin-tab-btn" data-tab="hardware" id="adminTabHardwareBtn">🖥️ 硬體監控</button>
         <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
@@ -802,6 +804,153 @@
               <button type="button" id="settingsCancelBtn" class="modal-btn cancel-btn">取消</button>
               <button type="submit" class="modal-btn submit-btn">儲存設定</button>
               <button type="button" id="settingsSaveAndCloseBtn" class="modal-btn save-close-btn">儲存＆關閉</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab: SEO Settings -->
+      <div class="admin-tab-pane" id="adminPaneSeo" style="display: none;">
+        <form id="adminSeoForm" class="modal-form">
+          <div class="admin-config-grid">
+            
+            <!-- Card 1: Meta Tags & Social Share -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">🌐</span>
+                <h3 class="config-card-title">全站標籤與社群分享 (Meta & OpenGraph)</h3>
+              </div>
+              <div class="config-card-body">
+                <div class="form-group">
+                  <label for="seoSiteDescription">全站描述 (Meta Description)</label>
+                  <textarea id="seoSiteDescription" rows="3" class="form-textarea" placeholder="輸入搜尋引擎顯示之中文摘要（建議 80~160 字元）"></textarea>
+                  <span class="form-hint">出現在 Google 搜尋結果摘要與社群分享卡片（og:description）。</span>
+                </div>
+                <div class="form-group">
+                  <label for="seoKeywords">關鍵字標籤 (Meta Keywords)</label>
+                  <input type="text" id="seoKeywords" placeholder="以逗號分隔，例如: 佛典, 經論, 大正藏, 佛學辭典">
+                  <span class="form-hint">提供搜尋引擎輔助索引的核心主題詞彙。</span>
+                </div>
+                <div class="form-group">
+                  <label for="seoOgImage">社群預覽圖片 (OG / Twitter Image)</label>
+                  <input type="text" id="seoOgImage" placeholder="例如: /og-preview.png 或完整 URL">
+                  <span class="form-hint">分享至 LINE、Facebook、Twitter 時顯示之卡片縮圖（建議比例 1200×630）。</span>
+                </div>
+                <div class="form-group toggle-group">
+                  <label for="seoRobotsIndex">搜尋引擎收錄 (Search Engine Indexing)</label>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="seoRobotsIndex" checked>
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span class="form-hint">關閉後全站將輸出 <code>noindex, nofollow</code> 並在 robots.txt 禁止檢索（適用於私密庫或測試站）。</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 2: Crawlers & AI Bots -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">🤖</span>
+                <h3 class="config-card-title">爬蟲存取與 AI 訓練防護 (Robots.txt)</h3>
+              </div>
+              <div class="config-card-body">
+                <div class="form-group toggle-group">
+                  <label for="seoBlockAiBots">封鎖 AI 訓練採集爬蟲 (Block AI Bots)</label>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="seoBlockAiBots" checked>
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span class="form-hint">在 robots.txt 中封鎖 GPTBot、CCBot、ClaudeBot、Google-Extended、Bytespider 等 AI 爬蟲。</span>
+                </div>
+                <div class="form-group">
+                  <label for="seoDisallowPaths">自訂排除路徑 (Disallow Paths)</label>
+                  <textarea id="seoDisallowPaths" rows="3" class="form-textarea" placeholder="/api/&#10;/vendor/"></textarea>
+                  <span class="form-hint">每行一個路徑，將自動寫入 robots.txt 的 <code>Disallow</code> 規則。</span>
+                </div>
+                <div class="form-group">
+                  <label>線上規則即時連結</label>
+                  <div class="seo-quick-links">
+                    <a href="/robots.txt" target="_blank" class="seo-link-btn" id="seoRobotsLink">📄 開啟 robots.txt ↗</a>
+                    <a href="/sitemap.xml" target="_blank" class="seo-link-btn" id="seoSitemapLink">🗺️ 開啟 sitemap.xml ↗</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 3: Webmaster Verification -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">🏷️</span>
+                <h3 class="config-card-title">站長平台驗證 (Webmaster Verification)</h3>
+              </div>
+              <div class="config-card-body">
+                <div class="form-group">
+                  <label for="googleSiteVerification">Google Search Console</label>
+                  <input type="text" id="googleSiteVerification" placeholder="輸入 google-site-verification 驗證代碼">
+                  <span class="form-hint">動態注入至首頁 <code>&lt;meta name="google-site-verification"&gt;</code>。</span>
+                </div>
+                <div class="form-group">
+                  <label for="bingSiteVerification">Bing Webmaster (微軟)</label>
+                  <input type="text" id="bingSiteVerification" placeholder="輸入 msvalidate.01 驗證代碼">
+                  <span class="form-hint">動態注入至首頁 <code>&lt;meta name="msvalidate.01"&gt;</code>。</span>
+                </div>
+                <div class="form-group">
+                  <label for="baiduSiteVerification">百度站長平台</label>
+                  <input type="text" id="baiduSiteVerification" placeholder="輸入 baidu-site-verification 驗證代碼">
+                  <span class="form-hint">動態注入至首頁 <code>&lt;meta name="baidu-site-verification"&gt;</code>。</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 4: Structured Data & Homepage SSR -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">🗺️</span>
+                <h3 class="config-card-title">結構化資料與爬蟲 SSR 實質內容</h3>
+              </div>
+              <div class="config-card-body">
+                <div class="form-group toggle-group">
+                  <label for="seoEnableSearchBox">Google 搜尋框結構化標記 (Sitelinks Searchbox)</label>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="seoEnableSearchBox" checked>
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span class="form-hint">注入 Schema.org <code>WebSite + SearchAction</code>，讓搜尋結果頁提供站內檢索框。</span>
+                </div>
+                <div class="form-group">
+                  <label for="seoHomepageSummary">首頁爬蟲導言文章 (Crawler Landing Summary)</label>
+                  <textarea id="seoHomepageSummary" rows="3" class="form-textarea" placeholder="輸入對爬蟲渲染之首頁導言介紹…"></textarea>
+                  <span class="form-hint">搜尋引擎爬蟲訪問首頁時直接預渲染此內容與經文索引，徹底解決 Soft 404 問題。</span>
+                </div>
+                <!-- Dynamic SEO status overview -->
+                <div class="seo-stats-box" id="seoStatsBox">
+                  <div class="seo-stat-item">
+                    <span class="seo-stat-label">收錄經文總數</span>
+                    <span class="seo-stat-val" id="seoStatTotalFiles">--</span>
+                  </div>
+                  <div class="seo-stat-item">
+                    <span class="seo-stat-label">Sitemap 快取</span>
+                    <span class="seo-stat-val" id="seoStatSitemapStatus">--</span>
+                  </div>
+                  <div class="seo-stat-item">
+                    <span class="seo-stat-label">有效 Base URL</span>
+                    <span class="seo-stat-val" id="seoStatBaseUrl">--</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Bottom Action Buttons -->
+          <div class="modal-actions" style="margin-top:20px;">
+            <div class="modal-left-actions">
+              <span id="seoSuccessMsg" class="form-success-text" style="display:none;"></span>
+              <span id="seoErrorMsg" class="form-error-text" style="display:none;"></span>
+            </div>
+            <div class="modal-right-actions">
+              <button type="button" class="modal-btn cancel-btn" id="seoCancelBtn">取消</button>
+              <button type="submit" class="modal-btn submit-btn" id="seoSubmitBtn">儲存 SEO 設定</button>
             </div>
           </div>
         </form>

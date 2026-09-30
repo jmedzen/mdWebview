@@ -7235,11 +7235,13 @@
     state._adminTabEventsSetup = true;
 
     const tabConfigBtn = $('adminTabConfigBtn');
+    const tabSeoBtn = $('adminTabSeoBtn');
     const tabHardwareBtn = $('adminTabHardwareBtn');
     const tabLogsBtn = $('adminTabLogsBtn');
     const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
     const tabSuggestBtn = $('adminTabSuggestBtn');
     const paneConfig = $('adminPaneConfig');
+    const paneSeo = $('adminPaneSeo');
     const paneHardware = $('adminPaneHardware');
     const paneLogs = $('adminPaneLogs');
     const paneAnalytics = $('adminPaneAnalytics');
@@ -7253,8 +7255,8 @@
         clearInterval(hwAutoRefreshTimer);
         hwAutoRefreshTimer = null;
       }
-      [paneConfig, paneHardware, paneLogs, paneAnalytics, paneSuggest].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
+      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
     if (tabConfigBtn) {
@@ -7262,6 +7264,15 @@
         hideAllPanes();
         tabConfigBtn.classList.add('active');
         if (paneConfig) paneConfig.style.display = 'block';
+      });
+    }
+
+    if (tabSeoBtn) {
+      tabSeoBtn.addEventListener('click', () => {
+        hideAllPanes();
+        tabSeoBtn.classList.add('active');
+        if (paneSeo) paneSeo.style.display = 'block';
+        loadSeoSettings();
       });
     }
 
@@ -7483,6 +7494,8 @@
         }
       }
     });
+
+    setupAdminSeoEvents();
   }
 
   async function loadSuggestSettings(passedSettings = null) {
@@ -7580,6 +7593,150 @@
       if (dictListContainer) {
         dictListContainer.innerHTML = '<span class="suggest-dict-loading">無法載入辭典清單</span>';
       }
+    }
+  }
+
+  // ── SEO Settings Tab ──
+  async function loadSeoSettings(passedSettings = null) {
+    try {
+      let settings = passedSettings || _lastAdminSettings;
+      if (!settings) {
+        try {
+          const res = await fetch('/api/admin/settings', {
+            headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+          });
+          if (res.ok) {
+            const data = await res.json();
+            settings = data.settings || {};
+            _lastAdminSettings = settings;
+          }
+        } catch (err) {
+          console.warn('[Admin] Failed to fetch settings for SEO:', err);
+        }
+      }
+
+      if (settings) {
+        const descEl = $('seoSiteDescription');
+        const kwEl = $('seoKeywords');
+        const ogImgEl = $('seoOgImage');
+        const robIdxEl = $('seoRobotsIndex');
+        const blockAiEl = $('seoBlockAiBots');
+        const disallowEl = $('seoDisallowPaths');
+        const gVerEl = $('googleSiteVerification');
+        const bingVerEl = $('bingSiteVerification');
+        const baiduVerEl = $('baiduSiteVerification');
+        const searchBoxEl = $('seoEnableSearchBox');
+        const summaryEl = $('seoHomepageSummary');
+
+        if (descEl) descEl.value = settings.seoSiteDescription || '';
+        if (kwEl) kwEl.value = settings.seoKeywords || '';
+        if (ogImgEl) ogImgEl.value = settings.seoOgImage || '/og-preview.png';
+        if (robIdxEl) robIdxEl.checked = settings.seoRobotsIndex !== false;
+        if (blockAiEl) blockAiEl.checked = settings.seoBlockAiBots !== false;
+        if (disallowEl) disallowEl.value = settings.seoDisallowPaths || '/api/\n/vendor/';
+        if (gVerEl) gVerEl.value = settings.googleSiteVerification || '';
+        if (bingVerEl) bingVerEl.value = settings.bingSiteVerification || '';
+        if (baiduVerEl) baiduVerEl.value = settings.baiduSiteVerification || '';
+        if (searchBoxEl) searchBoxEl.checked = settings.seoEnableSearchBox !== false;
+        if (summaryEl) summaryEl.value = settings.seoHomepageSummary || '';
+      }
+
+      await fetchSeoStats();
+    } catch (err) {
+      console.error('[Admin] Error loading SEO settings:', err);
+    }
+  }
+
+  async function fetchSeoStats() {
+    try {
+      const res = await fetch('/api/admin/seo-stats', {
+        headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const totalFilesEl = $('seoStatTotalFiles');
+      const sitemapStatusEl = $('seoStatSitemapStatus');
+      const baseUrlEl = $('seoStatBaseUrl');
+      const robotsLink = $('seoRobotsLink');
+      const sitemapLink = $('seoSitemapLink');
+
+      if (totalFilesEl) totalFilesEl.textContent = (data.totalMarkdownFiles || 0).toLocaleString() + ' 部';
+      if (sitemapStatusEl) sitemapStatusEl.textContent = data.sitemapCached ? '已就緒 (快取中)' : '就緒 (即時生成)';
+      if (baseUrlEl) baseUrlEl.textContent = data.effectiveBaseUrl || window.location.origin;
+      if (robotsLink && data.robotsUrl) robotsLink.href = data.robotsUrl;
+      if (sitemapLink && data.sitemapUrl) sitemapLink.href = data.sitemapUrl;
+    } catch (err) {
+      console.warn('[Admin] Failed to fetch SEO stats:', err);
+    }
+  }
+
+  function setupAdminSeoEvents() {
+    const seoForm = $('adminSeoForm');
+    const cancelBtn = $('seoCancelBtn');
+    const successMsg = $('seoSuccessMsg');
+    const errorMsg = $('seoErrorMsg');
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => {
+        closeAdminModal();
+      });
+    }
+
+    if (seoForm) {
+      seoForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (successMsg) successMsg.style.display = 'none';
+        if (errorMsg) errorMsg.style.display = 'none';
+
+        const submitBtn = $('seoSubmitBtn');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+          const payload = {
+            seoSiteDescription: ($('seoSiteDescription') || {}).value || '',
+            seoKeywords: ($('seoKeywords') || {}).value || '',
+            seoOgImage: ($('seoOgImage') || {}).value || '',
+            seoRobotsIndex: ($('seoRobotsIndex') || {}).checked,
+            seoBlockAiBots: ($('seoBlockAiBots') || {}).checked,
+            seoDisallowPaths: ($('seoDisallowPaths') || {}).value || '',
+            googleSiteVerification: ($('googleSiteVerification') || {}).value || '',
+            bingSiteVerification: ($('bingSiteVerification') || {}).value || '',
+            baiduSiteVerification: ($('baiduSiteVerification') || {}).value || '',
+            seoEnableSearchBox: ($('seoEnableSearchBox') || {}).checked,
+            seoHomepageSummary: ($('seoHomepageSummary') || {}).value || ''
+          };
+
+          const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Admin-Token': state.adminToken
+            },
+            body: JSON.stringify({ settings: payload })
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || '儲存 SEO 設定失敗');
+
+          if (data.settings) _lastAdminSettings = data.settings;
+          showToast('✅ 搜尋引擎優化 (SEO) 設定已成功儲存並生效', 'success');
+          if (successMsg) {
+            successMsg.textContent = '✅ 設定已成功更新';
+            successMsg.style.display = 'inline';
+            setTimeout(() => { successMsg.style.display = 'none'; }, 3000);
+          }
+          await fetchSeoStats();
+        } catch (err) {
+          showToast('❌ 儲存失敗: ' + err.message, 'error');
+          if (errorMsg) {
+            errorMsg.textContent = '❌ ' + err.message;
+            errorMsg.style.display = 'inline';
+          }
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
     }
   }
 
