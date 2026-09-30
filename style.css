@@ -3262,21 +3262,34 @@ kbd {
   margin-bottom: 6px;
 }
 
-.toggle-switch-label {
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toggle-switch-label,
+.toggle-switch {
   position: relative;
   display: inline-block;
   width: 42px;
   height: 24px;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
-.toggle-switch-label input {
+.toggle-switch-label input,
+.toggle-switch input {
   opacity: 0;
   width: 0;
   height: 0;
+  margin: 0;
+  position: absolute;
 }
 
-.toggle-switch-slider {
+.toggle-switch-slider,
+.toggle-slider {
   position: absolute;
   cursor: pointer;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -3286,7 +3299,8 @@ kbd {
   border-radius: 24px;
 }
 
-.toggle-switch-slider:before {
+.toggle-switch-slider:before,
+.toggle-slider:before {
   position: absolute;
   content: "";
   height: 18px;
@@ -3299,12 +3313,14 @@ kbd {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
-.toggle-switch-label input:checked + .toggle-switch-slider {
+.toggle-switch-label input:checked + .toggle-switch-slider,
+.toggle-switch input:checked + .toggle-slider {
   background-color: var(--accent);
   border-color: var(--accent);
 }
 
-.toggle-switch-label input:checked + .toggle-switch-slider:before {
+.toggle-switch-label input:checked + .toggle-switch-slider:before,
+.toggle-switch input:checked + .toggle-slider:before {
   transform: translateX(18px);
 }
 
@@ -3351,22 +3367,98 @@ kbd {
 
 .modal-form input[type="text"],
 .modal-form input[type="password"],
-.modal-form input[type="number"] {
+.modal-form input[type="number"],
+.modal-form input[type="url"],
+.modal-form input[type="search"],
+.modal-form textarea,
+.modal-form .form-textarea,
+.modal-card input[type="text"],
+.modal-card input[type="password"],
+.modal-card input[type="number"],
+.modal-card input[type="url"],
+.modal-card input[type="search"],
+.modal-card textarea,
+.admin-tab-pane input[type="text"],
+.admin-tab-pane input[type="password"],
+.admin-tab-pane input[type="number"],
+.admin-tab-pane input[type="url"],
+.admin-tab-pane input[type="search"],
+.admin-tab-pane textarea,
+.form-textarea {
   font-family: inherit;
-  height: 38px;
-  padding: 0 12px;
-  background: var(--input-bg);
+  background-color: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-primary);
   font-size: 14px;
   outline: none;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  box-sizing: border-box;
 }
 
-.modal-form input:focus {
+.modal-form input[type="text"],
+.modal-form input[type="password"],
+.modal-form input[type="number"],
+.modal-form input[type="url"],
+.modal-form input[type="search"],
+.modal-card input[type="text"],
+.modal-card input[type="password"],
+.modal-card input[type="number"],
+.modal-card input[type="url"],
+.modal-card input[type="search"],
+.admin-tab-pane input[type="text"],
+.admin-tab-pane input[type="password"],
+.admin-tab-pane input[type="number"],
+.admin-tab-pane input[type="url"],
+.admin-tab-pane input[type="search"] {
+  height: 38px;
+  padding: 0 12px;
+}
+
+.modal-form textarea,
+.modal-form .form-textarea,
+.modal-card textarea,
+.admin-tab-pane textarea,
+.form-textarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 8px 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.modal-form input:focus,
+.modal-form textarea:focus,
+.modal-form .form-textarea:focus,
+.modal-card input:focus,
+.modal-card textarea:focus,
+.admin-tab-pane input:focus,
+.admin-tab-pane textarea:focus,
+.form-textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.modal-form input::placeholder,
+.modal-form textarea::placeholder,
+.modal-card input::placeholder,
+.modal-card textarea::placeholder,
+.admin-tab-pane input::placeholder,
+.admin-tab-pane textarea::placeholder,
+.form-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.modal-form input:disabled,
+.modal-form textarea:disabled,
+.modal-card input:disabled,
+.modal-card textarea:disabled,
+.admin-tab-pane input:disabled,
+.admin-tab-pane textarea:disabled,
+.form-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .theme-select-inline {

@@ -837,11 +837,13 @@
                   <span class="form-hint">分享至 LINE、Facebook、Twitter 時顯示之卡片縮圖（建議比例 1200×630）。</span>
                 </div>
                 <div class="form-group toggle-group">
-                  <label for="seoRobotsIndex">搜尋引擎收錄 (Search Engine Indexing)</label>
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="seoRobotsIndex" checked>
-                    <span class="toggle-slider"></span>
-                  </label>
+                  <div class="toggle-row">
+                    <label for="seoRobotsIndex">搜尋引擎收錄 (Search Engine Indexing)</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="seoRobotsIndex" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
                   <span class="form-hint">關閉後全站將輸出 <code>noindex, nofollow</code> 並在 robots.txt 禁止檢索（適用於私密庫或測試站）。</span>
                 </div>
               </div>
@@ -855,11 +857,13 @@
               </div>
               <div class="config-card-body">
                 <div class="form-group toggle-group">
-                  <label for="seoBlockAiBots">封鎖 AI 訓練採集爬蟲 (Block AI Bots)</label>
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="seoBlockAiBots" checked>
-                    <span class="toggle-slider"></span>
-                  </label>
+                  <div class="toggle-row">
+                    <label for="seoBlockAiBots">封鎖 AI 訓練採集爬蟲 (Block AI Bots)</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="seoBlockAiBots" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
                   <span class="form-hint">在 robots.txt 中封鎖 GPTBot、CCBot、ClaudeBot、Google-Extended、Bytespider 等 AI 爬蟲。</span>
                 </div>
                 <div class="form-group">
@@ -910,11 +914,13 @@
               </div>
               <div class="config-card-body">
                 <div class="form-group toggle-group">
-                  <label for="seoEnableSearchBox">Google 搜尋框結構化標記 (Sitelinks Searchbox)</label>
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="seoEnableSearchBox" checked>
-                    <span class="toggle-slider"></span>
-                  </label>
+                  <div class="toggle-row">
+                    <label for="seoEnableSearchBox">Google 搜尋框結構化標記 (Sitelinks Searchbox)</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="seoEnableSearchBox" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
                   <span class="form-hint">注入 Schema.org <code>WebSite + SearchAction</code>，讓搜尋結果頁提供站內檢索框。</span>
                 </div>
                 <div class="form-group">
