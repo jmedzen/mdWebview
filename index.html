@@ -818,9 +818,22 @@
             <div class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🌐</span>
-                <h3 class="config-card-title">全站標籤與社群分享 (Meta & OpenGraph)</h3>
+                <h3 class="config-card-title">全站收錄與標籤 (Indexing & Meta)</h3>
               </div>
               <div class="config-card-body">
+                <div class="form-group toggle-group" style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); margin-bottom: 4px;">
+                  <div class="toggle-row">
+                    <label for="seoRobotsIndex" style="font-weight: 600; color: var(--text-primary);">搜尋引擎收錄 (Search Engine Indexing)</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="seoRobotsIndex" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                  <div class="form-hint" style="line-height: 1.6; margin-top: 5px;">
+                    <div>🟢 <strong>開啟（建議）</strong>：允許 Google、Bing 等正規搜尋引擎正常檢索與收錄全站經文，向爬蟲提供 <code>index, follow</code>、動態 <code>sitemap.xml</code> 與首頁導言 SSR，有助於法寶廣泛流通與被大眾搜尋。</div>
+                    <div style="margin-top: 4px;">🔴 <strong>關閉（私密模式）</strong>：全站強制輸出 <code>&lt;meta name="robots" content="noindex, nofollow"&gt;</code> 並於 <code>robots.txt</code> 全域阻擋（<code>Disallow: /</code>），全面杜絕外部搜尋引擎收錄（適用於私人經藏筆記庫、內部測試或未公開站台）。</div>
+                  </div>
+                </div>
                 <div class="form-group">
                   <label for="seoSiteDescription">全站描述 (Meta Description)</label>
                   <textarea id="seoSiteDescription" rows="3" class="form-textarea" placeholder="輸入搜尋引擎顯示之中文摘要（建議 80~160 字元）"></textarea>
@@ -835,16 +848,6 @@
                   <label for="seoOgImage">社群預覽圖片 (OG / Twitter Image)</label>
                   <input type="text" id="seoOgImage" placeholder="例如: /og-preview.png 或完整 URL">
                   <span class="form-hint">分享至 LINE、Facebook、Twitter 時顯示之卡片縮圖（建議比例 1200×630）。</span>
-                </div>
-                <div class="form-group toggle-group">
-                  <div class="toggle-row">
-                    <label for="seoRobotsIndex">搜尋引擎收錄 (Search Engine Indexing)</label>
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="seoRobotsIndex" checked>
-                      <span class="toggle-slider"></span>
-                    </label>
-                  </div>
-                  <span class="form-hint">關閉後全站將輸出 <code>noindex, nofollow</code> 並在 robots.txt 禁止檢索（適用於私密庫或測試站）。</span>
                 </div>
               </div>
             </div>
