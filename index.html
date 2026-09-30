@@ -484,9 +484,9 @@
               <span class="setting-title">自動恢復上次閱讀進度</span>
               <span class="setting-desc">重新開啟網頁時，自動定位回上次未讀完的經文與行號</span>
             </div>
-            <label class="setting-checkbox-label" for="settingAutoReadProgressCheck">
+            <label class="toggle-switch" for="settingAutoReadProgressCheck" title="自動恢復上次閱讀進度">
               <input type="checkbox" id="settingAutoReadProgressCheck" checked>
-              <span>啟用紀錄</span>
+              <span class="toggle-slider"></span>
             </label>
           </div>
 
@@ -1447,10 +1447,13 @@
                     顯示設定
                   </div>
                 </div>
-                <label class="setting-checkbox-label" for="suggestEnabled">
-                  <input type="checkbox" id="suggestEnabled">
-                  <span>在首頁顯示推薦閱讀</span>
-                </label>
+                <div class="toggle-row">
+                  <span class="toggle-switch-title">在首頁顯示推薦閱讀</span>
+                  <label class="toggle-switch" for="suggestEnabled">
+                    <input type="checkbox" id="suggestEnabled">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
                 <span class="suggest-hint">關閉後，首頁不會顯示推薦與熱門閱讀清單。</span>
               </div>
 
