@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.4.8
+ * @version 3.5.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -12,53 +12,27 @@
  *   - PWA 支援（動態 manifest.json、robots.txt、sitemap.xml）
  *
  * ── 段落索引（Section Map）────────────────────────────────────
- *   System Log Buffer / SEO Bot Detection
- *   90-Day Persistent Analytics Log & IP Tracking
- *   7-Day Log Pruning Job (cleanOldLogsJob)
- *   Logger Utility (pushToLogBuffer)
- *   Last-resort Uncaught Exception Handler
- *   Markdown Render Worker Thread Pool (render-worker.js)
- *       POOL_SIZE = max(2, CPU_COUNT - 1); job queue + callback map
- *   Index & Search Worker Pool (index-worker.js)
- *       Persistent pool; dispatches bigram build/search jobs
- *   Global Constants (PORT, APP_ROOT, CONFIG_PATH)
- *   Config Schema & Defaults (config.settings.*)
- *   loadConfig() — 3-level priority: env → APP_ROOT/config.json → CONFIG_PATH
- *   Symlink Escape Defense (getRootRealpath, isRealPathWithinMdRoot)
- *   SECURITY_HEADERS (CSP, HSTS, X-Frame-Options…)
- *   indexHtmlHeaders() — per-request nonce injection for CSP
- *   getIndexHtml() — SSR: inject siteName, theme, fontsize, announcement into index.html
- *   sendCompressed() — gzip response helper
- *   Tree Watcher (fs.watch on mdRoot → invalidate cachedTree)
- *   handleTree() — GET /api/tree
- *   SEO Helpers: escapeXml, getBaseUrl, flattenMarkdownFiles
- *   handleRobotsTxt() — GET /robots.txt
- *   handleManifestJson() — GET /manifest.json (dynamic siteName injection)
- *   handleSitemapXml() — GET /sitemap.xml
- *   extractMarkdownMetadata() — extract title/description for SSR
- *   handleCrawlerSsr() — SSR pre-render for bot/crawler requests
- *   handleFile() — GET /api/file (serve .md content)
- *   handleMedia() — GET /api/media (images, PDFs, audio)
- *   handleSectionIndex() — GET /api/section-index (large file chunk map)
- *   handleRender() — GET /api/render (render one chunk of a large file)
- *   handleSearch() — GET /api/search (bigram full-text search)
- *   Bigram Full-Text Inverted Index Engine
- *   Document Section Index (large-file chunking + entry-level search)
- *   Dictionary Bigram Index (separate index for dict files)
- *   handleDictHeadwords() — GET /api/dict/headwords
- *   handleDictFiles() — GET /api/dict/files
- *   handleDictSearch() — GET /api/dict/search
- *   handleDictAnalytics() — POST /api/dict/analytics
- *   handleFileSearch() — GET /api/file-search (filename-only search)
- *   handlePageSearch() — GET /api/page-search (in-page Ctrl+F)
- *   Static Asset In-Memory Cache (STATIC_CACHE_TTL_MS = 5s)
- *   Session Store (SESSION_DURATION = 6h)
- *   Global API Rate Limiter (30 req/s sliding window per IP)
- *   Analytics Aggregator & CSV/JSON Data Exporter
- *   Daily Words / Word of the Day (deterministic rotation by hour)
- *   handleSuggestList() — GET /api/suggest-list (homepage recommend)
- *   HTTP Server & Main Request Router
- *   Admin API Routes (/api/admin/*)
+ *   §0  Globals & Logging        System log buffer, bot detection, logger utility
+ *   §1  Analytics & Log Pruning  90-day analytics store, 7-day pruning job
+ *   §2  Worker Thread Pools      render-worker & persistent index-worker pools
+ *   §3  Config & Symlink Defense loadConfig, saveConfig, symlink traversal check
+ *   §4  Security Headers & SSR   CSP nonce, getIndexHtml() SSR injection
+ *   §5  Compression & Helpers    sendCompressed (gzip), sendJSON
+ *   §6  File Tree & Watcher      handleTree (/api/tree), fs.watch cache invalidation
+ *   §7  SEO & Manifest           robots.txt, manifest.json, sitemap.xml
+ *   §8  Crawler SSR              handleCrawlerSsr() pre-render for bots
+ *   §9  File & Media Servers     handleFile (/api/file), handleMedia (/api/media)
+ *   §10 Large-File Chunked API   handleSectionIndex, handleRender
+ *   §11 Section Index Engine     getSectionIndex, binary disk cache (.bin)
+ *   §12 Bigram Search Engine     buildSearchIndexAsync, binary cache, worker jobs
+ *   §13 Dictionary Index & API   buildDictIndexAsync, handleDictHeadwords, handleDictSearch
+ *   §14 Search Handlers          handleSearch (/api/search), handleFileSearch, handlePageSearch
+ *   §15 Static Asset Cache       serveStatic, LRU memory cache, ETag
+ *   §16 Auth & Rate Limiting     PBKDF2 hash, session store, sliding window rate limiter
+ *   §17 Analytics API            handleAnalytics, handleAnalyticsExport (CSV/JSON)
+ *   §18 Daily Words & Suggest    Mulberry32 deterministic RNG, handleSuggestList
+ *   §19 System Hardware Stats    getSystemHardwareStats, handleHardwareStats
+ *   §20 HTTP Server & Router     Main request dispatch & admin API routes
  */
 
 const http = require('http');
@@ -81,7 +55,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.8';
+let APP_VERSION = '3.5.0';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -107,7 +81,7 @@ marked.use({
   }
 });
 
-// ── System Log Buffer (Recent 600 logs) ────────────────────────────────────
+// ── §0 System Log Buffer & Bot Detection ────────────────────────────────────
 const MAX_LOG_BUFFER = 600;
 const systemLogBuffer = [];
 
@@ -125,7 +99,7 @@ function isCrawlerRequest(req, query) {
   return Boolean(getCrawlerName(req, query));
 }
 
-// ── 90-Day Persistent File Logging & IP Tracking ────────────────────────────
+// ── §1 90-Day Persistent Analytics & Retention ──────────────────────────────
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
 const ANALYTICS_STORE_PATH = path.join(LOG_DIR, 'analytics-aggregates.json');
 const ANALYTICS_STORE_VERSION = 3;
@@ -670,6 +644,16 @@ function extractIpFromParam(reqOrIp) {
   return '127.0.0.1';
 }
 
+/**
+ * 將一筆結構化日誌記錄推入記憶體緩衝，同時非同步寫入 90 天持久化日誌檔案。
+ * 這是伺服器端所有日誌的統一入口（Logger.info / warn / error 均呼叫此函數）。
+ *
+ * @param {'info'|'warn'|'error'} level  - 日誌等級
+ * @param {string}                tag    - 模組標籤（如 'Tree'、'Search'、'Auth'），用於過濾
+ * @param {string|Error}          msg    - 訊息文字；若傳入 Error 物件則取 .stack 或 .message
+ * @param {http.IncomingMessage|string} [reqOrIp='127.0.0.1'] - HTTP 請求物件（用於萃取 IP/UA/bot）或純 IP 字串
+ * @param {Object}                [extra={}] - 附加欄位，可包含 { path, bot, isBot, queryObj }
+ */
 function pushToLogBuffer(level, tag, msg, reqOrIp = '127.0.0.1', extra = {}) {
   let messageStr = (typeof msg === 'object' && msg !== null) ? (msg.stack || msg.message || JSON.stringify(msg)) : String(msg);
   messageStr = safeDecodeURI(messageStr);
@@ -757,7 +741,7 @@ process.on('unhandledRejection', (reason) => {
   Logger.error('Process', 'Unhandled rejection', reason instanceof Error ? reason : new Error(String(reason)));
 });
 
-// ── Worker Thread Pool ─────────────────────────────────────────────────────
+// ── §2 Worker Thread Pool (Render & Search) ─────────────────────────────────
 // 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
 const numCpus = os.cpus().length || 4;
 const POOL_SIZE = Math.max(2, numCpus - 1);
@@ -1077,10 +1061,30 @@ let config = {
       dailyWordDicts: [],
       dailyWordRotateHour: 12,
       enabled: false
-    }
+    },
+    seoSiteDescription: process.env.SEO_SITE_DESCRIPTION || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。',
+    seoKeywords: process.env.SEO_KEYWORDS || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview',
+    seoOgImage: process.env.SEO_OG_IMAGE || '/og-preview.png',
+    seoRobotsIndex: process.env.SEO_ROBOTS_INDEX !== undefined ? process.env.SEO_ROBOTS_INDEX === 'true' : true,
+    seoBlockAiBots: process.env.SEO_BLOCK_AI_BOTS !== undefined ? process.env.SEO_BLOCK_AI_BOTS === 'true' : true,
+    seoDisallowPaths: process.env.SEO_DISALLOW_PATHS || '/api/\n/vendor/',
+    googleSiteVerification: process.env.GOOGLE_SITE_VERIFICATION || 'HGnOpfVbx1BCukVzCzfcLj0VPyeawv0-1aLkG1tdRik',
+    bingSiteVerification: process.env.BING_SITE_VERIFICATION || '',
+    baiduSiteVerification: process.env.BAIDU_SITE_VERIFICATION || '',
+    seoEnableSearchBox: process.env.SEO_ENABLE_SEARCH_BOX !== undefined ? process.env.SEO_ENABLE_SEARCH_BOX === 'true' : true,
+    seoHomepageSummary: process.env.SEO_HOMEPAGE_SUMMARY || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。'
   }
 };
 
+/**
+ * 從三個優先層級載入並合併設定，優先級由低到高：
+ *   1. 程式碼內建預設值（config.settings 初始值）
+ *   2. APP_ROOT/config.json（隨 Docker image 打包的靜態預設）
+ *   3. CONFIG_PATH（/data/config.json，容器外掛的持久化設定，最高優先級）
+ *
+ * 此函數在啟動時呼叫一次，並在 CONFIG_PATH 異動時由 fs.watch 觸發重新載入。
+ * 注意：僅 config.settings 與 config.admin 被合併；其餘欄位不受影響。
+ */
 function loadConfig() {
   try {
     // 1. Initial environment variables as base defaults
@@ -1092,6 +1096,17 @@ function loadConfig() {
     if (process.env.DOWNLOAD_URL !== undefined) config.settings.downloadUrl = process.env.DOWNLOAD_URL;
     if (process.env.ENABLE_ANNOUNCEMENT !== undefined) config.settings.enableAnnouncement = process.env.ENABLE_ANNOUNCEMENT === 'true';
     if (process.env.ANNOUNCEMENT_MESSAGE !== undefined) config.settings.announcementMessage = process.env.ANNOUNCEMENT_MESSAGE;
+    if (process.env.SEO_SITE_DESCRIPTION !== undefined) config.settings.seoSiteDescription = process.env.SEO_SITE_DESCRIPTION;
+    if (process.env.SEO_KEYWORDS !== undefined) config.settings.seoKeywords = process.env.SEO_KEYWORDS;
+    if (process.env.SEO_OG_IMAGE !== undefined) config.settings.seoOgImage = process.env.SEO_OG_IMAGE;
+    if (process.env.SEO_ROBOTS_INDEX !== undefined) config.settings.seoRobotsIndex = process.env.SEO_ROBOTS_INDEX === 'true';
+    if (process.env.SEO_BLOCK_AI_BOTS !== undefined) config.settings.seoBlockAiBots = process.env.SEO_BLOCK_AI_BOTS === 'true';
+    if (process.env.SEO_DISALLOW_PATHS !== undefined) config.settings.seoDisallowPaths = process.env.SEO_DISALLOW_PATHS;
+    if (process.env.GOOGLE_SITE_VERIFICATION !== undefined) config.settings.googleSiteVerification = process.env.GOOGLE_SITE_VERIFICATION;
+    if (process.env.BING_SITE_VERIFICATION !== undefined) config.settings.bingSiteVerification = process.env.BING_SITE_VERIFICATION;
+    if (process.env.BAIDU_SITE_VERIFICATION !== undefined) config.settings.baiduSiteVerification = process.env.BAIDU_SITE_VERIFICATION;
+    if (process.env.SEO_ENABLE_SEARCH_BOX !== undefined) config.settings.seoEnableSearchBox = process.env.SEO_ENABLE_SEARCH_BOX === 'true';
+    if (process.env.SEO_HOMEPAGE_SUMMARY !== undefined) config.settings.seoHomepageSummary = process.env.SEO_HOMEPAGE_SUMMARY;
 
     // 2. Try reading local config.json in APP_ROOT if present
     const defaultConfigPath = path.join(APP_ROOT, 'config.json');
@@ -1119,6 +1134,10 @@ function loadConfig() {
   }
 }
 
+/**
+ * 將目前的 config 物件序列化為 JSON 並寫入 CONFIG_PATH（/data/config.json）。
+ * 此路徑為容器的持久化卷（Docker volume），確保容器重啟後設定不流失。
+ */
 function saveConfig() {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
@@ -1187,7 +1206,7 @@ function deriveDictRoot(mdRoot) {
   return path.join(path.dirname(path.resolve(base)), 'dicts');
 }
 
-// ── Realpath confinement (symlink escape defense) ──────────────────────────
+// ── §3 Config & Symlink Escape Defense ──────────────────────────────────────
 // Lexical `path.relative` checks are bypassable by a symlink inside the vault: a
 // link pointing outside still lexically "resolves" inside, so the `..` guard passes
 // while the OS follows the link out. Resolving both the target and the vault root to
@@ -1233,6 +1252,7 @@ const MIME_TYPES = {
 };
 
 // Security Headers
+// ── §4 Security Headers & SSR Entry ─────────────────────────────────────────
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
@@ -1294,7 +1314,16 @@ function getIndexHtml(nonce, req, callback) {
     const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
     const baseUrl = getBaseUrl(req);
     const canonicalBase = baseUrl ? `${baseUrl}/` : '/';
-    const ogImageUrl = baseUrl ? `${baseUrl}/og-preview.png` : '/og-preview.png';
+    let rawOgImage = (config.settings.seoOgImage || '/og-preview.png').trim();
+    const ogImageUrl = rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')
+      ? rawOgImage
+      : (baseUrl ? `${baseUrl}${rawOgImage.startsWith('/') ? '' : '/'}${rawOgImage}` : rawOgImage);
+    const siteDesc = escapeHtmlString(config.settings.seoSiteDescription || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。');
+    const siteKeywords = escapeHtmlString(config.settings.seoKeywords || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview');
+    const robotsContent = config.settings.seoRobotsIndex === false ? 'noindex, nofollow' : 'index, follow';
+    const gVer = escapeHtmlString(config.settings.googleSiteVerification || '');
+    const bingVer = escapeHtmlString(config.settings.bingSiteVerification || '');
+    const baiduVer = escapeHtmlString(config.settings.baiduSiteVerification || '');
 
     // 1. Dynamic Canonical URL for homepage
     if (html.includes('<link rel="canonical"')) {
@@ -1318,6 +1347,64 @@ function getIndexHtml(nonce, req, callback) {
     html = html.replace(/<meta property="og:site_name" content="[^"]*">/i, `<meta property="og:site_name" content="${siteName}">`);
     html = html.replace(/<meta property="og:title" content="[^"]*">/i, `<meta property="og:title" content="${siteName} — 佛典經論閱讀器">`);
     html = html.replace(/<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${siteName} — 佛典經論閱讀器">`);
+
+    // 5. Dynamic SEO Meta Description & Keywords
+    html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${siteDesc}">`);
+    html = html.replace(/<meta property="og:description" content="[^"]*">/i, `<meta property="og:description" content="${siteDesc}">`);
+    html = html.replace(/<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${siteDesc}">`);
+
+    if (html.includes('<meta name="keywords"')) {
+      html = html.replace(/<meta name="keywords" content="[^"]*">/i, `<meta name="keywords" content="${siteKeywords}">`);
+    } else {
+      html = html.replace('</head>', `  <meta name="keywords" content="${siteKeywords}">\n</head>`);
+    }
+
+    // 6. Robots & Webmaster Verification Meta Tags
+    if (html.includes('<meta name="robots"')) {
+      html = html.replace(/<meta name="robots" content="[^"]*">/i, `<meta name="robots" content="${robotsContent}">`);
+    } else {
+      html = html.replace('</head>', `  <meta name="robots" content="${robotsContent}">\n</head>`);
+    }
+    if (gVer) {
+      if (html.includes('<meta name="google-site-verification"')) {
+        html = html.replace(/<meta name="google-site-verification" content="[^"]*">/i, `<meta name="google-site-verification" content="${gVer}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="google-site-verification" content="${gVer}">\n</head>`);
+      }
+    }
+    if (bingVer) {
+      if (html.includes('<meta name="msvalidate.01"')) {
+        html = html.replace(/<meta name="msvalidate.01" content="[^"]*">/i, `<meta name="msvalidate.01" content="${bingVer}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="msvalidate.01" content="${bingVer}">\n</head>`);
+      }
+    }
+    if (baiduVer) {
+      if (html.includes('<meta name="baidu-site-verification"')) {
+        html = html.replace(/<meta name="baidu-site-verification" content="[^"]*">/i, `<meta name="baidu-site-verification" content="${baiduVer}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="baidu-site-verification" content="${baiduVer}">\n</head>`);
+      }
+    }
+
+    // 7. Homepage WebSite + SearchAction Schema.org JSON-LD
+    if (config.settings.seoEnableSearchBox !== false && baseUrl) {
+      const homeJsonLd = {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": config.settings.siteName || 'mdWebview',
+        "url": canonicalBase,
+        "description": config.settings.seoSiteDescription || '線上佛典經論閱讀器',
+        "inLanguage": "zh-TW",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": `${canonicalBase}?search={search_term_string}`,
+          "query-input": "required name=search_term_string"
+        }
+      };
+      const jsonLdScript = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(homeJsonLd)}</script>`;
+      html = html.replace('</head>', `  ${jsonLdScript}\n</head>`);
+    }
 
     // 5. Inject matching theme-color for iOS PWA / Safari status bar
     const themeHeaderColors = {
@@ -1404,6 +1491,18 @@ function getIndexHtml(nonce, req, callback) {
   });
 }
 
+// ── §5 Compression & Response Helpers ───────────────────────────────────────
+/**
+ * 以 gzip 壓縮方式傳送 HTTP 回應（若客戶端支援且內容可壓縮）。
+ * 可壓縮的 Content-Type：text/*、javascript、json、xml。
+ * 僅壓縮 > 1024 bytes 的內容；小型回應直接傳送以避免壓縮開銷。
+ *
+ * @param {http.IncomingMessage} req        - HTTP 請求物件（用於讀取 Accept-Encoding）
+ * @param {http.ServerResponse}  res        - HTTP 回應物件
+ * @param {number}               statusCode - HTTP 狀態碼
+ * @param {Object}               headers    - 回應標頭物件（必須包含 Content-Type）
+ * @param {Buffer|string}        data       - 回應內容
+ */
 function sendCompressed(req, res, statusCode, headers, data) {
   const acceptEncoding = req.headers['accept-encoding'] || '';
   const contentType = headers['Content-Type'] || '';
@@ -1597,7 +1696,15 @@ async function scanDirAsync(dir, relativePath) {
   return result;
 }
 
-// ── API: Directory Tree ──────────────────────────────────────
+// ── §6 API: Directory Tree & Watcher ─────────────────────────
+/**
+ * 傳回整個 Markdown 保管庫的目錄樹（GET /api/tree）。
+ * 首次呼叫時掃描磁碟並快取；後續呼叫命中記憶體快取。
+ * 當 fs.watch 偵測到目錄異動時快取會被清除，觸發下次請求重新掃描。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @param {http.ServerResponse}  res - HTTP 回應物件
+ */
 async function handleTree(req, res) {
   setupTreeWatcher();
   if (cachedTree) {
@@ -1613,7 +1720,7 @@ async function handleTree(req, res) {
   }
 }
 
-// ── SEO: Helper Functions & Handlers ─────────────────────────
+// ── §7 SEO: Robots, Manifest & Sitemap ───────────────────────
 function escapeXml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -1651,15 +1758,41 @@ function flattenMarkdownFiles(nodes, acc = []) {
 
 function handleRobotsTxt(req, res) {
   const baseUrl = getBaseUrl(req);
-  const robots = [
-    'User-agent: *',
-    'Allow: /',
-    'Disallow: /api/',
-    '',
-    `Sitemap: ${baseUrl}/sitemap.xml`,
-    ''
-  ].join('\n');
+  const lines = [];
 
+  if (config.settings && config.settings.seoRobotsIndex === false) {
+    lines.push('User-agent: *');
+    lines.push('Disallow: /');
+  } else {
+    lines.push('User-agent: *');
+    lines.push('Allow: /');
+
+    const disallowRaw = (config.settings && config.settings.seoDisallowPaths) || '/api/\n/vendor/';
+    const disallowList = String(disallowRaw)
+      .split(/[\r\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    for (const p of disallowList) {
+      lines.push(`Disallow: ${p.startsWith('/') ? p : '/' + p}`);
+    }
+
+    if (config.settings && config.settings.seoBlockAiBots !== false) {
+      lines.push('');
+      lines.push('# Block AI Training & Scraper Bots');
+      const aiBots = ['GPTBot', 'CCBot', 'ClaudeBot', 'Google-Extended', 'Bytespider', 'Diffbot'];
+      for (const bot of aiBots) {
+        lines.push(`User-agent: ${bot}`);
+        lines.push('Disallow: /');
+      }
+    }
+  }
+
+  lines.push('');
+  lines.push(`Sitemap: ${baseUrl}/sitemap.xml`);
+  lines.push('');
+
+  const robots = lines.join('\n');
   res.writeHead(200, Object.assign({
     'Content-Type': 'text/plain; charset=utf-8',
     'Cache-Control': 'public, max-age=86400',
@@ -1787,7 +1920,7 @@ async function handleSitemapXml(req, res) {
   }
 }
 
-// ── SEO: Dynamic SSR Pre-rendering ────────────────────────────
+// ── §8 Crawler SSR Pre-rendering ─────────────────────────────
 
 function extractMarkdownMetadata(rawMarkdown, fallbackName) {
   let title = fallbackName;
@@ -1836,8 +1969,87 @@ function extractMarkdownMetadata(rawMarkdown, fallbackName) {
   return { title, description };
 }
 
+/**
+ * 為爬蟲/搜尋引擎機器人執行 SSR 預渲染（伺服器端渲染），傳回完整 HTML。
+ * 一般使用者請求則由前端 SPA 處理，不進入此函數。
+ *
+ * 處理流程：
+ *   1. 路徑驗證與 symlink 逃逸防護
+ *   2. 讀取目標 Markdown 檔案
+ *   3. 透過 Markdown Worker Thread Pool 渲染為 HTML
+ *   4. 萃取標題/描述（extractMarkdownMetadata）
+ *   5. 注入 SSR 內容到 index.html 模板（meta 標籤、Schema.org JSON-LD、正文）
+ *
+ * @param {http.IncomingMessage} req      - HTTP 請求物件
+ * @param {http.ServerResponse}  res      - HTTP 回應物件
+ * @param {string}               filePath - 相對於 mdRoot 的 Markdown 路徑
+ * @param {Object}               query    - 已解析的 URL 查詢參數
+ */
 async function handleCrawlerSsr(req, res, filePath, query) {
-  if (!filePath || filePath.includes('\0')) {
+  const baseUrl = getBaseUrl(req);
+  const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
+  let rawOgImage = (config.settings.seoOgImage || '/og-preview.png').trim();
+  const ogImageUrl = rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')
+    ? rawOgImage
+    : (baseUrl ? `${baseUrl}${rawOgImage.startsWith('/') ? '' : '/'}${rawOgImage}` : rawOgImage);
+
+  // ── Mode A: Crawler Homepage SSR (Rich Semantic Landing Page) ──────────
+  if (!filePath) {
+    const nonce = crypto.randomBytes(16).toString('base64');
+    return getIndexHtml(nonce, req, async (err, baseHtmlBuffer) => {
+      if (err) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+        return res.end('Server Error');
+      }
+
+      let html = baseHtmlBuffer.toString('utf-8');
+      const canonicalUrl = `${baseUrl}/`;
+      const pageTitle = `${siteName} — 佛典經論閱讀器`;
+      const homeSummary = config.settings.seoHomepageSummary || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。';
+      const safeDesc = escapeHtmlString(config.settings.seoSiteDescription || homeSummary);
+
+      // Render rich semantic homepage content for bots to eliminate Soft 404
+      let crawlBody = `<div class="crawler-homepage-content" style="max-width:860px;margin:32px auto;padding:24px;line-height:1.8;">`;
+      crawlBody += `<h1 style="font-size:2rem;margin-bottom:16px;">${siteName}</h1>`;
+      crawlBody += `<p style="font-size:1.1rem;color:#555;margin-bottom:24px;">${escapeHtmlString(homeSummary)}</p>`;
+
+      // Inject structured links to suggest list or vault
+      try {
+        const sl = config.settings.suggestList || {};
+        if (sl.adminList && sl.adminList.length > 0) {
+          crawlBody += `<h2 style="font-size:1.4rem;margin:24px 0 12px;">精選推薦經文</h2><ul>`;
+          for (const item of sl.adminList.slice(0, 15)) {
+            const cleanPath = String(item).trim();
+            const displayName = path.basename(cleanPath, '.md');
+            crawlBody += `<li><a href="${baseUrl}/?file=${encodeURIComponent(cleanPath)}">${escapeHtmlString(displayName)}</a></li>`;
+          }
+          crawlBody += `</ul>`;
+        }
+      } catch (_) {}
+
+      crawlBody += `<p style="margin-top:32px;"><a href="${baseUrl}/sitemap.xml">檢視全站經文索引 Sitemap.xml</a></p>`;
+      crawlBody += `</div>`;
+
+      // Replace Title & Description
+      html = html.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
+
+      // Reveal contentWrapper with rich homepage intro
+      html = html.replace(/<div class="welcome-screen" id="welcomeScreen">/i, '<div class="welcome-screen" id="welcomeScreen" style="display:none">');
+      html = html.replace(/<div class="content-wrapper" id="contentWrapper" style="display:none">/i, '<div class="content-wrapper" id="contentWrapper" style="display:block">');
+      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, `<article class="markdown-body" id="markdownBody">${crawlBody}</article>`);
+
+      const renderedBuf = Buffer.from(html, 'utf-8');
+      const headers = indexHtmlHeaders({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=1800'
+      }, nonce);
+      return sendCompressed(req, res, 200, headers, renderedBuf);
+    });
+  }
+
+  // ── Mode B: Crawler Sutra Document SSR ──────────────────────────────────
+  if (filePath.includes('\0')) {
     res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     return res.end('Invalid file parameter');
   }
@@ -1876,9 +2088,7 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       }
 
       let html = baseHtmlBuffer.toString('utf-8');
-      const baseUrl = getBaseUrl(req);
       const canonicalUrl = `${baseUrl}/?file=${encodeURIComponent(filePath)}`;
-      const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
       const pageTitle = `${escapeHtmlString(title)} — ${siteName}`;
       const safeDesc = escapeHtmlString(description);
 
@@ -1887,7 +2097,6 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
 
       // 2. Replace Canonical & OpenGraph & Twitter tags
-      const ogImageUrl = `${baseUrl}/og-preview.png`;
       html = html.replace(/<link rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalUrl}">`);
       html = html.replace(/<meta property="og:url"[^>]*>/i, `<meta property="og:url" content="${canonicalUrl}">`);
       html = html.replace(/<meta property="og:title"[^>]*>/i, `<meta property="og:title" content="${pageTitle}">`);
@@ -1898,17 +2107,55 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       html = html.replace(/<meta name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${safeDesc}">`);
       html = html.replace(/<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${ogImageUrl}">`);
 
-      // 3. Inject Schema.org JSON-LD into <head>
-      const jsonLd = {
+      // 3. Construct Breadcrumbs & Rich Article Schema.org JSON-LD
+      const pathSegments = filePath.split('/').filter(Boolean);
+      const breadcrumbItems = [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": config.settings.siteName || '首頁',
+          "item": `${baseUrl}/`
+        }
+      ];
+      for (let bi = 0; bi < pathSegments.length; bi++) {
+        const seg = pathSegments[bi];
+        const isLast = bi === pathSegments.length - 1;
+        breadcrumbItems.push({
+          "@type": "ListItem",
+          "position": bi + 2,
+          "name": isLast ? title : seg.replace(/\.md$/, ''),
+          "item": isLast ? canonicalUrl : `${baseUrl}/?folder=${encodeURIComponent(pathSegments.slice(0, bi + 1).join('/'))}`
+        });
+      }
+
+      const jsonLdGraph = {
         "@context": "https://schema.org",
-        "@type": "Article",
-        "headline": title,
-        "description": description,
-        "image": ogImageUrl,
-        "mainEntityOfPage": canonicalUrl,
-        "inLanguage": "zh-TW"
+        "@graph": [
+          {
+            "@type": "Article",
+            "headline": title,
+            "description": description,
+            "image": ogImageUrl,
+            "mainEntityOfPage": canonicalUrl,
+            "inLanguage": "zh-TW",
+            "publisher": {
+              "@type": "Organization",
+              "name": config.settings.siteName || 'mdWebview',
+              "url": `${baseUrl}/`
+            },
+            "isPartOf": {
+              "@type": "WebSite",
+              "name": config.settings.siteName || 'mdWebview',
+              "url": `${baseUrl}/`
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": breadcrumbItems
+          }
+        ]
       };
-      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLd)}</script>`;
+      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLdGraph)}</script>`;
       html = html.replace('</head>', `  ${jsonLdTag}\n</head>`);
 
       // 4. Hide welcomeScreen and reveal contentWrapper with pre-rendered markdown
@@ -1935,7 +2182,15 @@ async function handleCrawlerSsr(req, res, filePath, query) {
   }
 }
 
-// ── API: File Content ────────────────────────────────────────
+// ── §9 API: File & Media Servers ─────────────────────────────
+/**
+ * 傳回指定 Markdown 檔案的原始內容（GET /api/file?path=...）。
+ * 包含路徑遍歷防護與 symlink 逃逸檢查；所有路徑均限制在 mdRoot 內。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`；可選 `line`（開啟時捲動至目標行）
+ */
 async function handleFile(req, res, query) {
   const filePath = query.path;
   if (!filePath) {
@@ -1975,6 +2230,18 @@ async function handleFile(req, res, query) {
 }
 
 // ── API: Media & Image File Server ───────────────────────────
+/**
+ * 提供 Markdown 文件引用的媒體檔案（圖片、PDF、音訊等，GET /api/media?path=...）。
+ * 支援多層路徑解析策略：
+ *   1. 相對於文件資料夾（query.doc 指定文件位置）
+ *   2. 相對於 mdRoot 根目錄
+ *   3. 全庫模糊搜尋（依 basename 比對）
+ * 包含 MIME 類型推斷、ETag + Cache-Control、範圍請求（Range）支援。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件（可含 Range 標頭）
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`；可選 `doc`（來源文件路徑）
+ */
 async function handleMedia(req, res, query) {
   let rawPath = query.path ? safeDecodeURIComponent(query.path).trim() : '';
   if (!rawPath) {
@@ -2102,6 +2369,15 @@ async function handleMedia(req, res, query) {
 }
 
 
+/**
+ * 渲染大型 Markdown 檔案的指定分塊（GET /api/render?path=...&chunk=N）。
+ * 大型檔案（> 1MB）分為多個分塊以避免一次性渲染阻塞主線程。
+ * 渲染工作透過 Worker Thread Pool 非同步執行；結果加入 LRU 記憶體快取。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：path（必要）、chunk（可選，預設 0）
+ */
 async function handleRender(req, res, query) {
   let filePath = query.path;
   if (!filePath || filePath.includes('\0')) {
@@ -2204,7 +2480,7 @@ async function handleRender(req, res, query) {
   }
 }
 
-// ── API: Section Index (large-file chunk metadata) ────────────────────────
+// ── §10 API: Large-File Chunked Rendering ─────────────────────────────────
 // Multi-root path resolution. Dictionary files live outside the vault in
 // config.settings.dictionaryPath and are addressed with a `dict:` prefix that rides
 // through the client's opaque path string. `fsRel` is joined against the root on
@@ -2236,6 +2512,16 @@ function resolveMdPath(filePath) {
   return { resolved, relPath: outRelPath, root };
 }
 
+/**
+ * 傳回大型 Markdown 檔案的 Section Index（GET /api/section-index?path=...）。
+ * 若檔案小於 LARGE_FILE_MIN_BYTES（1MB），回傳 `{ large: false }`，前端以普通模式渲染。
+ * 若超過閾值，回傳 Section Index 供前端進行虛擬化分塊渲染。
+ * Section Index 由 Worker Thread Pool 建立並快取於記憶體與磁碟（.bin）。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`
+ */
 async function handleSectionIndex(req, res, query) {
   const r = resolveMdPath(query.path);
   if (!r) return sendJSON(res, 404, { error: 'File not found' });
@@ -2418,7 +2704,7 @@ async function handleRenderChunk(req, res, query) {
   }
 }
 
-// ── API: Full-text Search ────────────────────────────────────
+// ── §14 Search Handlers (Full-Text, Filename, In-Page) ───────
 async function collectFilesAsync(dir, relativePath = '') {
   let entries;
   try {
@@ -2466,7 +2752,7 @@ function flattenTreeToFiles(nodes, mdRoot) {
   return files;
 }
 
-// ── Full-Text Bigram Inverted Index ──────────────────────────────
+// ── §12 Full-Text Bigram Search Engine ───────────────────────────
 const SEARCH_INDEX_CACHE_FILE = path.join(LOG_DIR, 'search-index-cache.json');
 const SEARCH_INDEX_CACHE_BIN = path.join(LOG_DIR, 'search-index-cache.bin');
 
@@ -2481,7 +2767,7 @@ let searchIndex = {
   bigrams: new Map(),   // bigram (e.g. "成無") -> number or Uint16Array/Uint32Array of unitId
 };
 
-// ── Document Section Index (large-file chunking + entry-level search) ────────
+// ── §11 Document Section Index Engine ─────────────────────────
 const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
 const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
 const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
@@ -2528,6 +2814,20 @@ function buildSectionIndex(relPath, fullPath) {
   return executeIndexJob("section", { fullPath });
 }
 
+/**
+ * 取得指定檔案的 Section Index（三層快取策略）：
+ *   1. 記憶體快取（LRU，依 size + mtime 驗證有效性）
+ *   2. 磁碟二進位快取（.bin 檔案，啟動時批量載入）
+ *   3. 以 Worker Thread 即時掃描建立（最慢路徑）
+ *
+ * 辭典檔案使用獨立的無邊界快取（dictSectionIndexCache），
+ * 避免其大型索引被保管庫的 20 條目 LRU 淘汰。
+ *
+ * @param {string}         fullPath - 檔案的絕對路徑
+ * @param {fs.Stats}       stat     - 檔案的 stat 物件（用於 size/mtime 快取驗證）
+ * @param {string}         relPath  - 相對路徑（辭典檔案以 'dict:' 前綴標識）
+ * @returns {Promise<Object>}        Section Index 物件，包含 entries、groups 等欄位
+ */
 async function getSectionIndex(fullPath, stat, relPath) {
   // Dictionary files use a separate, unbounded cache + dedicated bin so their
   // (large) section indexes are never evicted by the vault's 20-entry LRU.
@@ -3252,7 +3552,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
   }
 }
 
-// ── Dictionary Index (dedicated full-text bigram index for dictionary files) ─
+// ── §13 Dictionary Bigram Index & API ─────────────────────────
 // Separate from the vault `searchIndex`: dictionaries live in their own root
 // (config.settings.dictionaryPath), are entry-level (one unit per headword), and
 // are served by `/api/dict-headwords` + `/api/dict-search` only — never mixed into
@@ -3510,6 +3810,20 @@ async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
   }
 }
 
+/**
+ * 非同步建立/重建辭典專用的 Bigram 雙字元倒排索引。
+ * 辭典索引與全庫主索引完全分離，使用獨立的快取路徑（.dict.bin）與 buildId 機制。
+ *
+ * 流程與 buildSearchIndexAsync 相同但針對辭典檔案：
+ *   1. 掃描辭典目錄（dictRoot），計算辭典簽章（dictSig）
+ *   2. 若 dictSig 未變且非強制重建，直接回傳（跳過重建）
+ *   3. 嘗試從磁碟 .bin 快取載入（loadDictIndexFromBinCacheAsync）
+ *   4. 快取無效則透過 Worker Thread Pool 全量分詞建立
+ *   5. 完成後非同步觸發 warmDictSectionIndexes() 預熱 section index
+ *
+ * @param {boolean} [forceRebuild=false] - 是否強制忽略磁碟快取全量重建
+ * @returns {Promise<void>}
+ */
 async function buildDictIndexAsync(forceRebuild = false) {
   if (dictIndex.building && !forceRebuild) return;
 
@@ -3673,6 +3987,14 @@ function resetDictWatcher() {
 }
 
 // ── API: Dictionary Headwords (client-side prefix/fuzzy index) ────────────
+/**
+ * 傳回所有辭典詞條索引（GET /api/dict/headwords），供前端在本地執行前綴搜尋。
+ * 包含每個辭典檔案的名稱、詞條清單與詞條數量，並附加 ETag 支援 304 Not Modified。
+ * 若辭典索引尚未就緒則等待建立完成後再回傳。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件（可含 If-None-Match 標頭）
+ * @param {http.ServerResponse}  res - HTTP 回應物件
+ */
 async function handleDictHeadwords(req, res) {
   try {
     setupDictWatcher();
@@ -3762,6 +4084,15 @@ async function handleDictFiles(req, res) {
 }
 
 // ── API: Dictionary Full-text Search ──────────────────────────────────────
+/**
+ * 在辭典獨立 Bigram 索引中執行全文搜尋（GET /api/dict/search?q=...）。
+ * 支援簡繁轉換（toTraditional）；按 proximity 距離排序結果。
+ * 每個辭典檔案最多回傳 DICT_SEARCH_MAX_PER_FILE（1500）筆命中，防止記憶體膨脹。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：q（必要）、files（可選，逗號分隔的辭典路徑限制）
+ */
 async function handleDictSearch(req, res, query) {
   // Cap full-text matches per selected dictionary. Without this, a common term
   // (e.g. 一切) yields tens of thousands of matches, and the unbounded `results`
@@ -3921,6 +4252,15 @@ async function handleDictEvent(req, res) {
 }
 
 // ── API: Full-text Search ────────────────────────────────────
+/**
+ * 在全庫 Bigram 倒排索引中執行全文搜尋（GET /api/search?q=...）。
+ * 支援多詞 AND 交集搜尋、簡繁轉換、資料夾範圍限制（folder 參數）。
+ * 結果按 60 秒記憶體快取（cacheKey = folder::q），命中快取直接回傳。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：q（必要）、folder（可選，限制搜尋範圍）
+ */
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
   const rawQ = (query.q || '').trim();
@@ -4217,7 +4557,7 @@ async function handleSearchFile(req, res, query) {
   }
 }
 
-// ── Static Asset In-Memory Cache ─────────────────────────────
+// ── §15 Static Asset In-Memory Cache ──────────────────────────
 const staticCache = new Map(); // resolvedPath -> { mtimeMs, size, etag, headers, data, cachedAt }
 const STATIC_CACHE_TTL_MS = 5000; // 5s revalidation window: zero fs.stat within 5s
 
@@ -4555,7 +4895,7 @@ function getClientIP(req) {
   return ip.substring(0, 45);
 }
 
-// ── Global API Rate Limiter (Sliding Window per IP: max 30 req/sec) ─────────
+// ── §16 Auth & API Rate Limiting ──────────────────────────────
 const apiRateLimits = new Map();
 const API_RATE_LIMIT_WINDOW_MS = 1000;
 const API_RATE_LIMIT_MAX = 30;
@@ -4599,6 +4939,16 @@ function timingSafeCompare(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/**
+ * 使用 PBKDF2-SHA512 對密碼進行雜湊（非同步，100,000 次迭代）。
+ * 若未提供 salt 則自動產生隨機 16 bytes salt（首次設定密碼時）。
+ * 重新驗證時傳入既有的 salt 以還原相同雜湊值。
+ *
+ * @param {string}  password              - 明文密碼
+ * @param {string|null} [salt=null]       - 16 bytes hex 字串；null 則自動產生
+ * @param {number}  [iterations=100000]   - PBKDF2 迭代次數
+ * @returns {Promise<{salt: string, hash: string, iterations: number}>}
+ */
 function hashPassword(password, salt, iterations = 100000) {
   return new Promise((resolve, reject) => {
     if (!salt) {
@@ -4657,6 +5007,17 @@ function verifySameOrigin(req) {
   return true;
 }
 
+/**
+ * 驗證 HTTP 請求是否已通過後台管理員認證。
+ * 驗證流程：
+ *   1. Same-Origin 檢查（Origin / Referer 標頭必須與 Host 一致）
+ *   2. 讀取 X-Admin-Token 標頭，查找 sessions Map
+ *   3. 檢查 session 是否已過期（SESSION_DURATION = 6 小時）
+ *   4. 有效請求滑動延長 session 有效期
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @returns {boolean} 通過認證則為 true，否則為 false
+ */
 function isAuthenticated(req) {
   if (!verifySameOrigin(req)) return false;
   const token = req.headers['x-admin-token'];
@@ -4698,7 +5059,7 @@ function readJSONBody(req) {
   });
 }
 
-// ── Analytics Aggregator & Data Exporter ────────────────────────────────────
+// ── §17 Analytics Aggregator & Export ───────────────────────────────────────
 const analyticsCache = new Map();
 const ANALYTICS_CACHE_TTL = 60000; // 60s in-memory cache
 const ANALYTICS_CACHE_MAX = 20;
@@ -5236,7 +5597,7 @@ async function buildHotList(blackList) {
   return result;
 }
 
-// ── Daily Words (Word of the Day) ────────────────────────────────────────
+// ── §18 Daily Words & Suggest List ───────────────────────────────────────
 let dailyWordCache = null;
 
 function invalidateDailyWordCache() {
@@ -5365,6 +5726,21 @@ async function getDailyWords() {
   return result;
 }
 
+/**
+ * 傳回首頁推薦列表（GET /api/suggest-list），包含公告資訊與推薦項目。
+ *
+ * 推薦項目組成（依後台設定的數量交錯排列）：
+ *   - 管理員手選清單（adminList，從後台設定讀取）
+ *   - 熱門閱讀（buildHotList，依 analytics 統計）
+ *   - 辭典每日推薦詞（getDailyWords，按 Mulberry32 輪換）
+ *
+ * 關鍵設計：排序使用 Mulberry32 確定性 RNG，以 currentSlot（當前輪換槽）為種子。
+ * 同一輪換視窗內（如 12 小時）的所有請求產生相同排序，避免前端簽章漂移
+ * 導致公告彈窗誤觸發。
+ *
+ * @param {http.IncomingMessage} req - HTTP 請求物件
+ * @param {http.ServerResponse}  res - HTTP 回應物件
+ */
 async function handleSuggestList(req, res) {
   try {
     const sl = config.settings.suggestList || {};
@@ -5515,6 +5891,7 @@ function isDockerContainer() {
   return false;
 }
 
+// ── §19 System Hardware Stats & Monitor ───────────────────────
 async function getSystemHardwareStats() {
   const cpus = os.cpus() || [];
   const loadAvg = os.loadavg() || [0, 0, 0];
@@ -5734,6 +6111,14 @@ async function handleRebuildDictIndex(req, res) {
   }
 }
 
+/**
+ * 傳回已聚合的 Analytics 統計資料（GET /api/admin/analytics?range=...&tz=...）。
+ * 需要後台認證（isAuthenticated）。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數：range（7d/30d/90d，預設 30d）、tz（時區）
+ */
 async function handleAnalytics(req, res, query) {
   if (!isAuthenticated(req)) {
     return sendJSON(res, 401, { error: 'Unauthorized' });
@@ -5861,7 +6246,7 @@ async function handleAnalyticsExport(req, res, query) {
   }
 }
 
-// ── HTTP Server ──────────────────────────────────────────────
+// ── §20 HTTP Server & Main Request Router ────────────────────
 const server = http.createServer((req, res) => {
   const reqStart = Date.now();
   res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';
@@ -5893,13 +6278,18 @@ const server = http.createServer((req, res) => {
     }
   };
 
-  // Log share link access if present, and handle Crawler Dynamic SSR if requested by bot or debug param
-  if ((pathname === '/' || pathname === '') && query.file) {
+  // Log share link access if present, and handle Crawler Dynamic SSR for Homepage or Specific Markdown File
+  if (pathname === '/' || pathname === '') {
     const isBot = isCrawlerRequest(req, query);
     const botName = getCrawlerName(req, query);
-    Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}${isBot ? ` [Bot: ${botName}]` : ''}`, req, { path: query.file, isBot, bot: botName, queryObj: query });
-    if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
-      return handleCrawlerSsr(req, res, query.file, query);
+    if (query.file) {
+      Logger.info('ShareLink', `Access file: "${query.file}" at line: ${query.line || 'none'}${isBot ? ` [Bot: ${botName}]` : ''}`, req, { path: query.file, isBot, bot: botName, queryObj: query });
+      if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
+        return handleCrawlerSsr(req, res, query.file, query);
+      }
+    } else if (isBot && (req.method === 'GET' || req.method === 'HEAD')) {
+      Logger.info('Crawler', `Homepage access from bot: ${botName}`, req, { isBot, bot: botName, queryObj: query });
+      return handleCrawlerSsr(req, res, null, query);
     }
   }
 
@@ -6090,17 +6480,47 @@ const server = http.createServer((req, res) => {
     }
     return sendJSON(res, 200, { settings: config.settings });
   }
+  if (pathname === '/api/admin/seo-stats' && req.method === 'GET') {
+    if (!isAuthenticated(req)) {
+      return sendJSON(res, 401, { error: 'Unauthorized' });
+    }
+    const baseUrl = getBaseUrl(req);
+    const files = cachedTree ? flattenMarkdownFiles(cachedTree) : [];
+    return sendJSON(res, 200, {
+      totalMarkdownFiles: files.length,
+      siteUrl: config.settings.siteUrl || '',
+      effectiveBaseUrl: baseUrl,
+      sitemapUrl: `${baseUrl}/sitemap.xml`,
+      robotsUrl: `${baseUrl}/robots.txt`,
+      sitemapCached: !!cachedSitemapXml,
+      robotsIndex: config.settings.seoRobotsIndex !== false,
+      blockAiBots: config.settings.seoBlockAiBots !== false
+    });
+  }
   if (pathname === '/api/admin/settings' && req.method === 'POST') {
     if (!isAuthenticated(req)) {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage } = data.settings || {};
-      if (!mdRoot || mdRoot.trim() === '') {
+      const {
+        mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists,
+        enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance,
+        dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
+        seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
+      } = data.settings || {};
+
+      // Allow partial settings updates: if mdRoot is omitted, preserve existing config.settings.mdRoot
+      if (mdRoot !== undefined && (!mdRoot || mdRoot.trim() === '')) {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
 
-      const resolvedPath = path.resolve(mdRoot.trim());
+      const resolvedPath = (mdRoot !== undefined)
+        ? path.resolve(mdRoot.trim())
+        : (config.settings.mdRoot ? path.resolve(config.settings.mdRoot) : '');
+
+      if (!resolvedPath) {
+        return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
+      }
       const nextDictEnabled = dictionaryEnabled !== undefined ? !!dictionaryEnabled : config.settings.dictionaryEnabled;
       const nextDictPath = (dictionaryPath !== undefined)
         ? (String(dictionaryPath).trim() ? path.resolve(String(dictionaryPath).trim()) : deriveDictRoot(resolvedPath))
@@ -6175,6 +6595,21 @@ const server = http.createServer((req, res) => {
           invalidateDailyWordCache();
           hotListCache = null;
         }
+
+        // ── SEO Settings ──
+        if (seoSiteDescription !== undefined) config.settings.seoSiteDescription = String(seoSiteDescription).trim();
+        if (seoKeywords !== undefined) config.settings.seoKeywords = String(seoKeywords).trim();
+        if (seoOgImage !== undefined) config.settings.seoOgImage = String(seoOgImage).trim();
+        if (seoRobotsIndex !== undefined) config.settings.seoRobotsIndex = (seoRobotsIndex === true || seoRobotsIndex === 'true' || seoRobotsIndex === 1 || seoRobotsIndex === '1');
+        if (seoBlockAiBots !== undefined) config.settings.seoBlockAiBots = (seoBlockAiBots === true || seoBlockAiBots === 'true' || seoBlockAiBots === 1 || seoBlockAiBots === '1');
+        if (seoDisallowPaths !== undefined) config.settings.seoDisallowPaths = String(seoDisallowPaths).trim();
+        if (googleSiteVerification !== undefined) config.settings.googleSiteVerification = String(googleSiteVerification).trim();
+        if (bingSiteVerification !== undefined) config.settings.bingSiteVerification = String(bingSiteVerification).trim();
+        if (baiduSiteVerification !== undefined) config.settings.baiduSiteVerification = String(baiduSiteVerification).trim();
+        if (seoEnableSearchBox !== undefined) config.settings.seoEnableSearchBox = (seoEnableSearchBox === true || seoEnableSearchBox === 'true' || seoEnableSearchBox === 1 || seoEnableSearchBox === '1');
+        if (seoHomepageSummary !== undefined) config.settings.seoHomepageSummary = String(seoHomepageSummary).trim();
+        cachedSitemapXml = null; // Invalidate sitemap cache on SEO config change
+
         if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
           config.settings.dictionaryEnabled = nextDictEnabled;
           config.settings.dictionaryPath = nextDictPath;
@@ -6210,6 +6645,16 @@ const server = http.createServer((req, res) => {
         }
         return updateSettings();
       };
+
+      // If neither mdRoot nor dictionary settings were specified, bypass directory checks (partial update)
+      if (mdRoot === undefined && dictionaryEnabled === undefined && dictionaryPath === undefined) {
+        return updateSettings();
+      }
+
+      // If only dictionary settings were updated, check dictionary directory directly
+      if (mdRoot === undefined) {
+        return afterVaultOk();
+      }
 
       return fs.promises.stat(resolvedPath).then(stats => {
         if (!stats.isDirectory()) {

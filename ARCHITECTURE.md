@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.4.8 | 最後更新：2026-09
+> 版本：v3.5.0 | 最後更新：2026-10
 
 ---
 
@@ -60,7 +60,7 @@ flowchart TD
 
 ## 2. 請求路由決策樹
 
-`server.js` 的主路由分發器（L5740）依序判斷每個請求：
+`server.js` 的主路由分發器依序判斷每個請求：
 
 ```mermaid
 flowchart TD
@@ -80,7 +80,7 @@ flowchart TD
     RouteCheck -->|"/  index.html"| IndexSSR["getIndexHtml()\n注入設定 + 主題 + 站名"]
 ```
 
-**Bot 偵測**（L51）：符合 `CRAWLER_UA_REGEX` 的 User-Agent 或帶有 `?ssr=1` 參數的請求，自動觸發 SSR 預渲染，回傳完整 HTML（含 schema.org JSON-LD）供搜尋引擎索引。
+**Bot 偵測**：符合 `CRAWLER_UA_REGEX` 的 User-Agent 或帶有 `?ssr=1` 參數的請求，自動觸發 SSR 預渲染，回傳完整 HTML（含 schema.org JSON-LD）供搜尋引擎索引。
 
 ---
 
@@ -170,7 +170,7 @@ sequenceDiagram
 
 **Bigram 索引架構：**
 - **建立時機**：首次搜尋時 lazy build，之後快取（記憶體 + `.bin` 二進位磁碟快取）
-- **辭典索引**：獨立於主庫索引（`L3140`），避免辭典大小影響主庫搜尋速度
+- **辭典索引**：獨立於主庫索引，避免辭典大小影響主庫搜尋速度
 - **索引格式**：`bigramMap: Map<string, Set<docId>>` 加上 `docStore: Map<docId, {path, content}>`
 
 ---
@@ -391,13 +391,13 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
 
 | 機制 | 實作位置 | 說明 |
 |------|---------|------|
-| **CSP（內容安全策略）** | `SECURITY_HEADERS` (L1149) | `default-src 'self'`；per-request nonce 允許唯一的 inline config script |
+| **CSP（內容安全策略）** | `SECURITY_HEADERS` | `default-src 'self'`；per-request nonce 允許唯一的 inline config script |
 | **HSTS** | `SECURITY_HEADERS` | `max-age=31536000; includeSubDomains` |
 | **X-Frame-Options** | `SECURITY_HEADERS` | `SAMEORIGIN`，防 Clickjacking |
-| **Path Traversal 防護** | `serveStaticFile()` (L4132) | 黑名單（`.git`、`server.js`、`config.json`）+ 白名單副檔名 + `path.relative` 逃逸偵測 |
-| **Symlink 逃逸防護** | `isRealPathWithinMdRoot()` (L1127) | `fs.realpath()` 解析後比較真實路徑是否在 `mdRoot` 內 |
+| **Path Traversal 防護** | `serveStaticFile()` | 黑名單（`.git`、`server.js`、`config.json`）+ 白名單副檔名 + `path.relative` 逃逸偵測 |
+| **Symlink 逃逸防護** | `isRealPathWithinMdRoot()` | `fs.realpath()` 解析後比較真實路徑是否在 `mdRoot` 內 |
 | **管理員密碼** | `api/admin/login` | PBKDF2（`sha256`，iterations=100,000，salt=hex random） |
-| **Session 管理** | `sessions Map` (L4327) | 記憶體 Map；6 小時滾動更新；每 15 分鐘清理過期 token |
-| **IP Rate Limiting** | `checkApiRateLimit()` (L4443) | 每 IP 30 req/s 滑動視窗；超限 HTTP 429 |
-| **XSS 防護** | `escapeHtmlString()` (L1170) | 所有 SSR 注入的設定值均 HTML 轉義 |
-| **Bot token 遮蔽** | 存取日誌中介 (L5747) | URL 中的 `?token=...` 在記錄前自動遮蔽 |
+| **Session 管理** | `sessions Map` | 記憶體 Map；6 小時滾動更新；每 15 分鐘清理過期 token |
+| **IP Rate Limiting** | `checkApiRateLimit()` | 每 IP 30 req/s 滑動視窗；超限 HTTP 429 |
+| **XSS 防護** | `escapeHtmlString()` | 所有 SSR 注入的設定值均 HTML 轉義 |
+| **Bot token 遮蔽** | 存取日誌中介 | URL 中的 `?token=...` 在記錄前自動遮蔽 |
