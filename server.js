@@ -1,5 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
+ * @version 3.5.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -54,7 +55,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.8';
+let APP_VERSION = '3.5.0';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
