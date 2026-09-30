@@ -10,18 +10,18 @@
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
   <meta name="google-site-verification" content="HGnOpfVbx1BCukVzCzfcLj0VPyeawv0-1aLkG1tdRik">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.4.2">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.4.2">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.4.2">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.4.2">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.4.2">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.4.5">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.4.5">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.4.5">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.4.5">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.4.5">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
   <!-- OpenGraph & Social Sharing Meta -->
-  <meta property="og:site_name" content="大覺藏集">
+  <meta property="og:site_name" content="mdWebview">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="大覺藏集 — 佛典經論閱讀器">
+  <meta property="og:title" content="mdWebview — 佛典經論閱讀器">
   <meta property="og:description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
   <meta property="og:url" content="/">
   <meta property="og:image" content="/og-preview.png">
@@ -29,14 +29,14 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:type" content="image/png">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="大覺藏集 — 佛典經論閱讀器">
+  <meta name="twitter:title" content="mdWebview — 佛典經論閱讀器">
   <meta name="twitter:description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
   <meta name="twitter:image" content="/og-preview.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.4.2">
+  <link rel="stylesheet" href="style.css?v=3.4.5">
 </head>
 <body>
   <div class="app">
@@ -339,7 +339,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.4.2</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.4.5</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -476,7 +476,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.4.2</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.4.5</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -492,7 +492,64 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.4.2</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.4.5</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Announcement & Daily Recommend Modal (Opening Page Landing Popup - 方案二：現代微光玻璃浮島) -->
+  <div class="modal-overlay announcement-modal-overlay" id="announcementModalOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="announcementModalTitle">
+    <div class="modal-card announcement-modal-card">
+      <!-- Modal Header -->
+      <div class="announcement-modal-header">
+        <div class="announcement-header-left">
+          <span class="announcement-header-icon" aria-hidden="true">🪷</span>
+          <div class="announcement-header-text">
+            <div class="announcement-header-title-row">
+              <h2 class="announcement-header-title" id="announcementModalTitle">mdWebview線上閱讀</h2>
+              <span class="announcement-header-badge">每日推薦</span>
+            </div>
+            <span class="announcement-header-date" id="announcementModalDate"></span>
+          </div>
+        </div>
+        <button type="button" class="modal-close-btn" id="announcementModalCloseBtn" title="關閉" aria-label="關閉">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="announcement-modal-body">
+        <!-- Section 1: 公告訊息 Notice Box (現代微光膠囊款，若空白則自動隱藏) -->
+        <div class="announcement-notice-box" id="announcementNoticeBox" style="display: none;">
+          <div class="announcement-notice-header">
+            <div class="announcement-notice-tag-wrapper">
+              <span class="announcement-notice-tag">📢 系統公告</span>
+              <span class="announcement-notice-dot" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="announcement-notice-content" id="announcementNoticeContent"></div>
+        </div>
+
+        <!-- Section 2: 每日推薦閱讀 -->
+        <div class="announcement-recommend-section" id="announcementRecommendSection">
+          <div class="announcement-section-header">
+            <span class="announcement-section-icon">📖</span>
+            <span class="announcement-section-title">每日推薦閱讀</span>
+            <span class="announcement-section-sub">成多聞慧，成無漏慧</span>
+          </div>
+          <ul class="suggest-list announcement-suggest-list" id="announcementSuggestList">
+            <!-- Populated dynamically -->
+          </ul>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="announcement-modal-footer">
+        <button type="button" class="modal-btn submit-btn announcement-ack-btn" id="announcementModalAckBtn">
+          知曉
+        </button>
       </div>
     </div>
   </div>
@@ -666,6 +723,30 @@
                   <div class="footer-input-wrap">
                     <input type="text" id="settingsDictionaryPath" placeholder="例如: /path/to/mdWebview/dicts" title="辭典檔案路徑">
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 4: Announcement Modal Settings -->
+            <div class="config-card full-width">
+              <div class="config-card-header">
+                <span class="config-card-icon">📢</span>
+                <h3 class="config-card-title">開啟頁面訊息彈窗</h3>
+              </div>
+              <div class="config-card-body">
+                <div class="footer-setting-item" style="margin-bottom: 12px;">
+                  <div class="toggle-switch-wrapper compact-switch">
+                    <label class="toggle-switch-label" for="settingsEnableAnnouncement">
+                      <input type="checkbox" id="settingsEnableAnnouncement">
+                      <span class="toggle-switch-slider"></span>
+                    </label>
+                    <span class="toggle-switch-title">開啟訊息彈窗</span>
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="settingsAnnouncementMessage">公告訊息內容 (支援多行文字)</label>
+                  <textarea id="settingsAnnouncementMessage" class="announcement-textarea" rows="3" placeholder="請輸入欲在開啟頁面時向讀者展示的公告訊息…"></textarea>
+                  <span class="field-hint">當啟用時，訪客開啟頁面將展示此公告與每日推薦閱讀。使用者確認知曉後，僅在公告更新或每日推薦內容更新時再次彈出。</span>
                 </div>
               </div>
             </div>
@@ -1290,8 +1371,8 @@
 
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/mermaid/mermaid.min.js" defer></script>
-  <script src="marked.min.js?v=3.4.2" defer></script>
-  <script src="s2t.js?v=3.4.2" defer></script>
-  <script src="app.js?v=3.4.2" defer></script>
+  <script src="marked.min.js?v=3.4.5" defer></script>
+  <script src="s2t.js?v=3.4.5" defer></script>
+  <script src="app.js?v=3.4.5" defer></script>
 </body>
 </html>

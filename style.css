@@ -1515,14 +1515,17 @@ section.chunk.chunk-error {
   opacity: 0.5;
 }
 
-.welcome-download-link {
+.welcome-download-link,
+.welcome-announcement-link {
   color: var(--accent);
   text-decoration: none;
   font-weight: 500;
+  cursor: pointer;
   transition: color 0.15s ease;
 }
 
-.welcome-download-link:hover {
+.welcome-download-link:hover,
+.welcome-announcement-link:hover {
   color: var(--accent-hover);
   text-decoration: underline;
 }
@@ -5474,3 +5477,418 @@ mark.obsidian-highlight,
   max-width: 100%;
   height: auto;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   ANNOUNCEMENT & DAILY RECOMMEND MODAL (Modern Landing Popup)
+   ═══════════════════════════════════════════════════════════ */
+
+.announcement-textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 10px 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.55;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.announcement-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.announcement-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.announcement-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+  animation: fadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes announcementPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.announcement-modal-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px -12px var(--shadow-color), 0 10px 24px -6px rgba(0, 0, 0, 0.15);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 86vh;
+  max-height: 86dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  animation: announcementPopIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.announcement-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.announcement-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 現代微光浮島圖標 Squircle */
+.announcement-header-icon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: var(--bg-primary);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 14px var(--accent-dim);
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.announcement-header-icon:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 18px var(--accent-dim);
+}
+
+.announcement-header-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.announcement-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.announcement-header-title {
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+  line-height: 1.25;
+}
+
+/* 頂部亮點小膠囊 */
+.announcement-header-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1.5px 7px;
+  border-radius: 9999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--border-subtle);
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+}
+
+.announcement-header-date {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+.announcement-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.announcement-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.announcement-modal-body::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.announcement-modal-body::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+/* Notice Box (方案二：現代微光膠囊款) */
+.announcement-notice-box {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  box-shadow: 0 4px 20px var(--accent-dim);
+  transition: all 0.2s ease;
+}
+
+.announcement-notice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.announcement-notice-tag-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.announcement-notice-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--bg-primary);
+  padding: 2.5px 10px;
+  border-radius: 9999px;
+  letter-spacing: 0.4px;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 2px 6px var(--accent-dim);
+}
+
+/* 呼吸微光小光點 */
+.announcement-notice-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: announcementPulse 2s infinite ease-in-out;
+}
+
+@keyframes announcementPulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+    box-shadow: 0 0 10px var(--accent);
+  }
+}
+
+.announcement-notice-content {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Recommend Section */
+.announcement-recommend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.announcement-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.announcement-section-icon {
+  font-size: 15px;
+}
+
+.announcement-section-title {
+  color: var(--text-secondary);
+}
+
+.announcement-section-sub {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+/* Modal Suggest List */
+.announcement-suggest-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.announcement-suggest-list .suggest-item {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  position: relative;
+}
+
+.announcement-suggest-list .suggest-item:hover {
+  background: var(--hover-bg);
+  border-color: var(--border);
+  transform: translateX(3px);
+}
+
+.announcement-suggest-list .suggest-item .suggest-item-name {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.announcement-suggest-list .suggest-item .suggest-dict-word {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.announcement-suggest-list .suggest-item .suggest-dict-source {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.announcement-suggest-list .suggest-item .suggest-item-arrow {
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  transition: transform 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+  flex-shrink: 0;
+}
+
+.announcement-suggest-list .suggest-item:hover .suggest-item-arrow {
+  opacity: 1;
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+/* Modal Footer */
+.announcement-modal-footer {
+  padding: 14px 22px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.announcement-ack-btn {
+  min-width: 120px;
+  height: 40px;
+  border-radius: 20px;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 14px var(--accent-dim);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.announcement-ack-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px var(--accent-dim);
+}
+
+.announcement-ack-btn:active {
+  transform: translateY(0);
+}
+
+/* Mobile responsive rules */
+@media (max-width: 600px) {
+  .announcement-modal-overlay {
+    padding: 12px;
+  }
+
+  .announcement-modal-card {
+    max-width: 100%;
+    max-height: 90vh;
+    max-height: 90dvh;
+    border-radius: 16px;
+  }
+
+  .announcement-modal-header {
+    padding: 12px 16px;
+  }
+
+  .announcement-modal-body {
+    padding: 14px 16px;
+    gap: 14px;
+  }
+
+  .announcement-modal-footer {
+    padding: 12px 16px;
+  }
+
+  .announcement-ack-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+}
+
