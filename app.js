@@ -1,6 +1,6 @@
 /* ================================================================
    mdWebview — Application Logic (app.js)
-   版本 3.4.7 | Tree · Viewer · Search · Theme · Dict · Admin
+   版本 3.4.8 | Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
    §0  Globals & State          (L1-190)   LRU cache, Web Worker, state{}
@@ -406,7 +406,7 @@
       state.sidebarCollapsed = true;
     }
     await loadTree();
-    fetchSuggestList(); // Load recommend & hot list for homepage
+    fetchSuggestList(true); // Load recommend & hot list for homepage and check landing announcement modal
 
     // Open file from URL query or hash on first load; if home/frontpage specified, show welcome screen; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
@@ -893,25 +893,32 @@
   // §3 SUGGEST LIST (Homepage Recommend & Hot)
   // ═══════════════════════════════════════════════════════════
 
-  async function fetchSuggestList() {
+  async function fetchSuggestList(triggerModal = false) {
     try {
       const res = await fetch('/api/suggest-list');
       if (!res.ok) {
-        checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement);
+        if (triggerModal) checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement, appConfig.suggestListUpdatedAt);
         return;
       }
       const data = await res.json();
       const items = data.items || [];
       state._cachedSuggestItems = items;
       renderSuggestList(items, data.enabled !== false);
+      if (data.suggestListUpdatedAt) {
+        appConfig.suggestListUpdatedAt = data.suggestListUpdatedAt;
+      }
       if (data.announcement) {
         appConfig.announcement = data.announcement;
         appConfig.enableAnnouncement = !!data.announcement.enabled;
         updateWelcomeFooter(appConfig);
       }
-      checkAndShowAnnouncementModal(items, data.announcement);
+      if (triggerModal) {
+        checkAndShowAnnouncementModal(items, data.announcement, data.suggestListUpdatedAt);
+      }
     } catch (_) {
-      checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement);
+      if (triggerModal) {
+        checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement, appConfig.suggestListUpdatedAt);
+      }
     }
   }
 
@@ -1026,10 +1033,13 @@
 
   function computeItemsSignature(items) {
     if (!items || !items.length) return '';
-    return items.map(i => (i.path || i.fileName || '')).sort().join('|');
+    return items
+      .map(i => `${i.type || ''}:${i.path || ''}:${i.fileName || ''}:${i.line || ''}`)
+      .sort()
+      .join('|');
   }
 
-  function checkAndShowAnnouncementModal(items, announcementData) {
+  function checkAndShowAnnouncementModal(items, announcementData, suggestUpdatedAt) {
     const ann = announcementData || (appConfig && appConfig.announcement) || {};
     const isEnabled = ann.enabled !== undefined
       ? !!ann.enabled
@@ -1044,8 +1054,8 @@
       : (appConfig && appConfig.announcementMessage ? appConfig.announcementMessage : '');
     const currentMsg = String(rawMsg || '').trim();
     const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
+    const currentSuggestUpdatedAt = Number(suggestUpdatedAt || (appConfig && appConfig.suggestListUpdatedAt) || 0);
 
-    const todayDateKey = getTodayDateString();
     const currentItemsSig = computeItemsSignature(items);
 
     let ack = null;
@@ -1059,21 +1069,26 @@
       // First visit with modal enabled
       shouldShow = true;
     } else {
-      // Condition 1: 公告訊息更新 (Announcement message updated or edited)
-      const announcementUpdated = (currentMsg !== ack.announcement) ||
-        (currentUpdatedAt && ack.announcementUpdatedAt && currentUpdatedAt > ack.announcementUpdatedAt);
+      // Condition 1: 公告訊息是否有更新（文字變更 或 更新時間戳推進）
+      const announcementUpdated = (currentMsg !== (ack.announcement || '')) ||
+        (currentUpdatedAt > 0 && Number(ack.announcementUpdatedAt || 0) < currentUpdatedAt);
 
-      // Condition 2: 每日閱讀文章更新 (Daily reading articles updated / new day)
-      const dailyArticlesUpdated = (todayDateKey !== ack.dateKey) ||
-        (currentItemsSig && ack.itemsSig && currentItemsSig !== ack.itemsSig);
+      // Condition 2: 推薦項目是否有更新（推薦清單內容實質變更 或 後台更新推薦設定）
+      // 注意：完全移除換日判斷 (todayDateKey !== ack.dateKey)，使用者閱讀過之後絕不因換日而重複彈出！
+      const suggestItemsChanged = Boolean(
+        currentItemsSig &&
+        ack.itemsSig &&
+        currentItemsSig !== ack.itemsSig
+      );
+      const suggestSettingsUpdated = (currentSuggestUpdatedAt > 0 && Number(ack.suggestUpdatedAt || 0) < currentSuggestUpdatedAt);
 
-      if (announcementUpdated || dailyArticlesUpdated) {
+      if (announcementUpdated || suggestItemsChanged || suggestSettingsUpdated) {
         shouldShow = true;
       }
     }
 
     if (shouldShow) {
-      openAnnouncementModal(items, currentMsg, currentUpdatedAt, todayDateKey, currentItemsSig);
+      openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
     }
   }
 
@@ -1083,6 +1098,9 @@
       if (res.ok) {
         const data = await res.json();
         if (data.items) state._cachedSuggestItems = data.items;
+        if (data.suggestListUpdatedAt) {
+          appConfig.suggestListUpdatedAt = data.suggestListUpdatedAt;
+        }
         if (data.announcement) {
           appConfig.announcement = data.announcement;
           appConfig.enableAnnouncement = !!data.announcement.enabled;
@@ -1099,15 +1117,15 @@
       : (appConfig && appConfig.announcementMessage !== undefined ? appConfig.announcementMessage : '');
     const currentMsg = String(rawMsg || '').trim();
     const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
+    const currentSuggestUpdatedAt = Number(appConfig && appConfig.suggestListUpdatedAt || 0);
 
-    const todayDateKey = getTodayDateString();
     const items = state._cachedSuggestItems || [];
     const currentItemsSig = computeItemsSignature(items);
 
-    openAnnouncementModal(items, currentMsg, currentUpdatedAt, todayDateKey, currentItemsSig);
+    openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
   }
 
-  function openAnnouncementModal(items, message, updatedAt, todayDateKey, itemsSig) {
+  function openAnnouncementModal(items, message, updatedAt, suggestUpdatedAt, itemsSig) {
     const overlay = $('announcementModalOverlay');
     if (!overlay) return;
 
@@ -1119,7 +1137,7 @@
     state._announcementModalContext = {
       announcement: message,
       announcementUpdatedAt: updatedAt,
-      dateKey: todayDateKey,
+      suggestUpdatedAt: suggestUpdatedAt,
       itemsSig: itemsSig
     };
 
@@ -1133,7 +1151,7 @@
           weekday: 'short'
         });
       } catch (_) {
-        dateEl.textContent = todayDateKey;
+        dateEl.textContent = getTodayDateString();
       }
     }
 
@@ -5843,7 +5861,7 @@
           pane.style.display = pane.id === `pane-${tab}` ? 'flex' : 'none';
         });
         if (tab === 'recommended') {
-          fetchSuggestList();
+          fetchSuggestList(false);
         }
       });
     });
@@ -6245,9 +6263,9 @@
     renderMaxWidthControl();
     renderRecentFilesList();
     renderBookmarksList();
-    fetchSuggestList();
+    fetchSuggestList(false);
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.8';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7384,7 +7402,7 @@
           setTimeout(() => { successEl.style.display = 'none'; }, 3000);
         }
         // Refresh the homepage suggest list
-        fetchSuggestList();
+        fetchSuggestList(false);
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message;

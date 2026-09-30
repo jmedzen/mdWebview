@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.4.7
+ * @version 3.4.8
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -81,7 +81,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.7';
+let APP_VERSION = '3.4.8';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -1067,6 +1067,7 @@ let config = {
     enableAnnouncement: process.env.ENABLE_ANNOUNCEMENT ? process.env.ENABLE_ANNOUNCEMENT === 'true' : false,
     announcementMessage: process.env.ANNOUNCEMENT_MESSAGE || '',
     announcementUpdatedAt: 0,
+    suggestListUpdatedAt: 0,
     suggestList: {
       adminList: [],
       adminPickCount: 3,
@@ -5375,16 +5376,23 @@ async function handleSuggestList(req, res) {
     const blackList = Array.isArray(sl.blackList) ? sl.blackList : [];
     const isBlacklisted = createBlacklistChecker(blackList);
 
-    // Admin picks: filter blacklist then shuffle and pick adminPickCount
+    // Rotation slot calculations: guarantees stability within the same rotation slot
+    const rotateHour = Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour, 10) || 12));
+    const slotMs = rotateHour * 3600 * 1000;
+    const currentSlot = Math.floor(Date.now() / slotMs);
+
+    // Admin picks: filter blacklist then shuffle deterministically by currentSlot and pick adminPickCount
     const validAdmin = adminList
       .map(p => p.replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/'))
       .filter(p => p && !isBlacklisted(p));
-    // Shuffle admin list for variety
-    for (let i = validAdmin.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [validAdmin[i], validAdmin[j]] = [validAdmin[j], validAdmin[i]];
+    // Deterministic shuffle for admin list using Mulberry32 seeded by currentSlot
+    const adminRng = mulberry32(((currentSlot * 2654435761) ^ 0xdeadbeef) >>> 0);
+    const shuffledAdmin = [...validAdmin];
+    for (let i = shuffledAdmin.length - 1; i > 0; i--) {
+      const j = Math.floor(adminRng() * (i + 1));
+      [shuffledAdmin[i], shuffledAdmin[j]] = [shuffledAdmin[j], shuffledAdmin[i]];
     }
-    const adminPicks = validAdmin.slice(0, adminPickCount).map(p => {
+    const adminPicks = shuffledAdmin.slice(0, adminPickCount).map(p => {
       const cleanNoExt = p.replace(/\.md$/i, '').trim();
       const fileName = cleanNoExt.split('/').pop().trim();
       return {
@@ -5407,9 +5415,10 @@ async function handleSuggestList(req, res) {
     const dailyWordPicks = await getDailyWords();
 
     const items = [...adminPicks, ...hotPicks, ...dailyWordPicks];
-    // Randomly shuffle combined items so admin, hot picks and daily words interleave
+    // Deterministically shuffle combined items using currentSlot so admin, hot picks and daily words interleave stably
+    const interleaveRng = mulberry32(((currentSlot * 1103515245 + 12345) ^ 0x12345678) >>> 0);
     for (let i = items.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(interleaveRng() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
     }
     sendJSON(res, 200, {
@@ -5418,6 +5427,7 @@ async function handleSuggestList(req, res) {
       hotPickCount,
       dailyWordCount: dailyWordPicks.length,
       enabled: sl.enabled !== false,
+      suggestListUpdatedAt: config.settings.suggestListUpdatedAt || 0,
       announcement: {
         enabled: !!config.settings.enableAnnouncement,
         message: config.settings.announcementMessage || '',
@@ -6161,6 +6171,7 @@ const server = http.createServer((req, res) => {
             dailyWordRotateHour: Number.isFinite(parseInt(sl.dailyWordRotateHour, 10)) ? Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour, 10))) : (existing.dailyWordRotateHour ?? 12),
             enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true)
           };
+          config.settings.suggestListUpdatedAt = Date.now();
           invalidateDailyWordCache();
           hotListCache = null;
         }
