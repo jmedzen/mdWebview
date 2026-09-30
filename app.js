@@ -337,6 +337,7 @@
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
           .then(reg => {
+            try { reg.update(); } catch (_) {}
             reg.addEventListener('updatefound', () => {
               const newWorker = reg.installing;
               if (newWorker) {
@@ -613,6 +614,22 @@
           updateSiteNameUI();
         }
 
+        if (data.settings.enableAnnouncement !== undefined) {
+          appConfig.enableAnnouncement = data.settings.enableAnnouncement;
+          if (!appConfig.announcement) appConfig.announcement = {};
+          appConfig.announcement.enabled = !!data.settings.enableAnnouncement;
+        }
+        if (data.settings.announcementMessage !== undefined) {
+          appConfig.announcementMessage = data.settings.announcementMessage;
+          if (!appConfig.announcement) appConfig.announcement = {};
+          appConfig.announcement.message = data.settings.announcementMessage;
+        }
+        if (data.settings.announcementUpdatedAt !== undefined) {
+          appConfig.announcementUpdatedAt = data.settings.announcementUpdatedAt;
+          if (!appConfig.announcement) appConfig.announcement = {};
+          appConfig.announcement.updatedAt = data.settings.announcementUpdatedAt;
+        }
+
         updateWelcomeFooter(data.settings);
       }
     } catch (err) {
@@ -624,6 +641,9 @@
   function updateSiteNameUI() {
     $$('.logo-text').forEach(el => el.textContent = state.siteName);
     $$('.welcome-title').forEach(el => el.textContent = state.siteName);
+
+    const modalTitle = $('announcementModalTitle');
+    if (modalTitle) modalTitle.textContent = `${state.siteName}線上閱讀`;
 
     if (!state.currentFile) {
       document.title = `${state.siteName} — 佛典經論閱讀器`;
@@ -637,6 +657,19 @@
 
     const isVersionEnabled = settings.enableVersion === true || settings.enableVersion === 'true';
     const isDownloadEnabled = settings.enableDownload === true || settings.enableDownload === 'true';
+    // Only display '本日訊息' if admin explicitly opened "開啟訊息彈窗" (enableAnnouncement === true)
+    let isAnnouncementEnabled = false;
+    if (settings.enableAnnouncement !== undefined) {
+      isAnnouncementEnabled = settings.enableAnnouncement === true || settings.enableAnnouncement === 'true';
+    } else if (settings.announcement && settings.announcement.enabled !== undefined) {
+      isAnnouncementEnabled = settings.announcement.enabled === true || settings.announcement.enabled === 'true';
+    } else if (typeof appConfig !== 'undefined' && appConfig) {
+      if (appConfig.enableAnnouncement !== undefined) {
+        isAnnouncementEnabled = appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true';
+      } else if (appConfig.announcement && appConfig.announcement.enabled !== undefined) {
+        isAnnouncementEnabled = appConfig.announcement.enabled === true || appConfig.announcement.enabled === 'true';
+      }
+    }
 
     const parts = [];
     if (isVersionEnabled && settings.version && String(settings.version).trim()) {
@@ -645,10 +678,21 @@
     if (isDownloadEnabled && settings.downloadUrl && String(settings.downloadUrl).trim()) {
       parts.push(`<span>下載：<a href="${escHtml(String(settings.downloadUrl).trim())}" target="_blank" rel="noopener noreferrer" class="welcome-download-link">離線閱讀完整版</a></span>`);
     }
+    if (isAnnouncementEnabled) {
+      parts.push(`<span><a href="javascript:void(0)" class="welcome-download-link welcome-announcement-link" id="welcomeAnnouncementLink" role="button">本日訊息</a></span>`);
+    }
 
     if (parts.length > 0) {
       footerEl.innerHTML = parts.join('<span class="welcome-footer-sep">·</span>');
       footerEl.style.display = 'flex';
+
+      const announceLink = $('welcomeAnnouncementLink');
+      if (announceLink) {
+        announceLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          showAnnouncementModal();
+        });
+      }
     } else {
       footerEl.innerHTML = '';
       footerEl.style.display = 'none';
@@ -745,12 +789,23 @@
   async function fetchSuggestList() {
     try {
       const res = await fetch('/api/suggest-list');
-      if (!res.ok) return;
+      if (!res.ok) {
+        checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement);
+        return;
+      }
       const data = await res.json();
       const items = data.items || [];
       state._cachedSuggestItems = items;
       renderSuggestList(items, data.enabled !== false);
-    } catch (_) {}
+      if (data.announcement) {
+        appConfig.announcement = data.announcement;
+        appConfig.enableAnnouncement = !!data.announcement.enabled;
+        updateWelcomeFooter(appConfig);
+      }
+      checkAndShowAnnouncementModal(items, data.announcement);
+    } catch (_) {
+      checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement);
+    }
   }
 
   function resolveSuggestPath(rawPath) {
@@ -844,6 +899,224 @@
       });
       frag.appendChild(li);
     }
+    list.innerHTML = '';
+    list.appendChild(frag);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // ANNOUNCEMENT & DAILY RECOMMEND MODAL (Opening Page Landing Popup)
+  // ═══════════════════════════════════════════════════════════
+
+  const ANNOUNCEMENT_ACK_KEY = 'mdWebview-announcement-modal-ack';
+
+  function getTodayDateString() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function computeItemsSignature(items) {
+    if (!items || !items.length) return '';
+    return items.map(i => (i.path || i.fileName || '')).sort().join('|');
+  }
+
+  function checkAndShowAnnouncementModal(items, announcementData) {
+    const ann = announcementData || (appConfig && appConfig.announcement) || {};
+    const isEnabled = ann.enabled !== undefined
+      ? !!ann.enabled
+      : (appConfig && appConfig.enableAnnouncement !== undefined ? !!appConfig.enableAnnouncement : false);
+
+    if (!isEnabled) {
+      return;
+    }
+
+    const rawMsg = ann.message !== undefined
+      ? ann.message
+      : (appConfig && appConfig.announcementMessage ? appConfig.announcementMessage : '');
+    const currentMsg = String(rawMsg || '').trim();
+    const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
+
+    const todayDateKey = getTodayDateString();
+    const currentItemsSig = computeItemsSignature(items);
+
+    let ack = null;
+    try {
+      const raw = localStorage.getItem(ANNOUNCEMENT_ACK_KEY);
+      if (raw) ack = JSON.parse(raw);
+    } catch (_) {}
+
+    let shouldShow = false;
+    if (!ack) {
+      // First visit with modal enabled
+      shouldShow = true;
+    } else {
+      // Condition 1: 公告訊息更新 (Announcement message updated or edited)
+      const announcementUpdated = (currentMsg !== ack.announcement) ||
+        (currentUpdatedAt && ack.announcementUpdatedAt && currentUpdatedAt > ack.announcementUpdatedAt);
+
+      // Condition 2: 每日閱讀文章更新 (Daily reading articles updated / new day)
+      const dailyArticlesUpdated = (todayDateKey !== ack.dateKey) ||
+        (currentItemsSig && ack.itemsSig && currentItemsSig !== ack.itemsSig);
+
+      if (announcementUpdated || dailyArticlesUpdated) {
+        shouldShow = true;
+      }
+    }
+
+    if (shouldShow) {
+      openAnnouncementModal(items, currentMsg, currentUpdatedAt, todayDateKey, currentItemsSig);
+    }
+  }
+
+  async function showAnnouncementModal() {
+    try {
+      const res = await fetch('/api/suggest-list');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.items) state._cachedSuggestItems = data.items;
+        if (data.announcement) {
+          appConfig.announcement = data.announcement;
+          appConfig.enableAnnouncement = !!data.announcement.enabled;
+          appConfig.announcementMessage = data.announcement.message || '';
+          appConfig.announcementUpdatedAt = data.announcement.updatedAt || 0;
+          updateWelcomeFooter(appConfig);
+        }
+      }
+    } catch (_) {}
+
+    const ann = (appConfig && appConfig.announcement) || {};
+    const rawMsg = (ann.message !== undefined)
+      ? ann.message
+      : (appConfig && appConfig.announcementMessage !== undefined ? appConfig.announcementMessage : '');
+    const currentMsg = String(rawMsg || '').trim();
+    const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
+
+    const todayDateKey = getTodayDateString();
+    const items = state._cachedSuggestItems || [];
+    const currentItemsSig = computeItemsSignature(items);
+
+    openAnnouncementModal(items, currentMsg, currentUpdatedAt, todayDateKey, currentItemsSig);
+  }
+
+  function openAnnouncementModal(items, message, updatedAt, todayDateKey, itemsSig) {
+    const overlay = $('announcementModalOverlay');
+    if (!overlay) return;
+
+    const modalTitle = $('announcementModalTitle');
+    if (modalTitle) {
+      modalTitle.textContent = `${state.siteName || 'mdWebview'}線上閱讀`;
+    }
+
+    state._announcementModalContext = {
+      announcement: message,
+      announcementUpdatedAt: updatedAt,
+      dateKey: todayDateKey,
+      itemsSig: itemsSig
+    };
+
+    const dateEl = $('announcementModalDate');
+    if (dateEl) {
+      try {
+        dateEl.textContent = new Date().toLocaleDateString('zh-TW', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          weekday: 'short'
+        });
+      } catch (_) {
+        dateEl.textContent = todayDateKey;
+      }
+    }
+
+    const noticeBox = $('announcementNoticeBox');
+    const noticeContent = $('announcementNoticeContent');
+    if (message && message.trim()) {
+      if (noticeContent) noticeContent.textContent = message.trim();
+      if (noticeBox) noticeBox.style.display = 'flex';
+    } else {
+      if (noticeBox) noticeBox.style.display = 'none';
+      if (noticeContent) noticeContent.textContent = '';
+    }
+
+    const listEl = $('announcementSuggestList');
+    if (listEl) {
+      renderAnnouncementSuggestList(listEl, items);
+    }
+
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeAnnouncementModal(markAsAcknowledged = true) {
+    const overlay = $('announcementModalOverlay');
+    if (!overlay) return;
+
+    if (markAsAcknowledged && state._announcementModalContext) {
+      try {
+        localStorage.setItem(ANNOUNCEMENT_ACK_KEY, JSON.stringify(state._announcementModalContext));
+      } catch (_) {}
+    }
+
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+
+  function renderAnnouncementSuggestList(list, items) {
+    if (!list) return;
+    if (!items || items.length === 0) {
+      list.innerHTML = '<li class="suggest-item" style="cursor:default;"><span class="suggest-item-name">尚無每日推薦經論</span></li>';
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.className = 'suggest-item';
+      const targetPath = resolveSuggestPath(item.path);
+      li.title = targetPath || item.path || '';
+
+      const isDict = item.type === 'dict';
+      const isHot = item.type === 'hot';
+
+      const icon = document.createElement('span');
+      icon.className = 'suggest-item-icon';
+      icon.textContent = isDict ? '📖' : (isHot ? '✨' : '🪷');
+
+      const name = document.createElement('span');
+      name.className = 'suggest-item-name';
+      if (isDict) {
+        name.innerHTML = `<span class="suggest-dict-word">${escHtml(item.fileName)}</span>` +
+          (item.dictName ? ` <span class="suggest-dict-source">(${escHtml(item.dictName)})</span>` : '');
+      } else {
+        name.textContent = item.fileName || item.path;
+      }
+
+      const badge = document.createElement('span');
+      badge.className = 'suggest-item-badge ' + (isDict ? 'suggest-badge-dict' : (isHot ? 'suggest-badge-hot' : 'suggest-badge-admin'));
+      badge.textContent = isDict ? '單詞' : (isHot ? '熱門' : '推薦');
+
+      const arrow = document.createElement('span');
+      arrow.className = 'suggest-item-arrow';
+      arrow.textContent = '→';
+
+      li.appendChild(icon);
+      li.appendChild(name);
+      li.appendChild(badge);
+      li.appendChild(arrow);
+
+      li.addEventListener('click', () => {
+        const pathToOpen = resolveSuggestPath(item.path);
+        if (pathToOpen) {
+          closeAnnouncementModal(true);
+          openFile(pathToOpen, item.line || null);
+        }
+      });
+
+      frag.appendChild(li);
+    }
+
     list.innerHTML = '';
     list.appendChild(frag);
   }
@@ -1051,7 +1324,7 @@
 
     if (!filePath) {
       indicator.innerHTML = `<span class="active-file-icon">🏠</span><span class="active-file-title">首頁</span>`;
-      indicator.title = `首頁 (${escHtml(state.siteName || '大覺藏集')})`;
+      indicator.title = `首頁 (${escHtml(state.siteName || 'mdWebview')})`;
     } else {
       // Dictionary files are namespaced `dict:…`; strip the prefix for display.
       const isDict = filePath.startsWith('dict:');
@@ -5336,6 +5609,11 @@
     document.addEventListener('keydown', (e) => {
       // ESC key → Exit open modals / settings overlays / search bar
       if (e.key === 'Escape') {
+        const annOverlay = $('announcementModalOverlay');
+        if (annOverlay && annOverlay.style.display !== 'none' && annOverlay.style.display !== '') {
+          closeAnnouncementModal(true);
+          return;
+        }
         const adminOverlay = $('adminSettingsOverlay');
         if (adminOverlay && adminOverlay.style.display !== 'none' && adminOverlay.style.display !== '') {
           closeAdminModal();
@@ -5523,13 +5801,34 @@
       });
     }
 
-    // Modal Close
     $('userSettingsCloseBtn').addEventListener('click', () => {
       closeUserSettingsModal();
     });
     $('userSettingsDoneBtn').addEventListener('click', () => {
       closeUserSettingsModal();
     });
+
+    // Announcement Modal Listeners (Ack, Close X, Backdrop Click)
+    const annAckBtn = $('announcementModalAckBtn');
+    if (annAckBtn) {
+      annAckBtn.addEventListener('click', () => {
+        closeAnnouncementModal(true);
+      });
+    }
+    const annCloseBtn = $('announcementModalCloseBtn');
+    if (annCloseBtn) {
+      annCloseBtn.addEventListener('click', () => {
+        closeAnnouncementModal(true);
+      });
+    }
+    const annOverlay = $('announcementModalOverlay');
+    if (annOverlay) {
+      annOverlay.addEventListener('click', (e) => {
+        if (e.target === annOverlay) {
+          closeAnnouncementModal(true);
+        }
+      });
+    }
 
     // Menu Sub-Modals (Admin Login / Admin Vault Settings)
     $('menuOpenAdminLoginBtn').addEventListener('click', () => {
@@ -5657,6 +5956,11 @@
       if (dictToggle && dictInput) {
         dictInput.disabled = !dictToggle.checked;
       }
+      const announcementToggle = $('settingsEnableAnnouncement');
+      const announcementInput = $('settingsAnnouncementMessage');
+      if (announcementToggle && announcementInput) {
+        announcementInput.disabled = !announcementToggle.checked;
+      }
     }
 
     const versionToggleEl = $('settingsEnableVersion');
@@ -5665,6 +5969,8 @@
     if (downloadToggleEl) downloadToggleEl.addEventListener('change', syncFooterToggleInputs);
     const dictToggleEl = $('settingsEnableDictionary');
     if (dictToggleEl) dictToggleEl.addEventListener('change', syncFooterToggleInputs);
+    const announcementToggleEl = $('settingsEnableAnnouncement');
+    if (announcementToggleEl) announcementToggleEl.addEventListener('change', syncFooterToggleInputs);
 
     // ── Settings Form Submission ──
     async function performSaveSettings(createIfNotExists = false, closeAfterSave = false) {
@@ -5679,6 +5985,8 @@
       const downloadUrl = $('settingsDownloadUrl').value;
       const dictionaryEnabled = ($('settingsEnableDictionary') || {}).checked;
       const dictionaryPath = ($('settingsDictionaryPath') || {}).value;
+      const enableAnnouncement = ($('settingsEnableAnnouncement') || {}).checked;
+      const announcementMessage = ($('settingsAnnouncementMessage') || {}).value;
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const timezone = ($('settingsTimezone') || {}).value || 'auto';
       localStorage.setItem('mdWebview-admin-tz', timezone);
@@ -5695,7 +6003,8 @@
           body: JSON.stringify({
             settings: {
               siteName, siteUrl, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, timezone
+              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, timezone,
+              enableAnnouncement, announcementMessage
             }
           })
         });
@@ -5733,11 +6042,24 @@
             state.siteName = data.settings.siteName;
             updateSiteNameUI();
           }
-          updateWelcomeFooter(data.settings);
           if (data.settings.dictionaryEnabled !== undefined) {
             state.dictionaryEnabled = !!data.settings.dictionaryEnabled;
             syncDictToggleVisibility();
           }
+          if (data.settings.enableAnnouncement !== undefined) {
+            appConfig.enableAnnouncement = data.settings.enableAnnouncement;
+          }
+          if (data.settings.announcementMessage !== undefined) {
+            appConfig.announcementMessage = data.settings.announcementMessage;
+          }
+          if (data.settings.announcementUpdatedAt !== undefined) {
+            appConfig.announcementUpdatedAt = data.settings.announcementUpdatedAt;
+          }
+          if (!appConfig.announcement) appConfig.announcement = {};
+          appConfig.announcement.enabled = !!data.settings.enableAnnouncement;
+          appConfig.announcement.message = data.settings.announcementMessage || '';
+          appConfig.announcement.updatedAt = data.settings.announcementUpdatedAt || 0;
+          updateWelcomeFooter(data.settings);
         }
 
         // Reload the file tree and update UI with new paths
@@ -5807,7 +6129,7 @@
     renderBookmarksList();
     fetchSuggestList();
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.4.5';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6434,6 +6756,10 @@
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
       const tzEl = $('settingsTimezone');
       if (tzEl) tzEl.value = data.settings.timezone || localStorage.getItem('mdWebview-admin-tz') || 'auto';
+      const announceToggleEl = $('settingsEnableAnnouncement');
+      if (announceToggleEl) announceToggleEl.checked = !!data.settings.enableAnnouncement;
+      const announceMsgEl = $('settingsAnnouncementMessage');
+      if (announceMsgEl) announceMsgEl.value = data.settings.announcementMessage || '';
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');

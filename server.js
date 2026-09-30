@@ -18,7 +18,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.4.2';
+let APP_VERSION = '3.4.5';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -978,6 +978,9 @@ let config = {
     downloadUrl: process.env.DOWNLOAD_URL || '',
     dictionaryEnabled: process.env.DICTIONARY_ENABLED ? process.env.DICTIONARY_ENABLED === 'true' : false,
     dictionaryPath: process.env.DICTIONARY_PATH || deriveDictRoot(),
+    enableAnnouncement: process.env.ENABLE_ANNOUNCEMENT ? process.env.ENABLE_ANNOUNCEMENT === 'true' : false,
+    announcementMessage: process.env.ANNOUNCEMENT_MESSAGE || '',
+    announcementUpdatedAt: 0,
     suggestList: {
       adminList: [],
       adminPickCount: 3,
@@ -1000,6 +1003,8 @@ function loadConfig() {
     if (process.env.VERSION !== undefined) config.settings.version = process.env.VERSION;
     if (process.env.ENABLE_DOWNLOAD !== undefined) config.settings.enableDownload = process.env.ENABLE_DOWNLOAD === 'true';
     if (process.env.DOWNLOAD_URL !== undefined) config.settings.downloadUrl = process.env.DOWNLOAD_URL;
+    if (process.env.ENABLE_ANNOUNCEMENT !== undefined) config.settings.enableAnnouncement = process.env.ENABLE_ANNOUNCEMENT === 'true';
+    if (process.env.ANNOUNCEMENT_MESSAGE !== undefined) config.settings.announcementMessage = process.env.ANNOUNCEMENT_MESSAGE;
 
     // 2. Try reading local config.json in APP_ROOT if present
     const defaultConfigPath = path.join(APP_ROOT, 'config.json');
@@ -1028,11 +1033,26 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  fs.promises.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
-    .catch(err => console.error('Error saving config:', err));
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving config:', err);
+  }
 }
 
 loadConfig();
+
+try {
+  if (fs.existsSync(CONFIG_PATH)) {
+    fs.watch(CONFIG_PATH, (eventType) => {
+      if (eventType === 'change') {
+        try {
+          loadConfig();
+        } catch (_) {}
+      }
+    });
+  }
+} catch (_) {}
 
 function getMdRoot() {
   const configured = config.settings.mdRoot;
@@ -1237,7 +1257,7 @@ function getIndexHtml(nonce, req, callback) {
       `<span id="fontSizeDisplay" class="font-size-display">${defaultFontSize}</span>`
     );
 
-    // 8. Inject site name into title and logo
+    // 8. Inject site name into title, logo, welcome title, and modal title
     html = html.replace(
       /<title>.*?<\/title>/i,
       `<title>${siteName} — 佛典經論閱讀器</title>`
@@ -1245,6 +1265,14 @@ function getIndexHtml(nonce, req, callback) {
     html = html.replace(
       /<span class="logo-text">.*?<\/span>/i,
       `<span class="logo-text">${siteName}</span>`
+    );
+    html = html.replace(
+      /<h1 class="welcome-title">.*?<\/h1>/i,
+      `<h1 class="welcome-title">${siteName}</h1>`
+    );
+    html = html.replace(
+      /<h2 class="announcement-header-title" id="announcementModalTitle">.*?<\/h2>/i,
+      `<h2 class="announcement-header-title" id="announcementModalTitle">${siteName}線上閱讀</h2>`
     );
 
     // 9. Inject server config script (with synchronous 0ms theme & font boot for iOS PWA)
@@ -1254,6 +1282,12 @@ function getIndexHtml(nonce, req, callback) {
     delete clientSettings.mdRoot;
     delete clientSettings.dictionaryPath;
     clientSettings.appVersion = APP_VERSION;
+    clientSettings.enableAnnouncement = !!config.settings.enableAnnouncement;
+    clientSettings.announcement = {
+      enabled: !!config.settings.enableAnnouncement,
+      message: config.settings.announcementMessage || '',
+      updatedAt: config.settings.announcementUpdatedAt || 0
+    };
     const configScript = `<script nonce="${nonce}">(function(){try{var t=localStorage.getItem('mdWebview-user-theme')||${safeJsonForScript(defaultTheme)};var c={'obsidian-dark':'#181825','obsidian-light':'#e6e9ef','solarized':'#002b36','zen':'#ece5d8','gruvbox':'#1d2021'}[t]||'#181825';document.documentElement.setAttribute('data-theme',t);document.documentElement.style.backgroundColor=c;var m=document.getElementById('metaThemeColor');if(m)m.setAttribute('content',c);var f=localStorage.getItem('mdWebview-user-fontsize');if(f){document.documentElement.style.setProperty('--content-font-size',f+'px');}}catch(e){}})();window.__APP_CONFIG__ = ${safeJsonForScript(clientSettings)};</script>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', `${configScript}\n</head>`);
@@ -1264,14 +1298,10 @@ function getIndexHtml(nonce, req, callback) {
     return Buffer.from(html, 'utf-8');
   };
 
-  if (rawIndexHtml) {
-    return callback(null, renderDynamicIndex(rawIndexHtml, nonce));
-  }
   const indexPath = path.join(APP_ROOT, 'index.html');
   fs.readFile(indexPath, (err, data) => {
     if (err) return callback(err);
-    rawIndexHtml = data;
-    callback(null, renderDynamicIndex(rawIndexHtml, nonce));
+    callback(null, renderDynamicIndex(data, nonce));
   });
 }
 
@@ -1537,6 +1567,49 @@ function handleRobotsTxt(req, res) {
     'X-Content-Type-Options': 'nosniff'
   }, SECURITY_HEADERS));
   res.end(robots);
+}
+
+let cachedManifestRaw = null;
+function handleManifestJson(req, res) {
+  const manifestPath = path.join(APP_ROOT, 'manifest.json');
+  const generateAndSend = (rawStr) => {
+    try {
+      const parsed = JSON.parse(rawStr);
+      const siteName = (config.settings && config.settings.siteName) ? config.settings.siteName : 'mdWebview';
+      parsed.name = `${siteName} — 佛典經論閱讀器`;
+      parsed.short_name = siteName;
+      const data = Buffer.from(JSON.stringify(parsed, null, 2), 'utf-8');
+      const etag = `"${crypto.createHash('md5').update(data).digest('hex')}"`;
+      const headers = Object.assign({
+        'Content-Type': 'application/manifest+json; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'ETag': etag
+      }, SECURITY_HEADERS);
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, headers);
+        res.end();
+        return;
+      }
+      sendCompressed(req, res, 200, headers, data);
+    } catch (e) {
+      const data = Buffer.from(rawStr, 'utf-8');
+      sendCompressed(req, res, 200, { 'Content-Type': 'application/manifest+json; charset=utf-8' }, data);
+    }
+  };
+
+  if (cachedManifestRaw) {
+    generateAndSend(cachedManifestRaw);
+  } else {
+    fs.readFile(manifestPath, 'utf8', (err, content) => {
+      if (err) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+        res.end('Server Error');
+        return;
+      }
+      cachedManifestRaw = content;
+      generateAndSend(cachedManifestRaw);
+    });
+  }
 }
 
 async function handleSitemapXml(req, res) {
@@ -5225,7 +5298,18 @@ async function handleSuggestList(req, res) {
       const j = Math.floor(Math.random() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
     }
-    sendJSON(res, 200, { items, adminPickCount, hotPickCount, dailyWordCount: dailyWordPicks.length, enabled: sl.enabled !== false });
+    sendJSON(res, 200, {
+      items,
+      adminPickCount,
+      hotPickCount,
+      dailyWordCount: dailyWordPicks.length,
+      enabled: sl.enabled !== false,
+      announcement: {
+        enabled: !!config.settings.enableAnnouncement,
+        message: config.settings.announcementMessage || '',
+        updatedAt: config.settings.announcementUpdatedAt || 0
+      }
+    });
   } catch (err) {
     Logger.error('Suggest', 'Failed to build suggestion list', err, req);
     sendJSON(res, 500, { error: 'Failed to load suggestions' });
@@ -5702,12 +5786,15 @@ const server = http.createServer((req, res) => {
     }
   }
 
-  // SEO routes
+  // SEO & PWA routes
   if (pathname === '/robots.txt' && (req.method === 'GET' || req.method === 'HEAD')) {
     return handleRobotsTxt(req, res);
   }
   if (pathname === '/sitemap.xml' && (req.method === 'GET' || req.method === 'HEAD')) {
     return handleSitemapXml(req, res);
+  }
+  if (pathname === '/manifest.json' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleManifestJson(req, res);
   }
 
   // API routes
@@ -5884,7 +5971,7 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
     return readJSONBody(req).then(data => {
-      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath } = data.settings || {};
+      const { mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists, enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage } = data.settings || {};
       if (!mdRoot || mdRoot.trim() === '') {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
@@ -5926,6 +6013,20 @@ const server = http.createServer((req, res) => {
         }
         if (downloadUrl !== undefined) {
           config.settings.downloadUrl = String(downloadUrl).trim();
+        }
+        if (enableAnnouncement !== undefined) {
+          const nextEnabled = (enableAnnouncement === true || enableAnnouncement === 'true' || enableAnnouncement === 1 || enableAnnouncement === '1' || enableAnnouncement === 'on');
+          if (config.settings.enableAnnouncement !== nextEnabled) {
+            config.settings.enableAnnouncement = nextEnabled;
+            config.settings.announcementUpdatedAt = Date.now();
+          }
+        }
+        if (announcementMessage !== undefined) {
+          const cleanMsg = String(announcementMessage).trim();
+          if (config.settings.announcementMessage !== cleanMsg) {
+            config.settings.announcementMessage = cleanMsg;
+            config.settings.announcementUpdatedAt = Date.now();
+          }
         }
         if (maxProximityDistance !== undefined) {
           const dist = parseInt(maxProximityDistance);
