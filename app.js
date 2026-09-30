@@ -7694,6 +7694,7 @@
 
         try {
           const payload = {
+            mdRoot: _lastAdminSettings?.mdRoot || ($('settingsMdRoot') || {}).value || undefined,
             seoSiteDescription: ($('seoSiteDescription') || {}).value || '',
             seoKeywords: ($('seoKeywords') || {}).value || '',
             seoOgImage: ($('seoOgImage') || {}).value || '',

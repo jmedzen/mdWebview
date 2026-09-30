@@ -6506,13 +6506,20 @@ const server = http.createServer((req, res) => {
         enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance,
         dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
         seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
-        googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoEnableSearchBox, seoHomepageSummary
       } = data.settings || {};
-      if (!mdRoot || mdRoot.trim() === '') {
+
+      // Allow partial settings updates: if mdRoot is omitted, preserve existing config.settings.mdRoot
+      if (mdRoot !== undefined && (!mdRoot || mdRoot.trim() === '')) {
         return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
       }
 
-      const resolvedPath = path.resolve(mdRoot.trim());
+      const resolvedPath = (mdRoot !== undefined)
+        ? path.resolve(mdRoot.trim())
+        : (config.settings.mdRoot ? path.resolve(config.settings.mdRoot) : '');
+
+      if (!resolvedPath) {
+        return sendJSON(res, 400, { error: 'Directory path cannot be empty' });
+      }
       const nextDictEnabled = dictionaryEnabled !== undefined ? !!dictionaryEnabled : config.settings.dictionaryEnabled;
       const nextDictPath = (dictionaryPath !== undefined)
         ? (String(dictionaryPath).trim() ? path.resolve(String(dictionaryPath).trim()) : deriveDictRoot(resolvedPath))
@@ -6637,6 +6644,16 @@ const server = http.createServer((req, res) => {
         }
         return updateSettings();
       };
+
+      // If neither mdRoot nor dictionary settings were specified, bypass directory checks (partial update)
+      if (mdRoot === undefined && dictionaryEnabled === undefined && dictionaryPath === undefined) {
+        return updateSettings();
+      }
+
+      // If only dictionary settings were updated, check dictionary directory directly
+      if (mdRoot === undefined) {
+        return afterVaultOk();
+      }
 
       return fs.promises.stat(resolvedPath).then(stats => {
         if (!stats.isDirectory()) {
