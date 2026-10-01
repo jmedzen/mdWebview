@@ -34,6 +34,7 @@ jobs:
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           token: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+          package: mdwebview
           keep-n-tagged: ${{ inputs.keep_n_tagged || 5 }}
           exclude-tags: 'latest,main,dev'
           delete-untagged: true
