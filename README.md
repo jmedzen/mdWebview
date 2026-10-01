@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v1.13.5) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.5.4) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -32,12 +32,15 @@
 - 🔎 **浮動本頁搜尋**：支援透過快速鍵喚出頁面內搜尋框（`Ctrl + F`），具備相符項目計數、高亮與前後切換功能。
 - 🅰️ **動態字型與版寬控制**：可自由調整閱讀區域字型大小，預設基準根據管理員後台「預設字體大小」連動 UI 縮放。
 - 🔗 **分享與精確跳轉**：支援 URL 參數分享（`?file=...&line=...`），能直接定位並亮顯目標行號；支援 `?frontpage=1` 或 `?home=1` 參數強制開啟首頁。
+- 🌐 **全方位 SEO 與社群卡片**：內建爬蟲專用 SSR 預渲染、Schema.org JSON-LD 結構化資料、動態 `sitemap.xml` 與 `robots.txt`，並提供後台 OpenGraph 社群卡片即時預覽。
 - 🔒 **安全性、後台管理與日誌修剪**：
   - 內建 PBKDF2 密碼雜湊防護、IP Rate-Limiting 防暴力破解與 Session 管理。
   - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。
   - **7 天 Log 修剪與全時段統計保留**：7 天以上歷史日誌自動精簡瘦身（節省 85% ~ 95% 空間），同時永久保留極簡統計資料以維護 `allTime` 全時段分析計算。
 - 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險。
-- 🐳 **Docker 與 CI/CD 支援**：內建 Dockerfile、`docker-compose.yml` 與 GitHub Actions，自動發布多平台 Docker Image 至 GHCR (`ghcr.io`)。
+- 🐳 **Docker 與 GitHub Actions 自動化 CI/CD**：
+  - **多平台映像檔構建**：內建 Dockerfile、`docker-compose.yml` 與 GitHub Actions，自動發布 `linux/amd64` 與 `linux/arm64` 雙架構 Docker Image 至 GHCR (`ghcr.io`)。
+  - **GHCR 自動清理工作流程**：配備自動映像檔修剪維護機制（`cleanup-ghcr.yml`），構建完成後全自動執行或每週定時排程，自動保留最新 5 個版本、保護 `latest`/`main`/`dev` 分支標籤，並徹底清除未標記（untagged）與孤立 multi-arch 子層。
 
 ---
 
@@ -47,6 +50,9 @@
 
 ```text
 mdWebview/
+├── .github/workflows/  # GitHub Actions 自動化工作流程
+│   ├── docker-image.yml# 多平台 Docker 映像檔構建與發布 (GHCR)
+│   └── cleanup-ghcr.yml# GHCR 映像檔自動清理維護（保留最新 5 版本）
 ├── md/                 # 存放 Markdown 文件庫（支援多層資料夾）
 ├── dicts/              # 辭典檔案目錄（.txt 格式，每條目 === 分隔）
 ├── index.html          # 前端 SPA Shell（含 PWA manifest 引用、SSR 注入點）
@@ -64,7 +70,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.5.3）
+├── package.json        # Node.js 套件設定（v3.5.4）
 └── README.md           # 本說明文件
 ```
 
@@ -148,7 +154,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v1.13.5) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.5.4) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -174,12 +180,15 @@ docker-compose up -d
 - 🔎 **In-Page Search**: Floating in-page search bar (`Ctrl + F`) with match counts and previous/next navigation.
 - 🅰️ **Dynamic Font & Width Scaling**: Easily scale reading font size and container max width.
 - 🔗 **URL Sharing & Deep Linking**: Share exact reading positions using `?file=...&line=...`, or force frontpage display with `?frontpage=1`.
+- 🌐 **Comprehensive SEO & Social Cards**: Built-in Crawler SSR pre-rendering, Schema.org JSON-LD structured data, dynamic `sitemap.xml` & `robots.txt`, and Admin OpenGraph social card live preview.
 - 🔒 **Security, Admin Panel & 7-Day Log Pruning**:
   - Built-in PBKDF2 password hashing, IP rate limiting, and session management.
   - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export.
   - **7-Day Log Pruning**: Log files older than 7 days are automatically pruned (saving 85%–95% disk space) while permanently retaining lightweight analytics data for `allTime` calculations.
 - 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies.
-- 🐳 **Docker & CI/CD Integration**: Includes Dockerfile, `docker-compose.yml`, and GitHub Actions workflow for multi-arch container image publishing (`ghcr.io`).
+- 🐳 **Docker & GitHub Actions Automated CI/CD**:
+  - **Multi-Architecture Builds**: Automatically builds and publishes multi-platform (`linux/amd64`, `linux/arm64`) container images to GitHub Container Registry (`ghcr.io`).
+  - **GHCR Automated Image Cleanup**: Built-in retention workflow (`cleanup-ghcr.yml`) triggered automatically after image builds or via weekly schedule, retaining the latest 5 versions, protecting `latest`/`main`/`dev` pointer tags, and safely purging untagged/orphaned manifests.
 
 ---
 
@@ -189,6 +198,9 @@ docker-compose up -d
 
 ```text
 mdWebview/
+├── .github/workflows/  # GitHub Actions automated workflows
+│   ├── docker-image.yml# Multi-arch Docker image build & publish to GHCR
+│   └── cleanup-ghcr.yml# Automated GHCR image pruning (retains latest 5 versions)
 ├── md/                 # Markdown document vault (supports nested directories)
 ├── dicts/              # Dictionary files directory (.txt, entries separated by ===)
 ├── index.html          # Frontend SPA shell (SSR injection point, PWA manifest link)
@@ -206,7 +218,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.5.3)
+├── package.json        # Node.js package manifest (v3.5.4)
 └── README.md           # Project documentation
 ```
 

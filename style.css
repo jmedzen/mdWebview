@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.5.3
+   mdWebview — Style System (style.css) v3.5.4
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -6380,55 +6380,6 @@ body.modal-open {
   max-width: 50%;
 }
 
-/* Suggest Live Preview Box */
-.suggest-preview-section {
-  margin-top: 12px;
-}
-
-.suggest-live-preview-box {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 10px;
-  min-height: 80px;
-}
-
-.preview-hint {
-  color: var(--text-muted);
-  font-size: 12px;
-  text-align: center;
-  padding: 8px;
-}
-
-.preview-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 4px 8px;
-  margin: 3px;
-  font-size: 12px;
-}
-
-.preview-badge-admin {
-  color: #d29922;
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.preview-badge-hot {
-  color: #f778ba;
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.preview-badge-word {
-  color: #7aa2f7;
-  font-weight: 600;
-  font-size: 11px;
-}
 
 /* OpenGraph Social Card Live Preview */
 .og-preview-card {
