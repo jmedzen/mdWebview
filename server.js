@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.5.2
+ * @version 3.5.3
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -55,7 +55,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.5.2';
+let APP_VERSION = '3.5.3';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -6125,6 +6125,228 @@ async function handleRebuildDictIndex(req, res) {
   }
 }
 
+async function handleAdminPassword(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+  if (!config.admin) {
+    return sendJSON(res, 400, { error: 'Admin is not configured yet' });
+  }
+
+  try {
+    const data = await readJSONBody(req);
+    const { currentPassword, newPassword } = data;
+    if (!currentPassword || !newPassword) {
+      return sendJSON(res, 400, { error: '請提供目前密碼與新密碼' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return sendJSON(res, 400, { error: '新密碼長度至少需為 8 個字元' });
+    }
+
+    // Check current password
+    const hashedCurrent = await hashPassword(currentPassword, config.admin.salt, 100000).catch(() => null);
+    let isCurrentCorrect = hashedCurrent && timingSafeCompare(hashedCurrent.hash, config.admin.passwordHash);
+    if (!isCurrentCorrect) {
+      // Legacy fallback
+      const legacy = await hashPassword(currentPassword, config.admin.salt, 1000).catch(() => null);
+      isCurrentCorrect = legacy && timingSafeCompare(legacy.hash, config.admin.passwordHash);
+    }
+    if (!isCurrentCorrect) {
+      return sendJSON(res, 403, { error: '目前密碼不正確' });
+    }
+
+    // Generate new salt and hash with 100,000 iterations
+    const newCredentials = await hashPassword(newPassword);
+    config.admin.passwordHash = newCredentials.hash;
+    config.admin.salt = newCredentials.salt;
+    saveConfig();
+
+    // Revoke other session tokens, keeping current caller's session valid
+    const currentToken = req.headers['x-admin-token'];
+    for (const token of sessions.keys()) {
+      if (token !== currentToken) {
+        sessions.delete(token);
+      }
+    }
+
+    Logger.info('Admin', `Admin password changed successfully from ${getClientIP(req)}`, null, req);
+    return sendJSON(res, 200, { success: true, message: '管理員密碼已成功更新，已登出其他裝置。' });
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
+async function handleAdminDiagnosePath(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+
+  try {
+    const data = await readJSONBody(req);
+    const { targetPath, type } = data; // type: 'vault' | 'dict'
+    if (!targetPath || typeof targetPath !== 'string') {
+      return sendJSON(res, 400, { error: '請提供要檢測的路徑' });
+    }
+
+    const resolved = path.resolve(targetPath.trim());
+    if (!fs.existsSync(resolved)) {
+      return sendJSON(res, 200, {
+        exists: false,
+        path: resolved,
+        error: '該路徑不存在。請確認路徑或 Docker 卷是否已正確掛載。'
+      });
+    }
+
+    const stats = fs.statSync(resolved);
+    if (!stats.isDirectory()) {
+      return sendJSON(res, 200, {
+        exists: true,
+        isDir: false,
+        path: resolved,
+        error: '該路徑存在但不是目錄（為一般檔案）。'
+      });
+    }
+
+    // Check readability
+    try {
+      fs.accessSync(resolved, fs.constants.R_OK);
+    } catch (e) {
+      return sendJSON(res, 200, {
+        exists: true,
+        isDir: true,
+        readable: false,
+        path: resolved,
+        error: '該目錄無讀取權限 (Permission Denied)。'
+      });
+    }
+
+    let writable = true;
+    try {
+      fs.accessSync(resolved, fs.constants.W_OK);
+    } catch (_) {
+      writable = false;
+    }
+
+    let filesCount = 0;
+    let sampleNames = [];
+    if (type === 'dict') {
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      const dictFiles = entries.filter(e => e.isFile() && !e.name.startsWith('.'));
+      filesCount = dictFiles.length;
+      sampleNames = dictFiles.slice(0, 8).map(e => e.name);
+    } else {
+      // type === 'vault': count markdown files quickly
+      const stack = [resolved];
+      while (stack.length > 0 && filesCount < 50000) {
+        const cur = stack.pop();
+        try {
+          const entries = fs.readdirSync(cur, { withFileTypes: true });
+          for (const ent of entries) {
+            if (ent.name.startsWith('.')) continue;
+            if (ent.isDirectory()) {
+              stack.push(path.join(cur, ent.name));
+            } else if (ent.isFile() && ent.name.toLowerCase().endsWith('.md')) {
+              filesCount++;
+              if (sampleNames.length < 5) sampleNames.push(ent.name);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    return sendJSON(res, 200, {
+      exists: true,
+      isDir: true,
+      readable: true,
+      writable,
+      path: resolved,
+      count: filesCount,
+      sampleNames,
+      type: type || 'vault'
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
+async function handleAdminRebuildSitemap(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+
+  try {
+    const t0 = Date.now();
+    cachedSitemapXml = null;
+    cachedTree = null;
+
+    const tree = await scanDirAsync(getMdRoot(), '');
+    cachedTree = tree;
+    const files = flattenMarkdownFiles(tree);
+    const today = new Date().toISOString().slice(0, 10);
+    const baseUrl = getBaseUrl(req);
+
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+    xml += '  <url>\n';
+    xml += `    <loc>${escapeXml(baseUrl)}/</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>1.0</priority>\n';
+    xml += '  </url>\n';
+
+    for (const file of files) {
+      const locUrl = `${baseUrl}/?file=${encodeURIComponent(file.path)}`;
+      let lastmod = today;
+      if (file.mtime) {
+        try {
+          lastmod = new Date(file.mtime).toISOString().slice(0, 10);
+        } catch (_) {}
+      }
+      xml += '  <url>\n';
+      xml += `    <loc>${escapeXml(locUrl)}</loc>\n`;
+      xml += `    <lastmod>${lastmod}</lastmod>\n`;
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.8</priority>\n';
+      xml += '  </url>\n';
+    }
+    xml += '</urlset>\n';
+
+    cachedSitemapXml = xml;
+    const durationMs = Date.now() - t0;
+    Logger.info('SEO', `Sitemap rebuilt: ${files.length + 1} URLs generated in ${durationMs}ms`, null, req);
+
+    return sendJSON(res, 200, {
+      success: true,
+      totalUrls: files.length + 1,
+      durationMs,
+      sitemapUrl: `${baseUrl}/sitemap.xml`
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { error: err.message });
+  }
+}
+
+function handleAdminClearCache(req, res) {
+  if (!isAuthenticated(req)) {
+    return sendJSON(res, 401, { error: 'Unauthorized' });
+  }
+
+  const staticCount = staticCache.size;
+  const searchCount = searchCache.size;
+  staticCache.clear();
+  searchCache.clear();
+  cachedSitemapXml = null;
+  cachedTree = null;
+
+  Logger.info('Admin', `In-memory caches cleared: ${staticCount} static entries, ${searchCount} search entries`, null, req);
+  return sendJSON(res, 200, {
+    success: true,
+    staticCount,
+    searchCount,
+    message: `已清空 ${staticCount} 個靜態資源快取、${searchCount} 筆搜尋快取與 Sitemap 快取。`
+  });
+}
+
 /**
  * 傳回已聚合的 Analytics 統計資料（GET /api/admin/analytics?range=...&tz=...）。
  * 需要後台認證（isAuthenticated）。
@@ -6713,6 +6935,26 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/admin/rebuild-dict-index' && req.method === 'POST') {
     return handleRebuildDictIndex(req, res);
+  }
+
+  // Admin password change API
+  if (pathname === '/api/admin/password' && req.method === 'POST') {
+    return handleAdminPassword(req, res);
+  }
+
+  // Admin diagnose path API
+  if (pathname === '/api/admin/diagnose-path' && req.method === 'POST') {
+    return handleAdminDiagnosePath(req, res);
+  }
+
+  // Admin rebuild sitemap API
+  if (pathname === '/api/admin/rebuild-sitemap' && req.method === 'POST') {
+    return handleAdminRebuildSitemap(req, res);
+  }
+
+  // Admin clear cache API
+  if (pathname === '/api/admin/clear-cache' && req.method === 'POST') {
+    return handleAdminClearCache(req, res);
   }
 
   // Public suggest-list API (no auth required)
