@@ -7631,13 +7631,13 @@
         if (descEl) descEl.value = settings.seoSiteDescription || '';
         if (kwEl) kwEl.value = settings.seoKeywords || '';
         if (ogImgEl) ogImgEl.value = settings.seoOgImage || '/og-preview.png';
-        if (robIdxEl) robIdxEl.checked = settings.seoRobotsIndex !== false;
+        if (robIdxEl) robIdxEl.checked = settings.seoRobotsIndex === true;
         if (blockAiEl) blockAiEl.checked = settings.seoBlockAiBots !== false;
         if (disallowEl) disallowEl.value = settings.seoDisallowPaths || '/api/\n/vendor/';
         if (gVerEl) gVerEl.value = settings.googleSiteVerification || '';
         if (bingVerEl) bingVerEl.value = settings.bingSiteVerification || '';
         if (baiduVerEl) baiduVerEl.value = settings.baiduSiteVerification || '';
-        if (searchBoxEl) searchBoxEl.checked = settings.seoEnableSearchBox !== false;
+        if (searchBoxEl) searchBoxEl.checked = settings.seoEnableSearchBox === true;
         if (summaryEl) summaryEl.value = settings.seoHomepageSummary || '';
       }
 
