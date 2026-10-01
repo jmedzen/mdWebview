@@ -1,0 +1,43 @@
+name: Cleanup Old GHCR Images
+
+on:
+  schedule:
+    # 每週日 UTC 03:00 (台北時間 11:00) 自動執行定期維護清理
+    - cron: '0 3 * * 0'
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run 模式 (僅預覽將刪除的映像檔，不實際刪除)'
+        type: boolean
+        default: false
+      keep_n_tagged:
+        description: '保留最新的版本數量 (keep-n-tagged)'
+        type: number
+        default: 5
+
+jobs:
+  cleanup:
+    name: Cleanup GHCR Container Images
+    runs-on: ubuntu-latest
+    # 若是由 workflow_run 觸發，僅在構建成功時執行；若是手動或排程則直接執行
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: Cleanup old GHCR images
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+          keep-n-tagged: ${{ inputs.keep_n_tagged || 5 }}
+          exclude-tags: 'latest,main,dev'
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
+          delete-orphaned-images: true
+          dry-run: ${{ inputs.dry_run == true }}

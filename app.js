@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.5.3
+   mdWebview — Application Logic (app.js) v3.5.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6366,7 +6366,7 @@
     renderBookmarksList();
     fetchSuggestList(false);
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6659,7 +6659,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.5.3',
+            version: data.settings?.version || '3.5.4',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -7812,7 +7812,6 @@
         tabSuggestBtn.classList.add('active');
         if (paneSuggest) paneSuggest.style.display = 'block';
         loadSuggestSettings();
-        renderSuggestLivePreview();
       });
     }
 
@@ -7963,7 +7962,6 @@
           searchInput.value = '';
           if (clearBtn) clearBtn.style.display = 'none';
           closeDropdown();
-          renderSuggestLivePreview();
         });
       });
     });
@@ -7981,49 +7979,6 @@
         closeDropdown();
       }
     });
-  }
-
-  function renderSuggestLivePreview() {
-    const box = $('suggestLivePreviewBox');
-    if (!box) return;
-
-    const enabled = $('suggestEnabled') ? $('suggestEnabled').checked : true;
-    const adminListRaw = ($('suggestAdminList') || {}).value || '';
-    const adminPickCount = parseInt(($('suggestAdminPickCount') || {}).value, 10) || 3;
-    const hotPickCount = parseInt(($('suggestHotPickCount') || {}).value, 10) || 5;
-    const dailyWordCount = parseInt(($('suggestDailyWordCount') || {}).value, 10) || 3;
-
-    const adminLines = adminListRaw.split('\n').map(l => l.trim()).filter(Boolean);
-    const chosenAdmin = adminLines.slice(0, adminPickCount);
-
-    let html = '';
-    if (!enabled) {
-      html += '<div class="preview-hint" style="color: #f85149;">⚠️ 目前「啟用首頁推薦閱讀」為關閉狀態。若開啟，首頁將呈現以下組合：</div>';
-    } else {
-      html += '<div class="preview-hint">讀者開啟首頁時，將會動態呈現下列結構的卡片組合：</div>';
-    }
-
-    html += '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">';
-
-    if (chosenAdmin.length > 0) {
-      for (const item of chosenAdmin) {
-        const fileName = item.split('/').pop().replace(/\.md$/i, '');
-        html += `<span class="preview-chip"><span class="preview-badge-admin">★ 推薦</span> ${escHtml(fileName)}</span>`;
-      }
-    } else {
-      html += `<span class="preview-chip" style="opacity: 0.6;"><span class="preview-badge-admin">★ 推薦</span> 尚未設定管理員推薦經文</span>`;
-    }
-
-    for (let i = 1; i <= Math.min(hotPickCount, 5); i++) {
-      html += `<span class="preview-chip"><span class="preview-badge-hot">🔥 熱門 #${i}</span> (系統隨機熱門)</span>`;
-    }
-
-    for (let i = 1; i <= Math.min(dailyWordCount, 3); i++) {
-      html += `<span class="preview-chip"><span class="preview-badge-word">📖 每日詞條</span> (辭典抽取)</span>`;
-    }
-
-    html += '</div>';
-    box.innerHTML = html;
   }
 
   function updateOgLivePreview() {
@@ -8150,22 +8105,6 @@
       });
     }
 
-    const previewBtn = $('btnRefreshSuggestPreview');
-    if (previewBtn && !previewBtn._hasPreviewHandler) {
-      previewBtn._hasPreviewHandler = true;
-      previewBtn.addEventListener('click', () => {
-        renderSuggestLivePreview();
-      });
-    }
-
-    ['suggestAdminList', 'suggestAdminPickCount', 'suggestHotPickCount', 'suggestDailyWordCount', 'suggestEnabled'].forEach(id => {
-      const el = $(id);
-      if (el && !el._hasLivePreviewListener) {
-        el._hasLivePreviewListener = true;
-        el.addEventListener('input', () => renderSuggestLivePreview());
-        el.addEventListener('change', () => renderSuggestLivePreview());
-      }
-    });
 
     const form = $('adminSuggestForm');
     if (!form) return;
@@ -8242,7 +8181,6 @@
 
         _lastAdminSettings = data.settings || null;
         setAdminDirty(false);
-        renderSuggestLivePreview();
 
         if (successEl) {
           successEl.textContent = '推薦設定已儲存';
@@ -8313,7 +8251,6 @@
       if (dailyCountEl && settings) dailyCountEl.value = sl.dailyWordCount ?? 3;
       if (dailyRotateEl && settings) dailyRotateEl.value = sl.dailyWordRotateHour ?? 12;
       if (enabledEl && settings) enabledEl.checked = sl.enabled === true;
-      renderSuggestLivePreview();
 
       // 3. Render dictionary files
       const dictData = await dictPromise;

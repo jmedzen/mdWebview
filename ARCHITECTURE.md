@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.5.3 | 最後更新：2026-10
+> 版本：v3.5.4 | 最後更新：2026-10
 
 ---
 
@@ -20,6 +20,7 @@
 10. [關鍵常數速查](#10-關鍵常數速查)
 11. [Worker Thread 架構](#11-worker-thread-架構)
 12. [安全性設計](#12-安全性設計)
+13. [CI/CD 與自動化維護工作流程](#13-cicd-與自動化維護工作流程)
 
 ---
 
@@ -401,3 +402,59 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
 | **IP Rate Limiting** | `checkApiRateLimit()` | 每 IP 30 req/s 滑動視窗；超限 HTTP 429 |
 | **XSS 防護** | `escapeHtmlString()` | 所有 SSR 注入的設定值均 HTML 轉義 |
 | **Bot token 遮蔽** | 存取日誌中介 | URL 中的 `?token=...` 在記錄前自動遮蔽 |
+
+---
+
+## 13. CI/CD 與自動化維護工作流程
+
+專案配備 GitHub Actions 現代化持續整合與部署管線，提供多架構容器化發布與全自動鏡像生命週期維護：
+
+```mermaid
+flowchart TD
+    GitPush["Git Push / Tag\n(main, dev, v*.*.*)"] --> BuildPush["⚙️ docker-image.yml\n(Build and Push Docker Image)"]
+    BuildPush --> SetupEnv["QEMU + Docker Buildx\n(linux/amd64, linux/arm64)"]
+    SetupEnv --> PushGHCR["發布映像檔至 GHCR\n(ghcr.io/jmedzen/mdwebview)"]
+    PushGHCR --> WorkflowRunTrigger{"workflow_run\n(構建成功？)"}
+    
+    CronTrigger["⏰ 每週日定時排程\n(cron: 0 3 * * 0)"] --> CleanupGHCR
+    ManualTrigger["🎛️ 手動觸發\n(workflow_dispatch\n可選 dry_run / keep_n)"] --> CleanupGHCR
+    WorkflowRunTrigger -- "是" --> CleanupGHCR["🧹 cleanup-ghcr.yml\n(Cleanup Old GHCR Images)"]
+    WorkflowRunTrigger -- "否" --> EndSkip["略過清理"]
+
+    CleanupGHCR --> CheckPolicy["dataaxiom/ghcr-cleanup-action@v1\n多架構智能清理策略"]
+    CheckPolicy --> Rule1["保護常態標籤：exclude-tags (latest, main, dev)"]
+    CheckPolicy --> Rule2["版本保留限制：keep-n-tagged (最新 5 個版本)"]
+    CheckPolicy --> Rule3["清除未標記與孤立層：delete-untagged / partial / ghost"]
+    CheckPolicy --> Cleaned["GHCR 儲存空間瘦身完成\n（無 dangling/orphaned manifests）"]
+```
+
+### 工作流程詳細說明
+
+#### 1. 容器映像檔構建與發布 (`.github/workflows/docker-image.yml`)
+- **觸發條件**：
+  - Push 至 `main` 或 `dev` 分支
+  - 發布符合 SemVer 規範的 Git Tag（`v*.*.*`）
+  - 手動 `workflow_dispatch`
+- **架構特點**：
+  - 透過 QEMU 與 Docker Buildx 進行跨架構原生編譯，產出 `linux/amd64` 與 `linux/arm64` 雙架構映像檔。
+  - **Tagging 策略**：
+    - `main` 分支對應 `latest` 與 `main` 標籤。
+    - `dev` 分支對應 `dev` 標籤。
+    - Git Tag 對應語意化版本號（如 `v3.5.4`、`3.5.4`）。
+  - **快取機制**：採用 GitHub Actions 快取後端（`type=gha`），顯著縮短二度建置耗時。
+
+#### 2. GHCR 舊映像自動修剪維護 (`.github/workflows/cleanup-ghcr.yml`)
+- **解決挑戰**：
+  - Docker 雙架構映像在 GHCR 中會以 Manifest List 索引多個子架構層（未標記的 untagged manifests）。
+  - 若使用原生 API 或一般套件刪除工具，容易留下孤立的子架構層或誤傷有效映像。
+- **採用技術**：`dataaxiom/ghcr-cleanup-action@v1`（專為 GHCR 與 Multi-Arch 設計）。
+- **清理策略**：
+  - **保留最新版本數**：`keep-n-tagged: 5`（預設保留最新的 5 個版本）。
+  - **核心標籤豁免**：`exclude-tags: 'latest,main,dev'`，確保首頁部署與核心指標永不被刪除。
+  - **深層清理**：啟用 `delete-untagged`、`delete-ghost-images`、`delete-partial-images` 與 `delete-orphaned-images`，徹底清除殘留的中間層與斷頭清單。
+- **三重觸發**：
+  1. **全自動流水線（`workflow_run`）**：在「Build and Push Docker Image」成功完成後無縫自動接續執行。
+  2. **定時排程（`schedule`）**：每週日 UTC 03:00（台北時間 11:00）執行全面深度維護。
+  3. **手動測試（`workflow_dispatch`）**：可手動執行，支援勾選 `dry_run`（僅預覽輸出將刪除的 Digest 清單而不執行真實刪除）與自訂保留數量。
+- **權限容錯**：配置 `token: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}`，優先使用預設工作流程 Token，必要時亦可透過倉庫 Secret `GHCR_PAT` 擴充權限。
+
