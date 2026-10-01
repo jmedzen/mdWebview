@@ -1062,8 +1062,8 @@ let config = {
       dailyWordRotateHour: 12,
       enabled: false
     },
-    seoSiteDescription: process.env.SEO_SITE_DESCRIPTION || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。',
-    seoKeywords: process.env.SEO_KEYWORDS || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview',
+    seoSiteDescription: process.env.SEO_SITE_DESCRIPTION || '',
+    seoKeywords: process.env.SEO_KEYWORDS || '',
     seoOgImage: process.env.SEO_OG_IMAGE || '/og-preview.png',
     seoRobotsIndex: process.env.SEO_ROBOTS_INDEX !== undefined ? process.env.SEO_ROBOTS_INDEX === 'true' : false,
     seoBlockAiBots: process.env.SEO_BLOCK_AI_BOTS !== undefined ? process.env.SEO_BLOCK_AI_BOTS === 'true' : true,
@@ -1072,7 +1072,7 @@ let config = {
     bingSiteVerification: process.env.BING_SITE_VERIFICATION || '',
     baiduSiteVerification: process.env.BAIDU_SITE_VERIFICATION || '',
     seoEnableSearchBox: process.env.SEO_ENABLE_SEARCH_BOX !== undefined ? process.env.SEO_ENABLE_SEARCH_BOX === 'true' : false,
-    seoHomepageSummary: process.env.SEO_HOMEPAGE_SUMMARY || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。'
+    seoHomepageSummary: process.env.SEO_HOMEPAGE_SUMMARY || ''
   }
 };
 
@@ -1141,8 +1141,10 @@ function loadConfig() {
 function saveConfig() {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+    return true;
   } catch (err) {
-    console.error('Error saving config:', err);
+    console.error('[Config] Error saving config to ' + CONFIG_PATH + ':', err);
+    throw err;
   }
 }
 
@@ -1318,8 +1320,8 @@ function getIndexHtml(nonce, req, callback) {
     const ogImageUrl = rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')
       ? rawOgImage
       : (baseUrl ? `${baseUrl}${rawOgImage.startsWith('/') ? '' : '/'}${rawOgImage}` : rawOgImage);
-    const siteDesc = escapeHtmlString(config.settings.seoSiteDescription || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。');
-    const siteKeywords = escapeHtmlString(config.settings.seoKeywords || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview');
+    const siteDesc = escapeHtmlString(config.settings.seoSiteDescription || '');
+    const siteKeywords = escapeHtmlString(config.settings.seoKeywords || '');
     const robotsContent = config.settings.seoRobotsIndex === true ? 'index, follow' : 'noindex, nofollow';
     const gVer = escapeHtmlString(config.settings.googleSiteVerification || '');
     const bingVer = escapeHtmlString(config.settings.bingSiteVerification || '');
@@ -1349,14 +1351,20 @@ function getIndexHtml(nonce, req, callback) {
     html = html.replace(/<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${siteName} — 佛典經論閱讀器">`);
 
     // 5. Dynamic SEO Meta Description & Keywords
-    html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${siteDesc}">`);
-    html = html.replace(/<meta property="og:description" content="[^"]*">/i, `<meta property="og:description" content="${siteDesc}">`);
-    html = html.replace(/<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${siteDesc}">`);
+    if (siteDesc) {
+      html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${siteDesc}">`);
+      html = html.replace(/<meta property="og:description" content="[^"]*">/i, `<meta property="og:description" content="${siteDesc}">`);
+      html = html.replace(/<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${siteDesc}">`);
+    }
 
-    if (html.includes('<meta name="keywords"')) {
-      html = html.replace(/<meta name="keywords" content="[^"]*">/i, `<meta name="keywords" content="${siteKeywords}">`);
+    if (siteKeywords) {
+      if (html.includes('<meta name="keywords"')) {
+        html = html.replace(/<meta name="keywords" content="[^"]*">/i, `<meta name="keywords" content="${siteKeywords}">`);
+      } else {
+        html = html.replace('</head>', `  <meta name="keywords" content="${siteKeywords}">\n</head>`);
+      }
     } else {
-      html = html.replace('</head>', `  <meta name="keywords" content="${siteKeywords}">\n</head>`);
+      html = html.replace(/\s*<meta name="keywords"[^>]*>\n?/i, '\n');
     }
 
     // 6. Robots & Webmaster Verification Meta Tags
@@ -1400,7 +1408,7 @@ function getIndexHtml(nonce, req, callback) {
         "@type": "WebSite",
         "name": config.settings.siteName || 'mdWebview',
         "url": canonicalBase,
-        "description": config.settings.seoSiteDescription || '線上佛典經論閱讀器',
+        "description": config.settings.seoSiteDescription || config.settings.siteName || 'mdWebview',
         "inLanguage": "zh-TW",
         "potentialAction": {
           "@type": "SearchAction",
@@ -2011,7 +2019,7 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       let html = baseHtmlBuffer.toString('utf-8');
       const canonicalUrl = `${baseUrl}/`;
       const pageTitle = `${siteName} — 佛典經論閱讀器`;
-      const homeSummary = config.settings.seoHomepageSummary || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。';
+      const homeSummary = config.settings.seoHomepageSummary || config.settings.seoSiteDescription || `${siteName} — 線上閱讀與經論研習。`;
       const safeDesc = escapeHtmlString(config.settings.seoSiteDescription || homeSummary);
 
       // Render rich semantic homepage content for bots to eliminate Soft 404
