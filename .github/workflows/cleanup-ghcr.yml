@@ -19,6 +19,10 @@ on:
         type: number
         default: 5
 
+concurrency:
+  group: cleanup-ghcr
+  cancel-in-progress: true
+
 jobs:
   cleanup:
     name: Cleanup GHCR Container Images
