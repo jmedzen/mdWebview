@@ -7449,19 +7449,6 @@
           },
           body: JSON.stringify({
             settings: {
-              mdRoot: s.mdRoot,
-              defaultFontSize: s.defaultFontSize,
-              defaultTheme: s.defaultTheme,
-              siteName: s.siteName,
-              siteUrl: s.siteUrl,
-              timezone: s.timezone,
-              enableVersion: s.enableVersion,
-              version: s.version,
-              enableDownload: s.enableDownload,
-              downloadUrl: s.downloadUrl,
-              maxProximityDistance: s.maxProximityDistance,
-              dictionaryEnabled: s.dictionaryEnabled,
-              dictionaryPath: s.dictionaryPath,
               suggestList: {
                 adminList,
                 adminPickCount,
@@ -7694,7 +7681,6 @@
 
         try {
           const payload = {
-            mdRoot: _lastAdminSettings?.mdRoot || ($('settingsMdRoot') || {}).value || undefined,
             seoSiteDescription: ($('seoSiteDescription') || {}).value || '',
             seoKeywords: ($('seoKeywords') || {}).value || '',
             seoOgImage: ($('seoOgImage') || {}).value || '',
