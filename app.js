@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.5.2
+   mdWebview — Application Logic (app.js) v3.5.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -194,6 +194,7 @@
     dictSidebarWidth: null,
     dictHeadwordsETag: null,
     dictPollTimer: null,
+    _adminDirty: false,
   };
 
   let _lastAdminSettings = null;
@@ -5875,6 +5876,32 @@
         e.preventDefault();
         applyFontSize(state.fontSize - 1);
       }
+
+      // Ctrl/Cmd + S → Quick save in Admin Settings Modal
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        const adminOverlay = $('adminSettingsOverlay');
+        if (adminOverlay && adminOverlay.style.display !== 'none' && adminOverlay.style.display !== '') {
+          e.preventDefault();
+          const paneConfig = $('adminPaneConfig');
+          const paneSeo = $('adminPaneSeo');
+          const paneSuggest = $('adminPaneSuggest');
+          if (paneConfig && paneConfig.style.display !== 'none') {
+            performSaveSettings(false, false);
+          } else if (paneSeo && paneSeo.style.display !== 'none') {
+            const form = $('adminSeoForm');
+            if (form) {
+              if (typeof form.requestSubmit === 'function') form.requestSubmit();
+              else form.dispatchEvent(new Event('submit', { cancelable: true }));
+            }
+          } else if (paneSuggest && paneSuggest.style.display !== 'none') {
+            const form = $('adminSuggestForm');
+            if (form) {
+              if (typeof form.requestSubmit === 'function') form.requestSubmit();
+              else form.dispatchEvent(new Event('submit', { cancelable: true }));
+            }
+          }
+        }
+      }
     });
 
     // Modal backdrop click exit listener
@@ -6274,9 +6301,10 @@
         // Reload the file tree and update UI with new paths
         await loadTree();
         showToast('✅ 後台系統設定已成功儲存並生效', 'success');
+        setAdminDirty(false);
 
         if (closeAfterSave) {
-          closeAdminModal();
+          closeAdminModal(true);
         } else {
           successEl.textContent = '設定已成功儲存';
           successEl.style.display = 'block';
@@ -6338,7 +6366,7 @@
     renderBookmarksList();
     fetchSuggestList(false);
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6378,7 +6406,13 @@
     document.body.classList.remove('modal-open');
   }
 
-  function closeAdminModal() {
+  function closeAdminModal(force = false) {
+    if (!force && state._adminDirty) {
+      const confirmLeave = window.confirm('您有尚未儲存的變更，確定要離開嗎？未儲存的內容將會遺失。');
+      if (!confirmLeave) return;
+    }
+    setAdminDirty(false);
+
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
     const loginOverlay = $('adminLoginOverlay');
@@ -6398,6 +6432,327 @@
       clearInterval(dictIndexRebuildPollingTimer);
       dictIndexRebuildPollingTimer = null;
     }
+  }
+
+  function setAdminDirty(isDirty) {
+    state._adminDirty = !!isDirty;
+    updateAdminDirtyUI(state._adminDirty);
+  }
+
+  function updateAdminDirtyUI(isDirty) {
+    const adminBadge = $('adminUnsavedIndicator');
+    const seoBadge = $('seoUnsavedIndicator');
+    const suggestBadge = $('suggestUnsavedIndicator');
+    if (adminBadge) adminBadge.style.display = isDirty ? 'inline-block' : 'none';
+    if (seoBadge) seoBadge.style.display = isDirty ? 'inline-block' : 'none';
+    if (suggestBadge) suggestBadge.style.display = isDirty ? 'inline-block' : 'none';
+  }
+
+  function setupAdminDirtyTracking() {
+    if (state._adminDirtyTrackingSetup) return;
+    state._adminDirtyTrackingSetup = true;
+
+    ['adminSettingsForm', 'adminSeoForm', 'adminSuggestForm'].forEach(formId => {
+      const form = $(formId);
+      if (!form) return;
+      form.addEventListener('input', (e) => {
+        if (e.target.id === 'suggestArticleSearchInput' || 
+            e.target.id === 'adminCurrentPassword' || 
+            e.target.id === 'adminNewPassword' || 
+            e.target.id === 'adminConfirmPassword') return;
+        setAdminDirty(true);
+      });
+      form.addEventListener('change', (e) => {
+        if (e.target.id === 'suggestArticleSearchInput') return;
+        setAdminDirty(true);
+      });
+    });
+  }
+
+  function setupPathDiagnostics() {
+    const btnMdRoot = $('btnDiagnoseMdRoot');
+    const btnDict = $('btnDiagnoseDict');
+    const resMdRoot = $('diagnoseMdRootResult');
+    const resDict = $('diagnoseDictResult');
+
+    async function runDiagnose(targetPath, type, resultEl, btnEl) {
+      if (!targetPath) {
+        if (resultEl) {
+          resultEl.className = 'diagnose-result error';
+          resultEl.innerHTML = '⚠️ 請先輸入路徑';
+          resultEl.style.display = 'block';
+        }
+        return;
+      }
+      const origText = btnEl ? btnEl.textContent : '';
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳ 檢測中…';
+      }
+      if (resultEl) {
+        resultEl.className = 'diagnose-result';
+        resultEl.innerHTML = '<span style="opacity: 0.7;">🔍 正在檢測伺服器端路徑與檔案結構…</span>';
+        resultEl.style.display = 'block';
+      }
+
+      try {
+        const res = await fetch('/api/admin/diagnose-path', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Token': state.adminToken
+          },
+          body: JSON.stringify({ targetPath, type })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '檢測失敗');
+
+        if (!data.exists) {
+          resultEl.className = 'diagnose-result error';
+          resultEl.innerHTML = `❌ <b>路徑不存在</b>：<code>${escHtml(data.path)}</code><br><span style="font-size:11px;">${escHtml(data.error || '')}</span>`;
+        } else if (!data.isDir) {
+          resultEl.className = 'diagnose-result error';
+          resultEl.innerHTML = `❌ <b>非目錄結構</b>：<code>${escHtml(data.path)}</code> 為檔案而非目錄。`;
+        } else if (!data.readable) {
+          resultEl.className = 'diagnose-result error';
+          resultEl.innerHTML = `❌ <b>無讀取權限</b>：伺服器行程無法讀取此目錄，請檢查檔案系統權限。`;
+        } else {
+          resultEl.className = 'diagnose-result success';
+          const writeBadge = data.writable ? '、具備寫入權限 ✅' : '（唯讀）';
+          if (type === 'dict') {
+            const sample = (data.sampleNames && data.sampleNames.length > 0) ? `<br><span style="font-size: 11px; opacity: 0.85;">辭典檔案範例: ${data.sampleNames.map(s => escHtml(s)).join(', ')}</span>` : '';
+            resultEl.innerHTML = `✅ <b>路徑有效</b>：共掃描到 <b>${data.count}</b> 個辭典檔案${writeBadge}。${sample}`;
+          } else {
+            const sample = (data.sampleNames && data.sampleNames.length > 0) ? `<br><span style="font-size: 11px; opacity: 0.85;">經文範例: ${data.sampleNames.map(s => escHtml(s)).join(', ')}</span>` : '';
+            resultEl.innerHTML = `✅ <b>路徑有效</b>：共掃描到 <b>${data.count}</b> 部經文檔案 (.md)${writeBadge}。${sample}`;
+          }
+        }
+      } catch (err) {
+        if (resultEl) {
+          resultEl.className = 'diagnose-result error';
+          resultEl.innerHTML = `❌ 檢測失敗: ${escHtml(err.message)}`;
+        }
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = origText;
+        }
+      }
+    }
+
+    if (btnMdRoot && !btnMdRoot._hasDiagnoseHandler) {
+      btnMdRoot._hasDiagnoseHandler = true;
+      btnMdRoot.addEventListener('click', () => {
+        const val = ($('settingsMdRoot') || {}).value || '';
+        runDiagnose(val, 'vault', resMdRoot, btnMdRoot);
+      });
+    }
+
+    if (btnDict && !btnDict._hasDiagnoseHandler) {
+      btnDict._hasDiagnoseHandler = true;
+      btnDict.addEventListener('click', () => {
+        const val = ($('settingsDictionaryPath') || {}).value || '';
+        runDiagnose(val, 'dict', resDict, btnDict);
+      });
+    }
+  }
+
+  function setupChangePassword() {
+    const btn = $('btnChangePassword');
+    const currentInput = $('adminCurrentPassword');
+    const newInput = $('adminNewPassword');
+    const confirmInput = $('adminConfirmPassword');
+    const msgEl = $('changePasswordMsg');
+
+    if (!btn || btn._hasChangePasswordHandler) return;
+    btn._hasChangePasswordHandler = true;
+
+    btn.addEventListener('click', async () => {
+      const currentPassword = currentInput ? currentInput.value : '';
+      const newPassword = newInput ? newInput.value : '';
+      const confirmPassword = confirmInput ? confirmInput.value : '';
+
+      if (msgEl) {
+        msgEl.textContent = '';
+        msgEl.className = 'form-hint';
+      }
+
+      if (!currentPassword) {
+        if (msgEl) {
+          msgEl.textContent = '❌ 請輸入目前密碼';
+          msgEl.className = 'form-error-text';
+        }
+        if (currentInput) currentInput.focus();
+        return;
+      }
+
+      if (!newPassword || newPassword.length < 8) {
+        if (msgEl) {
+          msgEl.textContent = '❌ 新密碼長度至少需為 8 個字元';
+          msgEl.className = 'form-error-text';
+        }
+        if (newInput) newInput.focus();
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        if (msgEl) {
+          msgEl.textContent = '❌ 兩次輸入的新密碼不相符';
+          msgEl.className = 'form-error-text';
+        }
+        if (confirmInput) confirmInput.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '更新中…';
+
+      try {
+        const res = await fetch('/api/admin/password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Token': state.adminToken
+          },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '更新密碼失敗');
+
+        if (currentInput) currentInput.value = '';
+        if (newInput) newInput.value = '';
+        if (confirmInput) confirmInput.value = '';
+
+        if (msgEl) {
+          msgEl.textContent = '✅ ' + (data.message || '密碼已成功更新！');
+          msgEl.className = 'form-success-text';
+          setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 4000);
+        }
+        showToast('✅ 管理員密碼已成功更新，已登出其他裝置。', 'success');
+      } catch (err) {
+        if (msgEl) {
+          msgEl.textContent = '❌ ' + err.message;
+          msgEl.className = 'form-error-text';
+        }
+        showToast('❌ 更新密碼失敗: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '更新管理員密碼';
+      }
+    });
+  }
+
+  function setupConfigBackupAndRestore() {
+    const exportBtn = $('btnExportConfig');
+    const importBtn = $('btnImportConfig');
+    const fileInput = $('configImportFileInput');
+
+    if (exportBtn && !exportBtn._hasExportHandler) {
+      exportBtn._hasExportHandler = true;
+      exportBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/admin/settings', {
+            headers: { 'X-Admin-Token': state.adminToken }
+          });
+          if (!res.ok) throw new Error('讀取設定失敗');
+          const data = await res.json();
+          const exportData = {
+            exportDate: new Date().toISOString(),
+            app: 'mdWebview',
+            version: data.settings?.version || '3.5.3',
+            settings: data.settings || {}
+          };
+          const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const dateStr = new Date().toISOString().slice(0, 10);
+          a.download = `mdWebview-config-backup-${dateStr}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast('📥 設定檔備份已成功下載', 'success');
+        } catch (err) {
+          showToast('❌ 匯出備份失敗: ' + err.message, 'error');
+        }
+      });
+    }
+
+    if (importBtn && fileInput && !importBtn._hasImportHandler) {
+      importBtn._hasImportHandler = true;
+      importBtn.addEventListener('click', () => {
+        fileInput.click();
+      });
+
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        try {
+          const text = await file.text();
+          const json = JSON.parse(text);
+          const settingsToRestore = json.settings || json;
+
+          if (!settingsToRestore || typeof settingsToRestore !== 'object') {
+            throw new Error('備份檔案格式無效');
+          }
+
+          const confirmRestore = window.confirm(
+            `確定要還原備份檔案「${file.name}」嗎？\n\n系統將會覆蓋當前網站名稱、外觀、SEO 與推薦閱讀設定。`
+          );
+          if (!confirmRestore) {
+            fileInput.value = '';
+            return;
+          }
+
+          const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Admin-Token': state.adminToken
+            },
+            body: JSON.stringify({ settings: settingsToRestore })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || '還原設定失敗');
+
+          showToast('✅ 設定備份已成功還原！', 'success');
+          fileInput.value = '';
+          await openSettingsOverlay();
+        } catch (err) {
+          showToast('❌ 還原失敗: ' + err.message, 'error');
+          fileInput.value = '';
+        }
+      });
+    }
+  }
+
+  function setupHardwareClearCache() {
+    const btn = $('hwClearCacheBtn');
+    if (!btn || btn._hasClearHandler) return;
+    btn._hasClearHandler = true;
+
+    btn.addEventListener('click', async () => {
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '🧹 清理中…';
+      try {
+        const res = await fetch('/api/admin/clear-cache', {
+          method: 'POST',
+          headers: { 'X-Admin-Token': state.adminToken }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '清理失敗');
+        showToast(`🧹 ${data.message || '快取已成功清空'}`, 'success');
+        await loadHardwareStats();
+      } catch (err) {
+        showToast('❌ 清空快取失敗: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
   }
 
   function formatBytes(bytes) {
@@ -6487,6 +6842,7 @@
     });
 
     wrapper.innerHTML = `
+      <div id="chartFloatingTooltip" class="chart-floating-tooltip" style="display: none;"></div>
       <svg viewBox="0 0 ${width} ${height}" class="analytics-trend-svg" style="width: 100%; height: auto; overflow: visible;">
         <defs>
           <linearGradient id="viewTrendGrad" x1="0" y1="0" x2="0" y2="1">
@@ -6506,6 +6862,35 @@
         <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 12px; height: 2px; background: #2ac3de; border-style: dashed;"></span> 獨立訪客數 (Unique IPs)</span>
       </div>
     `;
+
+    const tooltip = $('chartFloatingTooltip');
+    const svgEl = wrapper.querySelector('.analytics-trend-svg');
+    if (tooltip && svgEl) {
+      wrapper.querySelectorAll('.trend-dot').forEach(dot => {
+        dot.addEventListener('mouseenter', () => {
+          const date = dot.getAttribute('data-date') || '';
+          const views = dot.getAttribute('data-views') || '0';
+          const ips = dot.getAttribute('data-ips') || '0';
+          const cx = parseFloat(dot.getAttribute('cx'));
+          const cy = parseFloat(dot.getAttribute('cy'));
+
+          const svgRect = svgEl.getBoundingClientRect();
+          const scaleX = svgRect.width / width;
+          const scaleY = svgRect.height / height;
+          const left = cx * scaleX;
+          const top = cy * scaleY;
+
+          tooltip.innerHTML = `<b>📅 ${escHtml(date)}</b><br><span style="color:#7aa2f7;">● 閱讀點閱: <b>${parseInt(views, 10).toLocaleString()}</b></span><br><span style="color:#2ac3de;">● 獨立訪客: <b>${parseInt(ips, 10).toLocaleString()}</b></span>`;
+          tooltip.style.left = `${left}px`;
+          tooltip.style.top = `${top}px`;
+          tooltip.style.display = 'block';
+        });
+
+        dot.addEventListener('mouseleave', () => {
+          tooltip.style.display = 'none';
+        });
+      });
+    }
   }
 
 
@@ -6903,6 +7288,7 @@
 
     setupHardwareIndexRebuild();
     setupHardwareDictIndexRebuild();
+    setupHardwareClearCache();
 
     if (refreshBtn) {
       refreshBtn.onclick = () => loadHardwareStats();
@@ -6990,6 +7376,37 @@
 
   // ── Admin Logs Tab Logic ─────────────────────────────────
   let stateAdminLogs = [];
+  let stateAdminLogCategory = 'all';
+
+  function filterLogEntries(entries, keyword, category) {
+    return entries.filter(item => {
+      if (category && category !== 'all') {
+        const tag = (item.tag || '').toUpperCase();
+        const msg = (item.message || '').toLowerCase();
+        const lvl = (item.level || '').toUpperCase();
+
+        if (category === 'error') {
+          const isErr = lvl === 'ERROR' || lvl === 'WARN' || tag.includes('ERR') || msg.includes('error') || msg.includes('fail');
+          if (!isErr) return false;
+        } else if (category === 'http') {
+          if (tag !== 'HTTP') return false;
+        } else if (category === 'search') {
+          if (!tag.includes('SEARCH') && !tag.includes('INDEX')) return false;
+        } else if (category === 'render') {
+          if (tag !== 'RENDER') return false;
+        } else if (category === 'bot') {
+          const isBot = item.isBot === true || tag.includes('BOT') || msg.includes('bot') || msg.includes('crawler') || msg.includes('spider');
+          if (!isBot) return false;
+        }
+      }
+
+      if (keyword) {
+        const text = `${item.timestamp} ${item.level} ${item.tag} ${item.ip || ''} ${item.message}`.toLowerCase();
+        if (!text.includes(keyword.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }
 
   // Timezone Formatting Helper (Centralized Admin Timezone)
   function getEffectiveTimezone() {
@@ -7047,18 +7464,11 @@
   function renderAdminLogs() {
     const viewer = $('adminLogViewer');
     const searchInput = $('adminLogSearchInput');
-    const filterText = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    const filterText = searchInput ? searchInput.value.trim() : '';
     if (!viewer) return;
 
     const currentTz = getEffectiveTimezone();
-
-    let filtered = stateAdminLogs;
-    if (filterText) {
-      filtered = stateAdminLogs.filter(item => {
-        const text = `${item.timestamp} ${item.level} ${item.tag} ${item.ip || ''} ${item.message}`.toLowerCase();
-        return text.includes(filterText);
-      });
-    }
+    const filtered = filterLogEntries(stateAdminLogs, filterText, stateAdminLogCategory);
 
     const countEl = $('adminLogsCount');
     if (countEl) {
@@ -7078,7 +7488,11 @@
     }).join('');
 
     viewer.innerHTML = html;
-    viewer.scrollTop = viewer.scrollHeight;
+
+    const autoScrollCb = $('adminLogAutoScroll');
+    if (!autoScrollCb || autoScrollCb.checked) {
+      viewer.scrollTop = viewer.scrollHeight;
+    }
 
     viewer.querySelectorAll('.log-ip').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -7089,6 +7503,52 @@
         }
       });
     });
+  }
+
+  function setupAdminLogControls() {
+    const catContainer = $('adminLogCategories');
+    if (catContainer && !catContainer._hasControls) {
+      catContainer._hasControls = true;
+      catContainer.querySelectorAll('.log-cat-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          catContainer.querySelectorAll('.log-cat-btn').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          stateAdminLogCategory = e.currentTarget.getAttribute('data-cat') || 'all';
+          renderAdminLogs();
+        });
+      });
+    }
+
+    const downloadBtn = $('adminLogDownloadBtn');
+    if (downloadBtn && !downloadBtn._hasDownloadHandler) {
+      downloadBtn._hasDownloadHandler = true;
+      downloadBtn.addEventListener('click', () => {
+        if (!stateAdminLogs || stateAdminLogs.length === 0) {
+          showToast('⚠️ 目前無可下載的日誌', 'info');
+          return;
+        }
+        const tz = getEffectiveTimezone();
+        const searchInput = $('adminLogSearchInput');
+        const filterText = searchInput ? searchInput.value.trim() : '';
+        const logsToExport = filterLogEntries(stateAdminLogs, filterText, stateAdminLogCategory);
+
+        const lines = logsToExport.map(item => {
+          const time = formatTimestampWithTZ(item.timestamp, tz);
+          return `[${time}] [${item.level || 'INFO'}] [${item.tag || 'SYS'}] [IP: ${item.ip || '127.0.0.1'}] ${item.message}`;
+        });
+
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `mdWebview-logs-${new Date().toISOString().slice(0, 10)}.log`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast(`📥 已成功下載 ${logsToExport.length} 條日誌紀錄`, 'success');
+      });
+    }
   }
 
   // Analytics Dashboard Logic
@@ -7150,9 +7610,15 @@
       } else {
         topFilesTable.innerHTML = data.topFiles.map((file, idx) => {
           const formattedTime = formatTimestampWithTZ(file.lastAccess, tz);
+          const fileUrl = `/?file=${encodeURIComponent(file.path)}`;
           return `<tr>
             <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
-            <td><a href="#" class="analytics-file-link" data-path="${escHtml(file.path)}" title="${escHtml(file.path)}" style="color: var(--accent); font-weight: 600; text-decoration: none;">${escHtml(file.fileName)}</a></td>
+            <td>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <a href="#" class="analytics-file-link" data-path="${escHtml(file.path)}" title="${escHtml(file.path)}" style="color: var(--accent); font-weight: 600; text-decoration: none;">${escHtml(file.fileName)}</a>
+                <a href="${escHtml(fileUrl)}" target="_blank" class="table-action-link" title="在新分頁開啟閱讀此經文">📖 檢視 ↗</a>
+              </div>
+            </td>
             <td style="text-align: right; font-weight: 700; color: #58a6ff;">${file.views.toLocaleString()}</td>
             <td style="text-align: right; font-weight: 600;">${file.uniqueIps.toLocaleString()}</td>
             <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(formattedTime)}</td>
@@ -7228,6 +7694,41 @@
         </tr>`).join('');
       }
     }
+
+    applyAnalyticsTableFilter();
+  }
+
+  function setupAnalyticsTableFilter() {
+    const input = $('analyticsTableFilterInput');
+    if (!input || input._hasFilterHandler) return;
+    input._hasFilterHandler = true;
+
+    input.addEventListener('input', () => {
+      applyAnalyticsTableFilter();
+    });
+  }
+
+  function applyAnalyticsTableFilter() {
+    const input = $('analyticsTableFilterInput');
+    if (!input) return;
+    const q = input.value.trim().toLowerCase();
+    const tables = [
+      $('analyticsTopFilesTable'),
+      $('analyticsTopSearchesTable'),
+      $('analyticsTopLookupsTable'),
+      $('analyticsTopDictSearchesTable'),
+      $('analyticsTopIpsTable')
+    ];
+
+    tables.forEach(tbody => {
+      if (!tbody) return;
+      const rows = tbody.querySelectorAll('tr');
+      rows.forEach(tr => {
+        if (tr.querySelector('.analytics-empty')) return;
+        const text = tr.textContent.toLowerCase();
+        tr.style.display = (!q || text.includes(q)) ? '' : 'none';
+      });
+    });
   }
 
   function setupAdminTabEvents() {
@@ -7273,6 +7774,7 @@
         tabSeoBtn.classList.add('active');
         if (paneSeo) paneSeo.style.display = 'block';
         loadSeoSettings();
+        updateOgLivePreview();
       });
     }
 
@@ -7310,6 +7812,7 @@
         tabSuggestBtn.classList.add('active');
         if (paneSuggest) paneSuggest.style.display = 'block';
         loadSuggestSettings();
+        renderSuggestLivePreview();
       });
     }
 
@@ -7368,8 +7871,255 @@
       searchInput.addEventListener('input', debounce(() => renderAdminLogs(), 200));
     }
 
+    // Initialize all admin enhancement handlers
+    setupPathDiagnostics();
+    setupChangePassword();
+    setupConfigBackupAndRestore();
+    setupHardwareClearCache();
+    setupArticlePicker();
+    setupSeoSitemapActions();
+    setupAdminLogControls();
+    setupAnalyticsTableFilter();
+    setupAdminDirtyTracking();
+
     // Suggest form events (only once)
     setupSuggestFormEvents();
+  }
+
+  function getFlattenedMarkdownFiles() {
+    const result = [];
+    if (!state.treeData) return result;
+    (function walk(list) {
+      if (!Array.isArray(list)) return;
+      for (const n of list) {
+        if (n.type === 'file' && n.path && n.path.toLowerCase().endsWith('.md')) {
+          result.push({ name: n.name, path: n.path });
+        }
+        if (n.children) walk(n.children);
+      }
+    })(state.treeData);
+    return result;
+  }
+
+  function setupArticlePicker() {
+    const searchInput = $('suggestArticleSearchInput');
+    const clearBtn = $('suggestArticleClearBtn');
+    const dropdown = $('suggestArticleDropdown');
+    const adminTextarea = $('suggestAdminList');
+
+    if (!searchInput || !dropdown || !adminTextarea || searchInput._hasPickerHandler) return;
+    searchInput._hasPickerHandler = true;
+
+    function closeDropdown() {
+      dropdown.style.display = 'none';
+      dropdown.innerHTML = '';
+    }
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) {
+        if (clearBtn) clearBtn.style.display = 'none';
+        closeDropdown();
+        return;
+      }
+      if (clearBtn) clearBtn.style.display = 'block';
+
+      const allFiles = getFlattenedMarkdownFiles();
+      const matched = [];
+      for (const file of allFiles) {
+        if (file.name.toLowerCase().includes(q) || file.path.toLowerCase().includes(q)) {
+          matched.push(file);
+          if (matched.length >= 25) break;
+        }
+      }
+
+      if (matched.length === 0) {
+        dropdown.innerHTML = '<div class="article-picker-item" style="color: var(--text-muted); cursor: default;">未找到符合的經文</div>';
+        dropdown.style.display = 'block';
+        return;
+      }
+
+      dropdown.innerHTML = matched.map(f => `
+        <div class="article-picker-item" data-path="${escHtml(f.path)}">
+          <span style="font-weight: 500;">${escHtml(f.name)}</span>
+          <span class="article-picker-item-path">${escHtml(f.path)}</span>
+        </div>
+      `).join('');
+      dropdown.style.display = 'block';
+
+      dropdown.querySelectorAll('.article-picker-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const filePath = item.getAttribute('data-path');
+          if (!filePath) return;
+          const currentLines = adminTextarea.value.split('\n').map(l => l.trim()).filter(Boolean);
+          if (!currentLines.includes(filePath)) {
+            currentLines.push(filePath);
+            adminTextarea.value = currentLines.join('\n');
+            setAdminDirty(true);
+            showToast(`➕ 已加入「${filePath}」至推薦清單`, 'info');
+          } else {
+            showToast(`ℹ️「${filePath}」已在推薦清單中`, 'info');
+          }
+          searchInput.value = '';
+          if (clearBtn) clearBtn.style.display = 'none';
+          closeDropdown();
+          renderSuggestLivePreview();
+        });
+      });
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        clearBtn.style.display = 'none';
+        closeDropdown();
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+        closeDropdown();
+      }
+    });
+  }
+
+  function renderSuggestLivePreview() {
+    const box = $('suggestLivePreviewBox');
+    if (!box) return;
+
+    const enabled = $('suggestEnabled') ? $('suggestEnabled').checked : true;
+    const adminListRaw = ($('suggestAdminList') || {}).value || '';
+    const adminPickCount = parseInt(($('suggestAdminPickCount') || {}).value, 10) || 3;
+    const hotPickCount = parseInt(($('suggestHotPickCount') || {}).value, 10) || 5;
+    const dailyWordCount = parseInt(($('suggestDailyWordCount') || {}).value, 10) || 3;
+
+    const adminLines = adminListRaw.split('\n').map(l => l.trim()).filter(Boolean);
+    const chosenAdmin = adminLines.slice(0, adminPickCount);
+
+    let html = '';
+    if (!enabled) {
+      html += '<div class="preview-hint" style="color: #f85149;">⚠️ 目前「啟用首頁推薦閱讀」為關閉狀態。若開啟，首頁將呈現以下組合：</div>';
+    } else {
+      html += '<div class="preview-hint">讀者開啟首頁時，將會動態呈現下列結構的卡片組合：</div>';
+    }
+
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">';
+
+    if (chosenAdmin.length > 0) {
+      for (const item of chosenAdmin) {
+        const fileName = item.split('/').pop().replace(/\.md$/i, '');
+        html += `<span class="preview-chip"><span class="preview-badge-admin">★ 推薦</span> ${escHtml(fileName)}</span>`;
+      }
+    } else {
+      html += `<span class="preview-chip" style="opacity: 0.6;"><span class="preview-badge-admin">★ 推薦</span> 尚未設定管理員推薦經文</span>`;
+    }
+
+    for (let i = 1; i <= Math.min(hotPickCount, 5); i++) {
+      html += `<span class="preview-chip"><span class="preview-badge-hot">🔥 熱門 #${i}</span> (系統隨機熱門)</span>`;
+    }
+
+    for (let i = 1; i <= Math.min(dailyWordCount, 3); i++) {
+      html += `<span class="preview-chip"><span class="preview-badge-word">📖 每日詞條</span> (辭典抽取)</span>`;
+    }
+
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
+  function updateOgLivePreview() {
+    const card = $('ogLivePreviewCard');
+    if (!card) return;
+
+    const siteName = ($('settingsSiteName') ? $('settingsSiteName').value.trim() : state.siteName) || 'mdWebview';
+    const desc = ($('seoSiteDescription') ? $('seoSiteDescription').value.trim() : '') || '佛典經論電子書閱讀器與辭典查詢系統';
+    const ogImg = ($('seoOgImage') ? $('seoOgImage').value.trim() : '') || '/og-preview.png';
+    let siteUrl = ($('settingsSiteUrl') ? $('settingsSiteUrl').value.trim() : '') || window.location.origin;
+
+    let domain = 'mbt.mahabodhi.co';
+    try {
+      const u = new URL(siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`);
+      domain = u.hostname;
+    } catch (_) {
+      domain = window.location.hostname || 'mbt.mahabodhi.co';
+    }
+
+    const domainEl = $('ogPreviewDomain');
+    const titleEl = $('ogPreviewTitle');
+    const descEl = $('ogPreviewDesc');
+    const imgEl = $('ogPreviewImg');
+
+    if (domainEl) domainEl.textContent = domain;
+    if (titleEl) titleEl.textContent = `${siteName} — 佛典經論閱讀器`;
+    if (descEl) descEl.textContent = desc;
+    if (imgEl) {
+      imgEl.src = ogImg || '/og-preview.png';
+      imgEl.onerror = () => { imgEl.src = '/icon-512.png'; };
+    }
+  }
+
+  function setupSeoSitemapActions() {
+    const btnRebuild = $('btnRebuildSitemap');
+    const btnPing = $('btnPingSearchEngines');
+    const resultMsg = $('seoRebuildResultMsg');
+
+    if (btnRebuild && !btnRebuild._hasRebuildHandler) {
+      btnRebuild._hasRebuildHandler = true;
+      btnRebuild.addEventListener('click', async () => {
+        const origText = btnRebuild.textContent;
+        btnRebuild.disabled = true;
+        btnRebuild.textContent = '🔄 生成中…';
+        if (resultMsg) {
+          resultMsg.className = 'form-hint';
+          resultMsg.innerHTML = '<span style="opacity: 0.7;">正在掃描經文庫並建置最新 Sitemap XML…</span>';
+          resultMsg.style.display = 'block';
+        }
+
+        try {
+          const res = await fetch('/api/admin/rebuild-sitemap', {
+            method: 'POST',
+            headers: { 'X-Admin-Token': state.adminToken }
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || '生成失敗');
+
+          if (resultMsg) {
+            resultMsg.className = 'form-success-text';
+            resultMsg.innerHTML = `✅ <b>Sitemap 重建完成</b>：共包含 <b>${data.totalUrls}</b> 個經文網址，耗時 <b>${data.durationMs}ms</b>。<br><a href="${data.sitemapUrl}" target="_blank" style="color: var(--accent);">檢視 Sitemap ↗</a>`;
+          }
+          showToast(`✅ Sitemap 已成功重新生成 (${data.totalUrls} 筆)`, 'success');
+          await fetchSeoStats();
+        } catch (err) {
+          if (resultMsg) {
+            resultMsg.className = 'form-error-text';
+            resultMsg.textContent = '❌ ' + err.message;
+          }
+          showToast('❌ Sitemap 重建失敗: ' + err.message, 'error');
+        } finally {
+          btnRebuild.disabled = false;
+          btnRebuild.textContent = origText;
+        }
+      });
+    }
+
+    if (btnPing && !btnPing._hasPingHandler) {
+      btnPing._hasPingHandler = true;
+      btnPing.addEventListener('click', () => {
+        const baseUrl = ($('settingsSiteUrl') ? $('settingsSiteUrl').value.trim() : '') || window.location.origin;
+        const sitemapUrl = `${baseUrl}/sitemap.xml`;
+        const googlePingUrl = `https://www.google.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`;
+        const bingPingUrl = `https://www.bing.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`;
+
+        window.open(googlePingUrl, '_blank');
+        window.open(bingPingUrl, '_blank');
+
+        if (resultMsg) {
+          resultMsg.className = 'form-success-text';
+          resultMsg.innerHTML = `📡 已在新分頁中向 Google 與 Bing 發送 Sitemap 爬取通知 (${escHtml(sitemapUrl)})`;
+          resultMsg.style.display = 'block';
+        }
+        showToast('📡 已向 Google 與 Bing 發送 Sitemap 爬取通知', 'info');
+      });
+    }
   }
 
   let _suggestFormEventsSetup = false;
@@ -7391,6 +8141,31 @@
         cbs.forEach(cb => { cb.checked = false; });
       });
     }
+
+    const cancelBtn = $('suggestCancelBtn');
+    if (cancelBtn && !cancelBtn._hasCancelHandler) {
+      cancelBtn._hasCancelHandler = true;
+      cancelBtn.addEventListener('click', () => {
+        closeAdminModal();
+      });
+    }
+
+    const previewBtn = $('btnRefreshSuggestPreview');
+    if (previewBtn && !previewBtn._hasPreviewHandler) {
+      previewBtn._hasPreviewHandler = true;
+      previewBtn.addEventListener('click', () => {
+        renderSuggestLivePreview();
+      });
+    }
+
+    ['suggestAdminList', 'suggestAdminPickCount', 'suggestHotPickCount', 'suggestDailyWordCount', 'suggestEnabled'].forEach(id => {
+      const el = $(id);
+      if (el && !el._hasLivePreviewListener) {
+        el._hasLivePreviewListener = true;
+        el.addEventListener('input', () => renderSuggestLivePreview());
+        el.addEventListener('change', () => renderSuggestLivePreview());
+      }
+    });
 
     const form = $('adminSuggestForm');
     if (!form) return;
@@ -7466,12 +8241,15 @@
         if (!res.ok) throw new Error(data.error || '儲存失敗');
 
         _lastAdminSettings = data.settings || null;
+        setAdminDirty(false);
+        renderSuggestLivePreview();
 
         if (successEl) {
           successEl.textContent = '推薦設定已儲存';
           successEl.style.display = 'block';
           setTimeout(() => { successEl.style.display = 'none'; }, 3000);
         }
+        showToast('✅ 推薦閱讀設定已儲存', 'success');
         // Refresh the homepage suggest list
         fetchSuggestList(false);
       } catch (err) {
@@ -7535,6 +8313,7 @@
       if (dailyCountEl && settings) dailyCountEl.value = sl.dailyWordCount ?? 3;
       if (dailyRotateEl && settings) dailyRotateEl.value = sl.dailyWordRotateHour ?? 12;
       if (enabledEl && settings) enabledEl.checked = sl.enabled === true;
+      renderSuggestLivePreview();
 
       // 3. Render dictionary files
       const dictData = await dictPromise;
@@ -7629,6 +8408,7 @@
       }
 
       await fetchSeoStats();
+      updateOgLivePreview();
     } catch (err) {
       console.error('[Admin] Error loading SEO settings:', err);
     }
@@ -7670,6 +8450,19 @@
       });
     }
 
+    ['seoSiteDescription', 'seoOgImage'].forEach(id => {
+      const el = $(id);
+      if (el && !el._hasOgListener) {
+        el._hasOgListener = true;
+        el.addEventListener('input', () => updateOgLivePreview());
+      }
+    });
+    const siteNameEl = $('settingsSiteName');
+    if (siteNameEl && !siteNameEl._hasOgListener) {
+      siteNameEl._hasOgListener = true;
+      siteNameEl.addEventListener('input', () => updateOgLivePreview());
+    }
+
     if (seoForm) {
       seoForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -7707,6 +8500,8 @@
           if (!res.ok) throw new Error(data.error || '儲存 SEO 設定失敗');
 
           if (data.settings) _lastAdminSettings = data.settings;
+          setAdminDirty(false);
+          updateOgLivePreview();
           showToast('✅ 搜尋引擎優化 (SEO) 設定已成功儲存並生效', 'success');
           if (successMsg) {
             successMsg.textContent = '✅ 設定已成功更新';

@@ -64,7 +64,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.5.2）
+├── package.json        # Node.js 套件設定（v3.5.3）
 └── README.md           # 本說明文件
 ```
 
@@ -206,7 +206,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.5.2)
+├── package.json        # Node.js package manifest (v3.5.3)
 └── README.md           # Project documentation
 ```
 

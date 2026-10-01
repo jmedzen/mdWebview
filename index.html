@@ -37,7 +37,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.5.2'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.5.3'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -50,11 +50,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#181825">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.5.2">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.5.2">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.5.2">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.5.2">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.5.2">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.5.3">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.5.3">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.5.3">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.5.3">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.5.3">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -76,7 +76,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.5.2">
+  <link rel="stylesheet" href="style.css?v=3.5.3">
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -380,7 +380,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.5.2</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.5.3</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -517,7 +517,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.5.2</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.5.3</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -533,7 +533,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.5.2</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.5.3</span>
       </div>
     </div>
   </div>
@@ -656,19 +656,25 @@
                 <h3 class="config-card-title">網站標識與儲存庫</h3>
               </div>
               <div class="config-card-body">
-                <div class="form-group">
-                  <label for="settingsSiteName">網站名稱 (Website Name)</label>
-                  <input type="text" id="settingsSiteName" placeholder="例如: mdWebview" required>
-                  <span class="field-hint">替代系統標頭與 Logo 品牌名稱。</span>
+                <div class="form-row compact-row">
+                  <div class="form-group half">
+                    <label for="settingsSiteName">網站名稱 (Website Name)</label>
+                    <input type="text" id="settingsSiteName" placeholder="例如: mdWebview" required>
+                    <span class="field-hint">替代系統標頭與品牌名稱。</span>
+                  </div>
+                  <div class="form-group half">
+                    <label for="settingsSiteUrl">首頁權威 URL (Canonical URL)</label>
+                    <input type="text" id="settingsSiteUrl" placeholder="例如: https://mbt.mahabodhi.co">
+                    <span class="field-hint">SEO Canonical、Sitemap 網址。</span>
+                  </div>
                 </div>
                 <div class="form-group">
-                  <label for="settingsSiteUrl">首頁權威 URL (Canonical URL)</label>
-                  <input type="text" id="settingsSiteUrl" placeholder="例如: https://mbt.mahabodhi.co">
-                  <span class="field-hint">設定對外權威網址，用於 SEO Canonical、Sitemap 與社群分享卡片。</span>
-                </div>
-                <div class="form-group">
-                  <label for="settingsMdRoot">Vault 目錄路徑 (Vault Path)</label>
+                  <div class="field-label-row">
+                    <label for="settingsMdRoot">Vault 目錄路徑 (Vault Path)</label>
+                    <button type="button" class="btn-diagnose" id="btnDiagnoseMdRoot" title="測試伺服器或容器端此路徑是否存在與讀寫權限">🔍 檢測路徑</button>
+                  </div>
                   <input type="text" id="settingsMdRoot" placeholder="例如: /path/to/mdWebview/md" required>
+                  <div id="diagnoseMdRootResult" class="diagnose-result" style="display: none;"></div>
                   <span class="field-hint">伺服器端存放 Markdown 檔案之絕對路徑。</span>
                 </div>
                 <div class="form-group">
@@ -723,8 +729,8 @@
               </div>
             </div>
 
-            <!-- Card 3: Footer Settings (Full Width Grid Span) -->
-            <div class="config-card full-width">
+            <!-- Card 3: Footer Settings -->
+            <div class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📌</span>
                 <h3 class="config-card-title">首頁頁尾顯示與離線下載</h3>
@@ -764,19 +770,21 @@
                   </div>
                   <div class="footer-input-wrap">
                     <input type="text" id="settingsDictionaryPath" placeholder="例如: /path/to/mdWebview/dicts" title="辭典檔案路徑">
+                    <button type="button" class="btn-diagnose" id="btnDiagnoseDict" title="測試辭典目錄與檔案筆數">🔍 檢測路徑</button>
                   </div>
+                  <div id="diagnoseDictResult" class="diagnose-result" style="display: none; width: 100%;"></div>
                 </div>
               </div>
             </div>
 
             <!-- Card 4: Announcement Modal Settings -->
-            <div class="config-card full-width">
+            <div class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📢</span>
                 <h3 class="config-card-title">開啟頁面訊息彈窗</h3>
               </div>
               <div class="config-card-body">
-                <div class="footer-setting-item" style="margin-bottom: 12px;">
+                <div class="footer-setting-item" style="margin-bottom: 8px;">
                   <div class="toggle-switch-wrapper compact-switch">
                     <label class="toggle-switch-label" for="settingsEnableAnnouncement">
                       <input type="checkbox" id="settingsEnableAnnouncement">
@@ -793,12 +801,57 @@
               </div>
             </div>
 
+            <!-- Card 5: Admin Password Change -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">🔒</span>
+                <h3 class="config-card-title">管理員密碼修改 (Change Admin Password)</h3>
+              </div>
+              <div class="config-card-body">
+                <div class="form-group">
+                  <label for="adminCurrentPassword">目前密碼</label>
+                  <input type="password" id="adminCurrentPassword" placeholder="輸入目前密碼" autocomplete="current-password">
+                </div>
+                <div class="form-row compact-row">
+                  <div class="form-group half">
+                    <label for="adminNewPassword">新密碼 (至少 8 碼)</label>
+                    <input type="password" id="adminNewPassword" placeholder="輸入新密碼" autocomplete="new-password">
+                  </div>
+                  <div class="form-group half">
+                    <label for="adminConfirmPassword">確認新密碼</label>
+                    <input type="password" id="adminConfirmPassword" placeholder="再次確認新密碼" autocomplete="new-password">
+                  </div>
+                </div>
+                <div class="password-action-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; flex-wrap: wrap; gap: 8px;">
+                  <button type="button" id="btnChangePassword" class="modal-btn submit-btn small-btn">更新管理員密碼</button>
+                  <span id="changePasswordMsg" class="form-hint" style="margin-left: 6px;"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 6: Config Backup & Restore -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">💾</span>
+                <h3 class="config-card-title">設定備份與還原 (Config Backup & Restore)</h3>
+              </div>
+              <div class="config-card-body">
+                <span class="field-hint" style="margin: 0; line-height: 1.5;">匯出包含網站外觀、SEO、推薦與時區之完整設定備份，或上傳先前的 JSON 備份檔進行還原（自動略過密碼雜湊）。</span>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+                  <button type="button" id="btnExportConfig" class="modal-btn submit-btn small-btn">📥 匯出設定備份 (JSON)</button>
+                  <button type="button" id="btnImportConfig" class="modal-btn cancel-btn small-btn">📤 匯入設定還原</button>
+                  <input type="file" id="configImportFileInput" accept=".json" style="display: none;">
+                </div>
+              </div>
+            </div>
+
           </div>
 
           <div id="settingsErrorMsg" class="form-error" style="display: none;"></div>
           <div id="settingsSuccessMsg" class="form-success" style="display: none;"></div>
           <div class="modal-actions">
             <button type="button" id="settingsLogoutBtn" class="modal-btn logout-btn">登出</button>
+            <span id="adminUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更 (Cmd+S)</span>
             <div class="modal-right-actions">
               <button type="button" id="settingsCancelBtn" class="modal-btn cancel-btn">取消</button>
               <button type="submit" class="modal-btn submit-btn">儲存設定</button>
@@ -813,14 +866,14 @@
         <form id="adminSeoForm" class="modal-form">
           <div class="admin-config-grid">
             
-            <!-- Card 1: Meta Tags & Social Share -->
+            <!-- Card 1: Indexing & Crawlers (Left Top) -->
             <div class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🌐</span>
-                <h3 class="config-card-title">全站收錄與標籤 (Indexing & Meta)</h3>
+                <h3 class="config-card-title">全站收錄與爬蟲 (Indexing & Crawlers)</h3>
               </div>
               <div class="config-card-body">
-                <div class="form-group toggle-group" style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); margin-bottom: 4px;">
+                <div class="form-group toggle-group" style="padding-bottom: 8px; border-bottom: 1px dashed var(--border-color); margin-bottom: 2px;">
                   <div class="toggle-row">
                     <label for="seoRobotsIndex" style="font-weight: 600; color: var(--text-primary);">搜尋引擎收錄 (Search Engine Indexing)</label>
                     <label class="toggle-switch">
@@ -828,14 +881,14 @@
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
-                  <div class="form-hint" style="line-height: 1.6; margin-top: 5px;">
-                    <div>🟢 <strong>開啟（建議）</strong>：允許 Google、Bing 等正規搜尋引擎正常檢索與收錄全站經文，向爬蟲提供 <code>index, follow</code>、動態 <code>sitemap.xml</code> 與首頁導言 SSR，有助於法寶廣泛流通與被大眾搜尋。</div>
-                    <div style="margin-top: 4px;">🔴 <strong>關閉（私密模式）</strong>：全站強制輸出 <code>&lt;meta name="robots" content="noindex, nofollow"&gt;</code> 並於 <code>robots.txt</code> 全域阻擋（<code>Disallow: /</code>），全面杜絕外部搜尋引擎收錄（適用於私人經藏筆記庫、內部測試或未公開站台）。</div>
+                  <div class="form-hint" style="line-height: 1.45; margin-top: 4px;">
+                    <div>🟢 <strong>開啟（建議）</strong>：允許正規搜尋引擎檢索與收錄全站經文（提供 <code>index, follow</code>、<code>sitemap.xml</code> 與首頁導言 SSR）。</div>
+                    <div style="margin-top: 3px;">🔴 <strong>關閉（私密模式）</strong>：輸出 <code>noindex, nofollow</code> 並於 robots.txt 阻擋（適用於私人庫或內部測試）。</div>
                   </div>
                 </div>
                 <div class="form-group">
                   <label for="seoSiteDescription">全站描述 (Meta Description)</label>
-                  <textarea id="seoSiteDescription" rows="3" class="form-textarea" placeholder="輸入搜尋引擎顯示之中文摘要（建議 80~160 字元）"></textarea>
+                  <textarea id="seoSiteDescription" rows="2" class="form-textarea" placeholder="輸入搜尋引擎顯示之中文摘要（建議 80~160 字元）"></textarea>
                   <span class="form-hint">出現在 Google 搜尋結果摘要與社群分享卡片（og:description）。</span>
                 </div>
                 <div class="form-group">
@@ -843,22 +896,7 @@
                   <input type="text" id="seoKeywords" placeholder="以逗號分隔，例如: 佛典, 經論, 大正藏, 佛學辭典">
                   <span class="form-hint">提供搜尋引擎輔助索引的核心主題詞彙。</span>
                 </div>
-                <div class="form-group">
-                  <label for="seoOgImage">社群預覽圖片 (OG / Twitter Image)</label>
-                  <input type="text" id="seoOgImage" placeholder="例如: /og-preview.png 或完整 URL">
-                  <span class="form-hint">分享至 LINE、Facebook、Twitter 時顯示之卡片縮圖（建議比例 1200×630）。</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Card 2: Crawlers & AI Bots -->
-            <div class="config-card">
-              <div class="config-card-header">
-                <span class="config-card-icon">🤖</span>
-                <h3 class="config-card-title">爬蟲存取與 AI 訓練防護 (Robots.txt)</h3>
-              </div>
-              <div class="config-card-body">
-                <div class="form-group toggle-group">
+                <div class="form-group toggle-group" style="margin-top: 2px;">
                   <div class="toggle-row">
                     <label for="seoBlockAiBots">封鎖 AI 訓練採集爬蟲 (Block AI Bots)</label>
                     <label class="toggle-switch">
@@ -866,14 +904,43 @@
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
-                  <span class="form-hint">在 robots.txt 中封鎖 GPTBot、CCBot、ClaudeBot、Google-Extended、Bytespider 等 AI 爬蟲。</span>
+                  <span class="form-hint">在 robots.txt 中封鎖 GPTBot、CCBot、ClaudeBot、Bytespider 等 AI 爬蟲。</span>
                 </div>
                 <div class="form-group">
                   <label for="seoDisallowPaths">自訂排除路徑 (Disallow Paths)</label>
-                  <textarea id="seoDisallowPaths" rows="3" class="form-textarea" placeholder="/api/&#10;/vendor/"></textarea>
+                  <textarea id="seoDisallowPaths" rows="2" class="form-textarea" placeholder="/api/&#10;/vendor/"></textarea>
                   <span class="form-hint">每行一個路徑，將自動寫入 robots.txt 的 <code>Disallow</code> 規則。</span>
                 </div>
+              </div>
+            </div>
+
+            <!-- Card 2: Social Sharing & Live Preview (Right Top) -->
+            <div class="config-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">📱</span>
+                <h3 class="config-card-title">社群分享卡片與規則 (OpenGraph & Links)</h3>
+              </div>
+              <div class="config-card-body">
                 <div class="form-group">
+                  <label for="seoOgImage">社群預覽圖片 (OG / Twitter Image)</label>
+                  <input type="text" id="seoOgImage" placeholder="例如: /og-preview.png 或完整 URL">
+                  <span class="form-hint">分享至 LINE、Facebook、Twitter 時顯示之卡片縮圖（建議比例 1200×630）。</span>
+                </div>
+                <!-- Social Sharing Live Card Preview -->
+                <div class="og-preview-card" id="ogLivePreviewCard">
+                  <div class="og-preview-label">社群分享卡片預覽 (Facebook / LINE / Twitter 模擬)</div>
+                  <div class="og-card-inner">
+                    <div class="og-card-image-wrap">
+                      <img id="ogPreviewImg" src="/og-preview.png" alt="社群分享預覽圖" onerror="this.src='/icon-512.png'">
+                    </div>
+                    <div class="og-card-content">
+                      <div class="og-card-domain" id="ogPreviewDomain">mbt.mahabodhi.co</div>
+                      <div class="og-card-title" id="ogPreviewTitle">網站名稱 — 佛典經論閱讀器</div>
+                      <div class="og-card-desc" id="ogPreviewDesc">全站中文摘要...</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group" style="margin-top: 4px;">
                   <label>線上規則即時連結</label>
                   <div class="seo-quick-links">
                     <a href="/robots.txt" target="_blank" class="seo-link-btn" id="seoRobotsLink">📄 開啟 robots.txt ↗</a>
@@ -883,7 +950,7 @@
               </div>
             </div>
 
-            <!-- Card 3: Webmaster Verification -->
+            <!-- Card 3: Webmaster Verification (Left Bottom) -->
             <div class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🏷️</span>
@@ -908,11 +975,11 @@
               </div>
             </div>
 
-            <!-- Card 4: Structured Data & Homepage SSR -->
+            <!-- Card 4: Structured Data & Homepage SSR (Right Bottom) -->
             <div class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🗺️</span>
-                <h3 class="config-card-title">結構化資料與爬蟲 SSR 實質內容</h3>
+                <h3 class="config-card-title">結構化資料與爬蟲 SSR (Schema & SSR)</h3>
               </div>
               <div class="config-card-body">
                 <div class="form-group toggle-group">
@@ -923,11 +990,11 @@
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
-                  <span class="form-hint">注入 Schema.org <code>WebSite + SearchAction</code>，讓搜尋結果頁提供站內檢索框。</span>
+                  <span class="form-hint">注入 Schema.org <code>WebSite + SearchAction</code>，提供搜尋結果站內檢索框。</span>
                 </div>
                 <div class="form-group">
                   <label for="seoHomepageSummary">首頁爬蟲導言文章 (Crawler Landing Summary)</label>
-                  <textarea id="seoHomepageSummary" rows="3" class="form-textarea" placeholder="輸入對爬蟲渲染之首頁導言介紹…"></textarea>
+                  <textarea id="seoHomepageSummary" rows="2" class="form-textarea" placeholder="輸入對爬蟲渲染之首頁導言介紹…"></textarea>
                   <span class="form-hint">搜尋引擎爬蟲訪問首頁時直接預渲染此內容與經文索引，徹底解決 Soft 404 問題。</span>
                 </div>
                 <!-- Dynamic SEO status overview -->
@@ -945,6 +1012,11 @@
                     <span class="seo-stat-val" id="seoStatBaseUrl">--</span>
                   </div>
                 </div>
+                <div class="seo-actions-row" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="btnRebuildSitemap">🔄 立即重新生成 Sitemap</button>
+                  <button type="button" class="modal-btn cancel-btn small-btn" id="btnPingSearchEngines">📡 提交至搜尋引擎 (Ping)</button>
+                </div>
+                <div id="seoRebuildResultMsg" class="form-hint" style="margin-top: 6px; display: none;"></div>
               </div>
             </div>
 
@@ -955,6 +1027,7 @@
             <div class="modal-left-actions">
               <span id="seoSuccessMsg" class="form-success-text" style="display:none;"></span>
               <span id="seoErrorMsg" class="form-error-text" style="display:none;"></span>
+              <span id="seoUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更 (Cmd+S)</span>
             </div>
             <div class="modal-right-actions">
               <button type="button" class="modal-btn cancel-btn" id="seoCancelBtn">取消</button>
@@ -972,6 +1045,7 @@
             <span class="hardware-title-hint" id="hwUptimeText">系統已運作: 載入中…</span>
           </div>
           <div class="hardware-refresh-controls">
+            <button type="button" class="action-btn text-action-btn" id="hwClearCacheBtn" title="清空記憶體靜態檔案快取、搜尋快取與 Sitemap 快取">🧹 清除快取</button>
             <button type="button" class="action-btn text-action-btn" id="hwRefreshBtn" title="刷新狀態">🔄 實時刷新</button>
             <select id="hwAutoRefreshSelect" class="setting-select compact-select">
               <option value="1000">自動刷新: 1秒</option>
@@ -1239,10 +1313,22 @@
       <!-- Tab 2: System Logs -->
       <div class="admin-tab-pane" id="adminPaneLogs" style="display: none;">
         <div class="admin-logs-header">
-          <span class="admin-logs-count" id="adminLogsCount">最近 600 條系統日誌紀錄</span>
+          <div class="admin-log-categories" id="adminLogCategories">
+            <button type="button" class="log-cat-btn active" data-cat="all">全部</button>
+            <button type="button" class="log-cat-btn" data-cat="error">🚨 錯誤</button>
+            <button type="button" class="log-cat-btn" data-cat="http">🌐 HTTP</button>
+            <button type="button" class="log-cat-btn" data-cat="search">🔍 搜尋</button>
+            <button type="button" class="log-cat-btn" data-cat="render">📄 渲染</button>
+            <button type="button" class="log-cat-btn" data-cat="bot">🤖 爬蟲</button>
+          </div>
           <div class="admin-logs-actions">
-            <input type="text" id="adminLogSearchInput" class="admin-log-search" placeholder="搜尋 (如: IP, HTTP, Error)...">
-            <button type="button" id="adminLogRefreshBtn" class="modal-btn submit-btn small-btn">🔄 重新整理</button>
+            <label class="auto-scroll-label" title="自動滾動至最新日誌">
+              <input type="checkbox" id="adminLogAutoScroll" checked>
+              <span>自動滾動</span>
+            </label>
+            <input type="text" id="adminLogSearchInput" class="admin-log-search" placeholder="關鍵字過濾 (IP, URL)...">
+            <button type="button" id="adminLogDownloadBtn" class="modal-btn cancel-btn small-btn">📥 下載</button>
+            <button type="button" id="adminLogRefreshBtn" class="modal-btn submit-btn small-btn">🔄 整理</button>
           </div>
         </div>
         <div class="admin-log-viewer" id="adminLogViewer">
@@ -1262,6 +1348,7 @@
           </div>
           <div class="analytics-actions">
             <span class="analytics-clean-badge" style="font-size: 12px; color: var(--accent); padding: 4px 8px; background: rgba(56, 139, 253, 0.1); border: 1px solid rgba(56, 139, 253, 0.25); border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; margin-right: 4px;">🛡️ 純淨數據（已過濾爬蟲）</span>
+            <input type="text" id="analyticsTableFilterInput" class="admin-table-filter" placeholder="🔍 快速篩選文章 / 詞條 / 關鍵字...">
             <button type="button" id="analyticsExportCsvBtn" class="modal-btn submit-btn small-btn">📥 導出 CSV</button>
             <button type="button" id="analyticsExportJsonBtn" class="modal-btn cancel-btn small-btn">📥 導出 JSON</button>
           </div>
@@ -1324,7 +1411,8 @@
           <!-- Trend Chart Section -->
           <div class="analytics-section">
             <h3 class="analytics-section-title">📈 全站流量與檢索動態趨勢圖 (Traffic & Query Trends)</h3>
-            <div class="analytics-chart-wrapper" id="analyticsTrendChartWrapper">
+            <div class="analytics-chart-wrapper" id="analyticsTrendChartWrapper" style="position: relative;">
+              <div id="chartFloatingTooltip" class="chart-floating-tooltip" style="display: none;"></div>
               <div class="search-loading"><div class="spinner"></div><span>繪製圖表中…</span></div>
             </div>
           </div>
@@ -1472,8 +1560,15 @@
                     <span>筆</span>
                   </div>
                 </div>
+                <div class="article-picker-wrap">
+                  <div class="article-picker-input-group">
+                    <input type="text" id="suggestArticleSearchInput" class="article-picker-input" placeholder="🔍 搜尋經文庫檔名快速加入推薦…">
+                    <button type="button" id="suggestArticleClearBtn" class="article-picker-clear-btn" style="display: none;">×</button>
+                  </div>
+                  <div id="suggestArticleDropdown" class="article-picker-dropdown" style="display: none;"></div>
+                </div>
                 <textarea id="suggestAdminList" class="suggest-textarea" rows="7" placeholder="每行一個相對路徑，例如：&#10;05-新標藏經/辯中邊論/辯中邊論述記科句.md&#10;10-玅境長老/解深密經/長老-分別瑜伽品.md"></textarea>
-                <span class="suggest-hint">相對 Vault 路徑（.md 副檔名可省略），每行一個。</span>
+                <span class="suggest-hint">相對 Vault 路徑（.md 副檔名可省略），每行一個。可直接從上方搜尋框點擊快速加入。</span>
               </div>
 
               <!-- Blacklist -->
@@ -1553,13 +1648,31 @@
                 <span class="suggest-hint">條件：需同時啟用「首頁推薦閱讀」與「辭典查詢」，並由勾選辭典隨機挑選詞條。</span>
               </div>
 
+              <!-- Live Preview of Homepage Recommendations -->
+              <div class="suggest-section suggest-preview-section">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">📱</span>
+                    首頁推薦即時預覽
+                  </div>
+                  <button type="button" class="action-btn text-action-btn" id="btnRefreshSuggestPreview" title="根據當前設定預覽首頁效果">🔄 預覽效果</button>
+                </div>
+                <div class="suggest-live-preview-box" id="suggestLivePreviewBox">
+                  <div class="preview-hint">點擊上方「🔄 預覽效果」即可即時模擬讀者開啟首頁看到的推薦項目。</div>
+                </div>
+              </div>
+
             </div>
           </div>
 
           <div id="suggestErrorMsg" class="form-error" style="display: none;"></div>
           <div id="suggestSuccessMsg" class="form-success" style="display: none;"></div>
           <div class="modal-actions">
+            <div class="modal-left-actions">
+              <span id="suggestUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更 (Cmd+S)</span>
+            </div>
             <div class="modal-right-actions">
+              <button type="button" class="modal-btn cancel-btn" id="suggestCancelBtn">取消</button>
               <button type="submit" class="modal-btn submit-btn">儲存推薦設定</button>
             </div>
           </div>
@@ -1574,8 +1687,8 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/mermaid/mermaid.min.js" defer></script>
-  <script src="marked.min.js?v=3.5.2" defer></script>
-  <script src="s2t.js?v=3.5.2" defer></script>
-  <script src="app.js?v=3.5.2" defer></script>
+  <script src="marked.min.js?v=3.5.3" defer></script>
+  <script src="s2t.js?v=3.5.3" defer></script>
+  <script src="app.js?v=3.5.3" defer></script>
 </body>
 </html>
