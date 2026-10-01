@@ -6513,6 +6513,7 @@ const server = http.createServer((req, res) => {
         enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance,
         dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
         seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
+        googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoEnableSearchBox, seoHomepageSummary
       } = data.settings || {};
 
       // Allow partial settings updates: if mdRoot is omitted, preserve existing config.settings.mdRoot
@@ -6625,8 +6626,13 @@ const server = http.createServer((req, res) => {
         return sendJSON(res, 200, { success: true, settings: config.settings });
       };
 
+      // Determine if directory paths or dictionary settings are explicitly being modified
+      const isDictExplicitlyUpdated = dictionaryEnabled !== undefined || dictionaryPath !== undefined;
+      const isMdRootExplicitlyUpdated = mdRoot !== undefined && resolvedPath !== config.settings.mdRoot;
+
       const afterVaultOk = () => {
-        if (nextDictEnabled && nextDictPath) {
+        // Only validate dictionary directory if dictionary settings are explicitly being updated in this request
+        if (isDictExplicitlyUpdated && nextDictEnabled && nextDictPath) {
           return fs.promises.stat(nextDictPath).then(ds => {
             if (!ds.isDirectory()) {
               return sendJSON(res, 400, { error: 'Dictionary path is not a directory' });
@@ -6646,19 +6652,19 @@ const server = http.createServer((req, res) => {
                 field: 'dictionaryPath'
               });
             }
-            return sendJSON(res, 400, { error: 'Dictionary path does not exist or is not readable' });
+            return sendJSON(res, 400, { error: `Dictionary path does not exist or is not readable (${err.code || err.message})` });
           });
         }
         return updateSettings();
       };
 
-      // If neither mdRoot nor dictionary settings were specified, bypass directory checks (partial update)
-      if (mdRoot === undefined && dictionaryEnabled === undefined && dictionaryPath === undefined) {
+      // If neither mdRoot nor dictionary settings were modified or specified, bypass directory checks (partial update)
+      if (!isMdRootExplicitlyUpdated && !isDictExplicitlyUpdated) {
         return updateSettings();
       }
 
       // If only dictionary settings were updated, check dictionary directory directly
-      if (mdRoot === undefined) {
+      if (!isMdRootExplicitlyUpdated) {
         return afterVaultOk();
       }
 
@@ -6681,7 +6687,7 @@ const server = http.createServer((req, res) => {
             field: 'mdRoot'
           });
         }
-        return sendJSON(res, 400, { error: 'Directory path does not exist or is not readable' });
+        return sendJSON(res, 400, { error: `Directory path does not exist or is not readable (${err.code || err.message})` });
       });
     }).catch(err => {
       return sendJSON(res, 500, { error: err.message });
