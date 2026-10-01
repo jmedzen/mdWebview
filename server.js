@@ -1065,13 +1065,13 @@ let config = {
     seoSiteDescription: process.env.SEO_SITE_DESCRIPTION || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。',
     seoKeywords: process.env.SEO_KEYWORDS || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview',
     seoOgImage: process.env.SEO_OG_IMAGE || '/og-preview.png',
-    seoRobotsIndex: process.env.SEO_ROBOTS_INDEX !== undefined ? process.env.SEO_ROBOTS_INDEX === 'true' : true,
+    seoRobotsIndex: process.env.SEO_ROBOTS_INDEX !== undefined ? process.env.SEO_ROBOTS_INDEX === 'true' : false,
     seoBlockAiBots: process.env.SEO_BLOCK_AI_BOTS !== undefined ? process.env.SEO_BLOCK_AI_BOTS === 'true' : true,
     seoDisallowPaths: process.env.SEO_DISALLOW_PATHS || '/api/\n/vendor/',
-    googleSiteVerification: process.env.GOOGLE_SITE_VERIFICATION || 'HGnOpfVbx1BCukVzCzfcLj0VPyeawv0-1aLkG1tdRik',
+    googleSiteVerification: process.env.GOOGLE_SITE_VERIFICATION || '',
     bingSiteVerification: process.env.BING_SITE_VERIFICATION || '',
     baiduSiteVerification: process.env.BAIDU_SITE_VERIFICATION || '',
-    seoEnableSearchBox: process.env.SEO_ENABLE_SEARCH_BOX !== undefined ? process.env.SEO_ENABLE_SEARCH_BOX === 'true' : true,
+    seoEnableSearchBox: process.env.SEO_ENABLE_SEARCH_BOX !== undefined ? process.env.SEO_ENABLE_SEARCH_BOX === 'true' : false,
     seoHomepageSummary: process.env.SEO_HOMEPAGE_SUMMARY || '本站收錄大正新脩大藏經及歷代佛學經論，提供繁簡轉換、全文倒排索引檢索、佛學名相辭典查詢與離線 PWA 閱讀功能，期能方便十方善信深入經藏，智光普照。'
   }
 };
@@ -1320,7 +1320,7 @@ function getIndexHtml(nonce, req, callback) {
       : (baseUrl ? `${baseUrl}${rawOgImage.startsWith('/') ? '' : '/'}${rawOgImage}` : rawOgImage);
     const siteDesc = escapeHtmlString(config.settings.seoSiteDescription || '線上佛典經論閱讀器，收錄大正藏及歷代藏經、佛學辭典，支援全文檢索與離線閱讀。');
     const siteKeywords = escapeHtmlString(config.settings.seoKeywords || '佛典, 經論, 大正藏, 佛學辭典, 佛教經典, 線上閱讀, mdWebview');
-    const robotsContent = config.settings.seoRobotsIndex === false ? 'noindex, nofollow' : 'index, follow';
+    const robotsContent = config.settings.seoRobotsIndex === true ? 'index, follow' : 'noindex, nofollow';
     const gVer = escapeHtmlString(config.settings.googleSiteVerification || '');
     const bingVer = escapeHtmlString(config.settings.bingSiteVerification || '');
     const baiduVer = escapeHtmlString(config.settings.baiduSiteVerification || '');
@@ -1371,6 +1371,8 @@ function getIndexHtml(nonce, req, callback) {
       } else {
         html = html.replace('</head>', `  <meta name="google-site-verification" content="${gVer}">\n</head>`);
       }
+    } else {
+      html = html.replace(/\s*<meta name="google-site-verification"[^>]*>\n?/i, '\n');
     }
     if (bingVer) {
       if (html.includes('<meta name="msvalidate.01"')) {
@@ -1378,6 +1380,8 @@ function getIndexHtml(nonce, req, callback) {
       } else {
         html = html.replace('</head>', `  <meta name="msvalidate.01" content="${bingVer}">\n</head>`);
       }
+    } else {
+      html = html.replace(/\s*<meta name="msvalidate\.01"[^>]*>\n?/i, '\n');
     }
     if (baiduVer) {
       if (html.includes('<meta name="baidu-site-verification"')) {
@@ -1385,10 +1389,12 @@ function getIndexHtml(nonce, req, callback) {
       } else {
         html = html.replace('</head>', `  <meta name="baidu-site-verification" content="${baiduVer}">\n</head>`);
       }
+    } else {
+      html = html.replace(/\s*<meta name="baidu-site-verification"[^>]*>\n?/i, '\n');
     }
 
     // 7. Homepage WebSite + SearchAction Schema.org JSON-LD
-    if (config.settings.seoEnableSearchBox !== false && baseUrl) {
+    if (config.settings.seoEnableSearchBox === true && baseUrl) {
       const homeJsonLd = {
         "@context": "https://schema.org",
         "@type": "WebSite",
@@ -1760,7 +1766,7 @@ function handleRobotsTxt(req, res) {
   const baseUrl = getBaseUrl(req);
   const lines = [];
 
-  if (config.settings && config.settings.seoRobotsIndex === false) {
+  if (!config.settings || config.settings.seoRobotsIndex !== true) {
     lines.push('User-agent: *');
     lines.push('Disallow: /');
   } else {
@@ -6493,7 +6499,7 @@ const server = http.createServer((req, res) => {
       sitemapUrl: `${baseUrl}/sitemap.xml`,
       robotsUrl: `${baseUrl}/robots.txt`,
       sitemapCached: !!cachedSitemapXml,
-      robotsIndex: config.settings.seoRobotsIndex !== false,
+      robotsIndex: config.settings.seoRobotsIndex === true,
       blockAiBots: config.settings.seoBlockAiBots !== false
     });
   }
