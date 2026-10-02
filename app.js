@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.5.4
+   mdWebview — Application Logic (app.js) v3.5.5
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6366,7 +6366,7 @@
     renderBookmarksList();
     fetchSuggestList(false);
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.4';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.5';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6659,7 +6659,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.5.4',
+            version: data.settings?.version || '3.5.5',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
