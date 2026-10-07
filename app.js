@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.5.6
+   mdWebview — Application Logic (app.js) v3.6.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -5957,6 +5957,7 @@
         const tab = btn.getAttribute('data-tab');
         $$('.settings-tab-btn', $('userSettingsTabsNav')).forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         $$('.settings-tab-pane', $('userSettingsOverlay')).forEach(pane => {
           pane.style.display = pane.id === `pane-${tab}` ? 'flex' : 'none';
         });
@@ -6366,7 +6367,7 @@
     renderBookmarksList();
     fetchSuggestList(false);
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.5.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6659,7 +6660,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.5.6',
+            version: data.settings?.version || '3.6.0',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -7760,58 +7761,61 @@
       [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
+    function activateTab(btn, pane, callback) {
+      hideAllPanes();
+      if (btn) {
+        btn.classList.add('active');
+        btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+      if (pane) pane.style.display = 'block';
+      if (callback) callback();
+    }
+
     if (tabConfigBtn) {
       tabConfigBtn.addEventListener('click', () => {
-        hideAllPanes();
-        tabConfigBtn.classList.add('active');
-        if (paneConfig) paneConfig.style.display = 'block';
+        activateTab(tabConfigBtn, paneConfig);
       });
     }
 
     if (tabSeoBtn) {
       tabSeoBtn.addEventListener('click', () => {
-        hideAllPanes();
-        tabSeoBtn.classList.add('active');
-        if (paneSeo) paneSeo.style.display = 'block';
-        loadSeoSettings();
-        updateOgLivePreview();
+        activateTab(tabSeoBtn, paneSeo, () => {
+          loadSeoSettings();
+          updateOgLivePreview();
+        });
       });
     }
 
     if (tabHardwareBtn) {
       tabHardwareBtn.addEventListener('click', () => {
-        hideAllPanes();
-        tabHardwareBtn.classList.add('active');
-        if (paneHardware) paneHardware.style.display = 'block';
-        loadHardwareStats();
-        setupHardwareAutoRefresh();
+        activateTab(tabHardwareBtn, paneHardware, () => {
+          loadHardwareStats();
+          setupHardwareAutoRefresh();
+        });
       });
     }
 
     if (tabLogsBtn) {
       tabLogsBtn.addEventListener('click', () => {
-        hideAllPanes();
-        tabLogsBtn.classList.add('active');
-        if (paneLogs) paneLogs.style.display = 'block';
-        fetchAdminLogs();
+        activateTab(tabLogsBtn, paneLogs, () => {
+          fetchAdminLogs();
+        });
       });
     }
 
     if (tabAnalyticsBtn) {
       tabAnalyticsBtn.addEventListener('click', () => {
-        hideAllPanes();
-        tabAnalyticsBtn.classList.add('active');
-        if (paneAnalytics) paneAnalytics.style.display = 'block';
-        loadAdminAnalytics();
+        activateTab(tabAnalyticsBtn, paneAnalytics, () => {
+          loadAdminAnalytics();
+        });
       });
     }
 
     if (tabSuggestBtn) {
       tabSuggestBtn.addEventListener('click', () => {
-        hideAllPanes();
-        tabSuggestBtn.classList.add('active');
-        if (paneSuggest) paneSuggest.style.display = 'block';
-        loadSuggestSettings();
+        activateTab(tabSuggestBtn, paneSuggest, () => {
+          loadSuggestSettings();
+        });
       });
     }
 

@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.5.6
+ * @version 3.6.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -55,7 +55,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.5.6';
+let APP_VERSION = '3.6.0';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -1599,8 +1599,11 @@ const httpMetrics = {
 // unboundedly (the 30 req/s API rate limit ≈ 1800/min; 5000 gives ample headroom).
 const MAX_RECENT_REQUEST_TIMES = 5000;
 
+const VAULT_INDEX_DEBOUNCE_MS = 20000; // 20 秒延遲防抖，避免大量檔案異動時 CPU 卡死
+let activeIndexBuildId = 0;
 let treeWatcherDebounceTimer = null;
 let treeWatcherStartTime = 0;
+let treeWatcherChangeCount = 0;
 
 function setupTreeWatcher() {
   if (treeWatcher) return;
@@ -1623,17 +1626,36 @@ function setupTreeWatcher() {
         cachedTree = null;
         cachedSitemapXml = null;
         searchCache.clear();
-        invalidateSectionIndexes();
+        if (filename) {
+          sectionIndexCache.delete(filename);
+        } else {
+          invalidateSectionIndexes();
+        }
 
-        // Debounce index rebuild by 1.5 seconds to handle batch file operations cleanly
+        // 立即中止任何正在進行中的舊索引建置，釋放 CPU 資源以因應正在進行的檔案寫入
+        activeIndexBuildId++;
+        searchIndex.building = false;
+
+        // Debounce index rebuild by 20 seconds to handle batch file operations cleanly.
+        // 第一次檔案異動事件發生時絕不立即執行重建，必須等待完整 20 秒沉降期。
+        // 若在 20 秒內又有新檔案變更，計時器將自動重置，重新計算 20 秒。
+        treeWatcherChangeCount++;
+        const isFirstEvent = !treeWatcherDebounceTimer;
         if (treeWatcherDebounceTimer) {
           clearTimeout(treeWatcherDebounceTimer);
         }
+        if (isFirstEvent) {
+          Logger.info('Index', `Vault file changed [#${treeWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Aborting active build & waiting ${VAULT_INDEX_DEBOUNCE_MS / 1000}s debounce before index rebuild...`);
+        } else {
+          Logger.info('Index', `Vault file changed [#${treeWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Resetting countdown, waiting another ${VAULT_INDEX_DEBOUNCE_MS / 1000}s...`);
+        }
         treeWatcherDebounceTimer = setTimeout(() => {
+          const totalChanges = treeWatcherChangeCount;
           treeWatcherDebounceTimer = null;
-          Logger.info('Index', `Vault file changed: "${filename || 'unknown'}" (${eventType}). Aborting active build & restarting Bigram Index build...`);
+          treeWatcherChangeCount = 0;
+          Logger.info('Index', `Vault files quiet for ${VAULT_INDEX_DEBOUNCE_MS / 1000}s (accumulated ${totalChanges} change events). Starting Bigram Index build...`);
           buildSearchIndexAsync(true).catch(() => {});
-        }, 1500);
+        }, VAULT_INDEX_DEBOUNCE_MS);
       });
     }
   } catch (err) {
@@ -1646,6 +1668,7 @@ function resetTreeWatcher() {
     clearTimeout(treeWatcherDebounceTimer);
     treeWatcherDebounceTimer = null;
   }
+  treeWatcherChangeCount = 0;
   if (treeWatcher) {
     try {
       treeWatcher.close();
@@ -3368,7 +3391,7 @@ function intersectSorted(a, b) {
   return result;
 }
 
-let activeIndexBuildId = 0;
+// Note: activeIndexBuildId is declared above near setupTreeWatcher (L1603)
 
 // Runs a pool of transient worker_threads over `tasks` with a shared counter.
 // `buildMessage(task)` → { type, payload } (jobId is added by the pool);
@@ -3582,9 +3605,11 @@ let dictIndex = {
   units: [],          // unitId -> { fileId, entryIndex, headword, byteOffset, byteLength, lineStart }
   bigrams: new Map(),
 };
+const DICT_INDEX_DEBOUNCE_MS = 20000; // 20 秒延遲防抖，避免大量檔案異動時 CPU 卡死
 let activeDictIndexBuildId = 0;
 let dictWatcher = null;
 let dictWatcherDebounceTimer = null;
+let dictWatcherChangeCount = 0;
 
 // Returns the configured dictionary root (absolute), or null when disabled/unset.
 function getDictionaryPath() {
@@ -3978,15 +4003,37 @@ function setupDictWatcher() {
   const root = getDictionaryPath();
   if (!root || !fs.existsSync(root)) return;
   try {
-    dictWatcher = fs.watch(root, (eventType, filename) => {
+    dictWatcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
       if (filename && (filename.startsWith('.') || filename.includes('/.'))) return;
       invalidateDictIndex();
-      invalidateDictSectionIndexes();
-      if (dictWatcherDebounceTimer) clearTimeout(dictWatcherDebounceTimer);
+      if (filename) {
+        dictSectionIndexCache.delete(`dict:${filename}`);
+      } else {
+        invalidateDictSectionIndexes();
+      }
+
+      // 立即中止任何正在進行中的舊辭典索引建置，釋放 CPU
+      activeDictIndexBuildId++;
+      dictIndex.building = false;
+
+      // 第一次檔案異動事件發生時絕不立即執行重建，必須等待完整 20 秒沉降期
+      dictWatcherChangeCount++;
+      const isFirstEvent = !dictWatcherDebounceTimer;
+      if (dictWatcherDebounceTimer) {
+        clearTimeout(dictWatcherDebounceTimer);
+      }
+      if (isFirstEvent) {
+        Logger.info('DictIndex', `Dictionary file changed [#${dictWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Aborting active build & waiting ${DICT_INDEX_DEBOUNCE_MS / 1000}s debounce before index rebuild...`);
+      } else {
+        Logger.info('DictIndex', `Dictionary file changed [#${dictWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Resetting countdown, waiting another ${DICT_INDEX_DEBOUNCE_MS / 1000}s...`);
+      }
       dictWatcherDebounceTimer = setTimeout(() => {
+        const totalChanges = dictWatcherChangeCount;
         dictWatcherDebounceTimer = null;
+        dictWatcherChangeCount = 0;
+        Logger.info('DictIndex', `Dictionary files quiet for ${DICT_INDEX_DEBOUNCE_MS / 1000}s (accumulated ${totalChanges} change events). Starting Dictionary Index build...`);
         buildDictIndexAsync(true).catch(() => {});
-      }, 1500);
+      }, DICT_INDEX_DEBOUNCE_MS);
     });
   } catch (err) {
     Logger.error('DictIndex', 'Error setting up dictionary watcher', err);
@@ -3995,6 +4042,7 @@ function setupDictWatcher() {
 
 function resetDictWatcher() {
   if (dictWatcherDebounceTimer) { clearTimeout(dictWatcherDebounceTimer); dictWatcherDebounceTimer = null; }
+  dictWatcherChangeCount = 0;
   if (dictWatcher) { try { dictWatcher.close(); } catch (_) {} dictWatcher = null; }
   invalidateDictIndex();
   invalidateDictSectionIndexes();
@@ -4128,7 +4176,7 @@ async function handleDictSearch(req, res, query) {
   const maxProximityDist = Math.max(10, parseInt(config.settings.maxProximityDistance) || 150);
 
   try {
-    if (!dictIndex.ready && !dictIndex.building) {
+    if (!dictIndex.ready && !dictIndex.building && !dictWatcherDebounceTimer) {
       buildDictIndexAsync().catch(() => {});
     }
     setupDictWatcher();
@@ -4309,8 +4357,8 @@ async function handleSearch(req, res, query) {
       cachedTree = await scanDirAsync(getMdRoot(), '');
       setupTreeWatcher();
     }
-    // Ensure Bigram Index build is triggered in background if not ready
-    if (!searchIndex.ready && !searchIndex.building) {
+    // Ensure Bigram Index build is triggered in background if not ready (and not in debounce waiting)
+    if (!searchIndex.ready && !searchIndex.building && !treeWatcherDebounceTimer) {
       buildSearchIndexAsync().catch(() => {});
     }
 
@@ -4521,7 +4569,7 @@ async function handleSearchFile(req, res, query) {
       cachedTree = await scanDirAsync(getMdRoot(), '');
       setupTreeWatcher();
     }
-    if (!searchIndex.ready && !searchIndex.building) {
+    if (!searchIndex.ready && !searchIndex.building && !treeWatcherDebounceTimer) {
       buildSearchIndexAsync().catch(() => {});
     }
 
