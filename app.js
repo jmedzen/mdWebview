@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.0
+   mdWebview — Application Logic (app.js) v3.6.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -43,6 +43,7 @@
   const userLineHeight = localStorage.getItem('mdWebview-user-lineheight');
   const userMaxWidth = localStorage.getItem('mdWebview-user-maxwidth');
   const userReadProgress = localStorage.getItem('mdWebview-user-readprogress');
+  const userAutoS2T = localStorage.getItem('mdWebview-auto-s2t');
 
   function safeJsonParse(key, fallback) {
     try {
@@ -86,6 +87,7 @@
    * @property {string}       lineHeight        - 行高倍數字串 ('1.6'|'1.8'|'2.0')
    * @property {string}       maxWidth          - 閱讀區最大寬度 CSS 值 ('800px'|'100%'|…)
    * @property {boolean}      autoReadProgress  - 是否自動記錄與恢復閱讀進度
+   * @property {boolean}      autoS2T           - 是否自動簡體轉繁體（預設 false）
    * @property {boolean}      isMobile          - 是否為行動裝置（UA 或視窗寬度 <= 768px）
    *
    * ── 站台設定 ──────────────────────────────────────────────────
@@ -158,6 +160,7 @@
     lineHeight: userLineHeight || '1.8',
     maxWidth: (isMobile && (!userMaxWidth || userMaxWidth === '100%')) ? '95%' : (userMaxWidth || '800px'),
     autoReadProgress: userReadProgress !== 'false',
+    autoS2T: userAutoS2T === 'true',
     isMobile: isMobile,
     recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
     bookmarks: safeJsonParse('mdWebview-user-bookmarks', []),
@@ -398,6 +401,7 @@
     applyLineHeight(state.lineHeight, false);
     applyMaxWidth(state.maxWidth, false);
     applyAutoReadProgress(state.autoReadProgress, false);
+    applyAutoS2T(state.autoS2T, false);
 
     // Ensure initial user preferences are saved in localStorage so subsequent changes
     // to defaultTheme or defaultFontSize by the administrator do not override existing users.
@@ -3754,7 +3758,7 @@
   let searchAbortController = null;
 
   async function performGlobalSearch(query) {
-    if (typeof toTraditional === 'function') {
+    if (state.autoS2T && typeof toTraditional === 'function') {
       const trad = toTraditional(query);
       if (trad !== query) {
         query = trad;
@@ -4265,7 +4269,7 @@
 
   async function runDictSearch(query) {
     let q = (query || '').trim();
-    if (typeof toTraditional === 'function') {
+    if (state.autoS2T && typeof toTraditional === 'function') {
       const trad = toTraditional(q);
       if (trad !== q) {
         q = trad;
@@ -4285,7 +4289,7 @@
     // Re-check input in case it was updated while loading
     const currentInputVal = ($('dictSearchInput')?.value || '').trim();
     if (currentInputVal && currentInputVal !== q) {
-      q = (typeof toTraditional === 'function') ? toTraditional(currentInputVal) : currentInputVal;
+      q = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(currentInputVal) : currentInputVal;
     }
     if (!q) return;
     // Invalidate cached fulltext results if query has changed
@@ -4529,7 +4533,7 @@
     state.pageSearchQuery = null;
 
     let q = (query || '').trim();
-    if (typeof toTraditional === 'function') {
+    if (state.autoS2T && typeof toTraditional === 'function') {
       const trad = toTraditional(q);
       if (trad !== q) {
         q = trad;
@@ -4906,6 +4910,16 @@
 
     if (saveToLocalStorage) {
       localStorage.setItem('mdWebview-user-readprogress', enabled ? 'true' : 'false');
+    }
+  }
+
+  function applyAutoS2T(enabled, saveToLocalStorage = true) {
+    state.autoS2T = !!enabled;
+    const chk = $('settingAutoS2TCheck');
+    if (chk) chk.checked = !!enabled;
+
+    if (saveToLocalStorage) {
+      localStorage.setItem('mdWebview-auto-s2t', enabled ? 'true' : 'false');
     }
   }
 
@@ -5999,6 +6013,11 @@
       autoProgressCheck.addEventListener('change', (e) => applyAutoReadProgress(e.target.checked));
     }
 
+    const autoS2TCheck = $('settingAutoS2TCheck');
+    if (autoS2TCheck) {
+      autoS2TCheck.addEventListener('change', (e) => applyAutoS2T(e.target.checked));
+    }
+
     const clearRecentBtn = $('clearRecentFilesBtn');
     if (clearRecentBtn) {
       clearRecentBtn.addEventListener('click', () => {
@@ -6367,7 +6386,12 @@
     renderBookmarksList();
     fetchSuggestList(false);
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.0';
+    const s2tChk = $('settingAutoS2TCheck');
+    if (s2tChk) s2tChk.checked = !!state.autoS2T;
+    const autoProgressChk = $('settingAutoReadProgressCheck');
+    if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
+
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6660,7 +6684,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.0',
+            version: data.settings?.version || '3.6.1',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -8625,7 +8649,7 @@
 
       let rawSelected = (currentSelectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const queryText = (typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
+      const queryText = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const searchInput = $('globalSearchInput');
       if (searchInput) {
         searchInput.value = queryText;
@@ -8652,7 +8676,7 @@
 
       let rawSelected = (selectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const queryText = (typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
+      const queryText = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const dictInput = $('dictSearchInput');
       if (dictInput) {
         dictInput.value = queryText;
