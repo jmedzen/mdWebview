@@ -6,19 +6,20 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.6.2) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.6.3) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
 - 📂 **Obsidian 風格檔案瀏覽器**：自動掃描 `md/` 資料夾下的多層級 Markdown 檔案，以樹狀目錄直觀呈現，支援名稱與修改時間動態排序、檔案數量標示與目錄全展/全折疊（配備自訂向量雙箭頭圖示）。
 - 🔗 **Obsidian 雙向連結 ([[Wikilink]])**：支援 `[[頁面名稱]]`、`[[頁面名稱|顯示文字]]` 及 `[[頁面名稱#章節標題]]` 語法，點擊即可流暢切換並自動滾動高亮對應標題。
 - ⚡ **多執行緒與高效能架構**：
-  - **Worker Thread SSR**：將重度 CPU 運算的 Markdown 解析與註腳錨點生成移至背景工作執行緒池（Worker Threads），避免主事件迴圈卡死。
-  - **全非同步非阻塞 I/O**：伺服器端全數採用 Promise-based 非同步檔案存取。
-  - **智慧快取與 Gzip 壓縮**：結合記憶體 Tree 快取、弱 ETag（304 Not Modified）、靜態資源長效快取與動態 Gzip 壓縮，顯著降低網路傳輸與載入時間。
-  - **前端 LRU 快取與演算法優化**：前端配備最近使用（LRU）渲染快取、`O(log N)` 二進位搜尋行號定位與 `O(1)` 大綱標籤映射。
+  - **Worker Thread SSR 與背壓防護**：將重度 CPU 運算的 Markdown 解析與註腳錨點生成移至背景工作執行緒池（Worker Threads）。配備佇列上限防爆（503 Backpressure）、任務入列即時計時（30s 逾時隔離）、連線中斷即刻取消 (`req.on('close')`) 與 15 秒 8 次崩潰退避重生機制。
+  - **全非同步非阻塞 I/O**：伺服器端全數採用 Promise-based 非同步檔案存取，目錄樹掃描與設定記憶化快取杜絕 Event Loop 凍結。
+  - **智慧快取與 Gzip 壓縮**：結合記憶體 Tree 快取、弱 ETag（304 Not Modified）、500 筆 LRU 靜態資源長效快取與動態 Gzip 壓縮，顯著降低網路傳輸與載入時間。
+  - **前端 LRU 快取與前端並發守衛**：前端配備最近使用（LRU）渲染快取、世代守衛標記（`_openToken`，徹底杜絕快速切換檔案時舊請求覆蓋新畫面）、`AbortController` 請求取消、二分搜尋閱讀進度儲存（杜絕 Layout Thrashing）與 `O(1)` 大綱標籤映射。
 - 🔍 **倒排索引與空白 AND 鄰近搜尋 (Proximity Search)**：
   - **Bigram 雙字元倒排索引**：後端建立全庫 2-gram 記憶體與二進位檔快取（`.bin`），支援 6,000+ 經文檔案毫秒級檢索。
+  - **單飛重建互斥 (Single-Flight)**：索引防抖與管理員重建共用單飛旗標，杜絕並行重複計算與暫存檔寫入衝突。
   - **空白多關鍵詞 AND 搜尋**：支援輸入 `阿賴耶識 唯識` 或 `解深密經 圓測` 空白分隔關鍵詞進行交集比對。
   - **鄰近詞距上限限制 (Proximity Filtering)**：自動過濾字詞相隔過遠的非相關結果。可在管理員後台面板自訂「搜尋鄰近詞距上限」（預設 150 字元）。
 - 📑 **自動大綱導航 (TOC)**：開啟經論檔案後，自動解析 Markdown 標題（H1~H6）並動態生成側邊欄大綱，支援點擊滾動與閱讀進度追蹤（ScrollSpy）。
@@ -41,9 +42,10 @@
   - **SEO 與社群標籤**：內建爬蟲專用 SSR 預渲染、Schema.org JSON-LD 結構化資料、開機背景預熱快取，並提供後台 OpenGraph 即時預覽。
 - 🔒 **安全性、後台管理與日誌修剪**：
   - 內建 PBKDF2 密碼雜湊防護、IP Rate-Limiting 防暴力破解與 Session 管理。
+  - **嚴格安全防禦**：Footnote 註腳 XSS 雙重消毒與屬性跳脫、畸形 Host 標頭 400 防禦與連線逾時銷毀（防 DoS）、嚴格信任代理白名單（防 IP 偽造）、Analytics 匯出同源驗證。
   - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。
-  - **7 天 Log 修剪與全時段統計保留**：7 天以上歷史日誌自動精簡瘦身（節省 85% ~ 95% 空間），同時永久保留極簡統計資料以維護 `allTime` 全時段分析計算。
-- 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險。
+  - **90 天 Analytics 淘汰與 7 天 Log 修剪**：Analytics store 每日 bucket 90 天自動修剪；7 天以上歷史日誌自動精簡瘦身（節省 85% ~ 95% 空間），同時保留全時段關鍵計數。
+- 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險；Service Worker 離線提供明確 504 回退並支援無縫即時更新（`SKIP_WAITING`）。
 - 🐳 **Docker 與 GitHub Actions 自動化 CI/CD**：
   - **多平台映像檔構建**：內建 Dockerfile、`docker-compose.yml` 與 GitHub Actions，自動發布 `linux/amd64` 與 `linux/arm64` 雙架構 Docker Image 至 GHCR (`ghcr.io`)。
   - **GHCR 自動清理工作流程**：配備自動映像檔修剪維護機制（`cleanup-ghcr.yml`），構建完成後全自動執行或每週定時排程，自動保留最新 5 個版本、保護 `latest`/`main`/`dev` 分支標籤，並徹底清除未標記（untagged）與孤立 multi-arch 子層。
@@ -77,7 +79,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.6.2）
+├── package.json        # Node.js 套件設定（v3.6.3）
 └── README.md           # 本說明文件
 ```
 
@@ -161,19 +163,20 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.6.2) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.6.3) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
 - 📂 **Obsidian-Style File Explorer**: Automatically scans multi-level Markdown files under the `md/` directory with auto-sorting, file count indicators, and custom vector dual-chevron Collapse/Expand icons.
 - 🔗 **Obsidian Wikilinks ([[Wikilink]])**: Fully supports `[[page]]`, `[[page|display]]`, and `[[page#heading]]` syntaxes for seamless navigation and smooth scrolling to target headings.
 - ⚡ **Multi-Threaded & High Performance Architecture**:
-  - **Worker Thread SSR**: Offloads heavy CPU-bound Markdown parsing and footnote processing to background worker thread pools.
-  - **Asynchronous Non-Blocking I/O**: Promise-based asynchronous file operations throughout the server.
-  - **Smart Caching & Gzip Compression**: Combines memory tree caching, weak ETags (304 Not Modified), static asset caching, and dynamic Gzip compression.
-  - **Frontend LRU Cache & Algorithm Optimizations**: Equipped with an LRU rendering cache, `O(log N)` binary search line positioning, and `O(1)` outline tag mapping.
+  - **Worker Thread SSR with Backpressure**: Offloads heavy CPU-bound Markdown parsing and footnote processing to background worker thread pools. Protected by queue bounds (`503 Service Unavailable` backpressure), entry-level 30s timers, client disconnect cancellation (`req.on('close')`), and crash-loop backoff retry (up to 8 times within 15 seconds).
+  - **Asynchronous Non-Blocking I/O**: Promise-based asynchronous file operations throughout the server. Directory tree scanning and settings memoization prevent Event Loop stalls.
+  - **Smart Caching & Gzip Compression**: Combines memory tree caching, weak ETags (304 Not Modified), 500-entry LRU static asset caching, and dynamic Gzip compression.
+  - **Frontend LRU Cache & Concurrency Guard**: Equipped with an LRU rendering cache, generation guard tokens (`_openToken` to prevent out-of-order document rendering races), `AbortController` cancellation, binary search reading progress saving (eliminating layout thrashing), and `O(1)` outline tag mapping.
 - 🔍 **Bigram Inverted Index & Space-Separated AND Search with Proximity Filtering**:
   - **Bigram Inverted Index**: Server-side 2-gram in-memory and binary disk cache (`.bin`) for sub-millisecond search across 6,000+ commentary files.
+  - **Single-Flight Rebuild**: Serializes concurrent index build requests between file watcher debounce and admin triggers to prevent memory doubling.
   - **Multi-Term AND Search**: Supports space-separated queries (e.g., `阿賴耶識 唯識`).
   - **Proximity Distance Filtering**: Filters out matches where terms are too far apart. Maximum character distance (`MAX_PROXIMITY_DISTANCE`) is configurable in the Admin Panel (default 150 chars).
 - 📑 **Auto Outline Navigation (TOC)**: Dynamically parses Markdown headings (H1–H6) into a sidebar table of contents with click-to-scroll and ScrollSpy progress tracking.
@@ -194,11 +197,12 @@ docker-compose up -d
   - **20-Second Sitemap Debounce**: Automatically debounces file changes over a 20-second quiet period, preventing disk scanning CPU spikes during bulk uploads.
   - **Stale-While-Revalidate**: Immediately serves cached sitemap instances (0ms latency) during debounce windows or rebuilds.
   - **Crawler SSR & Metadata**: Pre-renders crawler-specific HTML with Schema.org JSON-LD structured data and live OpenGraph social card previews.
-- 🔒 **Security, Admin Panel & 7-Day Log Pruning**:
+- 🔒 **Security, Admin Panel & 90-Day Analytics Pruning**:
   - Built-in PBKDF2 password hashing, IP rate limiting, and session management.
+  - **Strict Security Hardening**: Double sanitization and attribute escaping on footnote elements (XSS defense), malformed Host header 400 rejection and socket timeout destruction (DoS prevention), strict trusted proxy CIDR whitelist, and mandatory Same-Origin verification on analytics exports.
   - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export.
-  - **7-Day Log Pruning**: Log files older than 7 days are automatically pruned (saving 85%–95% disk space) while permanently retaining lightweight analytics data for `allTime` calculations.
-- 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies.
+  - **90-Day Analytics & 7-Day Log Pruning**: Automatic 90-day retention on daily analytics buckets with map pruning; raw log files older than 7 days are automatically pruned while permanently preserving key all-time aggregates.
+- 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies; Service Worker provides clean 504 offline fallback and seamless immediate updates (`SKIP_WAITING`).
 - 🐳 **Docker & GitHub Actions Automated CI/CD**:
   - **Multi-Architecture Builds**: Automatically builds and publishes multi-platform (`linux/amd64`, `linux/arm64`) container images to GitHub Container Registry (`ghcr.io`).
   - **GHCR Automated Image Cleanup**: Built-in retention workflow (`cleanup-ghcr.yml`) triggered automatically after image builds or via weekly schedule, retaining the latest 5 versions, protecting `latest`/`main`/`dev` pointer tags, and safely purging untagged/orphaned manifests.
@@ -232,7 +236,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.6.2)
+├── package.json        # Node.js package manifest (v3.6.3)
 └── README.md           # Project documentation
 ```
 

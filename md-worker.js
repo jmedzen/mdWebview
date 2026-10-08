@@ -301,8 +301,8 @@ function parseMarkdown(body, filePath) {
 
   // ── 3. Parse main markdown body to HTML ─────────────────────
   let html = marked.parse(annotatedLines.join('\n'));
-  html = sanitizeDangerousTags(html);
   html = normalizeImageSrcs(html, filePath);
+  html = sanitizeDangerousTags(html);
 
   // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
   if (html.includes('[[')) {
@@ -317,17 +317,22 @@ function parseMarkdown(body, filePath) {
   // ── 5. Process footnote references ──────────────────────────
   const refCounter = {};
   if (footnotes.length > 0) {
-    html = html.replace(/\[\^([^\]]+)\]/g, (match, id) => {
+    html = html.replace(/\[\^([^\]]+)\]/g, (match, rawId) => {
+      const id = rawId;
       if (!refCounter[id]) refCounter[id] = 0;
       refCounter[id]++;
-      const refId = `fn-ref-${id}-${refCounter[id]}`;
-      return `<a href="#fn-def-${id}" id="${refId}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
+      const safeId = escapeAttr(id);
+      const safeLabel = escapeHtml(id);
+      const refId = `fn-ref-${safeId}-${refCounter[id]}`;
+      return `<a href="#fn-def-${safeId}" id="${refId}" class="footnote-ref" title="註 ${safeLabel}">[${safeLabel}]</a>`;
     });
 
     // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
     const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
     const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
     let combinedFnHtml = marked.parse(combinedFnText).trim();
+    combinedFnHtml = normalizeImageSrcs(combinedFnHtml, filePath);
+    combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
     if (combinedFnHtml.includes('[[')) {
       combinedFnHtml = convertWikilinks(combinedFnHtml);
     }
@@ -337,16 +342,18 @@ function parseMarkdown(body, filePath) {
 
     footnotes.forEach((fn, idx) => {
       const id = fn.id;
+      const safeId = escapeAttr(id);
+      const safeLabel = escapeHtml(id);
       let fnRendered = (fnRenderedArray[idx] || '').trim();
 
       let backlinksHtml = '';
       const count = refCounter[id] || 0;
       if (count === 1) {
-        backlinksHtml = ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>`;
+        backlinksHtml = ` <a href="#fn-ref-${safeId}-1" class="footnote-backlink" title="返回">↩</a>`;
       } else if (count > 1) {
         backlinksHtml = ' ';
         for (let r = 1; r <= count; r++) {
-          backlinksHtml += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
+          backlinksHtml += `<a href="#fn-ref-${safeId}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
         }
       }
 
@@ -357,13 +364,14 @@ function parseMarkdown(body, filePath) {
         fnRendered += backlinksHtml;
       }
 
-      footnotesHtml += `<li class="footnote-item" id="fn-def-${id}" data-id="${id}">
-          <span class="footnote-label">[${id}]</span>
+      footnotesHtml += `<li class="footnote-item" id="fn-def-${safeId}" data-id="${safeId}">
+          <span class="footnote-label">[${safeLabel}]</span>
           <div class="footnote-item-content">${fnRendered}</div>
         </li>`;
     });
 
     footnotesHtml += '</ul></div>';
+    footnotesHtml = sanitizeDangerousTags(footnotesHtml);
     html += footnotesHtml;
   }
 
@@ -409,14 +417,26 @@ function convertWikilinks(html) {
 function sanitizeDangerousTags(html) {
   if (!html) return '';
   return html
-    // Strip script tags and content
-    .replace(/<script\b[^<]*([\s\S]*?)<\/script>/gi, '')
-    // Strip dangerous iframe, embed, object, frame, frameset tags
-    .replace(/<\/?(?:iframe|embed|object|frame|frameset)\b[^>]*>/gi, '')
-    // Strip inline event handlers (onerror=, onload=, onclick=, etc.)
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    // Neutralize javascript: pseudo-protocol in href or src
-    .replace(/(href|src)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, '$1="#"');
+    // 1. Strip <script> entirely, including a bare/unclosed opening tag
+    .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
+    // 2. Strip a broad set of active/unsafe elements (opening + closing tags).
+    //    Includes <svg>/<math> (mXSS vectors) and <style>/<base>/<meta>/<link>/<form>
+    .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript)\b[^>]*>/gi, '')
+    // 3. Strip inline event handlers regardless of what precedes `on*`.
+    .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+    // 4. Neutralize javascript:/vbscript: pseudo-protocols in href/src (and data: in href),
+    //    decoding HTML entities first.
+    .replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
+      const raw = /^["']/.test(val) ? val.slice(1, -1) : val;
+      const decoded = raw
+        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/&#([0-9]+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+      if (/^\s*(?:javascript|vbscript)\s*:/i.test(decoded)) return attr + '="#"';
+      if (attr.toLowerCase() === 'href' && /^\s*data\s*:/i.test(decoded)) return attr + '="#"';
+      return m;
+    });
 }
 
 function escapeHtml(s) {

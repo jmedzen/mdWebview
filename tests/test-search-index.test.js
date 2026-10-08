@@ -71,10 +71,12 @@ describe('全文搜尋與 Bigram 倒排索引演算法測試', () => {
     ].join('\n');
 
     const result = scanSections(content);
-    assert.equal(result.entries.length, 3);
-    assert.equal(result.entries[0].headword, '第一卷 本地分');
-    assert.equal(result.entries[1].headword, '第一節 五識相應地');
-    assert.equal(result.entries[2].headword, '第二節 意地');
+    // 深層標題 (##) 作為 entries，較淺層標題 (#) 作為 groups 類別分組
+    assert.equal(result.entries.length, 2);
+    assert.equal(result.groups.length, 1);
+    assert.equal(result.groups[0].headword, '第一卷 本地分');
+    assert.equal(result.entries[0].headword, '第一節 五識相應地');
+    assert.equal(result.entries[1].headword, '第二節 意地');
     assert.ok(result.totalBytes > 0);
     assert.equal(result.totalLines, 6);
   });

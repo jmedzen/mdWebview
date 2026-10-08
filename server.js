@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.6.2
+ * @version 3.6.3
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -55,7 +55,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.6.2';
+let APP_VERSION = '3.6.3';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -250,7 +250,19 @@ const MAX_ANALYTICS_KEYS = 10000;
 // String-keyed objects keep insertion order, so deleting from the front evicts
 // the oldest entries. Runs only when a NEW key is added, keeping it O(1) in the
 // common case.
+function pruneDailyBuckets(dailyMap, maxDays = 90) {
+  if (!dailyMap) return;
+  const days = Object.keys(dailyMap).sort();
+  if (days.length > maxDays) {
+    const excess = days.length - maxDays;
+    for (let i = 0; i < excess; i++) {
+      delete dailyMap[days[i]];
+    }
+  }
+}
+
 function pruneAnalyticsMap(map, maxKeys = MAX_ANALYTICS_KEYS) {
+  if (!map || typeof map !== 'object') return;
   const keys = Object.keys(map);
   const excess = keys.length - maxKeys;
   if (excess > 0) {
@@ -303,6 +315,9 @@ function updateAnalyticsStoreEntry(store, entry) {
 
   const ip = entry.ip || '127.0.0.1';
   const dateKey = timestamp.toISOString().split('T')[0];
+  if (!store.daily[dateKey]) {
+    pruneDailyBuckets(store.daily, 90);
+  }
   const bucket = store.daily[dateKey] || (store.daily[dateKey] = {
     requests: 0, views: 0, searchCount: 0, ips: {}, files: {}, searches: {}, dictSearchCount: 0, dictLookupCount: 0, dictBrowseCount: 0
   });
@@ -313,9 +328,12 @@ function updateAnalyticsStoreEntry(store, entry) {
   const ipStat = analyticsMapGetOrCreate(lifetime.ips, ip, () => ({ requests: 0, lastAccess: entry.timestamp }));
   ipStat.requests++;
   updateLatest(ipStat, entry.timestamp);
+  pruneAnalyticsMap(lifetime.ips);
+
   const bucketIp = analyticsMapGetOrCreate(bucket.ips, ip, () => ({ requests: 0, lastAccess: entry.timestamp }));
   bucketIp.requests++;
   updateLatest(bucketIp, entry.timestamp);
+  pruneAnalyticsMap(bucket.ips);
 
   // Note: Only actual 'Render' events (when document content is served to a real reader)
   // count as views. 'ShareLink' is the initial navigation route which crawlers also hit,
@@ -351,10 +369,12 @@ function updateAnalyticsStoreEntry(store, entry) {
       const search = analyticsMapGetOrCreate(lifetime.searches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       search.count++;
       updateLatest(search, entry.timestamp, 'lastSearch');
+      pruneAnalyticsMap(lifetime.searches);
       if (!bucket.searches || typeof bucket.searches !== 'object') bucket.searches = {};
       const bucketSearch = analyticsMapGetOrCreate(bucket.searches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       bucketSearch.count++;
       updateLatest(bucketSearch, entry.timestamp, 'lastSearch');
+      pruneAnalyticsMap(bucket.searches);
     }
   }
 
@@ -367,6 +387,7 @@ function updateAnalyticsStoreEntry(store, entry) {
       const s = analyticsMapGetOrCreate(lifetime.dictSearches, query, () => ({ count: 0, lastSearch: entry.timestamp }));
       s.count = (s.count || 0) + 1;
       updateLatest(s, entry.timestamp, 'lastSearch');
+      pruneAnalyticsMap(lifetime.dictSearches);
     }
   }
 
@@ -381,6 +402,7 @@ function updateAnalyticsStoreEntry(store, entry) {
       const l = analyticsMapGetOrCreate(lifetime.dictLookups, key, () => ({ count: 0, headword, path: docPath, lastLookup: entry.timestamp }));
       l.count = (l.count || 0) + 1;
       updateLatest(l, entry.timestamp, 'lastLookup');
+      pruneAnalyticsMap(lifetime.dictLookups);
     }
   }
 
@@ -394,6 +416,13 @@ function updateAnalyticsStoreEntry(store, entry) {
 
 async function saveAnalyticsStore() {
   if (!analyticsStore) return;
+  pruneDailyBuckets(analyticsStore.daily, 90);
+  if (analyticsStore.lifetime) {
+    if (analyticsStore.lifetime.ips) pruneAnalyticsMap(analyticsStore.lifetime.ips);
+    if (analyticsStore.lifetime.searches) pruneAnalyticsMap(analyticsStore.lifetime.searches);
+    if (analyticsStore.lifetime.dictSearches) pruneAnalyticsMap(analyticsStore.lifetime.dictSearches);
+    if (analyticsStore.lifetime.dictLookups) pruneAnalyticsMap(analyticsStore.lifetime.dictLookups);
+  }
   analyticsStore.updatedAt = new Date().toISOString();
   const tempPath = `${ANALYTICS_STORE_PATH}.tmp-${process.pid}`;
   await fs.promises.writeFile(tempPath, JSON.stringify(analyticsStore), 'utf-8');
@@ -749,10 +778,30 @@ process.on('unhandledRejection', (reason) => {
 // 動態偵測 CPU 核心數：預留 1 個核心給主事件迴圈，其餘全數投入背景 Worker Pool
 const numCpus = os.cpus().length || 4;
 const POOL_SIZE = Math.max(2, numCpus - 1);
+const MAX_RENDER_QUEUE_LEN = POOL_SIZE * 8;
 const workerPool = [];
-const jobCallbacks = new Map(); // jobId -> { resolve, reject }
+const jobCallbacks = new Map(); // jobId -> { resolve, reject, timer }
 let jobIdSeq = 0;
 const jobQueue = []; // queue for when all workers are busy
+let renderWorkerCrashTimes = [];
+
+function respawnRenderWorker(index) {
+  const now = Date.now();
+  renderWorkerCrashTimes.push(now);
+  renderWorkerCrashTimes = renderWorkerCrashTimes.filter(t => now - t < 15000);
+  if (renderWorkerCrashTimes.length > 8) {
+    Logger.error('WorkerPool', `Render worker crash loop detected (>8 exits in 15s). Delaying respawn by 2s.`);
+    setTimeout(() => {
+      const nw = createWorker(index);
+      workerPool.push(nw);
+      flushQueue();
+    }, 2000);
+  } else {
+    const nw = createWorker(index);
+    workerPool.push(nw);
+    flushQueue();
+  }
+}
 
 function createWorker(index) {
   const WORKER_PATH = path.join(APP_ROOT, 'render-worker.js');
@@ -765,6 +814,7 @@ function createWorker(index) {
     const cb = jobCallbacks.get(jobId);
     if (cb) {
       jobCallbacks.delete(jobId);
+      if (cb.timer) clearTimeout(cb.timer);
       if (error) cb.reject(new Error(error));
       else cb.resolve(html);
     }
@@ -779,39 +829,35 @@ function createWorker(index) {
       const cb = jobCallbacks.get(w.currentJobId);
       if (cb) {
         jobCallbacks.delete(w.currentJobId);
+        if (cb.timer) clearTimeout(cb.timer);
         cb.reject(err);
       }
       w.currentJobId = null;
     }
-    w.idle = true;
-    flushQueue();
+    // Do not mark idle or flushQueue here; let 'exit' event handle teardown and respawn
   });
 
   w.on('exit', (code) => {
-    // The timeout path already removed this worker and spawned a replacement
-    // (marking it `terminated`); the async 'exit' event must not spawn a second.
     if (w.terminated) return;
     console.warn(`[Worker ${w.index}] Exited with code ${code}. Re-spawning...`);
     
-    // Clean up active job if it died mid-execution to prevent leaking callbacks
+    // Clean up active job if it died mid-execution
     if (w.currentJobId) {
       const cb = jobCallbacks.get(w.currentJobId);
       if (cb) {
         jobCallbacks.delete(w.currentJobId);
+        if (cb.timer) clearTimeout(cb.timer);
         cb.reject(new Error('Worker thread terminated unexpectedly'));
       }
+      w.currentJobId = null;
     }
     
-    // Remove the dead worker from the pool
     const idx = workerPool.indexOf(w);
     if (idx !== -1) {
       workerPool.splice(idx, 1);
     }
     
-    // Respawn a new worker at the same index
-    const newWorker = createWorker(w.index);
-    workerPool.push(newWorker);
-    flushQueue();
+    respawnRenderWorker(w.index);
   });
 
   return w;
@@ -829,27 +875,42 @@ function flushQueue() {
   if (jobQueue.length === 0) return;
   const freeWorker = workerPool.find(w => w.idle);
   if (!freeWorker) return;
-  const { jobId, body, filePath, lineOffset, resolve, reject } = jobQueue.shift();
-  jobCallbacks.set(jobId, { resolve, reject });
-  freeWorker.currentJobId = jobId;
+  const job = jobQueue.shift();
+  if (!jobCallbacks.has(job.jobId)) {
+    // Job already timed out or aborted while waiting in queue
+    return flushQueue();
+  }
+  freeWorker.currentJobId = job.jobId;
   freeWorker.idle = false;
-  freeWorker.postMessage({ jobId, body, filePath, lineOffset });
+  freeWorker.postMessage({ jobId: job.jobId, body: job.body, filePath: job.filePath, lineOffset: job.lineOffset });
 }
 
 const JOB_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
  * 調度背景 Worker Thread Pool (render-worker.js) 執行 Markdown SSR 渲染。
- * 包含超時中斷保護 (30s) 與卡死 Worker 重啟復原機制。
+ * 包含佇列長度上限 (503)、入列即時超時中斷保護 (30s) 與卡死 Worker 重啟復原機制。
  *
  * @param {string} body - 原始 Markdown 文字內容
  * @param {string} filePath - 文件相對路徑（用於生成錨點與標題關聯）
  * @param {number} [lineOffset=0] - 行號位移（用於分塊渲染時校正行號）
+ * @param {AbortSignal} [signal] - 可選的客戶端中斷信號
  * @returns {Promise<string>} 渲染完成的 HTML 字串
  */
-function renderWithWorker(body, filePath, lineOffset) {
+function renderWithWorker(body, filePath, lineOffset, signal) {
   lineOffset = lineOffset || 0;
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      return reject(new Error('Render cancelled by client'));
+    }
+
+    if (jobQueue.length >= MAX_RENDER_QUEUE_LEN) {
+      const err = new Error('Render queue overloaded (503)');
+      err.code = 'QUEUE_FULL';
+      err.statusCode = 503;
+      return reject(err);
+    }
+
     const jobId = ++jobIdSeq;
     const timer = setTimeout(() => {
       const cb = jobCallbacks.get(jobId);
@@ -857,7 +918,13 @@ function renderWithWorker(body, filePath, lineOffset) {
         jobCallbacks.delete(jobId);
         cb.reject(new Error('Worker render timeout after 30s'));
 
-        // Terminate and respawn worker thread if stuck on this jobId
+        // If still queued, remove from jobQueue
+        const qIdx = jobQueue.findIndex(item => item.jobId === jobId);
+        if (qIdx !== -1) {
+          jobQueue.splice(qIdx, 1);
+        }
+
+        // Terminate and respawn worker thread if actively executing on this jobId
         const stuckWorker = workerPool.find(w => w.currentJobId === jobId);
         if (stuckWorker) {
           Logger.warn('WorkerPool', `[Worker #${stuckWorker.index}] Timed out on job #${jobId}. Terminating & respawning worker...`);
@@ -865,35 +932,63 @@ function renderWithWorker(body, filePath, lineOffset) {
           try { stuckWorker.terminate(); } catch (_) {}
           const idx = workerPool.indexOf(stuckWorker);
           if (idx !== -1) workerPool.splice(idx, 1);
-          const newWorker = createWorker(stuckWorker.index);
-          workerPool.push(newWorker);
-          flushQueue();
+          respawnRenderWorker(stuckWorker.index);
         }
       }
     }, JOB_TIMEOUT_MS);
-    
+
     const wrappedResolve = (val) => { clearTimeout(timer); resolve(val); };
     const wrappedReject = (err) => { clearTimeout(timer); reject(err); };
-    
+
+    jobCallbacks.set(jobId, { resolve: wrappedResolve, reject: wrappedReject, timer });
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        jobCallbacks.delete(jobId);
+        const qIdx = jobQueue.findIndex(item => item.jobId === jobId);
+        if (qIdx !== -1) jobQueue.splice(qIdx, 1);
+        reject(new Error('Render cancelled by client'));
+      }, { once: true });
+    }
+
     const freeWorker = workerPool.find(w => w.idle);
     if (freeWorker) {
-      jobCallbacks.set(jobId, { resolve: wrappedResolve, reject: wrappedReject });
       freeWorker.currentJobId = jobId;
       freeWorker.idle = false;
       freeWorker.postMessage({ jobId, body, filePath, lineOffset });
     } else {
-      // All workers busy — queue the job
-      jobQueue.push({ jobId, body, filePath, lineOffset, resolve: wrappedResolve, reject: wrappedReject });
+      jobQueue.push({ jobId, body, filePath, lineOffset });
     }
   });
 }
 
 // ── Index & Search Worker Pool (Persistent Worker Pool for index-worker.js) ──
 const INDEX_POOL_SIZE = Math.max(2, Math.min((os.cpus().length || 4) - 1, 8));
+const MAX_INDEX_QUEUE_LEN = INDEX_POOL_SIZE * 16;
 const indexWorkerPool = [];
 const indexJobCallbacks = new Map(); // jobId -> { resolve, reject, timeoutTimer }
 let indexJobSeq = 0;
 const indexJobQueue = []; // FIFO queue for pending index/search tasks
+let indexWorkerCrashTimes = [];
+
+function respawnIndexWorker(index) {
+  const now = Date.now();
+  indexWorkerCrashTimes.push(now);
+  indexWorkerCrashTimes = indexWorkerCrashTimes.filter(t => now - t < 15000);
+  if (indexWorkerCrashTimes.length > 8) {
+    Logger.error('IndexWorkerPool', `Index worker crash loop detected (>8 exits in 15s). Delaying respawn by 2s.`);
+    setTimeout(() => {
+      const nw = createIndexWorker(index);
+      indexWorkerPool.push(nw);
+      flushIndexJobQueue();
+    }, 2000);
+  } else {
+    const nw = createIndexWorker(index);
+    indexWorkerPool.push(nw);
+    flushIndexJobQueue();
+  }
+}
 
 function createIndexWorker(index) {
   const WORKER_PATH = path.join(APP_ROOT, "index-worker.js");
@@ -927,8 +1022,7 @@ function createIndexWorker(index) {
       }
       w.currentJobId = null;
     }
-    w.idle = true;
-    flushIndexJobQueue();
+    // Do not mark idle or flush queue here; let 'exit' event handle teardown and respawn
   });
 
   w.on("exit", (code) => {
@@ -949,9 +1043,7 @@ function createIndexWorker(index) {
     if (idx !== -1) {
       indexWorkerPool.splice(idx, 1);
     }
-    const newWorker = createIndexWorker(w.index);
-    indexWorkerPool.push(newWorker);
-    flushIndexJobQueue();
+    respawnIndexWorker(w.index);
   });
 
   return w;
@@ -978,33 +1070,15 @@ function flushIndexJobQueue() {
   const pool = getIndexWorkerPool();
   const freeWorker = pool.find(w => w.idle);
   if (!freeWorker) return;
-  const { jobId, message, resolve, reject, timeoutMs } = indexJobQueue.shift();
-  dispatchIndexJobToWorker(freeWorker, jobId, message, resolve, reject, timeoutMs);
+  const item = indexJobQueue.shift();
+  if (!indexJobCallbacks.has(item.jobId)) {
+    // Job already timed out while waiting in queue
+    return flushIndexJobQueue();
+  }
+  dispatchIndexJobToWorker(freeWorker, item.jobId, item.message);
 }
 
-function dispatchIndexJobToWorker(worker, jobId, message, resolve, reject, timeoutMs = JOB_TIMEOUT_MS) {
-  let timeoutTimer = null;
-  if (timeoutMs > 0) {
-    timeoutTimer = setTimeout(() => {
-      const cb = indexJobCallbacks.get(jobId);
-      if (cb) {
-        indexJobCallbacks.delete(jobId);
-        cb.reject(new Error(`Index worker job #${jobId} timed out after ${timeoutMs}ms`));
-        if (worker.currentJobId === jobId) {
-          Logger.warn("IndexWorkerPool", `[Worker #${worker.index}] Timed out on job #${jobId}. Terminating & respawning worker...`);
-          worker.terminated = true;
-          try { worker.terminate(); } catch (_) {}
-          const idx = indexWorkerPool.indexOf(worker);
-          if (idx !== -1) indexWorkerPool.splice(idx, 1);
-          const newWorker = createIndexWorker(worker.index);
-          indexWorkerPool.push(newWorker);
-          flushIndexJobQueue();
-        }
-      }
-    }, timeoutMs);
-  }
-
-  indexJobCallbacks.set(jobId, { resolve, reject, timeoutTimer });
+function dispatchIndexJobToWorker(worker, jobId, message) {
   worker.currentJobId = jobId;
   worker.idle = false;
   worker.postMessage({ jobId, ...message });
@@ -1013,7 +1087,7 @@ function dispatchIndexJobToWorker(worker, jobId, message, resolve, reject, timeo
 /**
  * 通用 Index Worker 任務調度器 (index-worker.js)。
  * 將任務分發給專門的索引 Worker 線程執行（如 section parsing, 搜尋、建立索引），
- * 支援佇列排隊與超時拒絕機制。
+ * 支援佇列長度上限 (503)、入列即時超時拒絕與卡死重啟機制。
  *
  * @param {string} type - 任務類型名稱（如 'search', 'parseSections', 'buildIndex' 等）
  * @param {Object} payload - 傳遞給 Worker 的任務參數
@@ -1022,14 +1096,56 @@ function dispatchIndexJobToWorker(worker, jobId, message, resolve, reject, timeo
  */
 function executeIndexJob(type, payload, timeoutMs = JOB_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
+    if (indexJobQueue.length >= MAX_INDEX_QUEUE_LEN) {
+      const err = new Error('Index job queue overloaded (503)');
+      err.code = 'QUEUE_FULL';
+      err.statusCode = 503;
+      return reject(err);
+    }
+
     const pool = getIndexWorkerPool();
     const jobId = `idx-${++indexJobSeq}`;
     const message = { type, ...payload };
+
+    let timeoutTimer = null;
+    if (timeoutMs > 0) {
+      timeoutTimer = setTimeout(() => {
+        const cb = indexJobCallbacks.get(jobId);
+        if (cb) {
+          indexJobCallbacks.delete(jobId);
+          cb.reject(new Error(`Index worker job #${jobId} timed out after ${timeoutMs}ms`));
+          const qIdx = indexJobQueue.findIndex(item => item.jobId === jobId);
+          if (qIdx !== -1) indexJobQueue.splice(qIdx, 1);
+          const currentPool = getIndexWorkerPool();
+          const stuckWorker = currentPool.find(w => w.currentJobId === jobId);
+          if (stuckWorker) {
+            Logger.warn("IndexWorkerPool", `[Worker #${stuckWorker.index}] Timed out on job #${jobId}. Terminating & respawning worker...`);
+            stuckWorker.terminated = true;
+            try { stuckWorker.terminate(); } catch (_) {}
+            const idx = currentPool.indexOf(stuckWorker);
+            if (idx !== -1) currentPool.splice(idx, 1);
+            respawnIndexWorker(stuckWorker.index);
+          }
+        }
+      }, timeoutMs);
+    }
+
+    const wrappedResolve = (val) => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      resolve(val);
+    };
+    const wrappedReject = (err) => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      reject(err);
+    };
+
+    indexJobCallbacks.set(jobId, { resolve: wrappedResolve, reject: wrappedReject, timeoutTimer });
+
     const freeWorker = pool.find(w => w.idle);
     if (freeWorker) {
-      dispatchIndexJobToWorker(freeWorker, jobId, message, resolve, reject, timeoutMs);
+      dispatchIndexJobToWorker(freeWorker, jobId, message);
     } else {
-      indexJobQueue.push({ jobId, message, resolve, reject, timeoutMs });
+      indexJobQueue.push({ jobId, message });
     }
   });
 }
@@ -1097,6 +1213,14 @@ let config = {
   }
 };
 
+let memoizedMdRoot = null;
+const realpathCache = new Map(); // root -> canonical realpath
+
+function invalidateMdRootMemo() {
+  memoizedMdRoot = null;
+  realpathCache.clear();
+}
+
 /**
  * 從三個優先層級載入並合併設定，優先級由低到高：
  *   1. 程式碼內建預設值（config.settings 初始值）
@@ -1152,6 +1276,8 @@ function loadConfig() {
     }
   } catch (err) {
     console.error('Error loading config:', err);
+  } finally {
+    invalidateMdRootMemo();
   }
 }
 
@@ -1162,6 +1288,7 @@ function loadConfig() {
 function saveConfig() {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+    invalidateMdRootMemo();
     return true;
   } catch (err) {
     console.error('[Config] Error saving config to ' + CONFIG_PATH + ':', err);
@@ -1192,6 +1319,7 @@ function resetConfigWatcher() {
 }
 
 function getMdRoot() {
+  if (memoizedMdRoot) return memoizedMdRoot;
   const configured = config.settings.mdRoot;
 
   // 1. If configured path exists and contains files/directories, use it directly
@@ -1199,6 +1327,7 @@ function getMdRoot() {
     try {
       const items = fs.readdirSync(configured);
       if (items.some(name => !name.startsWith('.'))) {
+        memoizedMdRoot = configured;
         return configured;
       }
     } catch (_) {}
@@ -1219,13 +1348,15 @@ function getMdRoot() {
         const items = fs.readdirSync(candidate);
         if (items.some(name => !name.startsWith('.'))) {
           config.settings.mdRoot = candidate;
+          memoizedMdRoot = candidate;
           return candidate;
         }
       } catch (_) {}
     }
   }
 
-  return configured || path.join(APP_ROOT, 'md');
+  memoizedMdRoot = configured || path.join(APP_ROOT, 'md');
+  return memoizedMdRoot;
 }
 
 // Dictionary files live in a `dicts/` directory that is a sibling of the markdown
@@ -1242,7 +1373,6 @@ function deriveDictRoot(mdRoot) {
 // link pointing outside still lexically "resolves" inside, so the `..` guard passes
 // while the OS follows the link out. Resolving both the target and the vault root to
 // canonical paths and re-checking containment closes this for every file handler.
-const realpathCache = new Map(); // root -> canonical realpath
 
 async function getRootRealpath(root) {
   if (realpathCache.has(root)) return realpathCache.get(root);
@@ -1719,6 +1849,7 @@ function resetTreeWatcher() {
     } catch (err) {}
     treeWatcher = null;
   }
+  invalidateMdRootMemo();
   cachedTree = null;
   cachedSitemapXml = null;
   sitemapDirty = true;
@@ -1754,20 +1885,20 @@ async function scanDirAsync(dir, relativePath) {
         })
       );
     } else if (entry.name.endsWith('.md')) {
-      let fileSize = 0;
-      let fileMtime = null;
-      try {
-        const st = fs.statSync(fullPath);
-        fileSize = st.size;
-        fileMtime = st.mtime;
-      } catch (_) {}
-      result.push({
-        name: entry.name.replace(/\.md$/, ''),
-        path: relPath,
-        type: 'file',
-        size: fileSize,
-        mtime: fileMtime
-      });
+      promises.push(
+        fs.promises.stat(fullPath)
+          .then(st => ({ size: st.size, mtime: st.mtime }))
+          .catch(() => ({ size: 0, mtime: null }))
+          .then(({ size, mtime }) => {
+            result.push({
+              name: entry.name.replace(/\.md$/, ''),
+              path: relPath,
+              type: 'file',
+              size,
+              mtime
+            });
+          })
+      );
     }
   }
   await Promise.all(promises);
@@ -2586,8 +2717,13 @@ async function handleRender(req, res, query) {
       }
     }
 
+    const abortCtrl = new AbortController();
+    req.on('close', () => {
+      try { abortCtrl.abort(); } catch (_) {}
+    });
+
     // Offload CPU-bound rendering to worker thread pool
-    const html = await renderWithWorker(raw, filePath);
+    const html = await renderWithWorker(raw, filePath, 0, abortCtrl.signal);
     Logger.info('Render', `Loaded document: "${filePath}" (${Date.now() - renderStart}ms)`, req, { path: filePath });
 
     // Encode frontmatter as base64 in response header (avoids JSON wrapping the HTML)
@@ -2620,7 +2756,15 @@ async function handleRender(req, res, query) {
       res.end(html);
     }
   } catch (err) {
-    sendJSON(res, 404, { error: 'File not found: ' + filePath });
+    if (err.message === 'Render cancelled by client' || req.destroyed) return;
+    if (err.code === 'ENOENT') {
+      return sendJSON(res, 404, { error: 'File not found: ' + filePath });
+    }
+    if (err.statusCode === 503 || err.code === 'QUEUE_FULL') {
+      return sendJSON(res, 503, { error: 'Render queue is full' });
+    }
+    Logger.error('Render', `Error rendering file ${filePath}: ${err.message}`, err);
+    sendJSON(res, 500, { error: 'Internal Server Error' });
   }
 }
 
@@ -2805,7 +2949,12 @@ async function handleRenderChunk(req, res, query) {
       await fh.close();
     }
 
-    const html = await renderWithWorker(body, r.relPath, lineOffset);
+    const abortCtrl = new AbortController();
+    req.on('close', () => {
+      try { abortCtrl.abort(); } catch (_) {}
+    });
+
+    const html = await renderWithWorker(body, r.relPath, lineOffset, abortCtrl.signal);
 
     const metaHeader = Buffer.from(JSON.stringify({
       from,
@@ -2844,7 +2993,15 @@ async function handleRenderChunk(req, res, query) {
       res.end(html);
     }
   } catch (err) {
-    sendJSON(res, 404, { error: 'File not found: ' + query.path });
+    if (err.message === 'Render cancelled by client' || req.destroyed) return;
+    if (err.code === 'ENOENT') {
+      return sendJSON(res, 404, { error: 'File not found: ' + (query && query.path) });
+    }
+    if (err.statusCode === 503 || err.code === 'QUEUE_FULL') {
+      return sendJSON(res, 503, { error: 'Render queue is full' });
+    }
+    Logger.error('Render', `Error rendering chunk for ${query && query.path}: ${err.message}`, err);
+    sendJSON(res, 500, { error: 'Internal Server Error' });
   }
 }
 
@@ -2989,14 +3146,14 @@ async function getSectionIndex(fullPath, stat, relPath) {
   const binPath = isDict ? DICT_SECTION_INDEX_CACHE_BIN : SECTION_INDEX_CACHE_BIN;
   const binLoaded = isDict ? dictSectionIndexBinLoaded : sectionIndexBinLoaded;
   if (!binLoaded) {
-    if (isDict) dictSectionIndexBinLoaded = true;
-    else sectionIndexBinLoaded = true;
     try {
       const all = await loadAllSectionIndexesFromBinAsync(binPath);
       for (const idx of all) {
         if (isDict) dictSectionIndexCache.set(idx.relPath, idx);
         else setSectionIndex(idx.relPath, idx);
       }
+      if (isDict) dictSectionIndexBinLoaded = true;
+      else sectionIndexBinLoaded = true;
     } catch (_) {}
     const binHit = cache.get(relPath);
     if (binHit && binHit.size === stat.size && binHit.mtimeMs === stat.mtimeMs) return binHit;
@@ -3057,9 +3214,12 @@ async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_B
   if (buf.readUInt32BE(pos) !== SECTION_INDEX_MAGIC) return result;
   pos += 4;
   const fileCount = buf.readUInt32BE(pos); pos += 4;
+  if (fileCount > 50000 || pos + fileCount * 35 > buf.length) return result;
 
   for (let f = 0; f < fileCount; f++) {
+    if (pos + 2 > buf.length) break;
     const relLen = buf.readUInt16BE(pos); pos += 2;
+    if (pos + relLen + 33 > buf.length) break;
     const relPath = buf.toString('utf-8', pos, pos + relLen); pos += relLen;
     const size = buf.readUInt32BE(pos); pos += 4;
     const mtimeMs = buf.readDoubleBE(pos); pos += 8;
@@ -3070,9 +3230,13 @@ async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_B
     const entryCount = buf.readUInt32BE(pos); pos += 4;
     const groupCount = buf.readUInt32BE(pos); pos += 4;
 
+    if (entryCount > 1000000 || pos + entryCount * 20 > buf.length) break;
     const entries = new Array(entryCount);
+    let entryOk = true;
     for (let i = 0; i < entryCount; i++) {
+      if (pos + 2 > buf.length) { entryOk = false; break; }
       const hLen = buf.readUInt16BE(pos); pos += 2;
+      if (pos + hLen + 18 > buf.length) { entryOk = false; break; }
       const headword = buf.toString('utf-8', pos, pos + hLen); pos += hLen;
       const offset = buf.readUInt32BE(pos); pos += 4;
       const len = buf.readUInt32BE(pos); pos += 4;
@@ -3082,16 +3246,22 @@ async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_B
       const level = (groupIdx >= 1 && groupIdx <= 6) ? groupIdx : 1;
       entries[i] = { headword, offset, len, lineStart, lineEnd, groupIdx, level };
     }
+    if (!entryOk) break;
 
+    if (groupCount > 500000 || pos + groupCount * 11 > buf.length) break;
     const groups = new Array(groupCount);
+    let groupOk = true;
     for (let i = 0; i < groupCount; i++) {
+      if (pos + 2 > buf.length) { groupOk = false; break; }
       const hLen = buf.readUInt16BE(pos); pos += 2;
+      if (pos + hLen + 9 > buf.length) { groupOk = false; break; }
       const headword = buf.toString('utf-8', pos, pos + hLen); pos += hLen;
       const level = buf.readUInt8(pos); pos += 1;
       const firstEntry = buf.readUInt32BE(pos); pos += 4;
       const lastEntry = buf.readUInt32BE(pos); pos += 4;
       groups[i] = { headword, level, firstEntry, lastEntry };
     }
+    if (!groupOk) break;
 
     result.push({ relPath, size, mtimeMs, entryLevel, preambleLineCount, totalLines, totalBytes, entries, groups });
   }
@@ -3231,18 +3401,29 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
     const unitCount = binBuf.readUInt32BE(readPos); readPos += 4;
     const bigramCount = binBuf.readUInt32BE(readPos); readPos += 4;
 
+    if (fileCount > 500000 || readPos + fileCount * 10 > binBuf.length) return false;
+    if (unitCount > 5000000 || readPos + unitCount * 22 > binBuf.length) return false;
+    if (bigramCount > 5000000 || readPos + bigramCount * 5 > binBuf.length) return false;
+
     const fileList = new Array(fileCount);
     const fileMap = new Map();
     for (let i = 0; i < fileCount; i++) {
+      if (readPos + 4 > binBuf.length) return false;
       const id = binBuf.readUInt32BE(readPos); readPos += 4;
 
+      if (readPos + 2 > binBuf.length) return false;
       const relLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      if (readPos + relLen > binBuf.length) return false;
       const relPath = binBuf.toString('utf-8', readPos, readPos + relLen); readPos += relLen;
 
+      if (readPos + 2 > binBuf.length) return false;
       const nameLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      if (readPos + nameLen > binBuf.length) return false;
       const name = binBuf.toString('utf-8', readPos, readPos + nameLen); readPos += nameLen;
 
+      if (readPos + 2 > binBuf.length) return false;
       const fullLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      if (readPos + fullLen > binBuf.length) return false;
       const fullPath = binBuf.toString('utf-8', readPos, readPos + fullLen); readPos += fullLen;
 
       const fileObj = { id, relPath, name, fullPath };
@@ -3252,13 +3433,17 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
 
     const units = new Array(unitCount);
     for (let i = 0; i < unitCount; i++) {
+      if (readPos + 12 > binBuf.length) return false;
       const unitId = binBuf.readUInt32BE(readPos); readPos += 4;
       const fileId = binBuf.readUInt32BE(readPos); readPos += 4;
       const entryIndex = binBuf.readInt32BE(readPos); readPos += 4;
 
+      if (readPos + 2 > binBuf.length) return false;
       const headwordLen = binBuf.readUInt16BE(readPos); readPos += 2;
+      if (readPos + headwordLen > binBuf.length) return false;
       const headword = binBuf.toString('utf-8', readPos, readPos + headwordLen); readPos += headwordLen;
 
+      if (readPos + 12 > binBuf.length) return false;
       const byteOffset = binBuf.readUInt32BE(readPos); readPos += 4;
       const byteLength = binBuf.readUInt32BE(readPos); readPos += 4;
       const lineStart = binBuf.readUInt32BE(readPos); readPos += 4;
@@ -3267,16 +3452,21 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
     }
 
     const bigrams = new Map();
+    const itemBytes = isUint16Format ? 2 : 4;
     for (let i = 0; i < bigramCount; i++) {
+      if (readPos + 1 > binBuf.length) return false;
       const bgLen = binBuf.readUInt8(readPos); readPos += 1;
+      if (readPos + bgLen + 4 > binBuf.length) return false;
       const bgStr = binBuf.toString('utf-8', readPos, readPos + bgLen); readPos += bgLen;
       const count = binBuf.readUInt32BE(readPos); readPos += 4;
 
       if (count === 1) {
+        if (readPos + itemBytes > binBuf.length) return false;
         const singleId = isUint16Format ? binBuf.readUInt16BE(readPos) : binBuf.readUInt32BE(readPos);
-        readPos += isUint16Format ? 2 : 4;
+        readPos += itemBytes;
         bigrams.set(bgStr, singleId);
       } else {
+        if (readPos + count * itemBytes > binBuf.length) return false;
         const arr = isUint16Format ? new Uint16Array(count) : new Uint32Array(count);
         if (isUint16Format) {
           for (let j = 0; j < count; j++) {
@@ -3541,6 +3731,8 @@ async function runIndexWorkerPool(tasks, buildMessage, onMessage, concurrency) {
   await Promise.all(runners);
 }
 
+let searchIndexRebuildPending = false;
+
 /**
  * 非同步建立/重建全庫 Bigram 雙字元倒排搜尋索引。
  * 遍歷 mdRoot 所有 Markdown 檔案，透過二進位磁碟快取 (.bin) 或工作執行緒分詞，
@@ -3550,7 +3742,10 @@ async function runIndexWorkerPool(tasks, buildMessage, onMessage, concurrency) {
  * @returns {Promise<void>}
  */
 async function buildSearchIndexAsync(forceRebuild = false) {
-  if (searchIndex.building && !forceRebuild) return;
+  if (searchIndex.building) {
+    if (forceRebuild) searchIndexRebuildPending = true;
+    return;
+  }
 
   const buildId = ++activeIndexBuildId;
   searchIndex.building = true;
@@ -3689,10 +3884,15 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     await saveSearchIndexBinCacheAsync(vaultSig, fileList, units, compactBigrams);
     if (global.gc) global.gc();
   } catch (err) {
+    Logger.error('Index', `Failed to build Bigram search index #${buildId}`, err);
+  } finally {
     if (buildId === activeIndexBuildId) {
       searchIndex.building = false;
     }
-    Logger.error('Index', `Failed to build Bigram search index #${buildId}`, err);
+    if (searchIndexRebuildPending) {
+      searchIndexRebuildPending = false;
+      buildSearchIndexAsync(true).catch(() => {});
+    }
   }
 }
 
@@ -3970,8 +4170,13 @@ async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
  * @param {boolean} [forceRebuild=false] - 是否強制忽略磁碟快取全量重建
  * @returns {Promise<void>}
  */
+let dictIndexRebuildPending = false;
+
 async function buildDictIndexAsync(forceRebuild = false) {
-  if (dictIndex.building && !forceRebuild) return;
+  if (dictIndex.building) {
+    if (forceRebuild) dictIndexRebuildPending = true;
+    return;
+  }
 
   const buildId = ++activeDictIndexBuildId;
   dictIndex.building = true;
@@ -4076,8 +4281,15 @@ async function buildDictIndexAsync(forceRebuild = false) {
     await saveDictIndexBinCacheAsync(dictSig, fileList, units, compactBigrams);
     if (global.gc) global.gc();
   } catch (err) {
-    dictIndex.building = false;
     Logger.error('DictIndex', 'Failed to build dictionary index', err);
+  } finally {
+    if (buildId === activeDictIndexBuildId) {
+      dictIndex.building = false;
+    }
+    if (dictIndexRebuildPending) {
+      dictIndexRebuildPending = false;
+      buildDictIndexAsync(true).catch(() => {});
+    }
   }
 }
 
@@ -4740,6 +4952,7 @@ async function handleSearchFile(req, res, query) {
 
 // ── §15 Static Asset In-Memory Cache ──────────────────────────
 const staticCache = new Map(); // resolvedPath -> { mtimeMs, size, etag, headers, data, cachedAt }
+const MAX_STATIC_CACHE_ENTRIES = 500;
 const STATIC_CACHE_TTL_MS = 5000; // 5s revalidation window: zero fs.stat within 5s
 
 function serveStatic(req, res, pathname, query) {
@@ -4944,6 +5157,10 @@ function serveStatic(req, res, pathname, query) {
       // Cache assets up to 5MB in memory
       if (size <= 5 * 1024 * 1024) {
         const entry = { mtimeMs, size, etag, headers, data, cachedAt: now };
+        if (staticCache.size >= MAX_STATIC_CACHE_ENTRIES) {
+          const firstKey = staticCache.keys().next().value;
+          if (firstKey) staticCache.delete(firstKey);
+        }
         staticCache.set(resolved, entry);
         serveCached(entry);
       } else {
@@ -5012,9 +5229,12 @@ function getClientIP(req) {
   const socketIp = req.socket ? (req.socket.remoteAddress || '127.0.0.1') : '127.0.0.1';
   const cleanSocketIp = socketIp.startsWith('::ffff:') ? socketIp.substring(7) : socketIp;
 
-  // Trust proxy headers if explicitly configured via TRUST_PROXY env var,
-  // OR if the direct TCP socket connection comes from an internal/private network (Docker bridge, localhost, Cloudflare Tunnel container)
-  const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1' || isPrivateIP(cleanSocketIp);
+  // Trust proxy headers ONLY if explicitly configured via TRUST_PROXY env var (true, 1, or explicit list of trusted proxy IPs)
+  let trustProxy = process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1';
+  if (!trustProxy && process.env.TRUST_PROXY) {
+    const trustedList = process.env.TRUST_PROXY.split(',').map(s => s.trim());
+    if (trustedList.includes(cleanSocketIp)) trustProxy = true;
+  }
 
   if (trustProxy && req.headers) {
     // 1. Cloudflare Connecting IP (authoritative visitor IP injected by Cloudflare edge)
@@ -6509,6 +6729,10 @@ async function handleAnalytics(req, res, query) {
 }
 
 async function handleAnalyticsExport(req, res, query) {
+  if (!verifySameOrigin(req)) {
+    return sendJSON(res, 403, { error: 'Forbidden: Cross-origin request blocked' });
+  }
+
   const token = query.token || req.headers['x-admin-token'];
   let authorized = isAuthenticated(req);
   if (!authorized && token && sessions.has(token)) {
@@ -6626,11 +6850,21 @@ async function handleAnalyticsExport(req, res, query) {
 const server = http.createServer((req, res) => {
   const reqStart = Date.now();
   res.reqHeadersAcceptEncoding = req.headers['accept-encoding'] || '';
-  const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const pathname = parsed.pathname;
-  const query = Object.fromEntries(parsed.searchParams);
-  // Redact any ?token= session token so it never reaches the HTTP access log.
-  const logSearch = parsed.search ? parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]') : '';
+
+  let parsed;
+  try {
+    const rawHost = req.headers.host || 'localhost';
+    parsed = new URL(req.url, `http://${rawHost}`);
+  } catch (_) {
+    res.writeHead(400, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, SECURITY_HEADERS));
+    return res.end('Bad Request: Invalid URL or Host header');
+  }
+
+  try {
+    const pathname = parsed.pathname;
+    const query = Object.fromEntries(parsed.searchParams);
+    // Redact any ?token= session token so it never reaches the HTTP access log.
+    const logSearch = parsed.search ? parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]') : '';
 
   // HTTP Access Logging Middleware
   const origEnd = res.end;
@@ -7104,8 +7338,25 @@ const server = http.createServer((req, res) => {
     return handleSuggestList(req, res);
   }
 
-  // Static files
-  serveStatic(req, res, pathname, query);
+    // Static files
+    serveStatic(req, res, pathname, query);
+  } catch (fatalErr) {
+    Logger.error('HTTP', 'Unhandled server error during request routing', fatalErr, req);
+    if (!res.headersSent) {
+      try {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, SECURITY_HEADERS));
+        res.end('Internal Server Error');
+      } catch (_) {}
+    }
+  }
+});
+
+server.requestTimeout = 30000;
+server.headersTimeout = 10000;
+server.on('clientError', (err, socket) => {
+  if (socket && !socket.destroyed) {
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  }
 });
 
 initWorkerPool();
@@ -7147,6 +7398,8 @@ if (typeof module !== "undefined" && module.exports) {
     runIndexWorkerPool,
     renderWithWorker,
     buildSectionIndex,
+    getSectionIndex,
+    computeChunkRanges,
     isCrawlerRequest,
     getCrawlerName,
     getAnalyticsData,

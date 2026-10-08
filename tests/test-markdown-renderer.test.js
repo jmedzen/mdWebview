@@ -105,4 +105,19 @@ describe('Markdown 渲染引擎與表格/行號錨點測試', () => {
     assert.ok(html.includes('<img'), '應渲染為 <img> 標籤');
     assert.ok(html.includes('/api/media?path=schema-diagram.jpg'), 'src 應指向 /api/media 端點');
   });
+
+  test('Footnote 註腳安全防禦：惡意標籤消毒與 ID 屬性跳脫 (P0-1)', () => {
+    const md = [
+      '正文參考[^malicious]與[^xss-id]。',
+      '',
+      '[^malicious]: 註腳內文包含 <script>alert(1)</script><style>body{color:red}</style>危險標籤。',
+      '[^"><img src=x onerror=alert(1)>]: 包含注入引號的惡意標記。'
+    ].join('\n');
+    const html = renderMarkdownSSR(md, 'doc/test-footnote.md', 0);
+    assert.ok(!html.includes('<script>'), '不得包含 <script> 標籤');
+    assert.ok(!html.includes('<style>'), '不得包含 <style> 標籤');
+    assert.ok(!html.includes('onerror='), '不得包含未過濾之 onerror 事件');
+    assert.ok(html.includes('class="footnotes"'), '應正常生成 footnotes 區塊');
+    assert.ok(html.includes('fn-def-'), '應生成 fn-def 錨點');
+  });
 });

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.2
+   mdWebview — Application Logic (app.js) v3.6.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -198,6 +198,8 @@
     dictHeadwordsETag: null,
     dictPollTimer: null,
     _adminDirty: false,
+    _openToken: 0,
+    _openFileAbort: null,
   };
 
   let _lastAdminSettings = null;
@@ -210,6 +212,19 @@
   // building them all into the DOM at once froze the main thread. Rendering in
   // batches keeps the search panel responsive; "顯示更多" appends another batch.
   const SEARCH_RENDER_BATCH = 300;
+
+  function safeDecodeURIComponent(str) {
+    if (!str) return '';
+    try {
+      return decodeURIComponent(str);
+    } catch (_) {
+      try {
+        return decodeURIComponent(String(str).replace(/%(?![0-9a-fA-F]{2})/g, '%25'));
+      } catch (_) {
+        return String(str);
+      }
+    }
+  }
 
   // ── LRU Render Cache ─────────────────────────────────────
   // Caches last N rendered HTML results to avoid re-parsing unchanged files.
@@ -462,6 +477,7 @@
               if (newWorker) {
                 newWorker.addEventListener('statechange', () => {
                   if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    try { newWorker.postMessage({ action: 'SKIP_WAITING' }); } catch (_) {}
                     showToast('🎉 發現新版本！已在背景準備就緒，重新載入即可生效', 'info', 5000);
                   }
                 });
@@ -503,7 +519,7 @@
       if (match) searchFile = match[1];
     }
     if (searchFile) {
-      searchFile = decodeURIComponent(searchFile);
+      searchFile = safeDecodeURIComponent(searchFile);
       const searchLine = searchParams.get('line') ? parseInt(searchParams.get('line')) : null;
       const searchQuery = searchParams.get('q') || searchParams.get('query') || null;
       return { file: searchFile, line: searchLine, query: searchQuery };
@@ -516,7 +532,7 @@
         const params = new URLSearchParams(hash.slice(1));
         const file = params.get('file');
         const line = params.get('line') ? parseInt(params.get('line')) : null;
-        return file ? { file: decodeURIComponent(file), line } : null;
+        return file ? { file: safeDecodeURIComponent(file), line } : null;
       } catch (e) {
         return null;
       }
@@ -1460,11 +1476,18 @@
           return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
         case 'name-desc':
           return b.name.localeCompare(a.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
-        case 'modified-desc':
-          // fallback to name if no mtime
-          return b.name.localeCompare(a.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
-        case 'modified-asc':
+        case 'modified-desc': {
+          const tA = a.mtime ? Date.parse(a.mtime) || 0 : 0;
+          const tB = b.mtime ? Date.parse(b.mtime) || 0 : 0;
+          if (tA !== tB) return tB - tA;
           return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        }
+        case 'modified-asc': {
+          const tA = a.mtime ? Date.parse(a.mtime) || 0 : 0;
+          const tB = b.mtime ? Date.parse(b.mtime) || 0 : 0;
+          if (tA !== tB) return tA - tB;
+          return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
+        }
         default:
           return a.name.localeCompare(b.name, 'zh-TW', { numeric: true, sensitivity: 'base' });
       }
@@ -1716,6 +1739,15 @@
         v.chunks.delete(ci);
         v.chunkHeights.delete(ci);
         removed = true;
+      }
+    }
+    if (v.errorChunks) {
+      for (const [ci, placeholderEl] of Array.from(v.errorChunks.entries())) {
+        if (!keep.has(ci)) {
+          if (placeholderEl && placeholderEl.parentNode) placeholderEl.remove();
+          v.errorChunks.delete(ci);
+          removed = true;
+        }
       }
     }
     if (removed) {
@@ -2056,9 +2088,16 @@
   function buildVirtualTocItems(v) {
     const items = [];
     const entryItemIndex = new Map();
-    const minLevel = (v.entries && v.entries.length > 0)
-      ? Math.min(...v.entries.map(e => e.level || 1))
-      : 1;
+    let minLevel = 6;
+    if (v.entries && v.entries.length > 0) {
+      for (let i = 0; i < v.entries.length; i++) {
+        const lvl = v.entries[i].level || 1;
+        if (lvl < minLevel) minLevel = lvl;
+        if (minLevel === 1) break;
+      }
+    } else {
+      minLevel = 1;
+    }
     v._collapsedEntries = v._collapsedEntries || new Set();
 
     let skipUntilLevel = -1;
@@ -2372,19 +2411,21 @@
 
   // Attempt to open a large file via the virtualized path. Returns true if
   // handled; false means the caller should fall through to the full render.
-  async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery) {
+  async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery, token, signal) {
     // Reuse a cached section index when the file is unchanged: send If-None-Match
     // so the server answers 304 and skips the multi-MB payload on re-opens.
     const cachedSi = state.sectionIndexCache.get(filePath);
     const headers = {};
     if (cachedSi) headers['If-None-Match'] = cachedSi.etag;
-    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`, { headers });
+    const res = await fetch(`/api/section-index?path=${encodeURIComponent(filePath)}`, { headers, signal });
+    if (token !== undefined && token !== state._openToken) return false;
     let si;
     if (res.status === 304 && cachedSi) {
       si = cachedSi.si;
     } else if (res.ok) {
       const etag = res.headers.get('ETag');
       si = await res.json();
+      if (token !== undefined && token !== state._openToken) return false;
       if (etag) {
         // Bounded LRU so the cache can't grow unboundedly across many large files.
         state.sectionIndexCache.delete(filePath);
@@ -2398,6 +2439,7 @@
     }
     if (!si || !si.large || !Array.isArray(si.entries) || si.entries.length === 0) return false;
     if (!Array.isArray(si.chunks) || si.chunks.length === 0) return false;
+    if (token !== undefined && token !== state._openToken) return false;
 
     const v = {
       filePath,
@@ -2435,6 +2477,7 @@
     // Tear down any previous virtual document (large→large switch, or a prior
     // failed attempt) so its index, TOC rows and chunk Maps are released.
     teardownVirtual();
+    if (token !== undefined && token !== state._openToken) return false;
     state.virtual = v;
 
     si.entries.forEach((e, i) => {
@@ -2474,6 +2517,7 @@
       await ensureChunk(0);
       $('content').scrollTop = 0;
     }
+    if (token !== undefined && token !== state._openToken) return false;
     // Attach the scroll handler only AFTER the initial mount/scroll has settled.
     // Attaching it earlier lets a scroll event fired by the transition (scrollTop
     // clamp / spacer growth) invoke onScroll mid-mount, whose
@@ -2488,6 +2532,15 @@
   }
 
   async function openFile(filePath, scrollToLineNum, highlightQuery) {
+    if (state._openFileAbort) {
+      state._openFileAbort.abort();
+      state._openFileAbort = null;
+    }
+    const token = ++state._openToken;
+    const abortCtrl = new AbortController();
+    state._openFileAbort = abortCtrl;
+    cachedLineAnchors = [];
+
     state.currentFile = filePath;
     log.info(`Opening file "${filePath}"${scrollToLineNum ? ` (Line: ${scrollToLineNum})` : ''}`);
 
@@ -2505,11 +2558,11 @@
     }
 
     // Update URL search parameters — preserve line param if provided using unencoded Chinese URL
-    const cleanFile = filePath.split('&').join('%26').split('#').join('%23');
+    const cleanFile = encodeURIComponent(filePath).replace(/%2F/g, '/');
     let newSearch = `?file=${cleanFile}`;
     if (scrollToLineNum) newSearch += `&line=${scrollToLineNum}`;
 
-    if (decodeURIComponent(window.location.search) !== decodeURIComponent(newSearch)) {
+    if (safeDecodeURIComponent(window.location.search) !== safeDecodeURIComponent(newSearch)) {
       const newUrl = window.location.pathname + newSearch;
       history.pushState(null, '', newUrl);
     }
@@ -2532,6 +2585,7 @@
     if (state.virtual && state.virtual.filePath === filePath && !forceFull) {
       highlightActiveFile(filePath);
       await scrollToLineVirtual(scrollToLineNum || 1, highlightQuery);
+      if (token !== state._openToken) return;
       return;
     }
 
@@ -2553,9 +2607,12 @@
     const fileSize = state.fileSizes.get(filePath) || 0;
     if ((fileSize >= LARGE_FILE_MIN_BYTES || isDictFile) && !forceFull) {
       try {
-        const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery);
+        const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery, token, abortCtrl.signal);
+        if (token !== state._openToken) return;
         if (handled) return;
       } catch (err) {
+        if (token !== state._openToken) return;
+        if (err && (err.name === 'AbortError' || err.code === 20)) return;
         console.warn('[Virtual] open failed, falling back to full render:', err);
         showToast('ℹ️ 大檔快速模式不可用，已改以全文模式開啟', 'info', 3000);
       }
@@ -2570,6 +2627,7 @@
       // Check LRU cache first — cached files open instantly (no network at all)
       const cachedHtml = cacheGet(filePath);
       if (cachedHtml) {
+        if (token !== state._openToken) return;
         const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : null;
         if (cachedMeta) renderContentHeader(filePath, cachedMeta);
         const el = $('markdownBody');
@@ -2599,21 +2657,18 @@
       const cachedEtag = renderCache.__etag ? renderCache.__etag.get(filePath) : null;
       if (cachedEtag) fetchHeaders['If-None-Match'] = cachedEtag;
 
-      // Abort any previous in-flight openFile fetch
-      if (state._openFileAbort) state._openFileAbort.abort();
-      const abortCtrl = new AbortController();
-      state._openFileAbort = abortCtrl;
-
       // SSR endpoint returns raw HTML (text/html) + gzip: avoids JSON.parse overhead
       const res = await fetch(`/api/render?path=${encodeURIComponent(filePath)}&line=${scrollToLineNum || ''}`, {
         headers: fetchHeaders,
         signal: abortCtrl.signal
       });
+      if (token !== state._openToken) return;
 
       if (res.status === 304) {
         // Server says content unchanged — use cached HTML
         const cachedHtml = cacheGet(filePath);
         if (cachedHtml) {
+          if (token !== state._openToken) return;
           const el = $('markdownBody');
           el.innerHTML = cachedHtml;
           postProcessMarkdownDOM(el);
@@ -2634,13 +2689,18 @@
           // Defer TOC generation & line-anchor indexing to idle time
           const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 10));
           scheduleIdle(() => {
+            if (token !== state._openToken) return;
             updateCachedLineAnchors(el);
             const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
             headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
             generateTOC(headings);
           });
+          return;
+        } else {
+          // 304 Not Modified received, but item was evicted from LRU cache!
+          if (renderCache.__etag) renderCache.__etag.delete(filePath);
+          return openFile(filePath, scrollToLineNum, highlightQuery);
         }
-        return;
       }
       if (!res.ok) throw new Error('File not found');
 
@@ -2650,6 +2710,7 @@
         Promise.resolve(res.headers.get('X-Document-Meta') || 'e30='),
         Promise.resolve(res.headers.get('ETag') || '')
       ]);
+      if (token !== state._openToken) return;
 
       // Decode frontmatter from base64 header
       let frontmatter = {};
@@ -2692,12 +2753,15 @@
       // Defer TOC generation & line-anchor indexing to idle time (non-blocking)
       const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 10));
       scheduleIdle(() => {
+        if (token !== state._openToken) return;
         updateCachedLineAnchors(el);
         const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
         headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
         generateTOC(headings);
       });
     } catch (err) {
+      if (err && (err.name === 'AbortError' || err.code === 20)) return;
+      if (token !== state._openToken) return;
       headingTextMap.clear();
       cachedLineAnchors = [];
       loading.style.display = 'none';
@@ -3448,7 +3512,13 @@
 
     tocList.innerHTML = '';
 
-    const minLevel = Math.min(...validItems.map(item => item.level));
+    let minLevel = 6;
+    for (let i = 0; i < validItems.length; i++) {
+      if (validItems[i].level < minLevel) {
+        minLevel = validItems[i].level;
+        if (minLevel === 1) break;
+      }
+    }
     const fragment = document.createDocumentFragment();
     const rows = [];
 
@@ -3606,7 +3676,11 @@
       });
     } else {
       // Collapse all parents while preserving tree hierarchy
-      const minLevel = Math.min(...Array.from(rows).map(r => parseInt(r.getAttribute('data-level'))));
+      let minLevel = 6;
+      rows.forEach(r => {
+        const lvl = parseInt(r.getAttribute('data-level'), 10) || 1;
+        if (lvl < minLevel) minLevel = lvl;
+      });
       rows.forEach((r, i) => {
         const chev = r.querySelector('.toc-item-chevron');
         const hasChildren = chev && !chev.classList.contains('empty');
@@ -3767,6 +3841,11 @@
       }
     }
     if (!query || query.trim().length === 0) {
+      if (searchAbortController) {
+        searchAbortController.abort();
+        searchAbortController = null;
+      }
+      state.lastSearchData = null;
       $('searchResults').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>輸入關鍵詞開始搜尋</span></div>';
       return;
     }
@@ -3775,6 +3854,11 @@
 
     if (folder === '__CURRENT_FILE__') {
       if (!state.currentFile) {
+        if (searchAbortController) {
+          searchAbortController.abort();
+          searchAbortController = null;
+        }
+        state.lastSearchData = null;
         $('searchResults').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📄</span><span>目前尚未開啟任何經文檔案</span></div>';
         return;
       }
@@ -4058,11 +4142,12 @@
         await fetchDictHeadwords();
         return state.dictHeadwords;
       } catch (err) {
-        state.dictHeadwords = { files: [], entries: [] };
+        state.dictHeadwords = null;
+        state.dictHeadwordsETag = null;
         state.dictIndex = null;
         renderDictFileList();
         showToast('❌ 辭典詞頭載入失敗', 'error');
-        return state.dictHeadwords;
+        return null;
       } finally {
         dictHeadwordsPromise = null;
       }
@@ -4511,6 +4596,8 @@
   // §11 PAGE SEARCH (In-page Ctrl+F)
   // ═══════════════════════════════════════════════════════════
 
+  let pageSearchAbortController = null;
+
   function openPageSearch() {
     const bar = $('pageSearchBar');
     bar.classList.add('visible');
@@ -4520,6 +4607,10 @@
   }
 
   function closePageSearch() {
+    if (pageSearchAbortController) {
+      pageSearchAbortController.abort();
+      pageSearchAbortController = null;
+    }
     $('pageSearchBar').classList.remove('visible');
     clearPageHighlights();
     $('pageSearchCount').textContent = '';
@@ -4545,6 +4636,10 @@
     }
 
     if (!q || q.length === 0) {
+      if (pageSearchAbortController) {
+        pageSearchAbortController.abort();
+        pageSearchAbortController = null;
+      }
       $('pageSearchCount').textContent = '';
       return;
     }
@@ -4577,11 +4672,17 @@
     const v = state.virtual;
     if (!v) return;
     state.pageSearchQuery = query;
+    if (pageSearchAbortController) {
+      pageSearchAbortController.abort();
+    }
+    pageSearchAbortController = new AbortController();
+    const signal = pageSearchAbortController.signal;
     try {
       const s2tParam = state.autoS2T ? '1' : '0';
-      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}&s2t=${s2tParam}`);
+      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}&s2t=${s2tParam}`, { signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
+      if (signal.aborted) return;
       const matches = Array.isArray(data.matches) ? data.matches : [];
       state.pageSearchMatches = matches;
       state.pageSearchIndex = -1;
@@ -4589,12 +4690,14 @@
         state.pageSearchIndex = 0;
         const m = matches[0];
         await scrollToLineVirtual(m.line, query);
+        if (signal.aborted) return;
         $('pageSearchCount').textContent = `1/${matches.length}`;
       } else {
         showToast(`🔍 未找到符合「${query}」的內容`, 'warning');
         $('pageSearchCount').textContent = '0/0';
       }
     } catch (err) {
+      if (err.name === 'AbortError') return;
       state.pageSearchMatches = [];
       showToast('本頁搜尋失敗：' + err.message, 'error');
       $('pageSearchCount').textContent = '';
@@ -4751,18 +4854,19 @@
     const header = $('appHeader');
     if (header) header.style.backgroundColor = themeColor;
 
-    // Force WebKit / iOS PWA compositor to re-evaluate the status bar theme color:
-    // In WebKit, changing the content attribute alone does not always trigger status bar repainting.
-    // Removing and immediately re-appending a fresh meta tag forces WebKit to pick up the new color in real time.
-    const oldMetas = document.querySelectorAll('meta[name="theme-color"]');
-    oldMetas.forEach(m => m.remove());
-    setTimeout(() => {
-      const newMeta = document.createElement('meta');
-      newMeta.name = 'theme-color';
-      newMeta.id = 'metaThemeColor';
-      newMeta.content = themeColor;
-      document.head.appendChild(newMeta);
-    }, 0);
+    // Dynamically update <meta name="theme-color"> so iOS Safari / PWA status bar matches the active theme
+    let metaTheme = document.getElementById('metaThemeColor') || document.querySelector('meta[name="theme-color"]');
+    if (!metaTheme) {
+      metaTheme = document.createElement('meta');
+      metaTheme.name = 'theme-color';
+      metaTheme.id = 'metaThemeColor';
+      document.head.appendChild(metaTheme);
+    }
+    metaTheme.content = themeColor;
+    const extraMetas = document.querySelectorAll('meta[name="theme-color"]');
+    if (extraMetas.length > 1) {
+      for (let i = 1; i < extraMetas.length; i++) extraMetas[i].remove();
+    }
 
     // Force Mobile WebKit/Chromium GPU composite layer repaint for active file pill
     const activePill = $('headerActiveFile');
@@ -5161,15 +5265,33 @@
       const content = $('content');
       if (!content) return;
 
-      // Find top visible line anchor if available
+      // Find top visible line anchor without layout thrashing
       let currentLine = null;
-      const anchors = $$('.line-anchor[data-line]', $('markdownBody'));
-      const contentRect = content.getBoundingClientRect();
-      for (const a of anchors) {
-        const rect = a.getBoundingClientRect();
-        if (rect.top >= contentRect.top + 20) {
-          currentLine = parseInt(a.getAttribute('data-line'));
-          break;
+      if (state.virtual && typeof estimateLineFromScrollTop === 'function') {
+        currentLine = estimateLineFromScrollTop();
+      } else {
+        const anchors = (cachedLineAnchors && cachedLineAnchors.length > 0)
+          ? cachedLineAnchors
+          : Array.from($$('.line-anchor[data-line]', $('markdownBody')));
+        if (anchors.length > 0) {
+          const targetTop = content.getBoundingClientRect().top + 20;
+          let low = 0, high = anchors.length - 1;
+          let bestIdx = -1;
+          while (low <= high) {
+            const mid = (low + high) >> 1;
+            const top = anchors[mid].getBoundingClientRect().top;
+            if (top >= targetTop) {
+              bestIdx = mid;
+              high = mid - 1;
+            } else {
+              low = mid + 1;
+            }
+          }
+          if (bestIdx !== -1) {
+            currentLine = parseInt(anchors[bestIdx].getAttribute('data-line'), 10) || null;
+          } else {
+            currentLine = parseInt(anchors[anchors.length - 1].getAttribute('data-line'), 10) || null;
+          }
         }
       }
 
@@ -5286,11 +5408,35 @@
     });
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // §20 EVENT LISTENERS (Keyboard, Click, Popstate Wiring)
-  // ═══════════════════════════════════════════════════════════
+  // ── Settings Form Toggle Interactions ──
+  function syncFooterToggleInputs() {
+    const versionToggle = $('settingsEnableVersion');
+    const versionInput = $('settingsVersion');
+    if (versionToggle && versionInput) {
+      versionInput.disabled = !versionToggle.checked;
+    }
+    const downloadToggle = $('settingsEnableDownload');
+    const downloadInput = $('settingsDownloadUrl');
+    if (downloadToggle && downloadInput) {
+      downloadInput.disabled = !downloadToggle.checked;
+    }
+    const dictToggle = $('settingsEnableDictionary');
+    const dictInput = $('settingsDictionaryPath');
+    if (dictToggle && dictInput) {
+      dictInput.disabled = !dictToggle.checked;
+    }
+    const announcementToggle = $('settingsEnableAnnouncement');
+    const announcementInput = $('settingsAnnouncementMessage');
+    if (announcementToggle && announcementInput) {
+      announcementInput.disabled = !announcementToggle.checked;
+    }
+  }
 
   function setupEventListeners() {
+    // ── Social share preview image fallback ──
+    const ogImg = $('ogPreviewImg') || document.getElementById('ogPreviewImg');
+    if (ogImg) ogImg.addEventListener('error', () => { ogImg.src = '/icon-512.png'; }, { once: true });
+
     // ── Sidebar toggle ──
     $('sidebarToggle').addEventListener('click', () => {
       const sidebar = $('sidebar');
@@ -5520,6 +5666,16 @@
     const searchBtn = $('globalSearchBtn');
 
     if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        if (!e.target.value.trim()) {
+          if (searchAbortController) {
+            searchAbortController.abort();
+            searchAbortController = null;
+          }
+          state.lastSearchData = null;
+          $('searchResults').innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>輸入關鍵詞開始搜尋</span></div>';
+        }
+      });
       searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -6199,29 +6355,6 @@
     });
 
     // ── Settings Form Toggle Interactions ──
-    function syncFooterToggleInputs() {
-      const versionToggle = $('settingsEnableVersion');
-      const versionInput = $('settingsVersion');
-      if (versionToggle && versionInput) {
-        versionInput.disabled = !versionToggle.checked;
-      }
-      const downloadToggle = $('settingsEnableDownload');
-      const downloadInput = $('settingsDownloadUrl');
-      if (downloadToggle && downloadInput) {
-        downloadInput.disabled = !downloadToggle.checked;
-      }
-      const dictToggle = $('settingsEnableDictionary');
-      const dictInput = $('settingsDictionaryPath');
-      if (dictToggle && dictInput) {
-        dictInput.disabled = !dictToggle.checked;
-      }
-      const announcementToggle = $('settingsEnableAnnouncement');
-      const announcementInput = $('settingsAnnouncementMessage');
-      if (announcementToggle && announcementInput) {
-        announcementInput.disabled = !announcementToggle.checked;
-      }
-    }
-
     const versionToggleEl = $('settingsEnableVersion');
     if (versionToggleEl) versionToggleEl.addEventListener('change', syncFooterToggleInputs);
     const downloadToggleEl = $('settingsEnableDownload');
@@ -6394,7 +6527,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6687,7 +6820,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.2',
+            version: data.settings?.version || '3.6.3',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
