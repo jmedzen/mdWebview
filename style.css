@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.6.0
+   mdWebview — Style System (style.css) v3.6.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -953,10 +953,8 @@ body,
   margin-top: 2px;
   padding: 1px 6px;
   flex-shrink: 0;
-}
   background: var(--badge-bg);
   border-radius: 10px;
-  flex-shrink: 0;
 }
 
 /* ── §8 Search ──────────────────────────────────────────────── */
@@ -1039,7 +1037,6 @@ body,
   transition: all 0.15s ease;
   flex-shrink: 0;
   box-sizing: border-box;
-}
 }
 .search-go-btn:hover {
   opacity: 0.85;

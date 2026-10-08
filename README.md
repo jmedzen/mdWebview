@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.6.0) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.6.2) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -29,10 +29,16 @@
   - 🔆 **Solarized** (經典護眼)
   - 🍵 **禪風 Zen** (平和淡雅)
   - 🍂 **Gruvbox** (暖色復古)
+- 📱 **使用者設定與視覺排版自訂**：
+  - **視覺排版面板**：自由調整字型大小、行高（1.6 / 1.8 / 2.0）、文字對齊方式與閱讀版寬（800px / 1000px / 100%）。
+  - **簡體中文自動轉繁體 (autoS2T)**：整合至視覺排版 Tab，UI 深度匹配 5 種主題風格；全站預設為關閉 (`false`)，使用者偏好保存於 `localStorage`，搜尋請求自動同步轉換。
+  - **閱讀進度記憶**：支援自動記錄與還原個別篇章滾動位置。
 - 🔎 **浮動本頁搜尋**：支援透過快速鍵喚出頁面內搜尋框（`Ctrl + F`），具備相符項目計數、高亮與前後切換功能。
-- 🅰️ **動態字型與版寬控制**：可自由調整閱讀區域字型大小，預設基準根據管理員後台「預設字體大小」連動 UI 縮放。
 - 🔗 **分享與精確跳轉**：支援 URL 參數分享（`?file=...&line=...`），能直接定位並亮顯目標行號；支援 `?frontpage=1` 或 `?home=1` 參數強制開啟首頁。
-- 🌐 **全方位 SEO 與社群卡片**：內建爬蟲專用 SSR 預渲染、Schema.org JSON-LD 結構化資料、動態 `sitemap.xml` 與 `robots.txt`，並提供後台 OpenGraph 社群卡片即時預覽。
+- 🌐 **全方位 SEO、Sitemap 防抖與社群卡片**：
+  - **Sitemap 20 秒智慧防抖**：檔案變更時啟動 20 秒延遲沉降防抖，避免大量檔案寫入時頻繁掃描磁碟造成 CPU / I/O 尖峰。
+  - **Stale-While-Revalidate 機制**：防抖期間或更新時瞬時回傳現存快取（0ms 阻塞），沉降後背景非同步自動更新。
+  - **SEO 與社群標籤**：內建爬蟲專用 SSR 預渲染、Schema.org JSON-LD 結構化資料、開機背景預熱快取，並提供後台 OpenGraph 即時預覽。
 - 🔒 **安全性、後台管理與日誌修剪**：
   - 內建 PBKDF2 密碼雜湊防護、IP Rate-Limiting 防暴力破解與 Session 管理。
   - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。
@@ -55,6 +61,7 @@ mdWebview/
 │   └── cleanup-ghcr.yml# GHCR 映像檔自動清理維護（保留最新 5 版本）
 ├── md/                 # 存放 Markdown 文件庫（支援多層資料夾）
 ├── dicts/              # 辭典檔案目錄（.txt 格式，每條目 === 分隔）
+├── tests/              # Node.js 原生測試套件（單元測試與 API 整合測試）
 ├── index.html          # 前端 SPA Shell（含 PWA manifest 引用、SSR 注入點）
 ├── app.js              # 前端邏輯（狀態管理、樹狀圖、大綱、搜尋、辭典、主題、管理員面板）
 ├── style.css           # 樣式系統（5 主題、響應式、Glassmorphism、Markdown 增強）
@@ -70,7 +77,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.6.0）
+├── package.json        # Node.js 套件設定（v3.6.2）
 └── README.md           # 本說明文件
 ```
 
@@ -154,7 +161,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.6.0) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.6.2) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -177,10 +184,16 @@ docker-compose up -d
   - 🔆 **Solarized**
   - 🍵 **Zen**
   - 🍂 **Gruvbox**
+- 📱 **User Preferences & Visual Typography**:
+  - **Typography Settings**: Adjust font size, line height (1.6 / 1.8 / 2.0), text alignment, and reading max width (800px / 1000px / 100%).
+  - **Auto Simplified-to-Traditional Chinese (autoS2T)**: Integrated into the Appearance & Typography tab with full theme palette match; defaults to `false` systemwide, persisted per user in `localStorage`, and automatically passes `s2t` parameters to search queries.
+  - **Reading Progress Tracking**: Automatically records and restores scroll positions across documents.
 - 🔎 **In-Page Search**: Floating in-page search bar (`Ctrl + F`) with match counts and previous/next navigation.
-- 🅰️ **Dynamic Font & Width Scaling**: Easily scale reading font size and container max width.
 - 🔗 **URL Sharing & Deep Linking**: Share exact reading positions using `?file=...&line=...`, or force frontpage display with `?frontpage=1`.
-- 🌐 **Comprehensive SEO & Social Cards**: Built-in Crawler SSR pre-rendering, Schema.org JSON-LD structured data, dynamic `sitemap.xml` & `robots.txt`, and Admin OpenGraph social card live preview.
+- 🌐 **Comprehensive SEO, Debounced Sitemap & Social Cards**:
+  - **20-Second Sitemap Debounce**: Automatically debounces file changes over a 20-second quiet period, preventing disk scanning CPU spikes during bulk uploads.
+  - **Stale-While-Revalidate**: Immediately serves cached sitemap instances (0ms latency) during debounce windows or rebuilds.
+  - **Crawler SSR & Metadata**: Pre-renders crawler-specific HTML with Schema.org JSON-LD structured data and live OpenGraph social card previews.
 - 🔒 **Security, Admin Panel & 7-Day Log Pruning**:
   - Built-in PBKDF2 password hashing, IP rate limiting, and session management.
   - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export.
@@ -203,6 +216,7 @@ mdWebview/
 │   └── cleanup-ghcr.yml# Automated GHCR image pruning (retains latest 5 versions)
 ├── md/                 # Markdown document vault (supports nested directories)
 ├── dicts/              # Dictionary files directory (.txt, entries separated by ===)
+├── tests/              # Native Node.js test suite (unit and API integration tests)
 ├── index.html          # Frontend SPA shell (SSR injection point, PWA manifest link)
 ├── app.js              # Frontend logic (state, tree, TOC, search, dict, themes, admin panel)
 ├── style.css           # Style system (5 themes, responsive, Glassmorphism, Markdown enhancements)
@@ -218,7 +232,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.6.0)
+├── package.json        # Node.js package manifest (v3.6.2)
 └── README.md           # Project documentation
 ```
 

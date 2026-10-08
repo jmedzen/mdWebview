@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.6.1';
+const CACHE_VERSION = 'v3.6.2';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -88,8 +88,8 @@ self.addEventListener('fetch', event => {
           return networkRes;
         })
         .catch(() => {
-          return caches.match('/').then(cached => {
-            return cached || caches.match('/index.html');
+          return caches.match('/', { ignoreSearch: true }).then(cached => {
+            return cached || caches.match('/index.html', { ignoreSearch: true });
           });
         })
     );
@@ -125,7 +125,7 @@ self.addEventListener('fetch', event => {
 
   // D. Static Assets (CSS, JS, Fonts, Icons, Vendor) -> Stale-While-Revalidate
   event.respondWith(
-    caches.match(req).then(cached => {
+    caches.match(req, { ignoreSearch: true }).then(cached => {
       const fetchPromise = fetch(req)
         .then(networkRes => {
           if (networkRes && networkRes.status === 200) {

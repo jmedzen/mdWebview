@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.6.1
+ * @version 3.6.2
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -55,7 +55,7 @@ try {
 }
 
 // Read application version from package.json
-let APP_VERSION = '3.6.1';
+let APP_VERSION = '3.6.2';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg && pkg.version) APP_VERSION = pkg.version;
@@ -410,6 +410,9 @@ function queueAnalyticsStoreEntry(entry) {
         analyticsStoreSaveTimer = null;
         saveAnalyticsStore().catch(err => console.error('Error saving analytics aggregate:', err));
       }, 30000);
+      if (analyticsStoreSaveTimer && analyticsStoreSaveTimer.unref) {
+        analyticsStoreSaveTimer.unref();
+      }
     }
   }
 }
@@ -601,7 +604,8 @@ async function cleanOldLogsJob() {
 // Backfill aggregate data before log pruning job runs
 initializeAnalyticsStore().then(() => {
   cleanOldLogsJob();
-  setInterval(cleanOldLogsJob, 24 * 60 * 60 * 1000);
+  const cleanLogsTimer = setInterval(cleanOldLogsJob, 24 * 60 * 60 * 1000);
+  if (cleanLogsTimer && cleanLogsTimer.unref) cleanLogsTimer.unref();
 }).catch(() => {});
 
 function safeDecodeURI(str) {
@@ -1031,6 +1035,23 @@ function executeIndexJob(type, payload, timeoutMs = JOB_TIMEOUT_MS) {
 }
 
 const PORT = process.env.PORT || 8330;
+async function terminateWorkerPools() {
+  const promises = [];
+  if (Array.isArray(workerPool)) {
+    for (const w of workerPool) {
+      w.terminated = true;
+      try { promises.push(w.terminate()); } catch (_) {}
+    }
+  }
+  if (Array.isArray(indexWorkerPool)) {
+    for (const w of indexWorkerPool) {
+      w.terminated = true;
+      try { promises.push(w.terminate()); } catch (_) {}
+    }
+  }
+  await Promise.allSettled(promises);
+}
+
 const APP_ROOT = path.resolve(process.cwd());
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(APP_ROOT, 'config.json');
 
@@ -1150,9 +1171,10 @@ function saveConfig() {
 
 loadConfig();
 
+let configWatcher = null;
 try {
   if (fs.existsSync(CONFIG_PATH)) {
-    fs.watch(CONFIG_PATH, (eventType) => {
+    configWatcher = fs.watch(CONFIG_PATH, (eventType) => {
       if (eventType === 'change') {
         try {
           loadConfig();
@@ -1161,6 +1183,13 @@ try {
     });
   }
 } catch (_) {}
+
+function resetConfigWatcher() {
+  if (configWatcher) {
+    try { configWatcher.close(); } catch (_) {}
+    configWatcher = null;
+  }
+}
 
 function getMdRoot() {
   const configured = config.settings.mdRoot;
@@ -1604,6 +1633,9 @@ let activeIndexBuildId = 0;
 let treeWatcherDebounceTimer = null;
 let treeWatcherStartTime = 0;
 let treeWatcherChangeCount = 0;
+let sitemapDirty = false;
+let sitemapBuilding = false;
+let lastKnownBaseUrl = '';
 
 function setupTreeWatcher() {
   if (treeWatcher) return;
@@ -1622,12 +1654,20 @@ function setupTreeWatcher() {
           return;
         }
 
-        // Invalidate tree, search and sitemap cache
+        // Invalidate tree and search cache; mark sitemap as dirty (deferred debounced update)
         cachedTree = null;
-        cachedSitemapXml = null;
         searchCache.clear();
+        sitemapDirty = true;
         if (filename) {
-          sectionIndexCache.delete(filename);
+          if (sectionIndexCache.has(filename)) {
+            sectionIndexCache.delete(filename);
+          } else {
+            for (const k of sectionIndexCache.keys()) {
+              if (k === filename || k.endsWith('/' + filename)) {
+                sectionIndexCache.delete(k);
+              }
+            }
+          }
         } else {
           invalidateSectionIndexes();
         }
@@ -1636,7 +1676,7 @@ function setupTreeWatcher() {
         activeIndexBuildId++;
         searchIndex.building = false;
 
-        // Debounce index rebuild by 20 seconds to handle batch file operations cleanly.
+        // Debounce index rebuild and sitemap auto-update by 20 seconds to handle batch file operations cleanly.
         // 第一次檔案異動事件發生時絕不立即執行重建，必須等待完整 20 秒沉降期。
         // 若在 20 秒內又有新檔案變更，計時器將自動重置，重新計算 20 秒。
         treeWatcherChangeCount++;
@@ -1645,7 +1685,7 @@ function setupTreeWatcher() {
           clearTimeout(treeWatcherDebounceTimer);
         }
         if (isFirstEvent) {
-          Logger.info('Index', `Vault file changed [#${treeWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Aborting active build & waiting ${VAULT_INDEX_DEBOUNCE_MS / 1000}s debounce before index rebuild...`);
+          Logger.info('Index', `Vault file changed [#${treeWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Aborting active build & waiting ${VAULT_INDEX_DEBOUNCE_MS / 1000}s debounce before index & sitemap rebuild...`);
         } else {
           Logger.info('Index', `Vault file changed [#${treeWatcherChangeCount}]: "${filename || 'unknown'}" (${eventType}). Resetting countdown, waiting another ${VAULT_INDEX_DEBOUNCE_MS / 1000}s...`);
         }
@@ -1653,8 +1693,12 @@ function setupTreeWatcher() {
           const totalChanges = treeWatcherChangeCount;
           treeWatcherDebounceTimer = null;
           treeWatcherChangeCount = 0;
-          Logger.info('Index', `Vault files quiet for ${VAULT_INDEX_DEBOUNCE_MS / 1000}s (accumulated ${totalChanges} change events). Starting Bigram Index build...`);
+          Logger.info('Index', `Vault files quiet for ${VAULT_INDEX_DEBOUNCE_MS / 1000}s (accumulated ${totalChanges} change events). Starting Bigram Index build & Sitemap auto-update...`);
           buildSearchIndexAsync(true).catch(() => {});
+          if (sitemapDirty) {
+            Logger.info('SEO', `Triggering debounced sitemap auto-update after ${totalChanges} vault change events...`);
+            autoRebuildSitemapAsync().catch(() => {});
+          }
         }, VAULT_INDEX_DEBOUNCE_MS);
       });
     }
@@ -1677,9 +1721,10 @@ function resetTreeWatcher() {
   }
   cachedTree = null;
   cachedSitemapXml = null;
+  sitemapDirty = true;
   searchCache.clear();
   searchIndex.ready = false;
-  Logger.info('Index', 'Vault configuration changed: Resetting tree watcher and Bigram Index');
+  Logger.info('Index', 'Vault configuration changed: Resetting tree watcher, Bigram Index and Sitemap');
 }
 
 async function scanDirAsync(dir, relativePath) {
@@ -1774,11 +1819,16 @@ function getBaseUrl(req) {
   if (process.env.SITE_URL) {
     return process.env.SITE_URL.replace(/\/+$/, '');
   }
-  const rawProto = req.headers['x-forwarded-proto'] || (req.socket && req.socket.encrypted ? 'https' : 'http');
-  const proto = rawProto.split(',')[0].trim();
-  const rawHost = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
-  const host = rawHost.split(',')[0].trim();
-  return `${proto}://${host}`;
+  if (req && req.headers) {
+    const rawProto = req.headers['x-forwarded-proto'] || (req.socket && req.socket.encrypted ? 'https' : 'http');
+    const proto = rawProto.split(',')[0].trim();
+    const rawHost = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+    const host = rawHost.split(',')[0].trim();
+    const url = `${proto}://${host}`;
+    lastKnownBaseUrl = url;
+    return url;
+  }
+  return lastKnownBaseUrl || `http://localhost:${PORT}`;
 }
 
 function flattenMarkdownFiles(nodes, acc = []) {
@@ -1889,11 +1939,99 @@ function handleManifestJson(req, res) {
   }
 }
 
+/**
+ * 遍歷保管庫並產生標準 sitemap.xml 內容。
+ * 支援傳入自訂 baseUrl 與預先掃描好的目錄樹（optionalTree），避免重複磁碟 I/O。
+ *
+ * @param {string} [baseUrl] - 網站基礎網址
+ * @param {Array} [optionalTree] - 預先掃描的目錄樹（可選）
+ * @returns {Promise<{ xml: string, totalUrls: number }>}
+ */
+async function generateSitemapXml(baseUrl, optionalTree = null) {
+  let tree = optionalTree || cachedTree;
+  if (!tree) {
+    tree = await scanDirAsync(getMdRoot(), '');
+    cachedTree = tree;
+  }
+
+  const files = flattenMarkdownFiles(tree);
+  const today = new Date().toISOString().slice(0, 10);
+  const effectiveBaseUrl = (baseUrl || getBaseUrl(null)).replace(/\/+$/, '');
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+  // 1. 首頁
+  xml += '  <url>\n';
+  xml += `    <loc>${escapeXml(effectiveBaseUrl)}/</loc>\n`;
+  xml += `    <lastmod>${today}</lastmod>\n`;
+  xml += '    <changefreq>daily</changefreq>\n';
+  xml += '    <priority>1.0</priority>\n';
+  xml += '  </url>\n';
+
+  // 2. 所有 Markdown 檔案
+  for (const file of files) {
+    const locUrl = `${effectiveBaseUrl}/?file=${encodeURIComponent(file.path)}`;
+    let lastmod = today;
+    if (file.mtime) {
+      try {
+        lastmod = new Date(file.mtime).toISOString().slice(0, 10);
+      } catch (_) {}
+    }
+    xml += '  <url>\n';
+    xml += `    <loc>${escapeXml(locUrl)}</loc>\n`;
+    xml += `    <lastmod>${lastmod}</lastmod>\n`;
+    xml += '    <changefreq>monthly</changefreq>\n';
+    xml += '    <priority>0.8</priority>\n';
+    xml += '  </url>\n';
+  }
+
+  xml += '</urlset>\n';
+  return { xml, totalUrls: files.length + 1 };
+}
+
+/**
+ * 背景自動重新建置 sitemap.xml（防抖 20 秒沉降期滿時觸發）。
+ * 在大量檔案上傳完畢且靜止後自動執行，防止爬蟲即時請求時承受 CPU 負載。
+ */
+async function autoRebuildSitemapAsync() {
+  if (sitemapBuilding) {
+    Logger.debug('SEO', 'Background sitemap rebuild already in progress, skipping duplicate trigger');
+    return;
+  }
+  sitemapBuilding = true;
+  try {
+    const t0 = Date.now();
+    Logger.info('SEO', 'Starting debounced background auto-rebuild for sitemap.xml...');
+    const baseUrl = getBaseUrl(null);
+    const { xml, totalUrls } = await generateSitemapXml(baseUrl);
+    cachedSitemapXml = xml;
+    sitemapDirty = false;
+    const durationMs = Date.now() - t0;
+    const xmlBytes = Buffer.byteLength(xml, 'utf8');
+    const xmlKb = (xmlBytes / 1024).toFixed(1);
+    Logger.info('SEO', `Sitemap automatically rebuilt in background: ${totalUrls} URLs (${xmlKb} KB) in ${durationMs}ms`);
+  } catch (err) {
+    Logger.error('SEO', 'Failed to auto-rebuild sitemap in background', err);
+  } finally {
+    sitemapBuilding = false;
+  }
+}
+
 async function handleSitemapXml(req, res) {
   setupTreeWatcher();
   const baseUrl = getBaseUrl(req);
 
-  if (cachedSitemapXml) {
+  // 1. 若已有快取：
+  //    - 若目前處於大量檔案變更 debounce 期間（treeWatcherDebounceTimer 存在），或者 sitemap 尚未變更（!sitemapDirty）：
+  //      立即回傳現有快取（Stale-While-Revalidate），避免大量檔案寫入時掃描磁碟造成 CPU 飆高！
+  if (cachedSitemapXml && (treeWatcherDebounceTimer || !sitemapDirty)) {
+    const isDebouncing = !!treeWatcherDebounceTimer;
+    if (isDebouncing) {
+      Logger.info('SEO', 'GET /sitemap.xml served from cache during vault write cooldown (debounce protected, Stale-While-Revalidate)', req);
+    } else {
+      Logger.debug('SEO', 'GET /sitemap.xml served from memory cache', req);
+    }
     res.writeHead(200, Object.assign({
       'Content-Type': 'application/xml; charset=utf-8',
       'Cache-Control': 'public, max-age=3600',
@@ -1902,54 +2040,23 @@ async function handleSitemapXml(req, res) {
     return res.end(cachedSitemapXml);
   }
 
+  // 2. 若快取不存在（冷啟動尚未生成）或防抖沉降已過且需即時建置：
   try {
-    let tree = cachedTree;
-    if (!tree) {
-      tree = await scanDirAsync(getMdRoot(), '');
-      cachedTree = tree;
-    }
-
-    const files = flattenMarkdownFiles(tree);
-    const today = new Date().toISOString().slice(0, 10);
-
-    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-
-    // 1. Homepage
-    xml += '  <url>\n';
-    xml += `    <loc>${escapeXml(baseUrl)}/</loc>\n`;
-    xml += `    <lastmod>${today}</lastmod>\n`;
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>1.0</priority>\n';
-    xml += '  </url>\n';
-
-    // 2. All Markdown Files
-    for (const file of files) {
-      const locUrl = `${baseUrl}/?file=${encodeURIComponent(file.path)}`;
-      let lastmod = today;
-      if (file.mtime) {
-        try {
-          lastmod = new Date(file.mtime).toISOString().slice(0, 10);
-        } catch (_) {}
-      }
-      xml += '  <url>\n';
-      xml += `    <loc>${escapeXml(locUrl)}</loc>\n`;
-      xml += `    <lastmod>${lastmod}</lastmod>\n`;
-      xml += '    <changefreq>monthly</changefreq>\n';
-      xml += '    <priority>0.8</priority>\n';
-      xml += '  </url>\n';
-    }
-
-    xml += '</urlset>\n';
-
+    const t0 = Date.now();
+    const { xml, totalUrls } = await generateSitemapXml(baseUrl);
     cachedSitemapXml = xml;
+    sitemapDirty = false;
+    const durationMs = Date.now() - t0;
+    const xmlBytes = Buffer.byteLength(xml, 'utf8');
+    const xmlKb = (xmlBytes / 1024).toFixed(1);
+    Logger.info('SEO', `GET /sitemap.xml generated on demand: ${totalUrls} URLs (${xmlKb} KB) in ${durationMs}ms`, req);
 
     res.writeHead(200, Object.assign({
       'Content-Type': 'application/xml; charset=utf-8',
       'Cache-Control': 'public, max-age=3600',
       'X-Content-Type-Options': 'nosniff'
     }, SECURITY_HEADERS));
-    res.end(xml);
+    res.end(cachedSitemapXml);
   } catch (err) {
     Logger.error('SEO', 'Failed to generate sitemap.xml', err, req);
     res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
@@ -4007,7 +4114,16 @@ function setupDictWatcher() {
       if (filename && (filename.startsWith('.') || filename.includes('/.'))) return;
       invalidateDictIndex();
       if (filename) {
-        dictSectionIndexCache.delete(`dict:${filename}`);
+        const dictKey = `dict:${filename}`;
+        if (dictSectionIndexCache.has(dictKey)) {
+          dictSectionIndexCache.delete(dictKey);
+        } else {
+          for (const k of dictSectionIndexCache.keys()) {
+            if (k === dictKey || k.endsWith('/' + filename)) {
+              dictSectionIndexCache.delete(k);
+            }
+          }
+        }
       } else {
         invalidateDictSectionIndexes();
       }
@@ -4161,7 +4277,8 @@ async function handleDictSearch(req, res, query) {
   // array plus the client-side render balloon memory on repeated searches.
   const DICT_SEARCH_MAX_PER_FILE = 1500;
   const rawQ = (query.q || '').trim();
-  const q = toTraditional(rawQ);
+  const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
+  const q = shouldS2T ? toTraditional(rawQ) : rawQ;
   if (!q || q.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
@@ -4326,7 +4443,8 @@ async function handleDictEvent(req, res) {
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
   const rawQ = (query.q || '').trim();
-  const q = toTraditional(rawQ);
+  const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
+  const q = shouldS2T ? toTraditional(rawQ) : rawQ;
   if (!q || q.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
@@ -4550,7 +4668,8 @@ async function handleSearch(req, res, query) {
 // entry — not just the currently-mounted virtualization chunks.
 async function handleSearchFile(req, res, query) {
   const rawQ = (query.q || '').trim();
-  const q = toTraditional(rawQ);
+  const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
+  const q = shouldS2T ? toTraditional(rawQ) : rawQ;
   const relPath = query.path;
   if (!q || !relPath) {
     return sendJSON(res, 400, { error: 'Missing query or path parameter' });
@@ -4844,7 +4963,7 @@ const sessions = new Map();
 const SESSION_DURATION = 6 * 60 * 60 * 1000; // 6 hours session expiry
 
 // Periodic background cleanup of expired session tokens (every 15 minutes)
-setInterval(() => {
+const sessionCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [token, session] of sessions.entries()) {
     if (session.expiry && now > session.expiry) {
@@ -4852,6 +4971,7 @@ setInterval(() => {
     }
   }
 }, 15 * 60 * 1000);
+if (sessionCleanupTimer && sessionCleanupTimer.unref) sessionCleanupTimer.unref();
 
 // Rate limiting / brute-force protection map: ip -> { attempts: count, lockUntil: timestamp }
 const loginAttempts = new Map();
@@ -5024,7 +5144,7 @@ function hashPassword(password, salt, iterations = 100000) {
 }
 
 // Clean up expired sessions and stale rate limit attempts every 1 hour to prevent memory leaks
-setInterval(() => {
+const rateLimitCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [token, session] of sessions.entries()) {
     if (now > session.expiry) {
@@ -5040,6 +5160,7 @@ setInterval(() => {
     }
   }
 }, 60 * 60 * 1000);
+if (rateLimitCleanupTimer && rateLimitCleanupTimer.unref) rateLimitCleanupTimer.unref();
 
 function generateSessionToken() {
   return crypto.randomBytes(32).toString('hex');
@@ -6324,48 +6445,18 @@ async function handleAdminRebuildSitemap(req, res) {
 
   try {
     const t0 = Date.now();
-    cachedSitemapXml = null;
-    cachedTree = null;
-
-    const tree = await scanDirAsync(getMdRoot(), '');
-    cachedTree = tree;
-    const files = flattenMarkdownFiles(tree);
-    const today = new Date().toISOString().slice(0, 10);
+    cachedTree = null; // 強制重新掃描保管庫目錄樹
     const baseUrl = getBaseUrl(req);
-
-    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-    xml += '  <url>\n';
-    xml += `    <loc>${escapeXml(baseUrl)}/</loc>\n`;
-    xml += `    <lastmod>${today}</lastmod>\n`;
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>1.0</priority>\n';
-    xml += '  </url>\n';
-
-    for (const file of files) {
-      const locUrl = `${baseUrl}/?file=${encodeURIComponent(file.path)}`;
-      let lastmod = today;
-      if (file.mtime) {
-        try {
-          lastmod = new Date(file.mtime).toISOString().slice(0, 10);
-        } catch (_) {}
-      }
-      xml += '  <url>\n';
-      xml += `    <loc>${escapeXml(locUrl)}</loc>\n`;
-      xml += `    <lastmod>${lastmod}</lastmod>\n`;
-      xml += '    <changefreq>monthly</changefreq>\n';
-      xml += '    <priority>0.8</priority>\n';
-      xml += '  </url>\n';
-    }
-    xml += '</urlset>\n';
-
+    const { xml, totalUrls } = await generateSitemapXml(baseUrl);
     cachedSitemapXml = xml;
+    sitemapDirty = false;
+
     const durationMs = Date.now() - t0;
-    Logger.info('SEO', `Sitemap rebuilt: ${files.length + 1} URLs generated in ${durationMs}ms`, null, req);
+    Logger.info('SEO', `Sitemap rebuilt: ${totalUrls} URLs generated in ${durationMs}ms`, null, req);
 
     return sendJSON(res, 200, {
       success: true,
-      totalUrls: files.length + 1,
+      totalUrls,
       durationMs,
       sitemapUrl: `${baseUrl}/sitemap.xml`
     });
@@ -6385,6 +6476,7 @@ function handleAdminClearCache(req, res) {
   searchCache.clear();
   cachedSitemapXml = null;
   cachedTree = null;
+  sitemapDirty = true;
 
   Logger.info('Admin', `In-memory caches cleared: ${staticCount} static entries, ${searchCount} search entries`, null, req);
   return sendJSON(res, 200, {
@@ -6893,7 +6985,9 @@ const server = http.createServer((req, res) => {
         if (baiduSiteVerification !== undefined) config.settings.baiduSiteVerification = String(baiduSiteVerification).trim();
         if (seoEnableSearchBox !== undefined) config.settings.seoEnableSearchBox = (seoEnableSearchBox === true || seoEnableSearchBox === 'true' || seoEnableSearchBox === 1 || seoEnableSearchBox === '1');
         if (seoHomepageSummary !== undefined) config.settings.seoHomepageSummary = String(seoHomepageSummary).trim();
-        cachedSitemapXml = null; // Invalidate sitemap cache on SEO config change
+        sitemapDirty = true;
+        Logger.info('SEO', 'SEO configuration modified: Triggering sitemap background rebuild', null, req);
+        autoRebuildSitemapAsync().catch(() => {});
 
         if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
           config.settings.dictionaryEnabled = nextDictEnabled;
@@ -7026,8 +7120,10 @@ if (require.main === module) {
     console.log(`  Vault:   ${getMdRoot()}`);
     console.log('');
 
-    // Eagerly build Bigram Inverted Index in background on boot
+    // Eagerly build Bigram Inverted Index & Sitemap in background on boot
+    Logger.info('Boot', 'Pre-warming Bigram Index & Sitemap cache in background...');
     buildSearchIndexAsync().catch(() => {});
+    autoRebuildSitemapAsync().catch(() => {});
 
     // Set up the dictionary directory watcher (and index) at boot so the index
     // rebuilds automatically when dictionary files change — not only on fulltext.
@@ -7068,6 +7164,12 @@ if (typeof module !== "undefined" && module.exports) {
     invalidateDailyWordCache,
     scanDictFiles,
     handleSuggestList,
-    handleDictFiles
+    handleDictFiles,
+    resetTreeWatcher,
+    resetDictWatcher,
+    resetConfigWatcher,
+    generateSitemapXml,
+    autoRebuildSitemapAsync,
+    terminateWorkerPools
   };
 }
