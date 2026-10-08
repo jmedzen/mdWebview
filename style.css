@@ -2822,8 +2822,48 @@ kbd {
     font-weight: 600;
   }
 
-  .backup-action-buttons {
-    flex-direction: column;
+  .backup-action-buttons,
+  .admin-action-buttons {
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+
+  .backup-action-buttons .modal-btn,
+  .admin-action-buttons .modal-btn {
+    width: 100% !important;
+  }
+
+  .recent-files-list,
+  .bookmarks-list {
+    max-height: 220px;
+    padding: 6px;
+    overflow-x: hidden;
+  }
+
+  .list-item-row {
+    padding: 8px 10px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .list-item-time {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 11px;
+    margin-left: auto;
+  }
+
+  .list-item-del-btn {
+    flex-shrink: 0;
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 2px;
+    font-size: 14px;
+    padding: 2px 4px;
   }
 
   .user-settings-version-footer {
@@ -2886,6 +2926,16 @@ kbd {
     flex: 1;
     width: auto;
     padding-right: 8px;
+  }
+
+  .segment-btn {
+    font-size: 11px !important;
+    padding: 6px 2px !important;
+  }
+
+  #settingTextAlignGroup .segment-btn {
+    font-size: 11px !important;
+    letter-spacing: -0.3px !important;
   }
 }
 
@@ -3195,9 +3245,28 @@ kbd {
 }
 
 @media (max-width: 768px) {
-  .modal-overlay:not(.announcement-modal-overlay) {
+  /* 僅後台全螢幕管理系統在手機端滿屏延展 */
+  #adminSettingsOverlay {
     padding: 0 !important;
     align-items: stretch !important;
+  }
+
+  /* 使用者設定、管理員登入與初始設定在手機端維持垂直置中與適度邊距，避免拉伸變形 */
+  #userSettingsOverlay,
+  #adminLoginOverlay,
+  #setupModalOverlay {
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(12px + env(safe-area-inset-bottom, 0px)) 10px !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  #adminLoginOverlay .modal-card,
+  #setupModalOverlay .modal-card {
+    width: 95vw !important;
+    max-width: 400px !important;
+    max-height: calc(90vh - 20px) !important;
+    border-radius: 14px !important;
+    margin: auto !important;
   }
 
   .modal-card.settings-card {
@@ -3277,6 +3346,33 @@ kbd {
     padding-right: 0;
   }
 
+  /* Form Rows in Admin Modals on Mobile: collapse 2-column compact-row into single column */
+  .compact-row {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .compact-row .form-group.half,
+  .compact-row .form-group.third {
+    width: 100% !important;
+    flex: none !important;
+  }
+
+  .field-label-row {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  #btnChangePassword {
+    width: 100% !important;
+  }
+
+  #btnExportConfig,
+  #btnImportConfig {
+    flex: 1 1 calc(50% - 4px) !important;
+    min-height: 38px !important;
+  }
+
   .footer-config-grid {
     grid-template-columns: 1fr !important;
   }
@@ -3340,22 +3436,35 @@ kbd {
     padding: 6px 10px;
   }
 
+  .modal-left-actions {
+    width: 100% !important;
+    text-align: center !important;
+    margin-bottom: 4px !important;
+  }
+
   .modal-right-actions {
     display: flex;
+    flex-wrap: wrap;
     width: 100%;
     gap: 6px;
     order: 1;
   }
 
   .modal-right-actions .modal-btn {
-    flex: 1;
+    flex: 1 1 calc(50% - 4px);
     min-height: 40px;
     font-size: 13px;
-    padding: 8px 4px;
+    padding: 8px 6px;
     white-space: nowrap;
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .modal-right-actions .save-close-btn {
+    flex: 1 1 100% !important;
+    order: -1;
+    font-weight: 600 !important;
   }
 
   /* Hardware Tab Mobile */
@@ -3383,6 +3492,18 @@ kbd {
 
   .hardware-refresh-controls .compact-select {
     flex: 1 1 120px;
+  }
+
+  .hardware-refresh-controls .action-btn.text-action-btn {
+    min-height: 36px !important;
+    padding: 6px 10px !important;
+    background: var(--bg-tertiary) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
   .hardware-card-header {
@@ -3421,6 +3542,20 @@ kbd {
   .suggest-algo-badge {
     font-size: 11px;
     padding: 2px 7px;
+  }
+
+  .suggest-rotate-row {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  .suggest-rotate-input {
+    min-width: 60px !important;
+    width: 60px !important;
+  }
+
+  .article-picker-dropdown {
+    max-height: 180px !important;
   }
 
   /* Analytics Tab Mobile */
@@ -3505,6 +3640,16 @@ kbd {
     padding: 6px 8px;
   }
 
+  .og-card-inner {
+    flex-direction: column !important;
+  }
+
+  .og-card-image-wrap {
+    width: 100% !important;
+    height: 120px !important;
+    max-height: 120px !important;
+  }
+
   #btnRebuildSitemap,
   #btnPingSearchEngines {
     width: 100%;
@@ -3542,22 +3687,29 @@ kbd {
     align-items: center;
   }
 
-  .auto-scroll-label {
-    min-height: 32px;
-    display: inline-flex;
-    align-items: center;
-  }
-
   .admin-log-search {
     width: 100% !important;
     height: 36px;
     box-sizing: border-box;
+    order: 1;
+  }
+
+  .auto-scroll-label {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    order: 2;
+    flex: 1 1 auto;
+    font-size: 12px;
   }
 
   #adminLogDownloadBtn,
   #adminLogRefreshBtn {
-    flex: 1;
-    min-height: 36px;
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 4px 12px;
+    font-size: 12px;
+    order: 3;
   }
 
   .admin-log-viewer {
