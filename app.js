@@ -6384,13 +6384,6 @@
       });
     }
 
-    const btnFooterExportPref = $('btnFooterExportUserPreferences');
-    if (btnFooterExportPref) {
-      btnFooterExportPref.addEventListener('click', () => {
-        exportUserPreferences();
-      });
-    }
-
     const btnImportPref = $('btnImportUserPreferences');
     const inputImportPref = $('inputImportUserPreferences');
     if (btnImportPref && inputImportPref) {
