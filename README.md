@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.6.3) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.6.4) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -74,12 +74,13 @@ mdWebview/
 ├── marked.min.js       # 本地託管 Marked.js 引擎（無外部 CDN 依賴）
 ├── s2t.js              # 簡繁轉換模組（搜尋時自動處理簡體輸入）
 ├── manifest.json       # PWA Manifest 靜態預設（執行期由 server.js 動態覆寫）
-├── server.js           # Node.js 後端主服務（HTTP、API、Worker Pool、Analytics、Admin）
+├── lib/                # 核心原生 CommonJS 模組（constants, utils, config, auth, worker-pool, analytics, logger, static-cache）
+├── server.js           # Node.js 後端主服務（HTTP 路由入口、API 分發、定時維護）
 ├── config.json         # 系統設定（站名、主題、辭典、公告、推薦清單等，後台儲存後持久化）
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.6.3）
+├── package.json        # Node.js 套件設定（v3.6.4）
 └── README.md           # 本說明文件
 ```
 
@@ -163,7 +164,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.6.3) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.6.4) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -231,12 +232,13 @@ mdWebview/
 ├── marked.min.js       # Self-hosted Marked.js engine (zero external CDN dependency)
 ├── s2t.js              # Simplified-to-Traditional Chinese converter (for search input)
 ├── manifest.json       # PWA Manifest static defaults (overridden at runtime by server.js)
-├── server.js           # Node.js backend (HTTP, APIs, Worker Pool, Analytics, Admin)
+├── lib/                # Core native CommonJS modules (constants, utils, config, auth, worker-pool, analytics, logger, static-cache)
+├── server.js           # Node.js backend server (HTTP router, API dispatch, background maintenance)
 ├── config.json         # System config (site name, theme, dict, announcements, suggest list)
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.6.3)
+├── package.json        # Node.js package manifest (v3.6.4)
 └── README.md           # Project documentation
 ```
 

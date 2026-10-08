@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.3
+   mdWebview — Application Logic (app.js) v3.6.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -36,24 +36,84 @@
   // §0 GLOBALS & STATE (LRU cache, Web Worker, state{})
   // ═══════════════════════════════════════════════════════════
 
+  // ── LocalStorage Key 常數池 (Centralized Storage Keys) ───
+  const STORAGE_KEYS = {
+    THEME: 'mdWebview-user-theme',
+    FONT_SIZE: 'mdWebview-user-fontsize',
+    TEXT_ALIGN: 'mdWebview-user-textalign',
+    LINE_HEIGHT: 'mdWebview-user-lineheight',
+    MAX_WIDTH: 'mdWebview-user-maxwidth',
+    AUTO_S2T: 'mdWebview-auto-s2t',
+    READ_PROGRESS_ENABLED: 'mdWebview-user-readprogress',
+    LAST_READ_PROGRESS: 'mdWebview-last-read-progress',
+    RECENT_FILES: 'mdWebview-user-recentfiles',
+    BOOKMARKS: 'mdWebview-user-bookmarks',
+    ADMIN_TOKEN: 'mdWebview-admin-token',
+    ADMIN_TZ: 'mdWebview-admin-tz',
+    DICT_FILE_ORDER: 'mdWebview-dict-file-order',
+    DICT_FILE_SELECT: 'mdWebview-dict-selected',
+    FORCE_FULL: 'mdWebview-force-full',
+    ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack'
+  };
+
+  // ── 安全 LocalStorage 存取工具 (Safe Storage Helper) ───────
+  const storage = {
+    get: (key, fallback = null) => {
+      try {
+        const val = localStorage.getItem(key);
+        return val !== null ? val : fallback;
+      } catch (_) {
+        return fallback;
+      }
+    },
+    set: (key, val) => {
+      try {
+        localStorage.setItem(key, String(val));
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
+    remove: (key) => {
+      try {
+        localStorage.removeItem(key);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
+    getJson: (key, fallback = null) => {
+      try {
+        const val = localStorage.getItem(key);
+        if (!val) return fallback;
+        const parsed = JSON.parse(val);
+        return parsed !== null && parsed !== undefined ? parsed : fallback;
+      } catch (_) {
+        return fallback;
+      }
+    },
+    setJson: (key, val) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(val));
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+  };
+
   const appConfig = window.__APP_CONFIG__ || {};
-  const userFont = localStorage.getItem('mdWebview-user-fontsize');
-  const userTheme = localStorage.getItem('mdWebview-user-theme');
-  const userAlign = localStorage.getItem('mdWebview-user-textalign');
-  const userLineHeight = localStorage.getItem('mdWebview-user-lineheight');
-  const userMaxWidth = localStorage.getItem('mdWebview-user-maxwidth');
-  const userReadProgress = localStorage.getItem('mdWebview-user-readprogress');
-  const userAutoS2T = localStorage.getItem('mdWebview-auto-s2t');
+  const userFont = storage.get(STORAGE_KEYS.FONT_SIZE);
+  const userTheme = storage.get(STORAGE_KEYS.THEME);
+  const userAlign = storage.get(STORAGE_KEYS.TEXT_ALIGN);
+  const userLineHeight = storage.get(STORAGE_KEYS.LINE_HEIGHT);
+  const userMaxWidth = storage.get(STORAGE_KEYS.MAX_WIDTH);
+  const userReadProgress = storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED);
+  const userAutoS2T = storage.get(STORAGE_KEYS.AUTO_S2T);
 
   function safeJsonParse(key, fallback) {
-    try {
-      const item = localStorage.getItem(key);
-      if (!item) return fallback;
-      const parsed = JSON.parse(item);
-      return Array.isArray(parsed) ? parsed : fallback;
-    } catch (_) {
-      return fallback;
-    }
+    const parsed = storage.getJson(key, fallback);
+    return Array.isArray(parsed) ? parsed : fallback;
   }
 
   // ── Client Logger Utility ─────────────────────────────────
@@ -71,6 +131,11 @@
   }
 
   const isMobile = isMobileBrowser();
+  const isNarrowScreen = isMobileBrowser;
+
+  function getTodayDateIso() {
+    return new Date().toISOString().slice(0, 10);
+  }
 
   // ── State ─────────────────────────────────────────────────
   /**
@@ -174,7 +239,7 @@
     scrollSpyResizeHandler: null,
     scrollSpyRaf: null,
     refreshScrollSpy: null,
-    adminToken: localStorage.getItem('mdWebview-admin-token') || null,
+    adminToken: storage.get(STORAGE_KEYS.ADMIN_TOKEN),
     siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
     searchSort: 'relevance',
@@ -420,11 +485,11 @@
 
     // Ensure initial user preferences are saved in localStorage so subsequent changes
     // to defaultTheme or defaultFontSize by the administrator do not override existing users.
-    if (!localStorage.getItem('mdWebview-user-theme') && state.currentTheme) {
-      localStorage.setItem('mdWebview-user-theme', state.currentTheme);
+    if (!storage.get(STORAGE_KEYS.THEME) && state.currentTheme) {
+      storage.set(STORAGE_KEYS.THEME, state.currentTheme);
     }
-    if (!localStorage.getItem('mdWebview-user-fontsize') && state.fontSize) {
-      localStorage.setItem('mdWebview-user-fontsize', state.fontSize);
+    if (!storage.get(STORAGE_KEYS.FONT_SIZE) && state.fontSize) {
+      storage.set(STORAGE_KEYS.FONT_SIZE, state.fontSize);
     }
 
     updateWelcomeShortcuts();
@@ -717,12 +782,12 @@
       // If token is invalid according to server, clear it
       if (!data.isAuthenticated) {
         state.adminToken = null;
-        localStorage.removeItem('mdWebview-admin-token');
+        storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
       }
 
       // Clean legacy contaminated keys from older versions
-      localStorage.removeItem('mdWebview-fontsize');
-      localStorage.removeItem('mdWebview-theme');
+      storage.remove('mdWebview-fontsize');
+      storage.remove('mdWebview-theme');
 
       // If client doesn't have custom user font size / theme settings saved in localStorage,
       // load default settings configured by the server.
@@ -730,14 +795,14 @@
         if (data.settings.defaultFontSize) {
           state.defaultFontSize = parseInt(data.settings.defaultFontSize);
         }
-        const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
+        const userSavedFont = storage.get(STORAGE_KEYS.FONT_SIZE);
         if (userSavedFont) {
           applyFontSize(parseInt(userSavedFont), true);
         } else if (data.settings.defaultFontSize) {
           applyFontSize(data.settings.defaultFontSize, false);
         }
 
-        const userSavedTheme = localStorage.getItem('mdWebview-user-theme');
+        const userSavedTheme = storage.get(STORAGE_KEYS.THEME);
         if (userSavedTheme) {
           applyTheme(userSavedTheme, true);
         } else if (data.settings.defaultTheme) {
@@ -1060,14 +1125,10 @@
   // §4 ANNOUNCEMENT & DAILY RECOMMEND MODAL (Opening Page Landing Popup)
   // ═══════════════════════════════════════════════════════════
 
-  const ANNOUNCEMENT_ACK_KEY = 'mdWebview-announcement-modal-ack';
+  const ANNOUNCEMENT_ACK_KEY = STORAGE_KEYS.ANNOUNCEMENT_ACK;
 
   function getTodayDateString() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return getTodayDateIso();
   }
 
   function computeItemsSignature(items) {
@@ -1111,11 +1172,7 @@
 
     const currentItemsSig = computeItemsSignature(items);
 
-    let ack = null;
-    try {
-      const raw = localStorage.getItem(ANNOUNCEMENT_ACK_KEY);
-      if (raw) ack = JSON.parse(raw);
-    } catch (_) {}
+    const ack = storage.getJson(STORAGE_KEYS.ANNOUNCEMENT_ACK);
 
     let shouldShow = false;
     if (!ack) {
@@ -1260,9 +1317,7 @@
     if (!overlay) return;
 
     if (markAsAcknowledged && state._announcementModalContext) {
-      try {
-        localStorage.setItem(ANNOUNCEMENT_ACK_KEY, JSON.stringify(state._announcementModalContext));
-      } catch (_) {}
+      storage.setJson(STORAGE_KEYS.ANNOUNCEMENT_ACK, state._announcementModalContext);
     }
 
     document.body.classList.remove('modal-open');
@@ -2577,7 +2632,7 @@
     // not listed in the main tree's fileSizes map).
     const isDictFile = filePath.startsWith('dict:');
     const forceFull = new URLSearchParams(window.location.search).get('full') === '1'
-      || localStorage.getItem('mdWebview-force-full') === '1';
+      || storage.get(STORAGE_KEYS.FORCE_FULL) === '1';
 
     // Same-file navigation: if this dict/large file is already open in virtual
     // mode, skip the full section-index refetch + teardown and just jump to the
@@ -4224,45 +4279,32 @@
     state.dictIndex = { files, sorted, bigrams, count: sorted.length };
   }
 
-  const DICT_FILE_ORDER_KEY = 'mdWebview-dict-file-order';
+  const DICT_FILE_ORDER_KEY = STORAGE_KEYS.DICT_FILE_ORDER;
 
   // Loads the user's preferred dictionary file order (array of `dict:` paths)
   // from localStorage once; falls back to an empty array (server order).
   function loadDictFileOrder() {
     if (state.dictFileOrder !== null) return;
-    let arr = [];
-    try {
-      const raw = localStorage.getItem(DICT_FILE_ORDER_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) arr = parsed.map(String);
-      }
-    } catch (_) {}
-    state.dictFileOrder = arr;
+    const parsed = storage.getJson(STORAGE_KEYS.DICT_FILE_ORDER, []);
+    state.dictFileOrder = Array.isArray(parsed) ? parsed.map(String) : [];
   }
 
   function saveDictFileOrder() {
-    try { localStorage.setItem(DICT_FILE_ORDER_KEY, JSON.stringify(state.dictFileOrder || [])); } catch (_) {}
+    storage.setJson(STORAGE_KEYS.DICT_FILE_ORDER, state.dictFileOrder || []);
   }
 
-  const DICT_FILE_SELECT_KEY = 'mdWebview-dict-selected';
+  const DICT_FILE_SELECT_KEY = STORAGE_KEYS.DICT_FILE_SELECT;
 
   // Loads the saved dictionary selection (array of `dict:` paths) once. Returns
   // null when no preference was ever saved, so the "all selected" default still
   // applies on first run.
   function loadDictFileSelect() {
-    try {
-      const raw = localStorage.getItem(DICT_FILE_SELECT_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed.map(String);
-      }
-    } catch (_) {}
-    return null;
+    const parsed = storage.getJson(STORAGE_KEYS.DICT_FILE_SELECT, null);
+    return Array.isArray(parsed) ? parsed.map(String) : null;
   }
 
   function saveDictFileSelect(paths) {
-    try { localStorage.setItem(DICT_FILE_SELECT_KEY, JSON.stringify(paths || [])); } catch (_) {}
+    storage.setJson(STORAGE_KEYS.DICT_FILE_SELECT, paths || []);
   }
 
   // Persists the current checkbox selection as `dict:` paths so reopening the
@@ -4843,7 +4885,7 @@
     if (settingSelect) settingSelect.value = theme;
 
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-user-theme', theme);
+      storage.set(STORAGE_KEYS.THEME, theme);
     }
     state.currentTheme = theme;
 
@@ -4911,7 +4953,7 @@
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-user-fontsize', size);
+      storage.set(STORAGE_KEYS.FONT_SIZE, size);
     }
   }
 
@@ -4932,7 +4974,7 @@
     }
 
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-user-textalign', align);
+      storage.set(STORAGE_KEYS.TEXT_ALIGN, align);
     }
   }
 
@@ -4951,7 +4993,7 @@
     }
 
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-user-lineheight', lh);
+      storage.set(STORAGE_KEYS.LINE_HEIGHT, lh);
     }
   }
 
@@ -5006,7 +5048,7 @@
     }
 
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-user-maxwidth', mw);
+      storage.set(STORAGE_KEYS.MAX_WIDTH, mw);
     }
   }
 
@@ -5016,7 +5058,7 @@
     if (chk) chk.checked = enabled;
 
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-user-readprogress', enabled ? 'true' : 'false');
+      storage.set(STORAGE_KEYS.READ_PROGRESS_ENABLED, enabled ? 'true' : 'false');
     }
   }
 
@@ -5026,7 +5068,7 @@
     if (chk) chk.checked = !!enabled;
 
     if (saveToLocalStorage) {
-      localStorage.setItem('mdWebview-auto-s2t', enabled ? 'true' : 'false');
+      storage.set(STORAGE_KEYS.AUTO_S2T, enabled ? 'true' : 'false');
     }
   }
 
@@ -5046,7 +5088,7 @@
     });
     if (list.length > 20) list = list.slice(0, 20);
     state.recentFiles = list;
-    localStorage.setItem('mdWebview-user-recentfiles', JSON.stringify(list));
+    storage.setJson(STORAGE_KEYS.RECENT_FILES, list);
     renderRecentFilesList();
   }
 
@@ -5079,7 +5121,7 @@
           e.stopPropagation();
           const targetFile = delBtn.getAttribute('data-del-file');
           state.recentFiles = state.recentFiles.filter(i => i.filePath !== targetFile);
-          localStorage.setItem('mdWebview-user-recentfiles', JSON.stringify(state.recentFiles));
+          storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
           renderRecentFilesList();
           return;
         }
@@ -5182,7 +5224,7 @@
     }
 
     state.bookmarks = list;
-    localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(list));
+    storage.setJson(STORAGE_KEYS.BOOKMARKS, list);
     renderBookmarksList();
     updateBookmarkButtonUI(filePath);
     return isBookmarked;
@@ -5238,7 +5280,7 @@
             e.stopPropagation();
             const targetFile = delBtn.getAttribute('data-del-bookmark');
             state.bookmarks = state.bookmarks.filter(i => i.filePath !== targetFile);
-            localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(state.bookmarks));
+            storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
             renderBookmarksList();
             if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
             showToast('🗑️ 已移除書籤');
@@ -5301,37 +5343,34 @@
         line: currentLine,
         timestamp: Date.now()
       };
-      localStorage.setItem('mdWebview-last-read-progress', JSON.stringify(progress));
+      storage.setJson(STORAGE_KEYS.LAST_READ_PROGRESS, progress);
     }, 250);
   }
 
   function restoreReadProgress() {
     if (!state.autoReadProgress) return false;
-    const raw = localStorage.getItem('mdWebview-last-read-progress');
-    if (!raw) return false;
+    const data = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
+    if (!data || !data.filePath) return false;
     try {
-      const data = JSON.parse(raw);
-      if (data && data.filePath) {
-        // Pass line for server-side rendering hint, but primarily use scrollTop for precise restoration
-        openFile(data.filePath, data.line).then(() => {
-          // Virtualized files restore by absolute line (openFile already scrolled);
-          // scrollTop is meaningless there because chunk heights lazy-load.
-          if ((state.fileSizes.get(data.filePath) || 0) >= LARGE_FILE_MIN_BYTES) return;
-          const content = $('content');
-          if (content && typeof data.scrollTop === 'number') {
-            // Restore precise scroll position (overrides the line-based scroll from openFile)
-            setTimeout(() => {
-              content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
-            }, 150);
-            setTimeout(() => {
-              content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
-              // Re-save after final scroll position is settled
-              saveReadProgress(data.filePath);
-            }, 500);
-          }
-        });
-        return true;
-      }
+      // Pass line for server-side rendering hint, but primarily use scrollTop for precise restoration
+      openFile(data.filePath, data.line).then(() => {
+        // Virtualized files restore by absolute line (openFile already scrolled);
+        // scrollTop is meaningless there because chunk heights lazy-load.
+        if ((state.fileSizes.get(data.filePath) || 0) >= LARGE_FILE_MIN_BYTES) return;
+        const content = $('content');
+        if (content && typeof data.scrollTop === 'number') {
+          // Restore precise scroll position (overrides the line-based scroll from openFile)
+          setTimeout(() => {
+            content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
+          }, 150);
+          setTimeout(() => {
+            content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
+            // Re-save after final scroll position is settled
+            saveReadProgress(data.filePath);
+          }, 500);
+        }
+      });
+      return true;
     } catch (_) {}
     return false;
   }
@@ -5345,7 +5384,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.4';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -5354,15 +5393,15 @@
         exportDate: new Date().toISOString(),
         type: 'mdWebview-user-preferences',
         preferences: {
-          theme: state.currentTheme || localStorage.getItem('mdWebview-user-theme') || 'obsidian-dark',
-          fontSize: state.fontSize || parseInt(localStorage.getItem('mdWebview-user-fontsize'), 10) || 16,
-          textAlign: state.textAlign || localStorage.getItem('mdWebview-user-textalign') || 'justify',
-          lineHeight: state.lineHeight || localStorage.getItem('mdWebview-user-lineheight') || '1.8',
-          maxWidth: state.maxWidth || localStorage.getItem('mdWebview-user-maxwidth') || (isMobileBrowser() ? '95%' : '800px'),
-          autoS2T: state.autoS2T !== undefined ? state.autoS2T : (localStorage.getItem('mdWebview-auto-s2t') === 'true'),
-          autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (localStorage.getItem('mdWebview-user-readprogress') !== 'false')
+          theme: state.currentTheme || storage.get(STORAGE_KEYS.THEME) || 'obsidian-dark',
+          fontSize: state.fontSize || parseInt(storage.get(STORAGE_KEYS.FONT_SIZE), 10) || 16,
+          textAlign: state.textAlign || storage.get(STORAGE_KEYS.TEXT_ALIGN) || 'justify',
+          lineHeight: state.lineHeight || storage.get(STORAGE_KEYS.LINE_HEIGHT) || '1.8',
+          maxWidth: state.maxWidth || storage.get(STORAGE_KEYS.MAX_WIDTH) || (isMobileBrowser() ? '95%' : '800px'),
+          autoS2T: state.autoS2T !== undefined ? state.autoS2T : (storage.get(STORAGE_KEYS.AUTO_S2T) === 'true'),
+          autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED) !== 'false')
         },
-        readProgress: null,
+        readProgress: storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null),
         recentFiles: state.recentFiles || [],
         bookmarks: state.bookmarks || [],
         dictionary: {
@@ -5371,16 +5410,11 @@
         }
       };
 
-      try {
-        const savedProg = localStorage.getItem('mdWebview-last-read-progress');
-        if (savedProg) backupData.readProgress = JSON.parse(savedProg);
-      } catch (_) {}
-
       const jsonStr = JSON.stringify(backupData, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = getTodayDateIso();
       a.href = url;
       a.download = `mdWebview-user-preferences-${dateStr}.json`;
       document.body.appendChild(a);
@@ -5447,7 +5481,7 @@
         // 2. 還原書籤最愛
         if (Array.isArray(data.bookmarks)) {
           state.bookmarks = data.bookmarks;
-          localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(state.bookmarks));
+          storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
         }
@@ -5455,13 +5489,13 @@
         // 3. 還原最近開啟檔案紀錄
         if (Array.isArray(data.recentFiles)) {
           state.recentFiles = data.recentFiles;
-          localStorage.setItem('mdWebview-user-recentfiles', JSON.stringify(state.recentFiles));
+          storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
           renderRecentFilesList();
         }
 
         // 4. 還原上次閱讀進度
         if (data.readProgress && typeof data.readProgress === 'object') {
-          localStorage.setItem('mdWebview-last-read-progress', JSON.stringify(data.readProgress));
+          storage.setJson(STORAGE_KEYS.LAST_READ_PROGRESS, data.readProgress);
         }
 
         // 5. 還原辭典自訂項目
@@ -6335,7 +6369,7 @@
       clearRecentBtn.addEventListener('click', () => {
         if (confirm('確定要清除所有最近開啟的經文紀錄？')) {
           state.recentFiles = [];
-          localStorage.removeItem('mdWebview-user-recentfiles');
+          storage.remove(STORAGE_KEYS.RECENT_FILES);
           renderRecentFilesList();
           showToast('🗑️ 已成功清除所有閱讀紀錄', 'info');
         }
@@ -6361,7 +6395,7 @@
       clearBkmBtn.addEventListener('click', () => {
         if (confirm('確定要清除所有經文書籤與最愛？')) {
           state.bookmarks = [];
-          localStorage.removeItem('mdWebview-user-bookmarks');
+          storage.remove(STORAGE_KEYS.BOOKMARKS);
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
           showToast('🗑️ 已清除所有書籤');
@@ -6501,7 +6535,7 @@
         }
         errorEl.style.display = 'none';
         state.adminToken = data.token;
-        localStorage.setItem('mdWebview-admin-token', data.token);
+        storage.set(STORAGE_KEYS.ADMIN_TOKEN, data.token);
         $('adminLoginOverlay').style.display = 'none';
         showToast('🔑 管理員登入成功', 'success');
         
@@ -6557,7 +6591,7 @@
       const announcementMessage = ($('settingsAnnouncementMessage') || {}).value;
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const timezone = ($('settingsTimezone') || {}).value || 'auto';
-      localStorage.setItem('mdWebview-admin-tz', timezone);
+      storage.set(STORAGE_KEYS.ADMIN_TZ, timezone);
       const errorEl = $('settingsErrorMsg');
       const successEl = $('settingsSuccessMsg');
 
@@ -6593,7 +6627,7 @@
           _lastAdminSettings = data.settings;
           if (data.settings.defaultFontSize) {
             state.defaultFontSize = parseInt(data.settings.defaultFontSize);
-            const userSavedFont = localStorage.getItem('mdWebview-user-fontsize');
+            const userSavedFont = storage.get(STORAGE_KEYS.FONT_SIZE);
             if (userSavedFont) {
               applyFontSize(parseInt(userSavedFont), true);
             } else {
@@ -6601,7 +6635,7 @@
             }
           }
           if (data.settings.defaultTheme) {
-            const userSavedTheme = localStorage.getItem('mdWebview-user-theme');
+            const userSavedTheme = storage.get(STORAGE_KEYS.THEME);
             if (!userSavedTheme) {
               applyTheme(data.settings.defaultTheme, false);
             }
@@ -6686,7 +6720,7 @@
         ok = false;
       }
       state.adminToken = null;
-      localStorage.removeItem('mdWebview-admin-token');
+      storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
       closeAdminModal();
       showToast(ok ? '👋 管理員已順利登出' : '❌ 登出請求失敗，但本機已登出', ok ? 'info' : 'error');
     });
@@ -6703,7 +6737,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6996,7 +7030,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.3',
+            version: data.settings?.version || '3.6.4',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -7667,7 +7701,7 @@
       if (!res.ok) {
         // Token invalid/expired
         state.adminToken = null;
-        localStorage.removeItem('mdWebview-admin-token');
+        storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
         closeAdminModal();
         openLoginOverlay();
         return;
@@ -7689,7 +7723,7 @@
       const proxEl = $('settingsMaxProximityDistance');
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
       const tzEl = $('settingsTimezone');
-      if (tzEl) tzEl.value = data.settings.timezone || localStorage.getItem('mdWebview-admin-tz') || 'auto';
+      if (tzEl) tzEl.value = data.settings.timezone || storage.get(STORAGE_KEYS.ADMIN_TZ) || 'auto';
       const announceToggleEl = $('settingsEnableAnnouncement');
       if (announceToggleEl) announceToggleEl.checked = !!data.settings.enableAnnouncement;
       const announceMsgEl = $('settingsAnnouncementMessage');
@@ -7748,7 +7782,7 @@
   // Timezone Formatting Helper (Centralized Admin Timezone)
   function getEffectiveTimezone() {
     const sel = $('settingsTimezone');
-    const val = sel ? sel.value : (localStorage.getItem('mdWebview-admin-tz') || 'auto');
+    const val = sel ? sel.value : (storage.get(STORAGE_KEYS.ADMIN_TZ) || 'auto');
     if (val && val !== 'auto') return val;
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Taipei';
@@ -8158,7 +8192,7 @@
     if (settingsTzSelect) {
       settingsTzSelect.addEventListener('change', () => {
         const val = settingsTzSelect.value;
-        localStorage.setItem('mdWebview-admin-tz', val);
+        storage.set(STORAGE_KEYS.ADMIN_TZ, val);
         if (stateAdminLogs && stateAdminLogs.length > 0) renderAdminLogs();
         if ($('adminPaneAnalytics') && $('adminPaneAnalytics').style.display !== 'none') {
           loadAdminAnalytics();
