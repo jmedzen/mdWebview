@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.6.2';
+const CACHE_VERSION = 'v3.6.3';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -29,16 +29,41 @@ const SHELL_ASSETS = [
   '/og-preview.png',
   '/vendor/katex/katex.min.css',
   '/vendor/katex/katex.min.js',
+  '/vendor/katex/fonts/KaTeX_Main-Regular.woff2',
+  '/vendor/katex/fonts/KaTeX_Math-Italic.woff2',
+  '/vendor/katex/fonts/KaTeX_Size1-Regular.woff2',
+  '/vendor/katex/fonts/KaTeX_AMS-Regular.woff2',
   '/vendor/mermaid/mermaid.min.js'
 ];
 
-// 1. Install: Pre-cache App Shell and skip waiting
+const MAX_CONTENT_CACHE_ITEMS = 150;
+
+async function trimCache(cacheName, maxItems) {
+  try {
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+    if (keys.length > maxItems) {
+      const toDelete = keys.slice(0, keys.length - maxItems);
+      for (const k of toDelete) {
+        await cache.delete(k);
+      }
+    }
+  } catch (_) {}
+}
+
+// 1. Install: Pre-cache App Shell with allSettled to prevent single-asset failure blocking SW
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
-      .then(cache => cache.addAll(SHELL_ASSETS))
+      .then(cache => {
+        return Promise.allSettled(
+          SHELL_ASSETS.map(url => cache.add(url).catch(err => {
+            console.warn(`[SW] Pre-cache asset skipped (${url}):`, err);
+          }))
+        );
+      })
       .then(() => self.skipWaiting())
-      .catch(err => console.warn('[SW] Pre-cache failed:', err))
+      .catch(() => self.skipWaiting())
   );
 });
 
@@ -54,7 +79,9 @@ self.addEventListener('activate', event => {
           }
         })
       );
-    }).then(() => self.clients.claim())
+    })
+    .then(() => trimCache(CONTENT_CACHE, MAX_CONTENT_CACHE_ITEMS))
+    .then(() => self.clients.claim())
   );
 });
 
@@ -83,7 +110,9 @@ self.addEventListener('fetch', event => {
         .then(networkRes => {
           if (networkRes && networkRes.status === 200 && (url.pathname === '/' || url.pathname === '/index.html')) {
             const copy = networkRes.clone();
-            caches.open(SHELL_CACHE).then(cache => cache.put('/', copy));
+            event.waitUntil(
+              caches.open(SHELL_CACHE).then(cache => cache.put('/', copy)).catch(() => {})
+            );
           }
           return networkRes;
         })
@@ -103,7 +132,14 @@ self.addEventListener('fetch', event => {
         .then(networkRes => {
           if (networkRes && networkRes.status === 200) {
             const copy = networkRes.clone();
-            caches.open(CONTENT_CACHE).then(cache => cache.put(req, copy));
+            event.waitUntil(
+              caches.open(CONTENT_CACHE)
+                .then(async cache => {
+                  await cache.put(req, copy);
+                  await trimCache(CONTENT_CACHE, MAX_CONTENT_CACHE_ITEMS);
+                })
+                .catch(() => {})
+            );
           }
           return networkRes;
         })
@@ -130,20 +166,22 @@ self.addEventListener('fetch', event => {
         .then(networkRes => {
           if (networkRes && networkRes.status === 200) {
             const copy = networkRes.clone();
-            caches.open(SHELL_CACHE).then(cache => cache.put(req, copy));
+            event.waitUntil(
+              caches.open(SHELL_CACHE).then(cache => cache.put(req, copy)).catch(() => {})
+            );
           }
           return networkRes;
         })
         .catch(() => null);
 
-      return cached || fetchPromise;
+      return cached || fetchPromise.then(res => res || new Response('', { status: 504, statusText: 'Gateway Timeout' }));
     })
   );
 });
 
 // 4. Message: Support immediate reload on new version
 self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  if (event.data && (event.data.type === 'SKIP_WAITING' || event.data.action === 'SKIP_WAITING')) {
     self.skipWaiting();
   }
 });

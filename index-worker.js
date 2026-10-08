@@ -56,7 +56,7 @@ function scanSections(text) {
       headings.push({ level: m[1].length, offset: byteOffset, lineStart: lineNum, headword: m[2].trim() });
     }
 
-    byteOffset += Buffer.byteLength(line) + (isCRLF ? 2 : 1);
+    byteOffset += Buffer.byteLength(line) + (nl === len ? 0 : (isCRLF ? 2 : 1));
     idx = (nl === len) ? len : nl + 1;
     lineNum++;
   }
@@ -68,18 +68,57 @@ function scanSections(text) {
     return { entryLevel: 0, preambleLineCount: 0, totalLines, totalBytes, entries: [], groups: [] };
   }
 
+  // Find deepest heading level
+  let deepestLevel = 1;
+  for (let i = 0; i < headings.length; i++) {
+    if (headings[i].level > deepestLevel) deepestLevel = headings[i].level;
+  }
+
   const entries = [];
+  const groups = [];
+  let currentGroupIdx = -1;
+
   for (let i = 0; i < headings.length; i++) {
     const h = headings[i];
-    entries.push({
-      headword: h.headword,
-      level: h.level,
-      offset: h.offset,
-      lineStart: h.lineStart,
-      lineEnd: -1,
-      len: 0,
-      groupIdx: h.level
-    });
+    if (h.level < deepestLevel) {
+      currentGroupIdx = groups.length;
+      groups.push({
+        headword: h.headword,
+        level: h.level,
+        firstEntry: entries.length,
+        lastEntry: entries.length
+      });
+    } else {
+      entries.push({
+        headword: h.headword,
+        level: h.level,
+        offset: h.offset,
+        lineStart: h.lineStart,
+        lineEnd: -1,
+        len: 0,
+        groupIdx: currentGroupIdx
+      });
+      if (currentGroupIdx >= 0) {
+        groups[currentGroupIdx].lastEntry = entries.length - 1;
+      }
+    }
+  }
+
+  // If no deepest headings found, treat all headings as entries
+  if (entries.length === 0) {
+    for (let i = 0; i < headings.length; i++) {
+      const h = headings[i];
+      entries.push({
+        headword: h.headword,
+        level: h.level,
+        offset: h.offset,
+        lineStart: h.lineStart,
+        lineEnd: -1,
+        len: 0,
+        groupIdx: -1
+      });
+    }
+    deepestLevel = 1;
   }
 
   for (let i = 0; i < entries.length; i++) {
@@ -88,7 +127,7 @@ function scanSections(text) {
     e.len = (i + 1 < entries.length) ? (entries[i + 1].offset - e.offset) : (totalBytes - e.offset);
   }
 
-  return { entryLevel: 1, preambleLineCount, totalLines, totalBytes, entries, groups: [] };
+  return { entryLevel: deepestLevel, preambleLineCount, totalLines, totalBytes, entries, groups };
 }
 
 /**

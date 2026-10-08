@@ -314,16 +314,21 @@ function renderMarkdownSSR(body, filePath, lineOffset) {
   // 5. Process footnote references
   const refCounter = {};
   if (footnotes.length > 0) {
-    html = html.replace(/\[\^([^\]]+)\]/g, (m, id) => {
+    html = html.replace(/\[\^([^\]]+)\]/g, (m, rawId) => {
+      const id = rawId;
       if (!refCounter[id]) refCounter[id] = 0;
       refCounter[id]++;
-      return `<a href="#fn-def-${id}" id="fn-ref-${id}-${refCounter[id]}" class="footnote-ref" title="註 ${id}">[${id}]</a>`;
+      const safeId = escapeAttr(id);
+      const safeLabel = escapeHtml(id);
+      return `<a href="#fn-def-${safeId}" id="fn-ref-${safeId}-${refCounter[id]}" class="footnote-ref" title="註 ${safeLabel}">[${safeLabel}]</a>`;
     });
 
     // 6. Batch Process Footnotes (Single marked.parse Call)
     const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
     const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
     let combinedFnHtml = marked.parse(combinedFnText).trim();
+    combinedFnHtml = normalizeImageSrcs(combinedFnHtml, filePath);
+    combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
     if (combinedFnHtml.includes('[[')) {
       combinedFnHtml = convertWikilinks(combinedFnHtml);
     }
@@ -332,21 +337,24 @@ function renderMarkdownSSR(body, filePath, lineOffset) {
     let fhtml = '<div class="footnotes"><hr class="footnotes-divider"><ul class="footnotes-list">';
     footnotes.forEach((fn, idx) => {
       const id = fn.id;
+      const safeId = escapeAttr(id);
+      const safeLabel = escapeHtml(id);
       let fnRendered = (fnRenderedArray[idx] || '').trim();
       const count = refCounter[id] || 0;
-      let bl = count === 1 ? ` <a href="#fn-ref-${id}-1" class="footnote-backlink" title="返回">↩</a>` : '';
+      let bl = count === 1 ? ` <a href="#fn-ref-${safeId}-1" class="footnote-backlink" title="返回">↩</a>` : '';
       if (count > 1) {
         bl = ' ';
         for (let r = 1; r <= count; r++)
-          bl += `<a href="#fn-ref-${id}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
+          bl += `<a href="#fn-ref-${safeId}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
       }
       if (fnRendered.includes('</p>')) {
         const li = fnRendered.lastIndexOf('</p>');
         fnRendered = fnRendered.slice(0, li) + bl + fnRendered.slice(li);
       } else { fnRendered += bl; }
-      fhtml += `<li class="footnote-item" id="fn-def-${id}" data-id="${id}"><span class="footnote-label">[${id}]</span><div class="footnote-item-content">${fnRendered}</div></li>`;
+      fhtml += `<li class="footnote-item" id="fn-def-${safeId}" data-id="${safeId}"><span class="footnote-label">[${safeLabel}]</span><div class="footnote-item-content">${fnRendered}</div></li>`;
     });
     fhtml += '</ul></div>';
+    fhtml = sanitizeDangerousTags(fhtml);
     html += fhtml;
   }
 

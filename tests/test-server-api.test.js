@@ -131,4 +131,29 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
     assert.ok(res.body.includes('<loc>'), '應包含 loc 節點');
     assert.ok(res.body.includes('<lastmod>'), '應包含 lastmod 節點');
   });
+
+  test('安全防禦：畸形 Host 標頭回傳 400 且不懸置連線 (P0-2)', async () => {
+    const net = require('net');
+    const addr = server.address();
+    const result = await new Promise((resolve) => {
+      const client = net.connect({ port: addr.port, host: '127.0.0.1' }, () => {
+        client.write('GET / HTTP/1.1\r\nHost: [\r\nConnection: close\r\n\r\n');
+      });
+      let data = '';
+      client.on('data', (chunk) => { data += chunk.toString(); });
+      client.on('end', () => { resolve(data); });
+      client.on('error', () => { resolve(data); });
+    });
+    assert.ok(result.startsWith('HTTP/1.1 400 Bad Request'), '畸形 Host 應立即回傳 400 Bad Request');
+  });
+
+  test('安全防禦：Analytics 匯出端點強制檢驗同源 (P0-4)', async () => {
+    // 跨源 Origin 嘗試存取 analytics export 應被 403 阻擋
+    const res = await request('/api/admin/analytics/export?type=daily&format=json&token=fake-token', {
+      headers: {
+        Origin: 'https://evil-hacker.com'
+      }
+    });
+    assert.equal(res.statusCode, 403, '非同源請求應被 403 拒絕');
+  });
 });

@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.6.2 | 最後更新：2026-10
+> 版本：v3.6.3 | 最後更新：2026-10
 
 ---
 
@@ -23,6 +23,7 @@
 12. [Worker Thread 架構](#12-worker-thread-架構)
 13. [安全性設計](#13-安全性設計)
 14. [CI/CD 與自動化維護工作流程](#14-cicd-與自動化維護工作流程)
+15. [前端高並發與競態防護設計](#15-前端高並發與競態防護設計)
 
 ---
 
@@ -393,13 +394,20 @@ flowchart TD
 |------|-----|------|
 | `PORT` | `8330`（env `PORT`） | HTTP 服務埠號 |
 | `POOL_SIZE` | `max(2, CPU-1)` | Markdown Worker Thread 池大小 |
+| `INDEX_POOL_SIZE` | `max(2, min(4, CPU-1))` | Bigram 索引 Worker Thread 池大小 |
+| `RENDER_QUEUE_MAX` | `POOL_SIZE * 8` | Markdown 渲染工作佇列上限（超限即時 503 防 OOM） |
+| `INDEX_QUEUE_MAX` | `INDEX_POOL_SIZE * 8` | 索引工作佇列上限（超限即時 503 防 OOM） |
+| `WORKER_TIMEOUT_MS` | `30,000`（30s） | Worker 單工逾時（入列即計時，逾時抽離並重啟 Worker） |
 | `LARGE_FILE_MIN_BYTES` | `1,048,576`（1MB） | 觸發虛擬化渲染的檔案大小門檻 |
 | `MAX_LOG_BUFFER` | `600` | 記憶體系統日誌緩衝筆數 |
 | `MAX_ANALYTICS_KEYS` | `10,000` | Analytics Map 最大 key 數（防記憶體爆炸） |
+| `MAX_STATIC_CACHE_ENTRIES`| `500` | 靜態資源記憶體 LRU 快取上限筆數 |
 | `STATIC_CACHE_TTL_MS` | `5,000`（5s） | 靜態資源記憶體快取有效期 |
 | `SESSION_DURATION` | `21,600,000`（6h） | 管理員 session 存活時間 |
 | `SEARCH_CACHE_MAX` | `30` | 全文搜尋結果快取最大筆數 |
 | `SITEMAP_DEBOUNCE_MS` | `20,000`（20s） | Sitemap 檔案變更沉降防抖延遲時間 |
+| `server.requestTimeout`| `30,000`（30s） | HTTP 請求整體處理逾時（防止 Socket 永久懸置） |
+| `server.headersTimeout`| `10,000`（10s） | HTTP 標頭接收逾時（防止 Slowloris 攻擊） |
 
 ### app.js
 
@@ -415,25 +423,25 @@ flowchart TD
 
 ## 12. Worker Thread 架構
 
-mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
+mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格的並行防護與容錯機制：
 
 ### Render Worker Pool（`render-worker.js`）
 
 - **用途**：Markdown 解析與 HTML 渲染（含腳注錨點、Wikilink 轉換、KaTeX、Mermaid 佔位符）
 - **工作模式**：job queue + callback map；主線程發送 `{jobId, body, filePath, lineOffset}`，Worker 回傳 `{jobId, html}`
 - **池大小**：`max(2, CPU - 1)`
-- **超時保護**：預設 30s，超時後自動重啟 Worker
-- **觸發點**：
-  - `handleCrawlerSsr()` — 爬蟲 SSR 預渲染
-  - `handleRender()` — 大型檔案 chunk 渲染
-  - `app.js openFile()` — 前端請求（透過 API）
+- **佇列長度上限（Backpressure）**：最大上限為 `POOL_SIZE * 8`，溢出時即時回應 HTTP 503 Service Unavailable，杜絕未飽和 Markdown 字串線性灌爆 RSS。
+- **入列即計時與超時保護**：任務一進入佇列即啟動 30s 逾時計時器；若逾時且仍在排隊，主動自佇列抽離並 reject；若正在 Worker 運算則終止並重生 Worker。
+- **連線中斷取消（Client Abort）**：支援 `req.on('close')`，使用者切換頁面或中斷連線時自動取消排隊中任務。
+- **防 Crash Loop 退避重啟**：監控 Worker 異常 exit 事件，15 秒內若連續重啟超過 8 次自動觸發指數退避延遲，避免 Worker 崩潰風暴耗盡系統資源。
 
 ### Index Worker Pool（`index-worker.js`）
 
 - **用途**：Bigram 全文倒排索引的建立與搜尋
-- **工作模式**：同步 job 分發；支援 `build`（建立索引）、`search`（執行搜尋）、`invalidate`（清除快取）任務
-- **池大小**：固定 2 個（Index Worker 記憶體較大，避免過多）
-- **索引快取**：記憶體 + `.bin` 二進位磁碟快取（大型辭典索引 `.bin` 避免重複建立）
+- **工作模式**：非同步 job 分發；支援 `build`（建立索引）、`search`（執行搜尋）、`invalidate`（清除快取）任務
+- **池大小**：`max(2, min(4, CPU - 1))`
+- **單飛重建互斥旗標（Single-flight Rebuild）**：檔案變更防抖與管理員強制重建共用單飛旗標（`searchIndex.building` 與 `searchIndexRebuildPending`），杜絕並行重建引發 2× 峰值記憶體與 `.bin` 暫存檔寫入衝突。
+- **二進位索引緩衝區防禦**：載入 `.bin` 磁碟快取時嚴格驗證緩衝區位元組長度與條目數量邊界，防範損毀檔案觸發 OOM。
 - **兩個獨立索引**：
   - 主庫索引（`md/` 目錄）
   - 辭典索引（`dicts/` 目錄）—— 獨立、有獨立 LRU 快取，不受主庫驅逐
@@ -444,6 +452,12 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
 
 | 機制 | 實作位置 | 說明 |
 |------|---------|------|
+| **Footnote XSS 雙重消毒 (P0-1)** | `render-worker.js` / `md-worker.js` | 註腳 id 採用 `escapeAttr()`、文字標籤 `escapeHtml()`；註腳內文與組裝後容器全面經 `sanitizeDangerousTags()` 過濾 `<script>`、`<style>`、`<iframe>`、`onerror` 等危險屬性 |
+| **畸形 Host 標頭與懸置防禦 (P0-2)** | `server.js` 路由入口 | `new URL` 全面包覆 try/catch（失敗即回 400 Bad Request）；全域 router 設有最終例外捕捉（500）；啟用 `server.requestTimeout = 30s`、`headersTimeout = 10s` 與 `clientError` 事件監聽立即銷毀異常 socket |
+| **嚴格 TRUST_PROXY 驗證 (P0-3)** | `server.js` `getClientIP()` | 僅在明確配置 `TRUST_PROXY=true` 或指定 IP 白名單時信任代理標頭，杜絕同 LAN / 內網橋接任意偽造來源 IP 繞過限流 |
+| **Analytics 匯出同源保護 (P0-4)** | `server.js` `handleAnalyticsExport` | 所有匯出路徑（包含帶有 `token` 的下載分支）強制執行 `verifySameOrigin(req)` 同源檢查，杜絕 CSRF 跨站竊取日誌 |
+| **90 天 Analytics 淘汰修剪 (P1-3)**| `server.js` `cleanOldLogsJob` | 每日 bucket 超過 90 天自動淘汰 (`pruneDailyBuckets`)；對 `ips`、`searches`、`dictSearches`、`dictLookups` 全面套用 `pruneAnalyticsMap`，避免長期運行記憶體洩漏 |
+| **非阻塞非同步磁碟 I/O (P1-6)** | `server.js` `scanDirAsync` / `getMdRoot` | `scanDirAsync` 改用非阻塞 `fs.promises.stat`；`getMdRoot()` 加入記憶化快取（變更時失效），避免巨量檔案庫阻塞主事件迴圈 |
 | **CSP（內容安全策略）** | `SECURITY_HEADERS` | `default-src 'self'`；per-request nonce 允許唯一的 inline config script |
 | **HSTS** | `SECURITY_HEADERS` | `max-age=31536000; includeSubDomains` |
 | **X-Frame-Options** | `SECURITY_HEADERS` | `SAMEORIGIN`，防 Clickjacking |
@@ -509,4 +523,21 @@ flowchart TD
   2. **定時排程（`schedule`）**：每週日 UTC 03:00（台北時間 11:00）執行全面深度維護。
   3. **手動測試（`workflow_dispatch`）**：可手動執行，支援勾選 `dry_run`（僅預覽輸出將刪除的 Digest 清單而不執行真實刪除）與自訂保留數量。
 - **權限容錯**：配置 `token: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}`，優先使用預設工作流程 Token，必要時亦可透過倉庫 Secret `GHCR_PAT` 擴充權限。
+
+---
+
+## 15. 前端高並發與競態防護設計
+
+針對使用者快速連續切換大型經文、非同步搜尋以及長時間閱讀場景，前端 `app.js` 實作以下容錯守衛機制：
+
+| 機制 | 實作位置 | 解決問題與架構細節 |
+|------|---------|-------------------|
+| **世代守衛 (Generation Guard, P1-9)** | `openFile` / `tryOpenVirtualFile` | 每次進入 `openFile` 自增 `state._openToken`。所有非同步 `await` 返回後及 DOM 置換前，檢驗 `token === state._openToken`。徹底防止點擊慢速未快取檔案 A 後立即點擊已快取檔案 B，造成 A 晚返回覆蓋 B 的競態破壞。 |
+| **請求取消與假錯誤消除 (P1-10)** | `openFile` / `fetch` Catch | 連續點擊時主動觸發前次 `_openFileAbort.abort()`；`catch` 區塊首行加入 `if (err.name === 'AbortError') return;`，避免中斷請求在畫面短暫彈出「載入失敗」假錯誤。 |
+| **安全 URI 解碼 (P1-11)** | `safeDecodeURIComponent` | 檔案名稱含 `%` 或特殊跳脫符號時，避免直接呼叫原生 `decodeURIComponent` 丟出 `URIError` 中斷流程。 |
+| **全域與頁內搜尋取消 (P1-15)** | `performGlobalSearch` / `doPageSearchVirtual` | 支援輸入清除或換詞時即時中止前次搜尋請求，釋放伺服器運算與網路頻寬。 |
+| **二分搜尋消除排版卡頓 (P1-16)** | `saveReadProgress` | 避免在萬行經文中對每一行呼叫 `getBoundingClientRect()` 引發嚴重的 Layout Thrashing，改用已快取行號錨點執行二分搜尋（只需 10~15 次量測）。 |
+| **大陣列展延堆疊防護 (P1-17)** | `buildVirtualTocItems` / `generateTOC` | 移除 `Math.min(...largeArr)`，改採單次迴圈遍歷，徹底防範大經文目錄深度觸發 RangeError: Maximum call stack size exceeded。 |
+| **Service Worker 離線回退 (P2-1)** | `sw.js` Fetch Handler | 當處於完全離線且快取未命中時，回傳明確的 HTTP 504 Gateway Timeout Response 而非丟出未處理的拒絕錯誤；安裝後發送 `SKIP_WAITING` 實現無縫即時生效。 |
+
 
