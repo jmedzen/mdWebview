@@ -2814,8 +2814,7 @@ kbd {
     padding-top: 10px;
   }
 
-  .user-settings-card .modal-actions .submit-btn,
-  .user-settings-card .modal-actions .secondary-btn {
+  .user-settings-card .modal-actions .submit-btn {
     width: 100%;
     padding: 12px;
     font-size: 15px;
@@ -2825,13 +2824,6 @@ kbd {
 
   .backup-action-buttons {
     flex-direction: column;
-  }
-
-  .user-settings-actions-right {
-    display: flex;
-    flex-direction: column-reverse;
-    width: 100%;
-    gap: 8px;
   }
 
   .user-settings-version-footer {
@@ -4097,12 +4089,6 @@ mark.search-keyword-highlight {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.user-settings-actions-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .user-settings-version-footer {

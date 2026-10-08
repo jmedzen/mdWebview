@@ -27,15 +27,14 @@ describe('使用者自定義偏好設定與備份還原功能測試 (User Prefer
     assert.match(htmlContent, /<input\b[^>]*id="inputImportUserPreferences"[^>]*>/, '必須包含檔案輸入元件 #inputImportUserPreferences');
     assert.match(htmlContent, /<input\b[^>]*id="inputImportUserPreferences"[^>]*type="file"|<input\b[^>]*type="file"[^>]*id="inputImportUserPreferences"/, '輸入元件必須為 type="file"');
 
-    // 檢查設定面板底部動作列是否包含快捷下載按鈕
-    assert.match(htmlContent, /id="btnFooterExportUserPreferences"/, '底部動作列必須包含 #btnFooterExportUserPreferences');
+    // 檢查設定面板底部動作列已移除左下角快捷按鈕，維持乾淨版面
+    assert.equal(htmlContent.includes('id="btnFooterExportUserPreferences"'), false, '底部動作列不得包含 #btnFooterExportUserPreferences');
   });
 
   test('2. style.css 樣式完整性驗證', () => {
     assert.match(cssContent, /\.secondary-btn\s*\{/, 'style.css 必須包含 .secondary-btn 樣式定義');
     assert.match(cssContent, /\.user-backup-box\s*\{/, 'style.css 必須包含 .user-backup-box 樣式定義');
     assert.match(cssContent, /\.backup-action-buttons\s*\{/, 'style.css 必須包含 .backup-action-buttons 樣式定義');
-    assert.match(cssContent, /\.user-settings-actions-right\s*\{/, 'style.css 必須包含 .user-settings-actions-right 樣式定義');
   });
 
   test('3. app.js 邏輯與事件綁定完整性驗證', () => {
@@ -45,7 +44,7 @@ describe('使用者自定義偏好設定與備份還原功能測試 (User Prefer
 
     // 檢查事件綁定
     assert.match(appJsContent, /btnExportUserPreferences/, 'app.js 必須綁定 #btnExportUserPreferences');
-    assert.match(appJsContent, /btnFooterExportUserPreferences/, 'app.js 必須綁定 #btnFooterExportUserPreferences');
+    assert.equal(appJsContent.includes('btnFooterExportUserPreferences'), false, 'app.js 不得殘留 btnFooterExportUserPreferences');
     assert.match(appJsContent, /btnImportUserPreferences/, 'app.js 必須綁定 #btnImportUserPreferences');
     assert.match(appJsContent, /inputImportUserPreferences/, 'app.js 必須監聽 #inputImportUserPreferences change 事件');
   });
