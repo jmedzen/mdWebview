@@ -8,8 +8,9 @@ RUN npm install --production
 
 # Copy all essential application files
 COPY server.js app.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js s2t.js ./
+COPY lib/ ./lib/
 COPY vendor/ ./vendor/
-COPY manifest.json sw.js icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png favicon-32.png icon.svg og-preview.png ./
+COPY manifest.json sw.js icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png favicon-16.png favicon-32.png favicon.ico favicon.svg icon.svg og-preview.png ./
 
 # Create data, logs, md, and dicts directory
 RUN mkdir -p /data /data/logs /data/md /data/dicts
