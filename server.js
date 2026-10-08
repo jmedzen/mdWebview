@@ -4012,6 +4012,10 @@ async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
     const unitCount = binBuf.readUInt32BE(readPos); readPos += 4;
     const bigramCount = binBuf.readUInt32BE(readPos); readPos += 4;
 
+    if (fileCount > 500000 || readPos + fileCount * 10 > binBuf.length) return false;
+    if (unitCount > 5000000 || readPos + unitCount * 22 > binBuf.length) return false;
+    if (bigramCount > 5000000 || readPos + bigramCount * 5 > binBuf.length) return false;
+
     const fileList = new Array(fileCount);
     const fileMap = new Map();
     for (let i = 0; i < fileCount; i++) {
