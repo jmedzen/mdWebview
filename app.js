@@ -5337,6 +5337,159 @@
   }
 
   // ═══════════════════════════════════════════════════════════
+  // §18.5 USER PREFERENCES BACKUP (EXPORT & IMPORT)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * 匯出並下載當前使用者的個人偏好設定、閱讀進度、書籤與歷史紀錄 (JSON 格式)
+   */
+  function exportUserPreferences() {
+    try {
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.3';
+      const cleanVer = appVer.replace(/^v/, '');
+
+      const backupData = {
+        app: 'mdWebview',
+        version: cleanVer,
+        exportDate: new Date().toISOString(),
+        type: 'mdWebview-user-preferences',
+        preferences: {
+          theme: state.currentTheme || localStorage.getItem('mdWebview-user-theme') || 'obsidian-dark',
+          fontSize: state.fontSize || parseInt(localStorage.getItem('mdWebview-user-fontsize'), 10) || 16,
+          textAlign: state.textAlign || localStorage.getItem('mdWebview-user-textalign') || 'justify',
+          lineHeight: state.lineHeight || localStorage.getItem('mdWebview-user-lineheight') || '1.8',
+          maxWidth: state.maxWidth || localStorage.getItem('mdWebview-user-maxwidth') || (isMobileBrowser() ? '95%' : '800px'),
+          autoS2T: state.autoS2T !== undefined ? state.autoS2T : (localStorage.getItem('mdWebview-auto-s2t') === 'true'),
+          autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (localStorage.getItem('mdWebview-user-readprogress') !== 'false')
+        },
+        readProgress: null,
+        recentFiles: state.recentFiles || [],
+        bookmarks: state.bookmarks || [],
+        dictionary: {
+          fileOrder: state.dictFileOrder || [],
+          fileSelected: loadDictFileSelect() || []
+        }
+      };
+
+      try {
+        const savedProg = localStorage.getItem('mdWebview-last-read-progress');
+        if (savedProg) backupData.readProgress = JSON.parse(savedProg);
+      } catch (_) {}
+
+      const jsonStr = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `mdWebview-user-preferences-${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('📥 個人自訂偏好備份已成功下載', 'success');
+    } catch (err) {
+      console.error('[ExportUserPreferences] 匯出失敗:', err);
+      showToast('❌ 下載備份失敗：' + (err.message || '未知錯誤'), 'error');
+    }
+  }
+
+  /**
+   * 從使用者上傳的 JSON 備份檔中還原個人偏好與閱讀紀錄
+   * @param {File} file
+   */
+  function importUserPreferences(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const text = e.target.result;
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          throw new Error('檔案非有效 JSON 格式');
+        }
+
+        if (!data || typeof data !== 'object') {
+          throw new Error('備份檔案資料格式不正確');
+        }
+
+        // 識別標記校驗
+        if (data.type && data.type !== 'mdWebview-user-preferences') {
+          throw new Error('此檔案不是 mdWebview 個人偏好備份檔');
+        }
+
+        // 1. 還原外觀與排版設定
+        const pref = data.preferences || {};
+        if (pref.theme && typeof pref.theme === 'string') {
+          applyTheme(pref.theme, true, false);
+        }
+        if (pref.fontSize && typeof pref.fontSize === 'number' && !isNaN(pref.fontSize)) {
+          applyFontSize(pref.fontSize, true);
+        }
+        if (pref.textAlign && typeof pref.textAlign === 'string') {
+          applyTextAlign(pref.textAlign, true);
+        }
+        if (pref.lineHeight && (typeof pref.lineHeight === 'string' || typeof pref.lineHeight === 'number')) {
+          applyLineHeight(String(pref.lineHeight), true);
+        }
+        if (pref.maxWidth && typeof pref.maxWidth === 'string') {
+          applyMaxWidth(pref.maxWidth, true);
+        }
+        if (typeof pref.autoS2T === 'boolean') {
+          applyAutoS2T(pref.autoS2T, true);
+        }
+        if (typeof pref.autoReadProgress === 'boolean') {
+          applyAutoReadProgress(pref.autoReadProgress, true);
+        }
+
+        // 2. 還原書籤最愛
+        if (Array.isArray(data.bookmarks)) {
+          state.bookmarks = data.bookmarks;
+          localStorage.setItem('mdWebview-user-bookmarks', JSON.stringify(state.bookmarks));
+          renderBookmarksList();
+          if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+        }
+
+        // 3. 還原最近開啟檔案紀錄
+        if (Array.isArray(data.recentFiles)) {
+          state.recentFiles = data.recentFiles;
+          localStorage.setItem('mdWebview-user-recentfiles', JSON.stringify(state.recentFiles));
+          renderRecentFilesList();
+        }
+
+        // 4. 還原上次閱讀進度
+        if (data.readProgress && typeof data.readProgress === 'object') {
+          localStorage.setItem('mdWebview-last-read-progress', JSON.stringify(data.readProgress));
+        }
+
+        // 5. 還原辭典自訂項目
+        if (data.dictionary && typeof data.dictionary === 'object') {
+          if (Array.isArray(data.dictionary.fileOrder)) {
+            state.dictFileOrder = data.dictionary.fileOrder;
+            saveDictFileOrder();
+          }
+          if (Array.isArray(data.dictionary.fileSelected)) {
+            saveDictFileSelect(data.dictionary.fileSelected);
+          }
+        }
+
+        // 重新同步偏好面板控制元件狀態
+        renderMaxWidthControl();
+        showToast('✅ 已成功還原個人偏好與閱讀紀錄！', 'success');
+      } catch (err) {
+        console.error('[ImportUserPreferences] 還原失敗:', err);
+        showToast('❌ 還原備份失敗：' + (err.message || '檔案格式無效'), 'error');
+      }
+    };
+    reader.onerror = function() {
+      showToast('❌ 讀取備份檔案失敗', 'error');
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // §19 SIDEBAR RESIZE
   // ═══════════════════════════════════════════════════════════
 
@@ -6222,6 +6375,36 @@
     $('userSettingsDoneBtn').addEventListener('click', () => {
       closeUserSettingsModal();
     });
+
+    // ── User Preferences Backup & Restore ──
+    const btnExportPref = $('btnExportUserPreferences');
+    if (btnExportPref) {
+      btnExportPref.addEventListener('click', () => {
+        exportUserPreferences();
+      });
+    }
+
+    const btnFooterExportPref = $('btnFooterExportUserPreferences');
+    if (btnFooterExportPref) {
+      btnFooterExportPref.addEventListener('click', () => {
+        exportUserPreferences();
+      });
+    }
+
+    const btnImportPref = $('btnImportUserPreferences');
+    const inputImportPref = $('inputImportUserPreferences');
+    if (btnImportPref && inputImportPref) {
+      btnImportPref.addEventListener('click', () => {
+        inputImportPref.click();
+      });
+      inputImportPref.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) {
+          importUserPreferences(file);
+        }
+        inputImportPref.value = '';
+      });
+    }
 
     // Announcement Modal Listeners (Ack, Close X, Backdrop Click)
     const annAckBtn = $('announcementModalAckBtn');
