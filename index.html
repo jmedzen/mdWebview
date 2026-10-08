@@ -394,7 +394,7 @@
         <button type="button" class="settings-tab-btn" data-tab="recommended">🪷 推薦經論</button>
         <button type="button" class="settings-tab-btn" data-tab="progress">📖 閱讀紀錄</button>
         <button type="button" class="settings-tab-btn" data-tab="bookmarks">🔖 書籤最愛</button>
-        <button type="button" class="settings-tab-btn" data-tab="system">🔒 系統管理</button>
+        <button type="button" class="settings-tab-btn" data-tab="system">💾 備份與管理</button>
       </div>
 
       <div class="settings-menu-body">
@@ -524,8 +524,22 @@
           </div>
         </div>
 
-        <!-- Tab 4: 系統管理 (System & Admin) -->
+        <!-- Tab 4: 備份與管理 (Backup & Admin) -->
         <div class="settings-tab-pane" id="pane-system" style="display: none;">
+          <div class="user-backup-box" id="userBackupBox">
+            <div class="setting-section-header">
+              <span>💾 個人偏好備份與還原</span>
+            </div>
+            <p class="setting-desc">
+              匯出下載您的排版外觀、閱讀進度、書籤最愛與歷史紀錄為 JSON 備份檔，或從備份檔進行還原。
+            </p>
+            <div class="backup-action-buttons">
+              <button type="button" id="btnExportUserPreferences" class="modal-btn submit-btn">📥 下載個人備份</button>
+              <button type="button" id="btnImportUserPreferences" class="modal-btn secondary-btn">📤 還原備份設定</button>
+              <input type="file" id="inputImportUserPreferences" accept=".json,application/json" style="display: none;">
+            </div>
+          </div>
+
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
@@ -544,8 +558,11 @@
       </div>
 
       <div class="modal-actions user-settings-actions">
-        <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.6.3</span>
+        <button type="button" id="btnFooterExportUserPreferences" class="modal-btn secondary-btn" title="下載個人偏好與閱讀紀錄備份">📥 下載備份</button>
+        <div class="user-settings-actions-right">
+          <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.6.3</span>
+          <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
+        </div>
       </div>
     </div>
   </div>

@@ -2814,12 +2814,24 @@ kbd {
     padding-top: 10px;
   }
 
-  .user-settings-card .modal-actions .submit-btn {
+  .user-settings-card .modal-actions .submit-btn,
+  .user-settings-card .modal-actions .secondary-btn {
     width: 100%;
     padding: 12px;
     font-size: 15px;
     min-height: 44px;
     font-weight: 600;
+  }
+
+  .backup-action-buttons {
+    flex-direction: column;
+  }
+
+  .user-settings-actions-right {
+    display: flex;
+    flex-direction: column-reverse;
+    width: 100%;
+    gap: 8px;
   }
 
   .user-settings-version-footer {
@@ -3891,6 +3903,18 @@ kbd {
   filter: brightness(1.1);
 }
 
+.secondary-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.secondary-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .modal-btn:disabled, .action-btn:disabled {
   opacity: 0.6 !important;
   cursor: not-allowed !important;
@@ -4073,6 +4097,12 @@ mark.search-keyword-highlight {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.user-settings-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .user-settings-version-footer {
@@ -4341,6 +4371,21 @@ mark.search-keyword-highlight {
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
+}
+
+.user-backup-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.backup-action-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .admin-status-box {
