@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.6.0 | 最後更新：2026-10
+> 版本：v3.6.2 | 最後更新：2026-10
 
 ---
 
@@ -10,17 +10,19 @@
 
 1. [系統架構總覽](#1-系統架構總覽)
 2. [請求路由決策樹](#2-請求路由決策樹)
+   - [2.1 Sitemap 防抖與 Stale-While-Revalidate 機制](#21-sitemap-防抖與-stale-while-revalidate-機制)
 3. [資料流：頁面載入](#3-資料流頁面載入)
 4. [資料流：大型檔案虛擬化](#4-資料流大型檔案虛擬化)
 5. [資料流：全文搜尋](#5-資料流全文搜尋)
 6. [公告彈窗顯示邏輯](#6-公告彈窗顯示邏輯)
-7. [server.js API 路由索引](#7-serverjs-api-路由索引)
-8. [app.js State 物件欄位說明](#8-appjs-state-物件欄位說明)
-9. [config.json 設定欄位一覽](#9-configjson-設定欄位一覽)
-10. [關鍵常數速查](#10-關鍵常數速查)
-11. [Worker Thread 架構](#11-worker-thread-架構)
-12. [安全性設計](#12-安全性設計)
-13. [CI/CD 與自動化維護工作流程](#13-cicd-與自動化維護工作流程)
+7. [使用者偏好與排版控制](#7-使用者偏好與排版控制)
+8. [server.js API 路由索引](#8-serverjs-api-路由索引)
+9. [app.js State 物件欄位說明](#9-appjs-state-物件欄位說明)
+10. [config.json 設定欄位一覽](#10-configjson-設定欄位一覽)
+11. [關鍵常數速查](#11-關鍵常數速查)
+12. [Worker Thread 架構](#12-worker-thread-架構)
+13. [安全性設計](#13-安全性設計)
+14. [CI/CD 與自動化維護工作流程](#14-cicd-與自動化維護工作流程)
 
 ---
 
@@ -82,6 +84,28 @@ flowchart TD
 ```
 
 **Bot 偵測**：符合 `CRAWLER_UA_REGEX` 的 User-Agent 或帶有 `?ssr=1` 參數的請求，自動觸發 SSR 預渲染，回傳完整 HTML（含 schema.org JSON-LD）供搜尋引擎索引。
+
+### 2.1 Sitemap 防抖與 Stale-While-Revalidate 機制
+
+為防止大量 Markdown 檔案寫入或同步時（如批次上傳數千篇經論）造成伺服器頻繁重新掃描磁碟建立 Sitemap，引發 CPU 與磁碟 I/O 尖峰，系統採用**沉降防抖 + Stale-While-Revalidate** 快取架構：
+
+```mermaid
+flowchart TD
+    Change["檔案變更 (fs.watch on mdRoot)\n或 SEO 設定儲存"] --> MarkDirty["標記 sitemapDirty = true\n重設定時器 (20s 防抖)"]
+    MarkDirty --> Settle{"20 秒內\n是否有新變更？"}
+    Settle -- "有新檔案寫入" --> MarkDirty
+    Settle -- "沉降 20 秒期滿" --> BgRebuild["autoRebuildSitemapAsync()\n背景非同步遞迴掃描目錄樹"]
+    BgRebuild --> UpdateCache["更新 cachedSitemapXml\n標記 sitemapDirty = false\n記錄 [SEO] 統計日誌"]
+
+    Req["GET /sitemap.xml\n(搜尋引擎爬蟲或請求)"] --> CheckCache{"cachedSitemapXml\n是否存在？"}
+    CheckCache -- "是 (含 dirty 沉降期間)" --> ReturnStale["立即回傳現存快取\n(Stale-While-Revalidate，0ms 阻塞)"]
+    CheckCache -- "否 (首次開機尚未建立)" --> SyncBuild["即時掃描並建立快取"]
+```
+
+- **20 秒沉降防抖（Debounce）**：任何檔案變動皆重設計時器，直到連續 20 秒無新寫入才執行一次性重建，避免短時間內幾百次寫入觸發幾百次目錄樹遞迴掃描。
+- **Stale-While-Revalidate**：即便標記為 dirty，外部請求依然立即可取得現有快取（200 OK 或 304 Not Modified），完全不卡頓伺服器執行緒與網路連線。
+- **開機背景預熱**：伺服器啟動時，立即與 Bigram 搜尋索引同步非同步預先暖機建置 Sitemap 快取。
+- **結構化日誌**：記錄每次生成耗時、檔案總數與 XML 位元組大小（`[SEO] Sitemap rebuilt: N URLs (X KB) in Yms`）。
 
 ---
 
@@ -200,21 +224,44 @@ flowchart TD
 
 ---
 
-## 7. server.js API 路由索引
+## 7. 使用者偏好與排版控制
+
+為提供無干擾、客製化的閱讀體驗，`app.js` 提供「使用者偏好設定」彈窗（包含「主題外觀」與「視覺排版」兩大分頁）：
+
+```mermaid
+flowchart TD
+    PrefUI["使用者設定彈窗\n(視覺排版 Tab)"] --> Settings["偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶\n- 自動簡體轉繁體 (autoS2T)"]
+    Settings --> LocalStorage["localStorage 獨立持久化\n(不影響全域伺服器設定)"]
+    Settings --> LiveApply["即時 CSS 變數與 DOM 更新\n(零重載刷新閱讀畫面)"]
+    Settings --> S2TSearch["搜尋請求連動\n(s2t=0 或 s2t=1 傳遞後端)"]
+```
+
+### 偏好儲存鍵值（localStorage）：
+- `mdWebview-fontsize`：字型大小（數值）
+- `mdWebview-lineheight`：行高（字串，如 `'1.8'`）
+- `mdWebview-textalign`：對齊方式（`'justify'` 或 `'left'`）
+- `mdWebview-maxwidth`：版面寬度（`'800px'`、`'1000px'` 或 `'100%'`）
+- `mdWebview-auto-read-progress`：閱讀進度記憶（`'true'` 或 `'false'`）
+- `mdWebview-auto-s2t`：自動簡體轉繁體開關（`'true'` 或 `'false'`，全站預設 `false`）
+
+---
+
+## 8. server.js API 路由索引
 
 | 路徑 | Method | Handler | 需要 Auth | 說明 |
 |------|--------|---------|-----------|------|
 | `/` | GET | `getIndexHtml()` | ❌ | SPA 首頁（動態注入設定） |
 | `/manifest.json` | GET | `handleManifestJson()` | ❌ | PWA Manifest（動態 siteName） |
 | `/robots.txt` | GET | `handleRobotsTxt()` | ❌ | SEO robots |
-| `/sitemap.xml` | GET | `handleSitemapXml()` | ❌ | SEO sitemap |
+| `/sitemap.xml` | GET | `handleSitemapXml()` | ❌ | SEO sitemap（20s 防抖 + Stale 快取） |
 | `/api/tree` | GET | `handleTree()` | ❌ | 取得 Markdown 檔案樹 |
 | `/api/file` | GET | `handleFile()` | ❌ | 取得 .md 檔案內容 |
 | `/api/media` | GET | `handleMedia()` | ❌ | 取得圖片/音訊/PDF |
 | `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型檔案分塊 metadata |
 | `/api/render` | GET | `handleRender()` | ❌ | 渲染大型檔案某一 chunk |
-| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文搜尋 |
+| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文搜尋（支援 s2t 參數） |
 | `/api/file-search` | GET | `handleFileSearch()` | ❌ | 檔名搜尋 |
+| `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單檔內全文檢索（支援 s2t 參數） |
 | `/api/page-search` | GET | `handlePageSearch()` | ❌ | 頁內 Ctrl+F 搜尋 |
 | `/api/dict/headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條索引 |
 | `/api/dict/files` | GET | `handleDictFiles()` | ❌ | 辭典檔案清單 |
@@ -231,6 +278,8 @@ flowchart TD
 | `/api/admin/analytics/export` | GET | — | ✅ | 匯出 CSV/JSON |
 | `/api/admin/hardware` | GET | — | ✅ | 硬體監控（CPU/RAM） |
 | `/api/admin/rebuild-index` | POST | — | ✅ | 強制重建搜尋索引 |
+| `/api/admin/rebuild-sitemap` | POST | `handleAdminRebuildSitemap()` | ✅ | 強制手動立即重建 Sitemap 索引 |
+| `/api/admin/clear-cache` | POST | `handleAdminClearCache()` | ✅ | 清除記憶體靜態與搜尋快取 |
 | `/api/admin/change-password` | POST | — | ✅ | 修改管理員密碼 |
 | `/api/admin/setup` | POST | — | ❌ | 首次安裝設定管理員 |
 | `/*` (static) | GET | `serveStaticFile()` | ❌ | JS/CSS/圖片等靜態資源 |
@@ -241,62 +290,63 @@ flowchart TD
 
 ---
 
-## 8. app.js State 物件欄位說明
+## 9. app.js State 物件欄位說明
 
 `state` 是 `app.js` 的單一全域狀態物件（IIFE 內部，非 window 全域）：
 
 | 欄位 | 型別 | 說明 |
 |------|------|------|
-| `currentFile` | `string\|null` | 當前開啟的檔案路徑（`null` = 首頁歡迎畫面） |
-| `currentTheme` | `string` | 主題 ID：`obsidian-dark`\|`obsidian-light`\|`solarized`\|`zen`\|`gruvbox` |
+| `currentFile` | `string|null` | 當前開啟的檔案路徑（`null` = 首頁歡迎畫面） |
+| `currentTheme` | `string` | 主題 ID：`obsidian-dark`|`obsidian-light`|`solarized`|`zen`|`gruvbox` |
 | `defaultFontSize` | `number` | 伺服器設定的預設字體大小（px），作為重置基準 |
 | `fontSize` | `number` | 當前閱讀字體大小（px），使用者可調整 |
-| `textAlign` | `string` | 文字對齊：`justify`\|`left` |
-| `lineHeight` | `string` | 行高倍數字串：`'1.6'`\|`'1.8'`\|`'2.0'` |
+| `textAlign` | `string` | 文字對齊：`justify`|`left` |
+| `lineHeight` | `string` | 行高倍數字串：`'1.6'`|`'1.8'`|`'2.0'` |
 | `maxWidth` | `string` | 閱讀區最大寬度 CSS 值，行動版預設 `95%`，桌面版 `800px` |
 | `autoReadProgress` | `boolean` | 是否自動儲存/恢復閱讀進度 |
+| `autoS2T` | `boolean` | 是否自動將簡體中文轉換為繁體中文（全站預設 `false`，儲存於 localStorage） |
 | `isMobile` | `boolean` | 是否為行動裝置（UA 或視窗寬度 ≤ 768px） |
 | `siteName` | `string` | 站台名稱，來自 `config.settings.siteName`，預設 `'mdWebview'` |
-| `treeData` | `Array\|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
-| `fileSort` | `string` | 檔案排序：`name-asc`\|`name-desc`\|`modified-asc`\|`modified-desc` |
+| `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
+| `fileSort` | `string` | 檔案排序：`name-asc`|`name-desc`|`modified-asc`|`modified-desc` |
 | `fileSizes` | `Map` | `filePath → bytes`，用於判斷是否需要虛擬化渲染 |
 | `recentFiles` | `string[]` | 最近開啟的檔案路徑（最多 20 筆，持久化於 localStorage） |
 | `bookmarks` | `Object[]` | 書籤列表 `{path, title, line, ts}`，持久化於 localStorage |
-| `sidebarTab` | `string` | 側邊欄分頁：`'files'`\|`'search'`\|`'toc'` |
+| `sidebarTab` | `string` | 側邊欄分頁：`'files'`|`'search'`|`'toc'` |
 | `sidebarCollapsed` | `boolean` | 側邊欄是否已收合 |
 | `pageSearchMatches` | `Object[]` | 頁內搜尋（Ctrl+F）的命中節點列表 |
 | `pageSearchIndex` | `number` | 當前高亮命中索引（`-1` = 無） |
-| `pageSearchQuery` | `string\|null` | 最後一次頁內搜尋關鍵詞 |
-| `searchSort` | `string` | 搜尋結果排序：`relevance`\|`file-asc`\|`file-desc`\|`count-desc` |
-| `lastSearchData` | `Object\|null` | 最後搜尋回傳資料（換頁排序時不重新請求） |
+| `pageSearchQuery` | `string|null` | 最後一次頁內搜尋關鍵詞 |
+| `searchSort` | `string` | 搜尋結果排序：`relevance`|`file-asc`|`file-desc`|`count-desc` |
+| `lastSearchData` | `Object|null` | 最後搜尋回傳資料（換頁排序時不重新請求） |
 | `searchRenderLimit` | `number` | 已渲染的搜尋結果筆數（分批渲染計數） |
-| `scrollSpyObserver` | `IntersectionObserver\|null` | TOC 高亮用的 IntersectionObserver |
-| `scrollSpyHandler` | `Function\|null` | scroll 事件 handler 參考（用於移除） |
-| `scrollSpyResizeHandler` | `Function\|null` | resize 事件 handler 參考 |
-| `scrollSpyRaf` | `number\|null` | requestAnimationFrame ID |
-| `refreshScrollSpy` | `Function\|null` | 重新初始化 ScrollSpy 的函數參考 |
-| `virtual` | `Object\|null` | 大型檔案虛擬化狀態（`null` = 非虛擬化模式）。結構：`{si, chunks, currentChunk, totalEntries, visibleStart, visibleEnd}` |
+| `scrollSpyObserver` | `IntersectionObserver|null` | TOC 高亮用的 IntersectionObserver |
+| `scrollSpyHandler` | `Function|null` | scroll 事件 handler 參考（用於移除） |
+| `scrollSpyResizeHandler` | `Function|null` | resize 事件 handler 參考 |
+| `scrollSpyRaf` | `number|null` | requestAnimationFrame ID |
+| `refreshScrollSpy` | `Function|null` | 重新初始化 ScrollSpy 的函數參考 |
+| `virtual` | `Object|null` | 大型檔案虛擬化狀態（`null` = 非虛擬化模式）。結構：`{si, chunks, currentChunk, totalEntries, visibleStart, visibleEnd}` |
 | `sectionIndexCache` | `Map` | `filePath → {etag, si}` 的 section index 快取 |
 | `dictionaryEnabled` | `boolean` | 後台是否啟用辭典功能 |
-| `dictHeadwords` | `Object\|null` | 辭典詞條索引（由 `/api/dict/headwords` 載入） |
-| `dictIndex` | `Object\|null` | 當前辭典條目詳情 |
-| `dictSelected` | `string\|null` | 當前查詢的辭典詞條 |
-| `dictFileOrder` | `string[]\|null` | 辭典檔案顯示順序 |
+| `dictHeadwords` | `Object|null` | 辭典詞條索引（由 `/api/dict/headwords` 載入） |
+| `dictIndex` | `Object|null` | 當前辭典條目詳情 |
+| `dictSelected` | `string|null` | 當前查詢的辭典詞條 |
+| `dictFileOrder` | `string[]|null` | 辭典檔案顯示順序 |
 | `dictSidebarOpen` | `boolean` | 辭典側邊欄是否開啟 |
-| `dictMode` | `string` | 查詢模式：`'prefix'`（前綴）\|`'fulltext'`（全文） |
-| `dictAbortController` | `AbortController\|null` | 取消進行中辭典請求 |
-| `dictFulltextCache` | `Object\|null` | 辭典全文搜尋快取（避免重複請求） |
+| `dictMode` | `string` | 查詢模式：`'prefix'`（前綴）|`'fulltext'`（全文） |
+| `dictAbortController` | `AbortController|null` | 取消進行中辭典請求 |
+| `dictFulltextCache` | `Object|null` | 辭典全文搜尋快取（避免重複請求） |
 | `dictFulltextScrollTop` | `number` | 辭典全文搜尋結果的滾動位置 |
-| `dictSidebarWidth` | `number\|null` | 辭典側邊欄寬度（px），使用者可拖拉調整 |
-| `dictHeadwordsETag` | `string\|null` | 辭典 headwords 的 ETag（用於 304 Not Modified） |
-| `dictPollTimer` | `number\|null` | 辭典輪詢 timer ID（檢查辭典更新） |
-| `adminToken` | `string\|null` | 管理員 session token（持久化於 localStorage） |
-| `_announcementModalContext` | `Object\|null` | 公告彈窗最後開啟時的資料快照（用於判斷是否重複顯示） |
-| `_cachedSuggestItems` | `Object[]\|null` | 最後一次 `/api/suggest-list` 的推薦項目快取 |
+| `dictSidebarWidth` | `number|null` | 辭典側邊欄寬度（px），使用者可拖拉調整 |
+| `dictHeadwordsETag` | `string|null` | 辭典 headwords 的 ETag（用於 304 Not Modified） |
+| `dictPollTimer` | `number|null` | 辭典輪詢 timer ID（檢查辭典更新） |
+| `adminToken` | `string|null` | 管理員 session token（持久化於 localStorage） |
+| `_announcementModalContext` | `Object|null` | 公告彈窗最後開啟時的資料快照（用於判斷是否重複顯示） |
+| `_cachedSuggestItems` | `Object[]|null` | 最後一次 `/api/suggest-list` 的推薦項目快取 |
 
 ---
 
-## 9. config.json 設定欄位一覽
+## 10. config.json 設定欄位一覽
 
 儲存路徑（優先順序高 → 低）：
 1. `CONFIG_PATH` 環境變數（預設 `APP_ROOT/config.json`，Docker 中為 `/data/config.json`）
@@ -335,7 +385,7 @@ flowchart TD
 
 ---
 
-## 10. 關鍵常數速查
+## 11. 關鍵常數速查
 
 ### server.js
 
@@ -349,6 +399,7 @@ flowchart TD
 | `STATIC_CACHE_TTL_MS` | `5,000`（5s） | 靜態資源記憶體快取有效期 |
 | `SESSION_DURATION` | `21,600,000`（6h） | 管理員 session 存活時間 |
 | `SEARCH_CACHE_MAX` | `30` | 全文搜尋結果快取最大筆數 |
+| `SITEMAP_DEBOUNCE_MS` | `20,000`（20s） | Sitemap 檔案變更沉降防抖延遲時間 |
 
 ### app.js
 
@@ -358,10 +409,11 @@ flowchart TD
 | `SEARCH_RENDER_BATCH` | `300` | 搜尋結果分批渲染每批筆數（防 DOM 凍結） |
 | `CACHE_MAX` | `10` | LRU 渲染快取最大筆數 |
 | `ANNOUNCEMENT_ACK_KEY` | `'mdWebview-announcement-modal-ack'` | localStorage key：公告已確認記錄 |
+| `AUTO_S2T_KEY` | `'mdWebview-auto-s2t'` | localStorage key：使用者偏好自動簡繁轉換 |
 
 ---
 
-## 11. Worker Thread 架構
+## 12. Worker Thread 架構
 
 mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
 
@@ -388,7 +440,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
 
 ---
 
-## 12. 安全性設計
+## 13. 安全性設計
 
 | 機制 | 實作位置 | 說明 |
 |------|---------|------|
@@ -405,7 +457,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職：
 
 ---
 
-## 13. CI/CD 與自動化維護工作流程
+## 14. CI/CD 與自動化維護工作流程
 
 專案配備 GitHub Actions 現代化持續整合與部署管線，提供多架構容器化發布與全自動鏡像生命週期維護：
 

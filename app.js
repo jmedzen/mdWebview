@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.1
+   mdWebview — Application Logic (app.js) v3.6.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -3787,7 +3787,8 @@
     $('searchResults').innerHTML = '<div class="search-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}`, {
+      const s2tParam = state.autoS2T ? '1' : '0';
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}&s2t=${s2tParam}`, {
         signal: searchAbortController.signal,
       });
       if (!res.ok) throw new Error('Search failed');
@@ -4327,7 +4328,7 @@
     let lo = 0, hi = sorted.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid].hw < q) lo = mid + 1; else hi = mid; }
     const start = lo;
-    const upper = q + '￿';
+    const upper = q + '\uffff';
     lo = start; hi = sorted.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid].hw < upper) lo = mid + 1; else hi = mid; }
     const end = lo;
@@ -4418,7 +4419,8 @@
     const controller = new AbortController();
     state.dictAbortController = controller;
     results.innerHTML = '<div class="dict-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
-    fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}`, { signal: controller.signal })
+    const s2tParam = state.autoS2T ? '1' : '0';
+    fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}&s2t=${s2tParam}`, { signal: controller.signal })
       .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
       .then(data => {
         // Drop responses from a superseded request (a newer query or mode switch
@@ -4576,7 +4578,8 @@
     if (!v) return;
     state.pageSearchQuery = query;
     try {
-      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}`);
+      const s2tParam = state.autoS2T ? '1' : '0';
+      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}&s2t=${s2tParam}`);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const matches = Array.isArray(data.matches) ? data.matches : [];
@@ -6391,7 +6394,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -6684,7 +6687,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.1',
+            version: data.settings?.version || '3.6.2',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
