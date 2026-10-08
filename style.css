@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.6.3
+   mdWebview — Style System (style.css) v3.6.4
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -391,44 +391,6 @@ body,
   font-size: 12px;
   color: var(--text-muted);
   flex-shrink: 0;
-}
-
-@media (max-width: 768px) {
-  .header-active-file {
-    max-width: 240px;
-    font-size: 12px;
-    padding: 3px 10px;
-  }
-  .header-active-file .active-file-folder {
-    display: none; /* Prioritize document title on tablet/mobile screens */
-  }
-}
-
-@media (max-width: 520px) {
-  .logo-text {
-    display: none;
-  }
-  .header-left {
-    gap: 6px;
-  }
-  .header-right {
-    gap: 6px;
-  }
-  .header-active-file {
-    max-width: 160px;
-    font-size: 11px;
-    padding: 3px 8px;
-    gap: 4px;
-  }
-  .header-active-file .active-file-folder {
-    display: none;
-  }
-}
-
-@media (max-width: 360px) {
-  .header-active-file {
-    max-width: 110px;
-  }
 }
 
 .header-left {
@@ -1245,15 +1207,6 @@ body,
   touch-action: manipulation;
   position: relative;
   z-index: 1;
-}
-
-@media (max-width: 768px) {
-  .toc-item-chevron {
-    width: 26px;
-    height: 26px;
-    font-size: 12px;
-    margin-right: 4px;
-  }
 }
 
 .toc-item-chevron:hover {
@@ -2609,6 +2562,58 @@ kbd {
     pointer-events: auto;
   }
 
+  /* Header & Navigation Mobile */
+  .header-active-file {
+    max-width: 240px;
+    font-size: 12px;
+    padding: 3px 10px;
+  }
+  .header-active-file .active-file-folder {
+    display: none;
+  }
+
+  .toc-item-chevron {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+    margin-right: 4px;
+  }
+
+  /* Dictionary Sidebar Mobile */
+  .dict-sidebar {
+    position: fixed;
+    top: calc(48px + env(safe-area-inset-top, 0px));
+    right: 0;
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    width: 320px !important;
+    max-width: calc(100vw - 44px) !important;
+    z-index: 90;
+    box-shadow: -4px 0 24px var(--shadow-color);
+    transform: translateX(0);
+    transition: transform 0.3s ease, visibility 0.3s ease;
+    visibility: visible;
+    border-left: 1px solid var(--border-subtle);
+  }
+  .dict-sidebar.collapsed {
+    transform: translateX(100%);
+    width: 320px !important;
+    border-left: none;
+    box-shadow: none;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .dict-resize-handle {
+    display: none !important;
+  }
+  .entry-nav {
+    bottom: 16px;
+  }
+  .entry-nav-label {
+    max-width: 120px;
+  }
+
   .sidebar {
     position: fixed;
     left: 0;
@@ -2884,16 +2889,28 @@ kbd {
   }
 }
 
+@media (max-width: 520px) {
+  .logo-text {
+    display: none;
+  }
+  .header-left,
+  .header-right {
+    gap: 6px;
+  }
+  .header-active-file {
+    max-width: 160px;
+    font-size: 11px;
+    padding: 3px 8px;
+    gap: 4px;
+  }
+}
+
 @media (max-width: 480px) {
   .content-wrapper {
     padding: 12px 8px 50px;
   }
 
   .font-size-controls {
-    display: none;
-  }
-
-  .logo-text {
     display: none;
   }
 
@@ -2936,6 +2953,12 @@ kbd {
   #settingTextAlignGroup .segment-btn {
     font-size: 11px !important;
     letter-spacing: -0.3px !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .header-active-file {
+    max-width: 110px;
   }
 }
 
@@ -3239,12 +3262,6 @@ kbd {
 }
 
 @media (max-width: 768px) {
-  .seo-stats-box {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
   /* 僅後台全螢幕管理系統在手機端滿屏延展 */
   #adminSettingsOverlay {
     padding: 0 !important;
@@ -3468,6 +3485,14 @@ kbd {
   }
 
   /* Hardware Tab Mobile */
+  .hardware-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .index-status-columns {
+    grid-template-columns: 1fr;
+  }
+
   .hardware-header-row {
     flex-direction: column;
     align-items: stretch;
@@ -3621,6 +3646,19 @@ kbd {
   .analytics-table-wrapper {
     max-height: 240px;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .analytics-grid-two {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-section-row {
+    flex-direction: column;
+  }
+
+  .svg-donut-container {
+    flex-direction: column;
+    gap: 12px;
   }
 
   /* SEO Tab Mobile */
@@ -5038,11 +5076,6 @@ mark.search-keyword-highlight {
   gap: 16px;
 }
 
-@media (max-width: 768px) {
-  .analytics-grid-two {
-    grid-template-columns: 1fr;
-  }
-}
 
 
 /* ── §33 Callouts ───────────────────────────────────────────── */
@@ -5381,11 +5414,6 @@ details.callout[open] > summary .callout-fold-icon {
   gap: 10px;
 }
 
-@media (max-width: 768px) {
-  .hardware-dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-}
 
 .hardware-card {
   background: var(--bg-secondary);
@@ -5493,11 +5521,6 @@ details.callout[open] > summary .callout-fold-icon {
   margin-top: 0;
 }
 
-@media (max-width: 720px) {
-  .index-status-columns {
-    grid-template-columns: 1fr;
-  }
-}
 
 .progress-bar-row {
   display: flex;
@@ -5559,11 +5582,6 @@ details.callout[open] > summary .callout-fold-icon {
   margin-top: 0;
 }
 
-@media (max-width: 768px) {
-  .analytics-section-row {
-    flex-direction: column;
-  }
-}
 
 .svg-chart-tooltip {
   position: absolute;
@@ -5587,12 +5605,6 @@ details.callout[open] > summary .callout-fold-icon {
   justify-content: center;
 }
 
-@media (max-width: 480px) {
-  .svg-donut-container {
-    flex-direction: column;
-    gap: 12px;
-  }
-}
 
 .donut-legend {
   display: flex;
@@ -6108,42 +6120,6 @@ details.callout[open] > summary .callout-fold-icon {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-@media (max-width: 768px) {
-  .dict-sidebar {
-    position: fixed;
-    top: calc(48px + env(safe-area-inset-top, 0px));
-    right: 0;
-    bottom: 0;
-    height: auto;
-    max-height: none;
-    width: 320px !important;
-    max-width: calc(100vw - 44px) !important;
-    z-index: 90;
-    box-shadow: -4px 0 24px var(--shadow-color);
-    transform: translateX(0);
-    transition: transform 0.3s ease, visibility 0.3s ease;
-    visibility: visible;
-    border-left: 1px solid var(--border-subtle);
-  }
-  .dict-sidebar.collapsed {
-    transform: translateX(100%);
-    width: 320px !important;
-    border-left: none;
-    box-shadow: none;
-    visibility: hidden;
-    pointer-events: none;
-  }
-  .dict-resize-handle {
-    display: none !important;
-  }
-  .entry-nav {
-    bottom: 16px;
-  }
-  .entry-nav-label {
-    max-width: 120px;
-  }
 }
 
 /* ── §36 Markdown Enhancements ──────────────────────────────── */

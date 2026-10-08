@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.6.3 | 最後更新：2026-10
+> 版本：v3.6.4 | 最後更新：2026-10
 
 ---
 
@@ -16,14 +16,21 @@
 5. [資料流：全文搜尋](#5-資料流全文搜尋)
 6. [公告彈窗顯示邏輯](#6-公告彈窗顯示邏輯)
 7. [使用者偏好與排版控制](#7-使用者偏好與排版控制)
-8. [server.js API 路由索引](#8-serverjs-api-路由索引)
-9. [app.js State 物件欄位說明](#9-appjs-state-物件欄位說明)
+   - [7.1 集中式常數池與安全儲存封裝](#71-集中式常數池與安全儲存封裝)
+   - [7.2 偏好備份與還原機制](#72-偏好備份與還原機制)
+8. [後端模組架構與 API 路由索引](#8-後端模組架構與-api-路由索引)
+   - [8.1 lib/ 原生模組職責劃分](#81-lib-原生模組職責劃分)
+   - [8.2 server.js API 路由索引表](#82-serverjs-api-路由索引表)
+9. [app.js 前端架構與 State 物件說明](#9-appjs-前端架構與-state-物件說明)
+   - [9.1 段落索引與通用 Helper](#91-段落索引與通用-helper)
+   - [9.2 State 物件欄位一覽](#92-state-物件欄位一覽)
 10. [config.json 設定欄位一覽](#10-configjson-設定欄位一覽)
 11. [關鍵常數速查](#11-關鍵常數速查)
 12. [Worker Thread 架構](#12-worker-thread-架構)
 13. [安全性設計](#13-安全性設計)
 14. [CI/CD 與自動化維護工作流程](#14-cicd-與自動化維護工作流程)
 15. [前端高並發與競態防護設計](#15-前端高並發與競態防護設計)
+16. [CSS 樣式系統與響應式斷點設計](#16-css-樣式系統與響應式斷點設計)
 
 ---
 
@@ -31,34 +38,66 @@
 
 ```mermaid
 flowchart TD
-    Browser["🌐 Browser\n(SPA + PWA)"]
-    SW["⚙️ Service Worker\n(sw.js)\nCache-first shell assets"]
-    Server["🖥️ Node.js HTTP Server\n(server.js, port 8330)"]
-    Config["📄 config.json\n(持久化設定)"]
-    MdRoot["📂 md/ 目錄\n(Markdown 文件庫)"]
-    Dicts["📖 dicts/ 目錄\n(佛學辭典)"]
-    LogFiles["📊 logs/ 目錄\n(90天 Analytics)"]
-    RenderWorker["🔄 render-worker.js\n(Worker Thread Pool)\nMarkdown SSR 渲染"]
-    IndexWorker["🔍 index-worker.js\n(Worker Thread Pool)\nBigram 索引建立/搜尋"]
+    subgraph Client ["🌐 前端客戶端 (Browser SPA & PWA)"]
+        UI["使用者介面 (UI View)\n響應式閱讀器 / 抽屜 / 彈窗"]
+        StateStore["前端狀態與安全儲存\napp.js state + storage 工具 + STORAGE_KEYS"]
+        SW["⚙️ Service Worker (sw.js)\nCache-first Shell / 離線快取"]
+        MDWorker["Markdown Web Worker\n(md-worker.js) 前端非同步解析"]
+    end
 
-    Browser -- "HTTP Requests" --> Server
-    Browser -- "App Shell\n(Cache-first)" --> SW
-    SW -- "Cache Miss\nNetwork Fetch" --> Server
-    Server -- "loadConfig()" --> Config
-    Server -- "fs.readFile()" --> MdRoot
-    Server -- "dict search" --> Dicts
-    Server -- "appendToPersistentLog()" --> LogFiles
-    Server -- "renderWithWorker()" --> RenderWorker
-    Server -- "executeIndexJob()" --> IndexWorker
-    RenderWorker -- "rendered HTML" --> Server
-    IndexWorker -- "search results" --> Server
+    subgraph ServerCore ["🖥️ 後端核心 (Node.js server.js :8330)"]
+        Router["HTTP Router & API 分發器"]
+        WorkerPoolMgr["lib/worker-pool.js\nWorker Thread 排程與容錯管理"]
+        StaticCache["lib/static-cache.js\n記憶體 LRU 快取 / ETag 304 / SSR 注入"]
+        AuthSecurity["lib/auth.js\nPBKDF2 雜湊 / Session / 30 req/s 限流"]
+        AnalyticsStore["lib/analytics.js\n90天日誌 / 修剪排程 / 聚合導出"]
+        ConfigMgr["lib/config.js\n三層設定優先序 / 磁碟熱重載"]
+        Logger["lib/logger.js\n600筆環狀緩衝日誌"]
+        UtilsConst["lib/utils.js & lib/constants.js\n安全防護 / PRNG / 標頭常數"]
+    end
+
+    subgraph WorkerPools ["🧵 後端工作執行緒池 (Worker Thread Pools)"]
+        RenderWorker["🔄 render-worker.js\nMarkdown SSR 預渲染 (CPU-Bound)"]
+        IndexWorker["🔍 index-worker.js\nBigram 雙字元倒排索引與搜尋"]
+    end
+
+    subgraph DataStore ["💾 資料儲存與快取 (Storage Layer)"]
+        MdRoot["📂 md/ (Markdown 經論庫)"]
+        Dicts["📖 dicts/ (佛學辭典庫)"]
+        Config["📄 config.json (持久化設定)"]
+        Logs["📊 logs/ (access-*.jsonl, analytics-aggregates.json)"]
+        BinCache["⚡ *.bin (二進位索引快取)"]
+    end
+
+    UI --> StateStore
+    UI -- "App Shell (Cache-first)" --> SW
+    SW -- "Network Fetch" --> Router
+    UI -- "HTTP REST API" --> Router
+    StateStore --> MDWorker
+
+    Router --> AuthSecurity
+    Router --> StaticCache
+    Router --> ConfigMgr
+    Router --> Logger
+    Router --> AnalyticsStore
+    Router --> WorkerPoolMgr
+
+    WorkerPoolMgr --> RenderWorker
+    WorkerPoolMgr --> IndexWorker
+
+    ConfigMgr <--> Config
+    Router <--> MdRoot
+    Router <--> Dicts
+    IndexWorker <--> BinCache
+    AnalyticsStore --> Logs
 ```
 
 **核心設計原則：**
-- **單一程序架構**：整個後端為單一 `node server.js` 程序，無 Express/框架依賴
-- **Worker Thread Pool**：CPU 密集型工作（Markdown 渲染、Bigram 索引）透過 Worker Thread 池避免阻塞主事件迴圈
-- **全非同步 I/O**：所有磁碟存取均採用 Promise-based async/await
-- **零外部 CDN**：所有前端庫（marked.js、KaTeX、mermaid）均本地託管
+- **原生 CommonJS 模組化**：`server.js` 為乾淨路由入口，職責解耦至 `lib/` 8 大原生模組（無 Express/第三方依賴）
+- **雙 Worker Thread Pool**：CPU 密集型工作（Markdown 渲染、Bigram 倒排索引）透過獨立 Worker Thread 池並行處理，主事件迴圈零阻塞
+- **全非同步 I/O**：所有磁碟存取與 Worker 呼叫均採用 Promise-based async/await
+- **零外部 CDN**：所有前端依賴（marked.js、KaTeX、mermaid、字型）均本地託管於專案內
+- **集中防禦性儲存**：前端全面透過 `STORAGE_KEYS` 常數池與 `storage` 安全防拋錯物件管理 `localStorage`
 
 ---
 
@@ -80,7 +119,7 @@ flowchart TD
     RateLimit -- "超限" --> HTTP429["429 Too Many Requests"]
     RateLimit -- "通過" --> ApiRoutes["API 路由分發"]
     RouteCheck -->|"?file=...\n(crawler UA)"| CrawlerSSR["handleCrawlerSsr()\nBot SSR 預渲染"]
-    RouteCheck -->|"靜態資源"| StaticFiles["serveStaticFile()\n記憶體快取 + ETag"]
+    RouteCheck -->|"靜態資源"| StaticFiles["serveStatic()\nlib/static-cache.js\n記憶體 LRU 快取 + ETag 304"]
     RouteCheck -->|"/  index.html"| IndexSSR["getIndexHtml()\n注入設定 + 主題 + 站名"]
 ```
 
@@ -227,71 +266,179 @@ flowchart TD
 
 ## 7. 使用者偏好與排版控制
 
-為提供無干擾、客製化的閱讀體驗，`app.js` 提供「使用者偏好設定」彈窗（包含「主題外觀」與「視覺排版」兩大分頁）：
+為提供無干擾、客製化且安全的閱讀體驗，`app.js` 提供「使用者偏好設定」彈窗（包含「外觀主題」與「視覺排版」兩大分頁，以及整合之「備份與還原」功能）：
 
 ```mermaid
 flowchart TD
-    PrefUI["使用者設定彈窗\n(視覺排版 Tab)"] --> Settings["偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶\n- 自動簡體轉繁體 (autoS2T)"]
-    Settings --> LocalStorage["localStorage 獨立持久化\n(不影響全域伺服器設定)"]
+    PrefUI["使用者設定彈窗\n(#userSettingsOverlay)"] --> Tabs["設定分頁\n- 外觀主題 (Theme)\n- 視覺排版 (Typography & Layout)\n- 偏好備份與還原 (Backup & Restore)"]
+    Tabs --> Settings["排版偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶 (readProgress)\n- 自動簡體轉繁體 (autoS2T)"]
+    Settings --> StorageAPI["storage 安全封裝物件\n(get / set / remove / getJson / setJson)"]
+    StorageAPI --> LocalStorage["localStorage 獨立持久化\n(基於 STORAGE_KEYS 常數池)"]
     Settings --> LiveApply["即時 CSS 變數與 DOM 更新\n(零重載刷新閱讀畫面)"]
     Settings --> S2TSearch["搜尋請求連動\n(s2t=0 或 s2t=1 傳遞後端)"]
 ```
 
-### 偏好儲存鍵值（localStorage）：
-- `mdWebview-fontsize`：字型大小（數值）
-- `mdWebview-lineheight`：行高（字串，如 `'1.8'`）
-- `mdWebview-textalign`：對齊方式（`'justify'` 或 `'left'`）
-- `mdWebview-maxwidth`：版面寬度（`'800px'`、`'1000px'` 或 `'100%'`）
-- `mdWebview-auto-read-progress`：閱讀進度記憶（`'true'` 或 `'false'`）
-- `mdWebview-auto-s2t`：自動簡體轉繁體開關（`'true'` 或 `'false'`，全站預設 `false`）
+### 7.1 集中式常數池與安全儲存封裝
+
+為消除散落硬編碼（Magic Strings）並防止無痕瀏覽模式、Storage Quota 爆滿或損毀 JSON 導致程式崩潰，前端全面採用集中化儲存機制：
+
+#### 1. STORAGE_KEYS 常數池
+| 鍵值常數 | 實際 localStorage 鍵值 | 說明 |
+|---------|------------------------|------|
+| `THEME` | `mdWebview-user-theme` | 外觀主題 ID（obsidian-dark, obsidian-light 等） |
+| `FONT_SIZE` | `mdWebview-user-fontsize` | 使用者設定字體大小（數值 px） |
+| `TEXT_ALIGN` | `mdWebview-user-textalign` | 文字對齊（`justify` 或 `left`） |
+| `LINE_HEIGHT` | `mdWebview-user-lineheight` | 行高倍率（`1.6`, `1.8`, `2.0`） |
+| `MAX_WIDTH` | `mdWebview-user-maxwidth` | 閱讀容器最大寬度（`800px`, `1000px`, `100%`） |
+| `AUTO_S2T` | `mdWebview-auto-s2t` | 自動簡轉繁開關（`'true'` 或 `'false'`） |
+| `READ_PROGRESS_ENABLED` | `mdWebview-user-readprogress` | 是否啟用自動記錄/恢復閱讀進度 |
+| `LAST_READ_PROGRESS` | `mdWebview-last-read-progress` | 最近閱讀經文路徑與行號錨點 |
+| `RECENT_FILES` | `mdWebview-user-recentfiles` | 最近開啟經文清單（上限 20 筆 JSON） |
+| `BOOKMARKS` | `mdWebview-user-bookmarks` | 書籤清單（JSON 陣列 `{path, title, line, ts}`） |
+| `ADMIN_TOKEN` | `mdWebview-admin-token` | 後台管理員 Session Bearer Token |
+| `ADMIN_TZ` | `mdWebview-admin-tz` | 管理員後台報表指定顯示時區 |
+| `DICT_FILE_ORDER` | `mdWebview-dict-file-order` | 辭典顯示順序偏好清單 |
+| `DICT_FILE_SELECT` | `mdWebview-dict-selected` | 當前選中辭典索引標籤 |
+| `FORCE_FULL` | `mdWebview-force-full` | 虛擬化超大經文強制全量展開旗標 |
+| `ANNOUNCEMENT_ACK` | `mdWebview-announcement-modal-ack` | 今日公告已確認紀錄簽章 |
+
+#### 2. storage 防例外包裝工具
+- `storage.get(key, fallback)`：內建 try-catch，無拋錯讀取字串。
+- `storage.set(key, val)`：寫入安全包裝，捕獲 `QuotaExceededError` 並回傳 boolean。
+- `storage.remove(key)`：安全移除項目。
+- `storage.getJson(key, fallback)`：解析 JSON，語法錯誤或非預期格式時自動降級回傳 fallback。
+- `storage.setJson(key, val)`：自動序列化為 JSON 字串並持久化。
+
+### 7.2 偏好備份與還原機制
+
+- **備份匯出**：於設定彈窗點擊「匯出設定」，將使用者閱讀偏好、最近閱讀歷史、書籤與外觀打包為標準 JSON 下載（`mdwebview-preferences-YYYY-MM-DD.json`）。
+- **資安防護**：匯出程序**嚴格剔除** `STORAGE_KEYS.ADMIN_TOKEN` 與敏感授權資料，確保使用者備份檔案不慎外流時無任何資安風險。
+- **還原驗證**：支援拖曳或上傳 JSON 檔案，進行結構合法性檢查後原子化覆蓋偏好並即時刷新介面。
+- **UI 整合淨化**：移除舊版位於 UI 底部左下角的重複「下載備份」按鈕，統一集中由「使用者設定」彈窗掌管，維持首頁與閱讀介面的乾淨簡約。
 
 ---
 
-## 8. server.js API 路由索引
+## 8. 後端模組架構與 API 路由索引
 
-| 路徑 | Method | Handler | 需要 Auth | 說明 |
-|------|--------|---------|-----------|------|
-| `/` | GET | `getIndexHtml()` | ❌ | SPA 首頁（動態注入設定） |
-| `/manifest.json` | GET | `handleManifestJson()` | ❌ | PWA Manifest（動態 siteName） |
-| `/robots.txt` | GET | `handleRobotsTxt()` | ❌ | SEO robots |
-| `/sitemap.xml` | GET | `handleSitemapXml()` | ❌ | SEO sitemap（20s 防抖 + Stale 快取） |
-| `/api/tree` | GET | `handleTree()` | ❌ | 取得 Markdown 檔案樹 |
-| `/api/file` | GET | `handleFile()` | ❌ | 取得 .md 檔案內容 |
-| `/api/media` | GET | `handleMedia()` | ❌ | 取得圖片/音訊/PDF |
-| `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型檔案分塊 metadata |
-| `/api/render` | GET | `handleRender()` | ❌ | 渲染大型檔案某一 chunk |
-| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文搜尋（支援 s2t 參數） |
-| `/api/file-search` | GET | `handleFileSearch()` | ❌ | 檔名搜尋 |
-| `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單檔內全文檢索（支援 s2t 參數） |
-| `/api/page-search` | GET | `handlePageSearch()` | ❌ | 頁內 Ctrl+F 搜尋 |
-| `/api/dict/headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條索引 |
-| `/api/dict/files` | GET | `handleDictFiles()` | ❌ | 辭典檔案清單 |
-| `/api/dict/search` | GET | `handleDictSearch()` | ❌ | 辭典全文搜尋 |
-| `/api/dict/analytics` | POST | `handleDictAnalytics()` | ❌ | 辭典查詢記錄 beacon |
-| `/api/suggest-list` | GET | `handleSuggestList()` | ❌ | 首頁推薦 + 公告資料 |
-| `/api/admin/login` | POST | — | ❌ | 管理員登入（PBKDF2 驗證） |
-| `/api/admin/logout` | POST | — | ✅ | 登出 |
-| `/api/admin/status` | GET | — | ✅ | 管理員狀態 |
-| `/api/admin/settings` | GET | — | ✅ | 取得系統設定 |
-| `/api/admin/settings` | POST | — | ✅ | 儲存系統設定 |
-| `/api/admin/logs` | GET | — | ✅ | 讀取系統日誌 |
-| `/api/admin/analytics` | GET | — | ✅ | 讀取 Analytics 資料 |
-| `/api/admin/analytics/export` | GET | — | ✅ | 匯出 CSV/JSON |
-| `/api/admin/hardware` | GET | — | ✅ | 硬體監控（CPU/RAM） |
-| `/api/admin/rebuild-index` | POST | — | ✅ | 強制重建搜尋索引 |
-| `/api/admin/rebuild-sitemap` | POST | `handleAdminRebuildSitemap()` | ✅ | 強制手動立即重建 Sitemap 索引 |
-| `/api/admin/clear-cache` | POST | `handleAdminClearCache()` | ✅ | 清除記憶體靜態與搜尋快取 |
-| `/api/admin/change-password` | POST | — | ✅ | 修改管理員密碼 |
-| `/api/admin/setup` | POST | — | ❌ | 首次安裝設定管理員 |
-| `/*` (static) | GET | `serveStaticFile()` | ❌ | JS/CSS/圖片等靜態資源 |
+後端採用 **原生 CommonJS 模組解耦架構**，無任何外部第三方 HTTP 框架（如 Express/Fastify）。`server.js` 作為頂層組裝入口，所有重型與專項業務邏輯抽離至 `lib/` 目錄下的 8 大原生模組。
+
+### 8.1 lib/ 原生模組職責劃分
+
+```mermaid
+flowchart TD
+    ServerEntry["server.js (主服務入口 4,884 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
+
+    ServerEntry --> ConstMod["lib/constants.js\n全域常數 / MIME / 安全標頭"]
+    ServerEntry --> UtilMod["lib/utils.js\n時區 / PRNG / 爬蟲辨識 / 路徑安全"]
+    ServerEntry --> ConfMod["lib/config.js\n三層設定優先序 / 磁碟熱重載"]
+    ServerEntry --> AuthMod["lib/auth.js\nPBKDF2 / Session / 30 req/s 限流"]
+    ServerEntry --> PoolMod["lib/worker-pool.js\nRender & Index 線程池調度與容錯"]
+    ServerEntry --> StatMod["lib/static-cache.js\n記憶體 LRU 快取 / ETag 304 / SSR 注入"]
+    ServerEntry --> LogMod["lib/logger.js\n600筆環狀記憶體日誌緩衝"]
+    ServerEntry --> AnaMod["lib/analytics.js\n90天持久日誌 / 7天修剪 / 報表導出"]
+```
+
+| 模組檔案 | 核心職責 | 主要導出方法與物件 |
+|---------|---------|-------------------|
+| `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
+| `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
+| `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
+| `lib/auth.js` | 身分安全與存取控制：PBKDF2 密碼雜湊、時序安全比對、6h Session 管理、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `sessions`, `SESSION_DURATION`, `loginAttempts`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`, `generateSessionToken`, `verifySameOrigin`, `isAuthenticated`, `readJSONBody` |
+| `lib/worker-pool.js` | 背景 Worker Thread 池生命週期調度：Render Pool 與 Index Pool 管理、Backpressure 佇列上限、逾時熔斷重生、指數退避防 Crash Loop | `workerPool`, `indexWorkerPool`, `initWorkerPool`, `initIndexWorkerPool`, `renderWithWorker`, `executeIndexJob`, `runIndexWorkerPool`, `terminateWorkerPools` |
+| `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`, `getLogFilePath`, `appendToPersistentLog`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
+| `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝 | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`) |
+| `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入 | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
+
+### 8.2 server.js API 路由索引表
+
+`server.js` 負責核心請求攔截、路由分派以及搜尋/章節索引之調度：
+
+| 路徑 | Method | Handler / 關聯模組 | 需要 Auth | 說明 |
+|------|--------|-------------------|-----------|------|
+| `/` | GET | `getIndexHtml()` (`lib/static-cache.js`) | ❌ | SPA 首頁（SSR 動態注入 siteName、主題、設定） |
+| `/manifest.json` | GET | `handleManifestJson()` | ❌ | PWA Web App Manifest（動態站名） |
+| `/robots.txt` | GET | `handleRobotsTxt()` | ❌ | SEO 搜尋引擎檢索指令 |
+| `/sitemap.xml` | GET | `handleSitemapXml()` | ❌ | SEO 站點地圖（20s 沉降防抖 + Stale 快取） |
+| `/api/tree` | GET | `handleTree()` | ❌ | 取得經論 Markdown 目錄樹（支援快取與熱失效） |
+| `/api/file` | GET | `handleFile()` | ❌ | 取得經論 .md 原文內容 |
+| `/api/media` | GET | `handleMedia()` | ❌ | 靜態媒體服務（圖片、PDF、音訊，支援 Range） |
+| `/api/render` | GET | `handleRender()` | ❌ | 經文渲染 API（小型檔案完整渲染並提取 Meta） |
+| `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型經論與辭典章節分塊 Metadata (.bin 磁碟快取) |
+| `/api/render-chunk` | GET | `handleRenderChunk()` | ❌ | 大型經論特定分塊動態渲染（Worker 調度） |
+| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 s2t 簡繁轉換與鄰近過濾） |
+| `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索 |
+| `/api/file-search` | GET | `handleFileSearch()` | ❌ | 檔案名稱快速模糊檢索 |
+| `/api/page-search` | GET | `handlePageSearch()` | ❌ | 頁內全文檢索輔助 |
+| `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料 |
+| `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文） |
+| `/api/dict-event` | POST | `handleDictEvent()` | ❌ | 辭典查閱行為日誌 Beacon |
+| `/api/dict-files` | GET | `handleDictFiles()` | ❌ | 辭典來源檔案清單 |
+| `/api/suggest-list` | GET | `handleSuggestList()` | ❌ | 首頁推薦經論、熱門榜與每日單詞 |
+| `/api/admin/setup` | POST | 伺服器首次管理員初始化 | ❌ | 首次部署管理員帳號與 siteUrl 設定 |
+| `/api/admin/login` | POST | PBKDF2 驗證 (`lib/auth.js`) | ❌ | 管理員登入（防暴力破解鎖定 15m） |
+| `/api/admin/logout` | POST | Session 註銷 (`lib/auth.js`) | ✅ | 登出並使 Token 失效 |
+| `/api/admin/status` | GET | 狀態偵測 | ❌ | 檢查系統是否已初始化及管理員認證狀態 |
+| `/api/admin/settings` | GET | 讀取設定 (`lib/config.js`) | ✅ | 取得當前伺服器 config.settings |
+| `/api/admin/settings` | POST | 儲存設定 (`lib/config.js`) | ✅ | 更新系統設定、目錄路徑與 SEO 參數 |
+| `/api/admin/logs` | GET | 系統日誌 (`lib/logger.js`) | ✅ | 讀取 600 筆環狀記憶體日誌 |
+| `/api/admin/analytics` | GET | 報表查詢 (`lib/analytics.js`) | ✅ | 依時區聚合讀取訪問量、PV/UV、熱門排行 |
+| `/api/admin/analytics/export`| GET | 報表匯出 (`lib/analytics.js`)| ✅ | 匯出結構化 CSV 或 JSON 格式分析資料 |
+| `/api/admin/hardware` | GET | `handleHardwareStats()` | ✅ | 取得伺服器硬體負載（CPU、RAM、Uptime） |
+| `/api/admin/rebuild-index` | POST | `handleRebuildIndex()` | ✅ | 手動觸發非同步重建 Bigram 搜尋索引 |
+| `/api/admin/rebuild-dict-index`| POST| `handleRebuildDictIndex()` | ✅ | 手動觸發非同步重建辭典倒排索引 |
+| `/api/admin/rebuild-sitemap`| POST | `handleAdminRebuildSitemap()`| ✅ | 強制手動立即重新生成 Sitemap |
+| `/api/admin/clear-cache` | POST | `handleAdminClearCache()` | ✅ | 清除記憶體靜態快取與搜尋暫存 |
+| `/api/admin/password` | POST | `handleAdminPassword()` | ✅ | 更新管理員登入密碼 |
+| `/api/admin/diagnose-path`| POST | `handleAdminDiagnosePath()` | ✅ | 檢測經論與辭典磁碟路徑可讀性 |
+| `/api/admin/seo-stats` | GET | SEO 統計資訊 | ✅ | 取得目前 Sitemap、Robots 與經論統計數 |
+| `/*` (靜態資源) | GET | `serveStatic()` (`lib/static-cache.js`) | ❌ | 靜態檔案（HTML, CSS, JS, 字型, 圖片） |
 
 > [!NOTE]
-> 所有 `/api/*` 路由均受 Global Rate Limiter 保護（30 req/s per IP，滑動視窗）。
-> 管理員 API 額外需要有效 session token（HTTP `Authorization: Bearer <token>` header）。
+> - 所有 `/api/*` 路由均受 Global Rate Limiter 保護（30 req/s per IP，滑動視窗）。
+> - 管理員 API 需通過 `verifySameOrigin` CSRF 同源驗證，並攜帶有效 session token（`Authorization: Bearer <token>` 或 `X-Admin-Token`）。
 
 ---
 
-## 9. app.js State 物件欄位說明
+## 9. app.js 前端架構與 State 物件說明
+
+前端單頁應用採用無編譯純 JavaScript（ES6+）IIFE 封裝，依職責劃分為 24 個邏輯段落（§0-§23）。
+
+### 9.1 段落索引與通用 Helper
+
+#### 1. 邏輯段落分區表（Section Map）
+| 段落編號 | 核心模組 | 職責與功能概述 |
+|---------|---------|---------------|
+| `§0` | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
+| `§1` | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析 |
+| `§2` | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
+| `§3` | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
+| `§4` | Announcement Modal | 公告訊息彈窗顯示與今日已讀簽章驗證 |
+| `§5` | File Tree | 經論目錄樹建置、過濾、排序與非同步渲染 |
+| `§6` | Markdown Viewer | 小型經論渲染、標題錨點、雙向註腳跳轉、Wikilink |
+| `§7` | Wikilink Resolver | 內部經文雙鏈快速跳轉與索引比對 |
+| `§8` | Table of Contents | 大綱目錄生成、ScrollSpy 滾動追蹤高亮 |
+| `§9` | Global Search | Bigram 全文搜尋、分批渲染（300筆/批）防介面凍結 |
+| `§10` | Dictionary Sidebar | 佛學辭典抽屜、前綴與全文檢索、分詞查閱 |
+| `§11` | In-Page Search (Ctrl+F) | 頁內即時高亮搜尋與跳轉 |
+| `§12` | Theme | 主題切換與即時 CSS 變數套用 |
+| `§13` | Font Size | 字體大小即時縮放與持久化 |
+| `§14` | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁轉換開關 |
+| `§15` | Recent Files | 最近閱讀經文紀錄（最多 20 筆） |
+| `§16` | Toast Notifications | 全域浮動提示通知（showToast） |
+| `§17` | Bookmarks | 經本書籤收藏管理 |
+| `§18` | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
+| `§19` | Sidebar Resize | 側邊欄拖曳調整寬度 |
+| `§20` | Event Listeners | 快捷鍵、全域點擊、popstate 路由監聽 |
+| `§21` | Admin Panel | 後台管理面板 UI、設定表單、圖表與日誌 |
+| `§22` | Utilities | 通用轉義、時區格式化、通用 Helper |
+| `§23` | Boot Entry | DOMContentLoaded 初始化啟動入口 |
+
+#### 2. 前端通用 Helper
+- `isNarrowScreen()`：整合行動裝置 User-Agent 識別與 `window.innerWidth <= 768` 判斷，全站統一響應式邊界判斷。
+- `getTodayDateIso()`：取得 ISO 格式今日日期字串（`YYYY-MM-DD`），用於公告 ack 比對與日誌校驗。
+- `log`：統一前端彩色控制台日誌工具（`info`, `warn`, `error`）。
+
+### 9.2 State 物件欄位一覽
 
 `state` 是 `app.js` 的單一全域狀態物件（IIFE 內部，非 window 全域）：
 
@@ -388,36 +535,38 @@ flowchart TD
 
 ## 11. 關鍵常數速查
 
-### server.js
+### 後端常數（lib/constants.js & server.js）
+
+| 常數 | 定義位置 | 值 | 說明 |
+|------|---------|-----|------|
+| `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.6.4'` | 應用程式當前核心版本號 |
+| `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
+| `MAX_STATIC_CACHE_ENTRIES`| `lib/constants.js` | `500` | 靜態資源記憶體 LRU 快取上限筆數 |
+| `STATIC_CACHE_TTL_MS` | `lib/constants.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
+| `POOL_SIZE` | `lib/worker-pool.js` | `max(2, CPU-1)` | Markdown SSR 渲染 Worker Thread 池大小 |
+| `INDEX_POOL_SIZE` | `lib/worker-pool.js` | `max(2, min(4, CPU-1))` | Bigram 索引 Worker Thread 池大小 |
+| `RENDER_QUEUE_MAX` | `lib/worker-pool.js` | `POOL_SIZE * 8` | Markdown 渲染工作佇列上限（超限即時回 503 防 OOM） |
+| `INDEX_QUEUE_MAX` | `lib/worker-pool.js` | `INDEX_POOL_SIZE * 8` | 索引工作佇列上限（超限即時回 503 防 OOM） |
+| `WORKER_TIMEOUT_MS` | `lib/worker-pool.js` | `30,000`（30s） | Worker 單工逾時（入列即計時，逾時抽離並重啟 Worker） |
+| `LARGE_FILE_MIN_BYTES` | `server.js` | `1,048,576`（1MB） | 觸發虛擬化章節分塊渲染的檔案大小門檻 |
+| `MAX_ANALYTICS_KEYS` | `lib/analytics.js` | `10,000` | Analytics 記憶體 Map 最大 key 數（防記憶體爆炸） |
+| `SESSION_DURATION` | `lib/auth.js` | `21,600,000`（6h） | 管理員 session 有效存活時間 |
+| `MAX_ATTEMPTS` | `lib/auth.js` | `5` | 管理員密碼錯誤次數上限（超限觸發鎖定） |
+| `LOCK_DURATION` | `lib/auth.js` | `900,000`（15m） | 登入失敗鎖定時間（15 分鐘） |
+| `SEARCH_CACHE_MAX` | `server.js` | `30` | 全文搜尋結果快取最大筆數 |
+| `SITEMAP_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | Sitemap 檔案變更沉降防抖延遲時間 |
+| `server.requestTimeout`| `server.js` | `30,000`（30s） | HTTP 請求整體處理逾時（防止 Socket 永久懸置） |
+| `server.headersTimeout`| `server.js` | `10,000`（10s） | HTTP 標頭接收逾時（防止 Slowloris 攻擊） |
+
+### 前端常數（app.js）
 
 | 常數 | 值 | 說明 |
 |------|-----|------|
-| `PORT` | `8330`（env `PORT`） | HTTP 服務埠號 |
-| `POOL_SIZE` | `max(2, CPU-1)` | Markdown Worker Thread 池大小 |
-| `INDEX_POOL_SIZE` | `max(2, min(4, CPU-1))` | Bigram 索引 Worker Thread 池大小 |
-| `RENDER_QUEUE_MAX` | `POOL_SIZE * 8` | Markdown 渲染工作佇列上限（超限即時 503 防 OOM） |
-| `INDEX_QUEUE_MAX` | `INDEX_POOL_SIZE * 8` | 索引工作佇列上限（超限即時 503 防 OOM） |
-| `WORKER_TIMEOUT_MS` | `30,000`（30s） | Worker 單工逾時（入列即計時，逾時抽離並重啟 Worker） |
-| `LARGE_FILE_MIN_BYTES` | `1,048,576`（1MB） | 觸發虛擬化渲染的檔案大小門檻 |
-| `MAX_LOG_BUFFER` | `600` | 記憶體系統日誌緩衝筆數 |
-| `MAX_ANALYTICS_KEYS` | `10,000` | Analytics Map 最大 key 數（防記憶體爆炸） |
-| `MAX_STATIC_CACHE_ENTRIES`| `500` | 靜態資源記憶體 LRU 快取上限筆數 |
-| `STATIC_CACHE_TTL_MS` | `5,000`（5s） | 靜態資源記憶體快取有效期 |
-| `SESSION_DURATION` | `21,600,000`（6h） | 管理員 session 存活時間 |
-| `SEARCH_CACHE_MAX` | `30` | 全文搜尋結果快取最大筆數 |
-| `SITEMAP_DEBOUNCE_MS` | `20,000`（20s） | Sitemap 檔案變更沉降防抖延遲時間 |
-| `server.requestTimeout`| `30,000`（30s） | HTTP 請求整體處理逾時（防止 Socket 永久懸置） |
-| `server.headersTimeout`| `10,000`（10s） | HTTP 標頭接收逾時（防止 Slowloris 攻擊） |
-
-### app.js
-
-| 常數 | 值 | 說明 |
-|------|-----|------|
-| `LARGE_FILE_MIN_BYTES` | `1,048,576`（1MB） | 同 server.js；決定是否進入虛擬化模式 |
+| `LARGE_FILE_MIN_BYTES` | `1,048,576`（1MB） | 同後端；決定是否進入虛擬化切片模式 |
 | `SEARCH_RENDER_BATCH` | `300` | 搜尋結果分批渲染每批筆數（防 DOM 凍結） |
-| `CACHE_MAX` | `10` | LRU 渲染快取最大筆數 |
-| `ANNOUNCEMENT_ACK_KEY` | `'mdWebview-announcement-modal-ack'` | localStorage key：公告已確認記錄 |
-| `AUTO_S2T_KEY` | `'mdWebview-auto-s2t'` | localStorage key：使用者偏好自動簡繁轉換 |
+| `CACHE_MAX` | `10` | 經文渲染 LRU 快取最大筆數 |
+| `STORAGE_KEYS` | 物件（16 組常數） | 全站統一 LocalStorage 鍵值常數池，消除散落字串 |
 
 ---
 
@@ -539,5 +688,33 @@ flowchart TD
 | **二分搜尋消除排版卡頓 (P1-16)** | `saveReadProgress` | 避免在萬行經文中對每一行呼叫 `getBoundingClientRect()` 引發嚴重的 Layout Thrashing，改用已快取行號錨點執行二分搜尋（只需 10~15 次量測）。 |
 | **大陣列展延堆疊防護 (P1-17)** | `buildVirtualTocItems` / `generateTOC` | 移除 `Math.min(...largeArr)`，改採單次迴圈遍歷，徹底防範大經文目錄深度觸發 RangeError: Maximum call stack size exceeded。 |
 | **Service Worker 離線回退 (P2-1)** | `sw.js` Fetch Handler | 當處於完全離線且快取未命中時，回傳明確的 HTTP 504 Gateway Timeout Response 而非丟出未處理的拒絕錯誤；安裝後發送 `SKIP_WAITING` 實現無縫即時生效。 |
+
+---
+
+## 16. CSS 樣式系統與響應式斷點設計
+
+專案採用原生現代 CSS 變數（Custom Properties）與 Flexbox/CSS Grid 系統，樣式經過三階段重構進行了深度的語意化收斂，將原本散落各處的 16 個 `@media` 區塊合併整併為 **7 個語意明確的核心媒體查詢斷點**，並消除無效死規則，確保 CSS 語法階層與大括號嚴格平衡。
+
+### 16.1 媒體查詢斷點分層矩陣
+
+| 斷點條件 | 定義區塊 | 核心職責與適用範圍 |
+|---------|---------|-------------------|
+| `@media (max-width: 768px)` | L2539 | **主要行動端佈局**：App Shell 轉為單欄、頁首緊湊化、左側目錄/搜尋/大綱抽屜化、全螢幕毛玻璃遮罩（Backdrop）、浮動查詞操作面板自適應、使用者偏好設定彈窗雙欄轉單欄流動佈局 |
+| `@media (max-width: 600px)` | L6634 | **公告訊息彈窗**：專屬緊湊視窗適配，縮小 modal padding 與字型大小，按鈕轉為垂直流動排列以防溢出 |
+| `@media (max-width: 520px)` | L2892 | **小型螢幕微調**：各類操作按鈕（font-size 調整、複製連結、查詞）縮減內距與邊框，避免在 5.5 吋以下手機出現橫向捲軸 |
+| `@media (max-width: 480px)` | L2908 | **極窄手機體驗**：頁首標題自動隱藏或省略（text-overflow）、彈窗關閉按鈕放大觸控熱區、各級標題字級動態縮減 |
+| `@media (max-width: 360px)` | L2959 | **超微型裝置自適應**：針對極小手持設備（如 Galaxy Fold 封面螢幕）進行最後一哩字級微調 |
+| `@media (max-width: 768px)` (Admin) | L3264 | **管理員後台專屬響應式**：後台面板轉為全螢幕覆蓋模式（100vw × 100vh）、流量分析與硬體圖表表格自動包裹水平滾動容器（`overflow-x: auto`）、系統設定表單轉為流動彈性網格 |
+| `@media print` | L2966 | **列印與輸出格式**：隱藏全站導覽列、抽屜、懸浮按鈕、彈窗與背景裝飾；正文轉為高對比黑白排版與自動分頁控制 |
+
+### 16.2 行動端佈局優化與品質保證準則
+
+1. **雙抽屜互斥與單一焦點原則**：
+   在 768px 以下行動端，左側檔案樹大綱抽屜與右側辭典抽屜嚴格互斥，展開任一側時自動收合對側並升起 z-index 85 毛玻璃遮罩，防止多層面板交疊導致操作錯亂。
+2. **彈窗自適應與彈性流動網格**：
+   偏好設定彈窗與後台管理彈窗在桌機端維持居中卡片式呈現（最大寬度 720px~960px）；在 768px 以下自動擴展為全螢幕或自適應 95% 寬度，按鈕群使用 `flex-wrap: wrap` 與 `gap` 排列，杜絕固定寬度破版。
+3. **消除無效樣式與嚴格括號平衡**：
+   重構過程中全面消除了歷史遺留的重複規則（如重複宣告的 `.seo-stats-box` 與 `.logo-text` 衝突），並由單元測試 `tests/test-css-theme.test.js` 與 `tests/test-mobile-layout-audit.test.js` 嚴格監控 CSS 語法閉合度與行動斷點完整性。
+
 
 
