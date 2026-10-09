@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.6.5 | 最後更新：2026-10
+> 版本：v3.6.6 | 最後更新：2026-10
 
 ---
 
@@ -224,19 +224,21 @@ sequenceDiagram
     participant S as server.js
     participant IX as index-worker.js
 
-    U->>B: 輸入關鍵詞（空白分隔多詞）
-    B->>S: GET /api/search?q=詞A+詞B&folder=...
-    S->>IX: executeIndexJob('search', {query, folder, maxProximityDistance})
-    Note over IX: 1. 對每個詞拆 bigram<br/>2. 各 bigram 找交集 docId<br/>3. 多詞 AND 過濾<br/>4. 鄰近距離過濾 (≤150 chars)<br/>5. 依命中數排序
-    IX-->>S: [{file, matches:[{line, preview}]}]
-    S-->>B: JSON results
-    B->>B: renderSearchResults()<br/>（分批 SEARCH_RENDER_BATCH=300）
+    U->>B: 輸入關鍵詞（空白分隔多詞，支援嚴格/寬鬆模式切換）
+    B->>S: GET /api/search?q=詞A+詞B&folder=...&mode=strict|loose
+    S->>IX: executeIndexJob('search-scan', {fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct})
+    Note over IX: 1. 標點/換行透明 Bigram 倒排縮小候選<br/>2. scanText 文本掃描（原文座標）<br/>3. 嚴格比對或寬鬆（忽略 T 集合：標點與換行）比對<br/>4. 鄰近距離過濾 (≤150 chars)<br/>5. 依命中數與相關性排序
+    IX-->>S: [{file, fileName, entryIndex, headword, line, snippet}]
+    S-->>B: JSON results {query, mode, terms, results, total, capped}
+    B->>B: renderSearchResults()<br/>（分批 SEARCH_RENDER_BATCH=300，寬鬆高亮 highlightLooseSnippet）
 ```
 
 **Bigram 索引架構：**
 - **建立時機**：首次搜尋時 lazy build，之後快取（記憶體 + `.bin` 二進位磁碟快取）
+- **標點/換行透明性**：CJK 字元間遇到標點符號或行終止符（`\p{P}`、LF `\n`、CR `\r`、NEL `\u0085`、`\u2028`、`\u2029`）等透明字元 T 時不中斷 Bigram 產生（如「菩薩，行深」或跨行「菩薩\n行深」均產生「薩行」）；空白（半形、Tab、全形空格、NBSP）為詞分隔符號不屬於 T（「菩薩 行深」不產生「薩行」）。
+- **索引超集不變式 (Index Superset Invariant)**：索引抽取透明集必須 ⊇ 掃描透明集。目前磁碟 `.bin` 以「標點+空白+換行」建置，比掃描的「標點+換行」更寬，故仍為合法超集，無需 bump magic 或重建現有 `.bin`。日後若要放寬掃描透明集（例如重新納入空白），才需 bump magic 並觸發重建。
 - **辭典索引**：獨立於主庫索引，避免辭典大小影響主庫搜尋速度
-- **索引格式**：`bigramMap: Map<string, Set<docId>>` 加上 `docStore: Map<docId, {path, content}>`
+- **索引格式**：`bigramMap: Map<string, number|number[]>` 記錄 unitId 清單，配合二進位磁碟快取（Magic: 0x42475835 / 0x42475836）
 
 ---
 
@@ -300,6 +302,7 @@ flowchart TD
 | `DICT_FILE_ORDER` | `mdWebview-dict-file-order` | 辭典顯示順序偏好清單 |
 | `DICT_FILE_SELECT` | `mdWebview-dict-selected` | 當前選中辭典索引標籤 |
 | `FORCE_FULL` | `mdWebview-force-full` | 虛擬化超大經文強制全量展開旗標 |
+| `SEARCH_MODE` | `mdWebview-search-mode` | 全文搜尋模式偏好（`'loose'` 或 `'strict'`） |
 | `ANNOUNCEMENT_ACK` | `mdWebview-announcement-modal-ack` | 今日公告已確認紀錄簽章 |
 
 #### 2. storage 防例外包裝工具
@@ -311,9 +314,9 @@ flowchart TD
 
 ### 7.2 偏好備份與還原機制
 
-- **備份匯出**：於設定彈窗點擊「匯出設定」，將使用者閱讀偏好、最近閱讀歷史、書籤與外觀打包為標準 JSON 下載（`mdwebview-preferences-YYYY-MM-DD.json`）。
+- **備份匯出**：於設定彈窗點擊「匯出設定」，將使用者閱讀偏好（含 `searchMode` 全文搜尋模式）、最近閱讀歷史、書籤與外觀打包為標準 JSON 下載（`mdwebview-preferences-YYYY-MM-DD.json`）。
 - **資安防護**：匯出程序**嚴格剔除** `STORAGE_KEYS.ADMIN_TOKEN` 與敏感授權資料，確保使用者備份檔案不慎外流時無任何資安風險。
-- **還原驗證**：支援拖曳或上傳 JSON 檔案，進行結構合法性檢查後原子化覆蓋偏好並即時刷新介面。
+- **還原驗證與向下相容**：支援拖曳或上傳 JSON 檔案，進行結構合法性檢查後原子化覆蓋偏好並即時刷新介面；`searchMode` 經值驗證（只接受 `'loose'` 或 `'strict'`）後還原，若舊備份檔無此欄位則維持現狀，具備完全向下相容性。
 - **UI 整合淨化**：移除舊版位於 UI 底部左下角的重複「下載備份」按鈕，統一集中由「使用者設定」彈窗掌管，維持首頁與閱讀介面的乾淨簡約。
 
 ---
@@ -365,7 +368,7 @@ flowchart TD
 | `/api/render` | GET | `handleRender()` | ❌ | 經文渲染 API（小型檔案完整渲染並提取 Meta） |
 | `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型經論與辭典章節分塊 Metadata (.bin 磁碟快取) |
 | `/api/render-chunk` | GET | `handleRenderChunk()` | ❌ | 大型經論特定分塊動態渲染（Worker 調度） |
-| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 s2t 簡繁轉換與鄰近過濾） |
+| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 s2t 簡繁轉換、mode=strict|loose 寬鬆模式與鄰近過濾） |
 | `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索 |
 | `/api/file-search` | GET | `handleFileSearch()` | ❌ | 檔案名稱快速模糊檢索 |
 | `/api/page-search` | GET | `handlePageSearch()` | ❌ | 頁內全文檢索輔助 |
@@ -466,6 +469,7 @@ flowchart TD
 | `pageSearchIndex` | `number` | 當前高亮命中索引（`-1` = 無） |
 | `pageSearchQuery` | `string|null` | 最後一次頁內搜尋關鍵詞 |
 | `searchSort` | `string` | 搜尋結果排序：`relevance`|`file-asc`|`file-desc`|`count-desc` |
+| `searchMode` | `'loose'|'strict'` | 當前全文搜尋模式（優先讀取 localStorage 偏好，fallback 至 `appConfig.defaultSearchMode`，預設 `'loose'`） |
 | `lastSearchData` | `Object|null` | 最後搜尋回傳資料（換頁排序時不重新請求） |
 | `searchRenderLimit` | `number` | 已渲染的搜尋結果筆數（分批渲染計數） |
 | `scrollSpyObserver` | `IntersectionObserver|null` | TOC 高亮用的 IntersectionObserver |
@@ -519,6 +523,7 @@ flowchart TD
 | `settings.announcementUpdatedAt` | `number` | `0` | — | 公告最後更新時間戳（ms，用於觸發使用者重新顯示） |
 | `settings.timezone` | `string` | `'auto'` | — | Analytics 時區（`'auto'` 或 IANA 時區，如 `'Asia/Taipei'`） |
 | `settings.maxProximityDistance` | `number` | `150` | — | 全文搜尋鄰近詞距上限（字元數） |
+| `settings.defaultSearchMode` | `string` | `'loose'` | `DEFAULT_SEARCH_MODE` | 全站預設全文搜尋模式（`'loose'` 或 `'strict'`），管理員可於後台調整 |
 | `settings.suggestList.enabled` | `boolean` | `false` | — | 是否啟用首頁推薦清單 |
 | `settings.suggestList.adminList` | `string[]` | `[]` | — | 管理員指定推薦的檔案路徑 |
 | `settings.suggestList.adminPickCount` | `number` | `3` | — | 從 adminList 隨機顯示的數量 |
@@ -540,7 +545,7 @@ flowchart TD
 | 常數 | 定義位置 | 值 | 說明 |
 |------|---------|-----|------|
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.6.5'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.6.6'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/constants.js` | `500` | 靜態資源記憶體 LRU 快取上限筆數 |
 | `STATIC_CACHE_TTL_MS` | `lib/constants.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -586,8 +591,8 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 
 ### Index Worker Pool（`index-worker.js`）
 
-- **用途**：Bigram 全文倒排索引的建立與搜尋
-- **工作模式**：非同步 job 分發；支援 `build`（建立索引）、`search`（執行搜尋）、`invalidate`（清除快取）任務
+- **用途**：Bigram 全文倒排索引的建立與搜尋（共用 `lib/text.js`）
+- **工作模式**：非同步 job 分發；支援 `section`（章節解析）、`index-build-file`（建立標點透明 Bigram 索引）、`search-scan`（內文掃描，支援 `ignorePunct` 寬鬆模式）任務
 - **池大小**：`max(2, min(4, CPU - 1))`
 - **單飛重建互斥旗標（Single-flight Rebuild）**：檔案變更防抖與管理員強制重建共用單飛旗標（`searchIndex.building` 與 `searchIndexRebuildPending`），杜絕並行重建引發 2× 峰值記憶體與 `.bin` 暫存檔寫入衝突。
 - **二進位索引緩衝區防禦**：載入 `.bin` 磁碟快取時嚴格驗證緩衝區位元組長度與條目數量邊界，防範損毀檔案觸發 OOM。

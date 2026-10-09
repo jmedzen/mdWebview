@@ -10,16 +10,16 @@
  *       → { ok, result:{entryLevel,preambleLineCount,totalLines,totalBytes,entries,groups} }
  *   { type:'index-build-file', jobId, fullPath, units:[{unitId,byteOffset,byteLength}] }
  *       → { ok, result:{ results:[{unitId, bigrams:[...]}] } }
- *   { type:'search-scan', jobId, fullPath, units:[{unitId,file,fileName,entryIndex,headword,byteOffset,byteLength,lineStart}], terms, maxProximityDist, maxPerFile }
+ *   { type:'search-scan', jobId, fullPath, units:[{unitId,file,fileName,entryIndex,headword,byteOffset,byteLength,lineStart}], terms, maxProximityDist, maxPerFile, ignorePunct }
  *       → { ok, result:{ matches:[{file,fileName,entryIndex,headword,line,snippet}] } }
  */
 'use strict';
 
 const { parentPort } = require('worker_threads');
 const fs = require('fs');
+const { extractBigramsFromText, scanText } = require('./lib/text');
 
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
-const SNIPPET_RADIUS = 60;
 
 /**
  * Scans a markdown document and extracts its section (entry) index.
@@ -130,134 +130,7 @@ function scanSections(text) {
   return { entryLevel: deepestLevel, preambleLineCount, totalLines, totalBytes, entries, groups };
 }
 
-/**
- * Extract unique bigrams of consecutive CJK chars. MUST stay byte-for-byte
- * identical to extractBigrams() in server.js so query bigrams and index bigrams
- * match exactly.
- */
-function extractBigramsFromText(text) {
-  const set = new Set();
-  let prevChar = '';
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
-      const currChar = text[i];
-      if (prevChar) set.add(prevChar + currChar);
-      prevChar = currChar;
-    } else {
-      prevChar = '';
-    }
-  }
-  return set;
-}
-
-// 1-based line number (within `text`) of byte position `pos`.
-function localLineAt(lineBreaks, pos) {
-  let lo = 0, hi = lineBreaks.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (lineBreaks[mid] < pos) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo + 1;
-}
-
-/**
- * Scan one unit of text for term matches. Mirrors the single/multi-term logic in
- * server.js, but scoped to a byte-range slice. Returns [{ line (local 1-based), snippet }].
- */
-function scanText(text, terms, maxProximityDist) {
-  const matches = [];
-  const lineBreaks = [];
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) lineBreaks.push(i);
-
-  if (terms.length === 1) {
-    const term = terms[0];
-    let pos = 0;
-    while (pos < text.length) {
-      const matchIdx = text.indexOf(term, pos);
-      if (matchIdx === -1) break;
-      const line = localLineAt(lineBreaks, matchIdx);
-
-      const lineStartIdx = text.lastIndexOf('\n', matchIdx) + 1;
-      let lineEndIdx = text.indexOf('\n', matchIdx);
-      if (lineEndIdx === -1) lineEndIdx = text.length;
-      const lineText = text.substring(lineStartIdx, lineEndIdx);
-      const idxInLine = matchIdx - lineStartIdx;
-      const s = Math.max(0, idxInLine - SNIPPET_RADIUS);
-      const e = Math.min(lineText.length, idxInLine + term.length + SNIPPET_RADIUS);
-      let snippet = lineText.substring(s, e).trim();
-      if (s > 0) snippet = '…' + snippet;
-      if (e < lineText.length) snippet = snippet + '…';
-
-      matches.push({ line, snippet });
-      pos = matchIdx + term.length;
-    }
-    return matches;
-  }
-
-  // Multi-term with proximity filtering (mirrors server.js).
-  if (!terms.every(t => text.includes(t))) return matches;
-
-  const termPositions = [];
-  for (const term of terms) {
-    const posList = [];
-    let p = 0;
-    while (p < text.length) {
-      const idx = text.indexOf(term, p);
-      if (idx === -1) break;
-      posList.push(idx);
-      p = idx + term.length;
-    }
-    if (posList.length === 0) return matches;
-    termPositions.push(posList);
-  }
-
-  const p0List = termPositions[0];
-  for (const p0 of p0List) {
-    let clusterValid = true;
-    let minPos = p0;
-    let maxPos = p0 + terms[0].length;
-
-    for (let tIdx = 1; tIdx < terms.length; tIdx++) {
-      const tLen = terms[tIdx].length;
-      const list = termPositions[tIdx];
-      let foundClose = false;
-      const windowStart = minPos - maxProximityDist;
-      let lo = 0, hi = list.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (list[mid] < windowStart) lo = mid + 1;
-        else hi = mid;
-      }
-      for (let k = lo; k < list.length; k++) {
-        const p = list[k];
-        if (p > maxPos + maxProximityDist) break;
-        const potentialMin = Math.min(minPos, p);
-        const potentialMax = Math.max(maxPos, p + tLen);
-        if (potentialMax - potentialMin <= maxProximityDist) {
-          minPos = potentialMin;
-          maxPos = potentialMax;
-          foundClose = true;
-          break;
-        }
-      }
-      if (!foundClose) { clusterValid = false; break; }
-    }
-
-    if (clusterValid) {
-      const line = localLineAt(lineBreaks, minPos);
-      const s = Math.max(0, minPos - SNIPPET_RADIUS);
-      const e = Math.min(text.length, maxPos + SNIPPET_RADIUS);
-      let snippet = text.substring(s, e).replace(/\r?\n/g, ' ').trim();
-      if (s > 0) snippet = '…' + snippet;
-      if (e < text.length) snippet = snippet + '…';
-      matches.push({ line, snippet });
-    }
-  }
-
-  return matches;
-}
+// Note: extractBigramsFromText, localLineAt, SNIPPET_RADIUS, scanText are shared via ./lib/text.js
 
 parentPort.on('message', async (msg) => {
   try {
@@ -284,7 +157,7 @@ parentPort.on('message', async (msg) => {
       }
       parentPort.postMessage({ jobId: msg.jobId, ok: true, result: { results } });
     } else if (msg.type === 'search-scan') {
-      const { fullPath, units, terms, maxProximityDist, maxPerFile } = msg;
+      const { fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct } = msg;
       const cap = typeof maxPerFile === 'number' ? maxPerFile : Infinity;
       const fileBuf = await fs.promises.readFile(fullPath);
       const matches = [];
@@ -296,7 +169,7 @@ parentPort.on('message', async (msg) => {
         if (offset >= fileSize) continue;
         const end = Math.min(fileSize, offset + length);
         const slice = fileBuf.subarray(offset, end);
-        const ms = scanText(slice.toString('utf-8'), terms, maxProximityDist);
+        const ms = scanText(slice.toString('utf-8'), terms, maxProximityDist, ignorePunct);
         for (const m of ms) {
           if (matches.length >= cap) break;
           matches.push({
