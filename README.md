@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.6.5) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.6.6) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -18,7 +18,8 @@
   - **智慧快取與 Gzip 壓縮**：結合記憶體 Tree 快取、弱 ETag（304 Not Modified）、500 筆 LRU 靜態資源長效快取與動態 Gzip 壓縮，顯著降低網路傳輸與載入時間。
   - **前端 LRU 快取與前端並發守衛**：前端配備最近使用（LRU）渲染快取、世代守衛標記（`_openToken`，徹底杜絕快速切換檔案時舊請求覆蓋新畫面）、`AbortController` 請求取消、二分搜尋閱讀進度儲存（杜絕 Layout Thrashing）與 `O(1)` 大綱標籤映射。
 - 🔍 **倒排索引與空白 AND 鄰近搜尋 (Proximity Search)**：
-  - **Bigram 雙字元倒排索引**：後端建立全庫 2-gram 記憶體與二進位檔快取（`.bin`），支援 6,000+ 經文檔案毫秒級檢索。
+  - **Bigram 雙字元倒排索引**：後端建立標點/換行透明全庫 2-gram 記憶體與二進位檔快取（`.bin`），支援 6,000+ 經文檔案毫秒級檢索。
+  - **寬鬆模式（忽略標點與換行）**：支援一鍵切換寬鬆比對模式，自動忽略標點符號與換行（例如搜尋「佛法僧」可精準命中「佛法，僧」、「佛、法、僧」或跨行「佛法\n僧」）；空白仍為多詞分隔（走 AND 與鄰近距離比對）。全站預設為寬鬆模式，使用者偏好儲存於 localStorage，管理員可於後台調整。
   - **單飛重建互斥 (Single-Flight)**：索引防抖與管理員重建共用單飛旗標，杜絕並行重複計算與暫存檔寫入衝突。
   - **空白多關鍵詞 AND 搜尋**：支援輸入 `阿賴耶識 唯識` 或 `解深密經 圓測` 空白分隔關鍵詞進行交集比對。
   - **鄰近詞距上限限制 (Proximity Filtering)**：自動過濾字詞相隔過遠的非相關結果。可在管理員後台面板自訂「搜尋鄰近詞距上限」（預設 150 字元）。
@@ -74,13 +75,13 @@ mdWebview/
 ├── marked.min.js       # 本地託管 Marked.js 引擎（無外部 CDN 依賴）
 ├── s2t.js              # 簡繁轉換模組（搜尋時自動處理簡體輸入）
 ├── manifest.json       # PWA Manifest 靜態預設（執行期由 server.js 動態覆寫）
-├── lib/                # 核心原生 CommonJS 模組（constants, utils, config, auth, worker-pool, analytics, logger, static-cache）
+├── lib/                # 核心原生 CommonJS 模組（constants, utils, config, auth, worker-pool, analytics, logger, static-cache, text）
 ├── server.js           # Node.js 後端主服務（HTTP 路由入口、API 分發、定時維護）
 ├── config.json         # 系統設定（站名、主題、辭典、公告、推薦清單等，後台儲存後持久化）
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.6.5）
+├── package.json        # Node.js 套件設定（v3.6.6）
 └── README.md           # 本說明文件
 ```
 
@@ -164,7 +165,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.6.5) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.6.6) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -238,7 +239,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.6.5)
+├── package.json        # Node.js package manifest (v3.6.6)
 └── README.md           # Project documentation
 ```
 

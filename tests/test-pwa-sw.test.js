@@ -15,6 +15,68 @@ describe('PWA 與 Service Worker (sw.js) 離線快取測試', () => {
     assert.equal(versionMatch[1], pkg.version, `sw.js 快取版本 (${versionMatch[1]}) 應與 package.json (${pkg.version}) 一致`);
   });
 
+  test('index.html 內所有靜態資源查詢參數 ?v= 版本必須與 package.json 一致', () => {
+    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
+    const versionMatches = [...indexHtml.matchAll(/\?v=([^"'&>\s]+)/g)];
+    assert.ok(
+      versionMatches.length > 0,
+      'index.html 內必須包含至少一個 ?v= 靜態資源快取破壞參數'
+    );
+
+    const mismatches = [];
+    for (const match of versionMatches) {
+      const ver = match[1];
+      if (ver !== pkg.version) {
+        mismatches.push(ver);
+      }
+      assert.equal(
+        ver,
+        pkg.version,
+        `index.html 內的 ?v= 版本 "${ver}" 應與 package.json 版本 "${pkg.version}" 一致`
+      );
+    }
+
+    assert.equal(
+      mismatches.length,
+      0,
+      `index.html 內存在不符 package.json (${pkg.version}) 的版本參數: ${mismatches.join(', ')}`
+    );
+  });
+
+  test('sw.js 的 SHELL_ASSETS 快取項目版本一致性檢驗', () => {
+    const assetsMatch = swContent.match(/const\s+SHELL_ASSETS\s*=\s*\[([\s\S]*?)\];/);
+    assert.ok(assetsMatch, 'sw.js 應包含 SHELL_ASSETS 定義');
+
+    const rawItems = assetsMatch[1]
+      .split('\n')
+      .map(line => line.trim().replace(/^['"]|['"],?$/g, ''))
+      .filter(item => item && !item.startsWith('//'));
+
+    const versionedItems = rawItems.filter(item => item.includes('?v='));
+    if (versionedItems.length > 0) {
+      for (const item of versionedItems) {
+        const match = item.match(/\?v=([^"'&>\s]+)/);
+        assert.ok(match, `SHELL_ASSETS 項目 "${item}" 應能解析 ?v= 版本號`);
+        assert.equal(
+          match[1],
+          pkg.version,
+          `SHELL_ASSETS 項目 "${item}" 的版本 "${match[1]}" 應與 package.json (${pkg.version}) 一致`
+        );
+      }
+    } else {
+      // 若 SHELL_ASSETS 不含 ?v=，明確 assert 其不含，避免未來不一致
+      assert.equal(
+        versionedItems.length,
+        0,
+        'SHELL_ASSETS 項目不含 ?v= 快取破壞參數'
+      );
+      assert.ok(
+        rawItems.every(item => !item.includes('?v=')),
+        '確認 SHELL_ASSETS 內所有項目皆不含 ?v='
+      );
+    }
+  });
+
   test('SHELL_ASSETS 核心預快取清單完整性（檔案皆存在於磁碟）', () => {
     // 擷取 SHELL_ASSETS 陣列
     const assetsMatch = swContent.match(/const\s+SHELL_ASSETS\s*=\s*\[([\s\S]*?)\];/);

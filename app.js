@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.5
+   mdWebview — Application Logic (app.js) v3.6.6
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -53,6 +53,7 @@
     DICT_FILE_ORDER: 'mdWebview-dict-file-order',
     DICT_FILE_SELECT: 'mdWebview-dict-selected',
     FORCE_FULL: 'mdWebview-force-full',
+    SEARCH_MODE: 'mdWebview-search-mode',
     ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack'
   };
 
@@ -243,6 +244,12 @@
     siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
     searchSort: 'relevance',
+    searchMode: (() => {
+      const saved = storage.get(STORAGE_KEYS.SEARCH_MODE);
+      if (saved === 'loose' || saved === 'strict') return saved;
+      const def = appConfig.defaultSearchMode;
+      return (def === 'strict' || def === 'loose') ? def : 'loose';
+    })(),
     lastSearchData: null,
     searchRenderLimit: 0,
     fileSizes: new Map(),
@@ -3927,7 +3934,7 @@
 
     try {
       const s2tParam = state.autoS2T ? '1' : '0';
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}&s2t=${s2tParam}`, {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}&s2t=${s2tParam}&mode=${state.searchMode}`, {
         signal: searchAbortController.signal,
       });
       if (!res.ok) throw new Error('Search failed');
@@ -3943,6 +3950,11 @@
     const container = $('searchResults');
     state.lastSearchData = data;
     state.searchRenderLimit = SEARCH_RENDER_BATCH;
+
+    if (data.mode === 'loose' && Array.isArray(data.terms) && data.terms.length === 0) {
+      container.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>查詢只包含標點符號</span></div>';
+      return;
+    }
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>沒有找到結果</span></div>';
@@ -3985,9 +3997,12 @@
     }
 
     const rawQuery = data.query || '';
-    const terms = rawQuery.trim().split(/\s+/).filter(Boolean);
+    const isLoose = data.mode === 'loose';
+    const terms = (isLoose && Array.isArray(data.terms) && data.terms.length > 0)
+      ? data.terms
+      : rawQuery.trim().split(/\s+/).filter(Boolean);
     const escapedTerms = terms.map(t => escRegex(escHtml(t)));
-    const precompiledRegex = escapedTerms.length > 0 ? new RegExp(`(${escapedTerms.join('|')})`, 'gi') : null;
+    const precompiledRegex = (!isLoose && escapedTerms.length > 0) ? new RegExp(`(${escapedTerms.join('|')})`, 'gi') : null;
 
     let rendered = 0;
     outer:
@@ -4004,7 +4019,9 @@
           parts.push(`</div></div>`);
           break outer;
         }
-        const snippet = highlightSearchTerm(item.snippet, precompiledRegex);
+        const snippet = isLoose
+          ? highlightLooseSnippet(item.snippet, terms)
+          : highlightSearchTerm(item.snippet, precompiledRegex);
         const headwordTag = item.headword
           ? `<span class="search-result-headword">${escHtml(item.headword)}</span>`
           : '';
@@ -4060,6 +4077,87 @@
       regex = new RegExp(`(${escRegex(queryEscaped)})`, 'gi');
     }
     return escaped.replace(regex, '<mark>$1</mark>');
+  }
+
+  // 前端透明集合鏡像：此處為 lib/text.js 透明集合 T (TRANSPARENT_RE / isTransparent) 的前端鏡像，任何變更必須兩邊同步保持一致
+  const LOOSE_TRANSPARENT_RE = /[\p{P}\n\r\u0085\u2028\u2029]/u;
+
+  function highlightLooseSnippet(rawSnippet, terms) {
+    if (!rawSnippet) return '';
+    if (!terms || terms.length === 0) return escHtml(rawSnippet);
+
+    const spans = [];
+    for (const term of terms) {
+      if (!term) continue;
+      const cleanTerm = Array.from(term).filter(c => !LOOSE_TRANSPARENT_RE.test(c)).join('');
+      const chars = Array.from(cleanTerm);
+      if (chars.length === 0) continue;
+      const firstChar = chars[0];
+      const firstLen = firstChar.length;
+      let pos = 0;
+      const textLen = rawSnippet.length;
+
+      while (pos < textLen) {
+        const start = rawSnippet.indexOf(firstChar, pos);
+        if (start === -1) break;
+
+        let idx = start + firstLen;
+        let k = 1;
+        while (idx < textLen && k < chars.length) {
+          const cp = rawSnippet.codePointAt(idx);
+          const ch = cp > 0xFFFF ? String.fromCodePoint(cp) : rawSnippet[idx];
+          const chLen = ch.length;
+          if (LOOSE_TRANSPARENT_RE.test(ch)) {
+            idx += chLen;
+            continue;
+          }
+          if (ch === chars[k]) {
+            k++;
+            idx += chLen;
+          } else {
+            break;
+          }
+        }
+
+        if (k === chars.length) {
+          spans.push({ start, end: idx });
+          pos = idx > start ? idx : start + 1;
+        } else {
+          pos = start + 1;
+        }
+      }
+    }
+
+    if (spans.length === 0) return escHtml(rawSnippet);
+
+    spans.sort((a, b) => a.start - b.start || a.end - b.end);
+    const merged = [];
+    for (const s of spans) {
+      if (merged.length === 0) {
+        merged.push({ start: s.start, end: s.end });
+      } else {
+        const prev = merged[merged.length - 1];
+        if (s.start <= prev.end) {
+          prev.end = Math.max(prev.end, s.end);
+        } else {
+          merged.push({ start: s.start, end: s.end });
+        }
+      }
+    }
+
+    let html = '';
+    let lastIdx = 0;
+    for (const { start, end } of merged) {
+      if (start > lastIdx) {
+        html += escHtml(rawSnippet.substring(lastIdx, start));
+      }
+      html += '<mark>' + escHtml(rawSnippet.substring(start, end)) + '</mark>';
+      lastIdx = end;
+    }
+    if (lastIdx < rawSnippet.length) {
+      html += escHtml(rawSnippet.substring(lastIdx));
+    }
+    return html;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -5384,7 +5482,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.5';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.6';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -5399,7 +5497,8 @@
           lineHeight: state.lineHeight || storage.get(STORAGE_KEYS.LINE_HEIGHT) || '1.8',
           maxWidth: state.maxWidth || storage.get(STORAGE_KEYS.MAX_WIDTH) || (isMobileBrowser() ? '95%' : '800px'),
           autoS2T: state.autoS2T !== undefined ? state.autoS2T : (storage.get(STORAGE_KEYS.AUTO_S2T) === 'true'),
-          autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED) !== 'false')
+          autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED) !== 'false'),
+          searchMode: state.searchMode
         },
         readProgress: storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null),
         recentFiles: state.recentFiles || [],
@@ -5476,6 +5575,16 @@
         }
         if (typeof pref.autoReadProgress === 'boolean') {
           applyAutoReadProgress(pref.autoReadProgress, true);
+        }
+        if (pref.searchMode === 'loose' || pref.searchMode === 'strict') {
+          state.searchMode = pref.searchMode;
+          storage.set(STORAGE_KEYS.SEARCH_MODE, state.searchMode);
+          const searchModeBtn = $('searchModeBtn');
+          if (searchModeBtn) {
+            const isLoose = state.searchMode === 'loose';
+            searchModeBtn.classList.toggle('active', isLoose);
+            searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
+          }
         }
 
         // 2. 還原書籤最愛
@@ -5745,6 +5854,27 @@
         if (state.lastSearchData) renderSearchResults(state.lastSearchData);
       });
     });
+
+    // ── Search Mode (Loose / Strict) ──
+    const searchModeBtn = $('searchModeBtn');
+    if (searchModeBtn) {
+      const updateSearchModeUI = () => {
+        const isLoose = state.searchMode === 'loose';
+        searchModeBtn.classList.toggle('active', isLoose);
+        searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
+      };
+      updateSearchModeUI();
+      searchModeBtn.addEventListener('click', () => {
+        state.searchMode = state.searchMode === 'loose' ? 'strict' : 'loose';
+        storage.set(STORAGE_KEYS.SEARCH_MODE, state.searchMode);
+        updateSearchModeUI();
+        if (state.lastSearchData) {
+          const inputVal = $('globalSearchInput') ? $('globalSearchInput').value.trim() : '';
+          const q = inputVal || state.lastSearchData.query || '';
+          if (q) performGlobalSearch(q);
+        }
+      });
+    }
 
     // ── Search Collapse All ──
     $('searchCollapseAllBtn').addEventListener('click', searchCollapseAll);
@@ -6590,6 +6720,7 @@
       const enableAnnouncement = ($('settingsEnableAnnouncement') || {}).checked;
       const announcementMessage = ($('settingsAnnouncementMessage') || {}).value;
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
+      const defaultSearchMode = ($('settingsDefaultSearchMode') || {}).value || 'loose';
       const timezone = ($('settingsTimezone') || {}).value || 'auto';
       storage.set(STORAGE_KEYS.ADMIN_TZ, timezone);
       const errorEl = $('settingsErrorMsg');
@@ -6605,7 +6736,7 @@
           body: JSON.stringify({
             settings: {
               siteName, siteUrl, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
-              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, timezone,
+              enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, defaultSearchMode, timezone,
               enableAnnouncement, announcementMessage
             }
           })
@@ -6737,7 +6868,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.5';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.6';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7030,7 +7161,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.5',
+            version: data.settings?.version || '3.6.6',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -7722,6 +7853,8 @@
       if (dictPathEl) dictPathEl.value = data.settings.dictionaryPath || '';
       const proxEl = $('settingsMaxProximityDistance');
       if (proxEl) proxEl.value = data.settings.maxProximityDistance || 150;
+      const searchModeEl = $('settingsDefaultSearchMode');
+      if (searchModeEl) searchModeEl.value = (data.settings.defaultSearchMode === 'strict') ? 'strict' : 'loose';
       const tzEl = $('settingsTimezone');
       if (tzEl) tzEl.value = data.settings.timezone || storage.get(STORAGE_KEYS.ADMIN_TZ) || 'auto';
       const announceToggleEl = $('settingsEnableAnnouncement');

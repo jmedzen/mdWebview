@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.6.5
+ * @version 3.6.6
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -103,6 +103,10 @@ const {
   sendCompressed, sendJSON, indexHtmlHeaders, escapeHtmlString,
   safeJsonForScript, getIndexHtml, serveStatic, staticCache
 } = require('./lib/static-cache');
+
+const {
+  extractBigramsFromText, normalizeLooseTerm
+} = require('./lib/text');
 
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
@@ -1760,10 +1764,9 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
 
     let readPos = 0;
     const magic = binBuf.readUInt32BE(readPos); readPos += 4;
-    // New v3 format magics (unit-level indexing). Old magics (0x42475831/32) are
-    // deliberately rejected so a stale file-level cache is rebuilt.
-    if (magic !== 0x42475833 && magic !== 0x42475834) return false;
-    const isUint16Format = (magic === 0x42475833);
+    // v4: punctuation/whitespace-transparent bigrams (loose search mode)
+    if (magic !== 0x42475835 && magic !== 0x42475836) return false;
+    const isUint16Format = (magic === 0x42475835);
 
     const sigLen = binBuf.readUInt16BE(readPos); readPos += 2;
     const vaultSig = binBuf.toString('utf-8', readPos, readPos + sigLen); readPos += sigLen;
@@ -1890,7 +1893,8 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, units, bigrams) 
   try {
     const saveStart = Date.now();
     const useUint16 = units.length < 65536;
-    const magic = useUint16 ? 0x42475833 : 0x42475834;
+    // v4: punctuation/whitespace-transparent bigrams (loose search mode)
+    const magic = useUint16 ? 0x42475835 : 0x42475836;
     const bytesPerId = useUint16 ? 2 : 4;
 
     let totalBytes = 4 + 2 + Buffer.byteLength(vaultSig || '') + 4 + 4 + 4;
@@ -2028,25 +2032,14 @@ async function saveSearchIndexCacheAsync(vaultSig, fileList, bigrams) {
 
 function extractBigrams(text, onBigram) {
   if (!text || typeof onBigram !== 'function') return;
-  let prevChar = '';
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    if ((ch >= 0x4E00 && ch <= 0x9FFF) || (ch >= 0x3400 && ch <= 0x4DBF)) {
-      const currChar = text[i];
-      if (prevChar) {
-        onBigram(prevChar + currChar);
-      }
-      prevChar = currChar;
-    } else {
-      prevChar = '';
-    }
+  const set = extractBigramsFromText(text);
+  for (const bg of set) {
+    onBigram(bg);
   }
 }
 
 function extractQueryBigrams(text) {
-  const set = new Set();
-  extractBigrams(text, (bg) => set.add(bg));
-  return Array.from(set);
+  return Array.from(extractBigramsFromText(text));
 }
 
 // Sorted-merge intersection of two ascending numeric arrays — O(n+m), zero heap
@@ -2334,8 +2327,9 @@ async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
 
     let readPos = 0;
     const magic = binBuf.readUInt32BE(readPos); readPos += 4;
-    if (magic !== 0x44475833 && magic !== 0x44475834) return false;
-    const isUint16Format = (magic === 0x44475833);
+    // v4: punctuation/whitespace-transparent bigrams (loose search mode)
+    if (magic !== 0x44475835 && magic !== 0x44475836) return false;
+    const isUint16Format = (magic === 0x44475835);
 
     const sigLen = binBuf.readUInt16BE(readPos); readPos += 2;
     const dictSig = binBuf.toString('utf-8', readPos, readPos + sigLen); readPos += sigLen;
@@ -2417,7 +2411,8 @@ async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
   try {
     const saveStart = Date.now();
     const useUint16 = units.length < 65536;
-    const magic = useUint16 ? 0x44475833 : 0x44475834;
+    // v4: punctuation/whitespace-transparent bigrams (loose search mode)
+    const magic = useUint16 ? 0x44475835 : 0x44475836;
     const bytesPerId = useUint16 ? 2 : 4;
 
     let totalBytes = 4 + 2 + Buffer.byteLength(dictSig || '') + 4 + 4 + 4;
@@ -2991,6 +2986,7 @@ async function handleDictEvent(req, res) {
  */
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
+  const mode = query.mode === 'loose' ? 'loose' : 'strict';
   const rawQ = (query.q || '').trim();
   const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
   const q = shouldS2T ? toTraditional(rawQ) : rawQ;
@@ -2998,19 +2994,26 @@ async function handleSearch(req, res, query) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
 
-  const terms = q.split(/\s+/).filter(Boolean);
+  let terms = q.split(/\s+/).filter(Boolean);
   if (terms.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
 
+  if (mode === 'loose') {
+    terms = terms.map(normalizeLooseTerm).filter(Boolean);
+    if (terms.length === 0) {
+      return sendJSON(res, 200, { query: q, mode, terms: [], results: [], total: 0, capped: false });
+    }
+  }
+
   const targetFolder = query.folder ? query.folder.trim().replace(/^\/+|\/+$/g, '') : '';
-  const cacheKey = `${targetFolder}::${q}`;
+  const cacheKey = `${mode}::${targetFolder}::${q}`;
   const cached = searchCache.get(cacheKey);
   if (cached && (Date.now() - cached.time) < 60000) {
     searchMetrics.totalQueries++;
     searchMetrics.cacheHits++;
     searchMetrics.lastSearchTimeMs = 0;
-    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} (Cache Hit) -> ${cached.data.results.length} matches (0ms)`, req, { query: q });
+    Logger.info('Search', `[${mode}] Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''} (Cache Hit) -> ${cached.data.results.length} matches (0ms)`, req, { query: q });
     return sendJSON(res, 200, cached.data);
   }
 
@@ -3043,11 +3046,11 @@ async function handleSearch(req, res, query) {
     let candidateUnits = null; // narrowed unit list (entry-level for large files); null = full scan
 
     // Bigram Inverted Index filtering using sorted-merge intersection (zero Set allocation)
-    if (searchIndex.ready && terms.some(t => t.length >= 2) && !isFilenameOnly && searchIndex.units && searchIndex.units.length > 0) {
+    if (searchIndex.ready && terms.some(t => normalizeLooseTerm(t).length >= 2) && !isFilenameOnly && searchIndex.units && searchIndex.units.length > 0) {
       let finalCandidates = null; // sorted array of unit IDs
 
       for (const term of terms) {
-        if (term.length < 2) continue;
+        if (normalizeLooseTerm(term).length < 2) continue;
         const qBigrams = extractQueryBigrams(term);
         if (qBigrams.length === 0) continue;
 
@@ -3102,11 +3105,11 @@ async function handleSearch(req, res, query) {
       for (const file of files) {
         if (results.length >= MAX_RESULTS) break;
         const cleanName = file.name.replace(/\.md$/, '');
-        const cleanNameLower = cleanName.toLowerCase();
-        const relPathLower = file.relPath.toLowerCase();
+        const cleanNameLower = mode === 'loose' ? normalizeLooseTerm(cleanName).toLowerCase() : cleanName.toLowerCase();
+        const relPathLower = mode === 'loose' ? normalizeLooseTerm(file.relPath).toLowerCase() : file.relPath.toLowerCase();
 
         const matchesAll = terms.every(term => {
-          const tLower = term.toLowerCase();
+          const tLower = (mode === 'loose' ? normalizeLooseTerm(term) : term).toLowerCase();
           return cleanNameLower.includes(tLower) || relPathLower.includes(tLower);
         });
 
@@ -3164,7 +3167,7 @@ async function handleSearch(req, res, query) {
       const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
 
       await runIndexWorkerPool(scanTasks,
-        (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: MAX_FILE_MATCHES } }),
+        (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: MAX_FILE_MATCHES, ignorePunct: mode === 'loose' } }),
         (result) => {
           for (const m of result.matches) {
             if (results.length >= MAX_RESULTS) break;
@@ -3195,7 +3198,7 @@ async function handleSearch(req, res, query) {
     searchMetrics.totalSearchTimeMs += searchDuration;
     searchMetrics.lastSearchTimeMs = searchDuration;
 
-    const searchData = { query: q, results, total: results.length, capped: results.length >= MAX_RESULTS };
+    const searchData = { query: q, mode, terms, results, total: results.length, capped: results.length >= MAX_RESULTS };
     if (searchCache.size >= SEARCH_CACHE_MAX) {
       const oldestKey = searchCache.keys().next().value;
       searchCache.delete(oldestKey);
@@ -3203,7 +3206,7 @@ async function handleSearch(req, res, query) {
     searchCache.set(cacheKey, { time: Date.now(), data: searchData });
 
     const indexInfo = usedIndex ? ` (Index Candidates: ${candidateUnits ? candidateUnits.length : 0}/${searchIndex.units.length} units)` : '';
-    Logger.info('Search', `Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''}${indexInfo} -> ${results.length} matches in ${searchDuration}ms`, req, { query: q });
+    Logger.info('Search', `[${mode}] Query: "${q}"${targetFolder ? `, Scope: "${targetFolder}"` : ''}${indexInfo} -> ${results.length} matches in ${searchDuration}ms`, req, { query: q });
     sendJSON(res, 200, searchData);
   } catch (err) {
     Logger.error('Search', `Search failed for query "${q}"`, err, req);
@@ -4587,7 +4590,7 @@ const server = http.createServer((req, res) => {
     return readJSONBody(req).then(data => {
       const {
         mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists,
-        enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance,
+        enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, defaultSearchMode,
         dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
         seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
         googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoEnableSearchBox, seoHomepageSummary
@@ -4660,6 +4663,11 @@ const server = http.createServer((req, res) => {
           const dist = parseInt(maxProximityDistance);
           if (!Number.isNaN(dist)) {
             config.settings.maxProximityDistance = Math.max(10, Math.min(5000, dist));
+          }
+        }
+        if (defaultSearchMode !== undefined) {
+          if (defaultSearchMode === 'strict' || defaultSearchMode === 'loose') {
+            config.settings.defaultSearchMode = defaultSearchMode;
           }
         }
         if (suggestList !== undefined && typeof suggestList === 'object') {
