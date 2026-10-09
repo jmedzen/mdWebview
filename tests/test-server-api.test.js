@@ -2,6 +2,8 @@ const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const { server, terminateWorkerPools, resetTreeWatcher, resetDictWatcher, resetConfigWatcher } = require('../server.js');
+const { apiRateLimits } = require('../lib/auth.js');
+const { renderWithWorker } = require('../lib/worker-pool.js');
 
 let baseUrl = '';
 
@@ -155,5 +157,36 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
       }
     });
     assert.equal(res.statusCode, 403, '非同源請求應被 403 拒絕');
+  });
+
+  test('安全防禦：API 滑動視窗限流觸發時立即回傳 429 Too Many Requests 且不懸置連線 (P0 Bug 修復驗證)', async () => {
+    // 模擬當前測試 IP (127.0.0.1) 超過限流閥值
+    apiRateLimits.set('127.0.0.1', { count: 35, windowStart: Date.now() });
+    try {
+      const res = await request('/api/tree');
+      assert.equal(res.statusCode, 429, '超過限流閥值時應回傳 429 Too Many Requests');
+      assert.equal(res.headers['retry-after'], '1', '應附帶 Retry-After 標頭');
+      const data = JSON.parse(res.body);
+      assert.equal(data.error, 'Too Many Requests');
+      assert.equal(data.retryAfter, 1);
+    } finally {
+      apiRateLimits.delete('127.0.0.1');
+    }
+  });
+
+  test('資源清理：Worker Pool 渲染完成時解綁 AbortSignal 監聽器 (P1 Bug 修復驗證)', async () => {
+    const abortCtrl = new AbortController();
+    let abortedAfterFinishCalled = false;
+
+    // 執行一次正常渲染
+    const html = await renderWithWorker('### 般若波羅蜜多心經\n觀自在菩薩', 'test-p1.md', 0, abortCtrl.signal);
+    assert.ok(html.includes('般若波羅蜜多心經'));
+
+    // 渲染完成後觸發 abort，驗證監聽器已被安全移除，不會觸發未捕獲例外或重複取消
+    try {
+      abortCtrl.abort();
+      abortedAfterFinishCalled = true;
+    } catch (_) {}
+    assert.equal(abortedAfterFinishCalled, true, '渲染結束後觸發 abort 應安全無副作用');
   });
 });

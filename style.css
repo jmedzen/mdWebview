@@ -2589,12 +2589,14 @@ kbd {
     max-height: none;
     width: 320px !important;
     max-width: calc(100vw - 44px) !important;
-    z-index: 90;
+    z-index: 90 !important;
+    background: var(--bg-secondary) !important;
     box-shadow: -4px 0 24px var(--shadow-color);
     transform: translateX(0);
     transition: transform 0.3s ease, visibility 0.3s ease;
     visibility: visible;
     border-left: 1px solid var(--border-subtle);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .dict-sidebar.collapsed {
     transform: translateX(100%);
@@ -2606,6 +2608,13 @@ kbd {
   }
   .dict-resize-handle {
     display: none !important;
+  }
+  .dict-search-input {
+    font-size: 16px !important;
+  }
+  .dict-results,
+  .dict-file-list {
+    -webkit-overflow-scrolling: touch;
   }
   .entry-nav {
     bottom: 16px;
@@ -2621,10 +2630,10 @@ kbd {
     bottom: 0;
     height: auto;
     max-height: none;
-    padding-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     display: flex;
     flex-direction: column;
-    z-index: 90;
+    z-index: 90 !important;
     box-shadow: 4px 0 24px var(--shadow-color);
     width: 280px !important;
     max-width: calc(100vw - 44px) !important;

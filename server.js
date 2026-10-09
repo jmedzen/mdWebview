@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.6.4
+ * @version 3.6.5
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -998,10 +998,21 @@ async function handleMedia(req, res, query) {
       mediaHeaders['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'";
     }
     res.writeHead(200, Object.assign({}, SECURITY_HEADERS, mediaHeaders));
+
+    stream.on('error', (streamErr) => {
+      Logger.error('Media', `Error streaming media file "${resolvedPath}"`, streamErr, req);
+      if (!res.headersSent) {
+        res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+      }
+      res.end();
+      stream.destroy();
+    });
+
     stream.pipe(res);
     // Destroy the source stream on early client disconnect to avoid fd/buffer leaks.
-    req.on('close', () => stream.destroy());
-    res.on('close', () => stream.destroy());
+    const closeStream = () => stream.destroy();
+    req.once('close', closeStream);
+    res.once('close', closeStream);
   } catch (err) {
     res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     res.end('Error serving media');
@@ -4360,7 +4371,14 @@ const server = http.createServer((req, res) => {
 
   // Global API Rate Limiting Check (30 req/sec max)
   if (pathname.startsWith('/api/')) {
-    if (!checkApiRateLimit(req, res)) {
+    if (!checkApiRateLimit(req, res, (ip, count) => {
+      Logger.warn('RateLimit', `API rate limit exceeded (${count} req/s) for IP: ${ip}`, req);
+    })) {
+      res.writeHead(429, Object.assign({
+        'Content-Type': 'application/json; charset=utf-8',
+        'Retry-After': '1'
+      }, SECURITY_HEADERS));
+      res.end(JSON.stringify({ error: 'Too Many Requests', retryAfter: 1 }));
       return;
     }
   }
