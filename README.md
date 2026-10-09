@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.6.6) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.6.7) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -81,7 +81,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.6.6）
+├── package.json        # Node.js 套件設定（v3.6.7）
 └── README.md           # 本說明文件
 ```
 
@@ -118,12 +118,23 @@ services:
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
       - DICTIONARY_PATH=/data/dicts
+      # Bigram 索引 .bin 快取約 650MB，建置峰值記憶體需 ≥ 索引大小之 2 倍。
+      # 建議容器主機至少提供 4GB（建議 8GB）RAM。可透過 NODE_MAX_OLD_SPACE_MB 彈性調校 V8 heap 上限。
+      - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144}
     volumes:
       - ./data:/data
       - ./md:/data/md
       - ./dicts:/data/dicts
     restart: unless-stopped
 ```
+
+##### 部署記憶體需求與 NODE_MAX_OLD_SPACE_MB 調校
+- **記憶體需求**：全庫 Bigram 倒排索引二進位快取（`.bin`）約 650MB（450 萬以上雙字元詞條），在首次啟動或重新建立索引期間，峰值記憶體需求 ≥ 索引大小之 2 倍。
+- **建議配置**：建議宿主機或容器環境提供至少 **4GB**（推薦 **8GB**）實體記憶體。
+- **調校方式**：Dockerfile 預設配置 `NODE_OPTIONS="--max-old-space-size=6144"`（6GB）。在 `docker-compose.yml` 中可透過環境變數 `NODE_MAX_OLD_SPACE_MB` 自訂調控，例如：
+  ```bash
+  NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
+  ```
 
 ```bash
 docker-compose up -d
@@ -165,7 +176,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.6.6) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.6.7) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -239,7 +250,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.6.6)
+├── package.json        # Node.js package manifest (v3.6.7)
 └── README.md           # Project documentation
 ```
 
@@ -276,12 +287,23 @@ services:
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
       - DICTIONARY_PATH=/data/dicts
+      # Bigram index cache (.bin) is ~650MB. Rebuild peak memory is >= 2x index size.
+      # Host container is recommended to have >= 4GB (recommended 8GB) RAM.
+      - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144}
     volumes:
       - ./data:/data
       - ./md:/data/md
       - ./dicts:/data/dicts
     restart: unless-stopped
 ```
+
+##### Deployment Memory Requirements & NODE_MAX_OLD_SPACE_MB Tuning
+- **Memory Requirements**: Bigram inverted index `.bin` cache is ~650MB (over 4.5M unique 2-grams). During initial cold-start rebuild or manual reindex, peak memory usage requires ≥ 2x the index cache size.
+- **Recommended Host RAM**: At least **4GB** (recommended **8GB**) physical RAM.
+- **Tuning**: Configured by default in Dockerfile with `NODE_OPTIONS="--max-old-space-size=6144"` (6GB). In `docker-compose.yml`, customize via `NODE_MAX_OLD_SPACE_MB`:
+  ```bash
+  NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
+  ```
 
 ```bash
 docker-compose up -d

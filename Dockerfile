@@ -16,12 +16,15 @@ COPY manifest.json sw.js icon-192.png icon-512.png icon-maskable-512.png apple-t
 RUN mkdir -p /data /data/logs /data/md /data/dicts
 
 # Default environment variables
+# Note: Full vault bigram index .bin is ~650MB; index build peak RAM requires >= 2x index size.
+# Container RAM is recommended to have at least 4GB (recommended 8GB).
 ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
     LOG_DIR=/data/logs \
     MD_ROOT=/data/md \
     DICTIONARY_PATH=/data/dicts \
-    TRUST_PROXY=true
+    TRUST_PROXY=true \
+    NODE_OPTIONS="--max-old-space-size=6144"
 
 # Expose default port
 EXPOSE 8330

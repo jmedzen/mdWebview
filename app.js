@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.6
+   mdWebview — Application Logic (app.js) v3.6.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -284,6 +284,9 @@
   // building them all into the DOM at once froze the main thread. Rendering in
   // batches keeps the search panel responsive; "顯示更多" appends another batch.
   const SEARCH_RENDER_BATCH = 300;
+
+  // 前端透明集合鏡像：此處為 lib/text.js 透明集合 T (TRANSPARENT_RE / isTransparent) 的前端鏡像，任何變更必須兩邊同步保持一致
+  const LOOSE_TRANSPARENT_RE = /[\p{P}\n\r\u0085\u2028\u2029]/u;
 
   function safeDecodeURIComponent(str) {
     if (!str) return '';
@@ -665,102 +668,343 @@
     });
   }
 
-  function highlightLineKeyword(anchorEl, query) {
-    if (!anchorEl || !query || typeof query !== 'string') return;
-    const terms = query.trim().split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return;
+  function highlightLineKeyword(anchorEl, query, searchMode) {
+    if (!anchorEl || !query || typeof query !== 'string') return { matched: false, hitBlock: null, firstMark: null };
+    const mode = searchMode || (state.lastSearchData && state.lastSearchData.mode) || state.searchMode || 'loose';
 
-    const regexPattern = terms.map(t => escRegex(t)).join('|');
-    if (!regexPattern) return;
-    const regex = new RegExp(`(${regexPattern})`, 'gi');
+    // ── 嚴格模式 (Strict Mode)：保留字面 regex 與單區塊/連續節點走訪行為 ──
+    if (mode !== 'loose') {
+      const terms = query.trim().split(/\s+/).filter(Boolean);
+      if (terms.length === 0) return { matched: false, hitBlock: null, firstMark: null };
 
-    const lineTextNodes = [];
+      const regexPattern = terms.map(t => escRegex(t)).join('|');
+      if (!regexPattern) return { matched: false, hitBlock: null, firstMark: null };
+      const regex = new RegExp(`(${regexPattern})`, 'gi');
 
-    // Collect text nodes in document order starting just AFTER the anchor,
-    // spanning the anchor's own block and any following sibling blocks until
-    // the next `.line-anchor` (the next block's start). Dictionary entries put
-    // the matched text in a body paragraph that carries no anchor of its own —
-    // the nearest anchor is the heading, so a block-scoped walk never reaches
-    // the body. A document-order walk reaches it and still stops at the next
-    // heading, keeping the highlight scoped to the clicked entry.
-    function nextNode(node) {
-      if (node.firstChild) return node.firstChild;
+      const lineTextNodes = [];
+      function nextNode(node) {
+        if (node.firstChild) return node.firstChild;
+        while (node) {
+          if (node.nextSibling) return node.nextSibling;
+          node = node.parentNode;
+        }
+        return null;
+      }
+
+      let node = nextNode(anchorEl);
       while (node) {
-        if (node.nextSibling) return node.nextSibling;
-        node = node.parentNode;
+        if (node.nodeType === 1 && node.classList && node.classList.contains('line-anchor')) break;
+        if (node.nodeType === 3 && node.nodeValue && node.nodeValue.length > 0) {
+          lineTextNodes.push(node);
+        }
+        node = nextNode(node);
       }
-      return null;
-    }
 
-    let node = nextNode(anchorEl);
-    while (node) {
-      if (node.nodeType === 1 && node.classList && node.classList.contains('line-anchor')) break;
-      if (node.nodeType === 3 && node.nodeValue && node.nodeValue.length > 0) {
-        lineTextNodes.push(node);
-      }
-      node = nextNode(node);
-    }
+      let firstMark = null;
+      let hitBlock = null;
 
-    lineTextNodes.forEach(textNode => {
-      const val = textNode.nodeValue;
-      if (!val || !regex.test(val)) return;
+      lineTextNodes.forEach(textNode => {
+        const val = textNode.nodeValue;
+        if (!val || !regex.test(val)) return;
 
-      regex.lastIndex = 0;
-      const fragment = document.createDocumentFragment();
-      let lastIdx = 0;
-      let match;
+        regex.lastIndex = 0;
+        const fragment = document.createDocumentFragment();
+        let lastIdx = 0;
+        let match;
 
-      while ((match = regex.exec(val)) !== null) {
-        const matchStart = match.index;
-        const matchText = match[0];
+        while ((match = regex.exec(val)) !== null) {
+          const matchStart = match.index;
+          const matchText = match[0];
 
-        if (matchStart > lastIdx) {
-          fragment.appendChild(document.createTextNode(val.substring(lastIdx, matchStart)));
+          if (matchStart > lastIdx) {
+            fragment.appendChild(document.createTextNode(val.substring(lastIdx, matchStart)));
+          }
+
+          const mark = document.createElement('mark');
+          mark.className = 'search-keyword-highlight';
+          mark.textContent = matchText;
+          fragment.appendChild(mark);
+          if (!firstMark) {
+            firstMark = mark;
+            hitBlock = textNode.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || textNode.parentElement;
+          }
+
+          lastIdx = matchStart + matchText.length;
         }
 
+        if (lastIdx < val.length) {
+          fragment.appendChild(document.createTextNode(val.substring(lastIdx)));
+        }
+
+        if (textNode.parentNode) {
+          textNode.parentNode.replaceChild(fragment, textNode);
+        }
+      });
+
+      return { matched: !!firstMark, hitBlock: hitBlock || anchorEl.parentElement, firstMark };
+    }
+
+    // ── 寬鬆模式 (Loose Mode)：標點與換行透明（空白不透明），有界連續區塊走訪 ──
+    const startBlock = anchorEl.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || anchorEl.parentElement;
+    const windowBlocks = [];
+    if (startBlock) {
+      // 往前擴展至多 2 個兄弟區塊（遇標題或 hr 不跨越）
+      let prev = startBlock.previousElementSibling;
+      let prevCount = 0;
+      while (prev && prevCount < 2) {
+        if (/^H[1-6]$/i.test(prev.tagName) || prev.tagName === 'HR') break;
+        windowBlocks.unshift(prev);
+        prev = prev.previousElementSibling;
+        prevCount++;
+      }
+      windowBlocks.push(startBlock);
+      // 往後擴展至多 20 個兄弟區塊（遇下一個標題停止）
+      let next = startBlock.nextElementSibling;
+      let nextCount = 0;
+      while (next && nextCount < 20) {
+        if (/^H[1-6]$/i.test(next.tagName) && nextCount > 0) break;
+        windowBlocks.push(next);
+        if (/^H[1-6]$/i.test(next.tagName)) break;
+        next = next.nextElementSibling;
+        nextCount++;
+      }
+    } else if (anchorEl.parentElement) {
+      windowBlocks.push(anchorEl.parentElement);
+    }
+
+    const textNodeItems = [];
+    for (const blk of windowBlocks) {
+      const walker = document.createTreeWalker(
+        blk,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(n) {
+            if (!n.nodeValue || n.nodeValue.length === 0) return NodeFilter.FILTER_REJECT;
+            if (n.parentElement && n.parentElement.closest('.line-anchor')) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+      let cur;
+      while ((cur = walker.nextNode())) {
+        textNodeItems.push({ node: cur, block: blk });
+      }
+    }
+
+    // 建立字元序列（跨區塊時插入虛擬換行 \n，在寬鬆模式下為透明字元）
+    const seq = [];
+    let lastBlk = null;
+    for (const { node, block } of textNodeItems) {
+      if (lastBlk && block !== lastBlk) {
+        seq.push({ ch: '\n', node: null, startIdx: -1, endIdx: -1, block });
+      }
+      lastBlk = block;
+
+      const val = node.nodeValue;
+      let idx = 0;
+      while (idx < val.length) {
+        const cp = val.codePointAt(idx);
+        const ch = cp > 0xFFFF ? String.fromCodePoint(cp) : val[idx];
+        seq.push({ ch, node, startIdx: idx, endIdx: idx + ch.length, block });
+        idx += ch.length;
+      }
+    }
+
+    const rawTerms = (state.lastSearchData && Array.isArray(state.lastSearchData.terms) && state.lastSearchData.terms.length > 0)
+      ? state.lastSearchData.terms
+      : query.trim().split(/\s+/).filter(Boolean);
+
+    const terms = [];
+    for (const t of rawTerms) {
+      if (!t) continue;
+      terms.push(t);
+      if (typeof toTraditional === 'function') {
+        const trad = toTraditional(t);
+        if (trad && trad !== t) terms.push(trad);
+      }
+    }
+
+    const matchedRanges = [];
+    for (const term of terms) {
+      const cleanChars = [];
+      let tIdx = 0;
+      while (tIdx < term.length) {
+        const cp = term.codePointAt(tIdx);
+        const ch = cp > 0xFFFF ? String.fromCodePoint(cp) : term[tIdx];
+        tIdx += ch.length;
+        if (!LOOSE_TRANSPARENT_RE.test(ch)) {
+          cleanChars.push(ch);
+        }
+      }
+      if (cleanChars.length === 0) continue;
+
+      const firstChar = cleanChars[0];
+      let pos = 0;
+      const seqLen = seq.length;
+
+      while (pos < seqLen) {
+        let start = -1;
+        for (let i = pos; i < seqLen; i++) {
+          if (seq[i].ch === firstChar) {
+            start = i;
+            break;
+          }
+        }
+        if (start === -1) break;
+
+        let idx = start + 1;
+        let k = 1;
+        while (idx < seqLen && k < cleanChars.length) {
+          const item = seq[idx];
+          if (LOOSE_TRANSPARENT_RE.test(item.ch)) {
+            idx++;
+            continue;
+          }
+          if (item.ch === cleanChars[k]) {
+            k++;
+            idx++;
+          } else {
+            break;
+          }
+        }
+
+        if (k === cleanChars.length) {
+          matchedRanges.push({ start, end: idx });
+          pos = idx > start ? idx : start + 1;
+        } else {
+          pos = start + 1;
+        }
+      }
+    }
+
+    if (matchedRanges.length === 0) {
+      return { matched: false, hitBlock: null, firstMark: null };
+    }
+
+    let firstItem = null;
+    for (const range of matchedRanges) {
+      for (let i = range.start; i < range.end; i++) {
+        if (seq[i].node) {
+          firstItem = seq[i];
+          break;
+        }
+      }
+      if (firstItem) break;
+    }
+    const hitBlock = firstItem
+      ? (firstItem.block || firstItem.node.parentElement?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || startBlock)
+      : startBlock;
+
+    const nodeHighlights = new Map();
+    for (const range of matchedRanges) {
+      for (let i = range.start; i < range.end; i++) {
+        const item = seq[i];
+        if (!item.node) continue;
+        let list = nodeHighlights.get(item.node);
+        if (!list) {
+          list = [];
+          nodeHighlights.set(item.node, list);
+        }
+        list.push({ start: item.startIdx, end: item.endIdx });
+      }
+    }
+
+    let firstMark = null;
+    for (const [textNode, intervals] of nodeHighlights.entries()) {
+      intervals.sort((a, b) => a.start - b.start || a.end - b.end);
+      const merged = [];
+      for (const intv of intervals) {
+        if (merged.length === 0) {
+          merged.push({ start: intv.start, end: intv.end });
+        } else {
+          const prev = merged[merged.length - 1];
+          if (intv.start <= prev.end) {
+            prev.end = Math.max(prev.end, intv.end);
+          } else {
+            merged.push({ start: intv.start, end: intv.end });
+          }
+        }
+      }
+
+      const val = textNode.nodeValue;
+      const frag = document.createDocumentFragment();
+      let lastIdx = 0;
+      for (const { start, end } of merged) {
+        if (start > lastIdx) {
+          frag.appendChild(document.createTextNode(val.substring(lastIdx, start)));
+        }
         const mark = document.createElement('mark');
         mark.className = 'search-keyword-highlight';
-        mark.textContent = matchText;
-        fragment.appendChild(mark);
-
-        lastIdx = matchStart + matchText.length;
+        mark.textContent = val.substring(start, end);
+        frag.appendChild(mark);
+        if (!firstMark) firstMark = mark;
+        lastIdx = end;
       }
-
       if (lastIdx < val.length) {
-        fragment.appendChild(document.createTextNode(val.substring(lastIdx)));
+        frag.appendChild(document.createTextNode(val.substring(lastIdx)));
       }
-
       if (textNode.parentNode) {
-        textNode.parentNode.replaceChild(fragment, textNode);
+        textNode.parentNode.replaceChild(frag, textNode);
       }
-    });
+    }
+
+    return { matched: true, hitBlock, firstMark };
   }
 
-  function scrollToLine(lineNum, highlightQuery) {
+  function scrollToLine(lineNum, highlightQuery, searchMode) {
     clearLineKeywordHighlights();
     if (!lineNum) return;
 
     if (isVirtualMode()) {
-      scrollToLineVirtual(lineNum, highlightQuery);
+      scrollToLineVirtual(lineNum, highlightQuery, searchMode);
       return;
     }
 
     // Try exact line anchor first; fall back to the anchor of the block that
     // contains the line (body continuation lines carry no anchor of their own —
     // see anchorAtOrBefore).
+    if (!cachedLineAnchors.length) {
+      const mb = $('markdownBody');
+      if (mb) updateCachedLineAnchors(mb);
+    }
     let target = document.getElementById('L' + lineNum);
     if (!target) target = anchorAtOrBefore(lineNum);
     if (target) {
-      safeScrollToElement(target, $('content'), 'start');
-      // Brief highlight on the parent block
-      const block = target.nextElementSibling || target.parentElement;
-      if (block) {
-        block.classList.add('line-highlight');
-        setTimeout(() => block.classList.remove('line-highlight'), 2500);
-      }
+      const mode = searchMode || (state.lastSearchData && state.lastSearchData.mode) || state.searchMode || 'loose';
+      let hlRes = null;
       if (highlightQuery) {
-        highlightLineKeyword(target, highlightQuery);
+        hlRes = highlightLineKeyword(target, highlightQuery, mode);
       }
+
+      let scrollTarget;
+      let flashBlock;
+
+      if (hlRes && hlRes.matched) {
+        flashBlock = hlRes.hitBlock;
+        scrollTarget = hlRes.firstMark || hlRes.hitBlock;
+      } else {
+        flashBlock = target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || target.nextElementSibling || target.parentElement;
+        scrollTarget = target;
+      }
+
+      if (flashBlock) {
+        flashBlock.classList.add('line-highlight');
+        setTimeout(() => flashBlock.classList.remove('line-highlight'), 2500);
+      }
+
+      safeScrollToElement(scrollTarget, $('content'), 'start');
+
+      // 佈局未定時量測與重流修正（Requirement [D]）
+      requestAnimationFrame(() => {
+        const c = $('content');
+        if (!c || !scrollTarget || !scrollTarget.isConnected) return;
+        const tr = scrollTarget.getBoundingClientRect();
+        const cr = c.getBoundingClientRect();
+        const expectedTop = cr.top + 12;
+        if (Math.abs(tr.top - expectedTop) > 16) {
+          safeScrollToElement(scrollTarget, c, 'start');
+        }
+      });
     }
   }
 
@@ -1997,7 +2241,7 @@
     updateCachedLineAnchors($('markdownBody'));
   }
 
-  async function scrollToLineVirtual(lineNum, highlightQuery) {
+  async function scrollToLineVirtual(lineNum, highlightQuery, searchMode) {
     clearLineKeywordHighlights();
     if (!lineNum) return;
     const v = state.virtual;
@@ -2019,17 +2263,32 @@
       return;
     }
 
+    const mode = searchMode || (state.lastSearchData && state.lastSearchData.mode) || state.searchMode || 'loose';
+    let hlRes = null;
+    if (highlightQuery) {
+      hlRes = highlightLineKeyword(target, highlightQuery, mode);
+    }
+
+    let scrollTarget;
+    let flashBlock;
+
+    if (hlRes && hlRes.matched) {
+      flashBlock = hlRes.hitBlock;
+      scrollTarget = hlRes.firstMark || hlRes.hitBlock;
+    } else {
+      flashBlock = target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || target.nextElementSibling || target.parentElement;
+      scrollTarget = target;
+    }
+
     const content = $('content');
-    const targetRect = target.getBoundingClientRect();
+    const targetRect = scrollTarget.getBoundingClientRect();
     const containerRect = content.getBoundingClientRect();
     content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - 12);
 
-    const block = target.nextElementSibling || target.parentElement;
-    if (block) {
-      block.classList.add('line-highlight');
-      setTimeout(() => block.classList.remove('line-highlight'), 2500);
+    if (flashBlock) {
+      flashBlock.classList.add('line-highlight');
+      setTimeout(() => flashBlock.classList.remove('line-highlight'), 2500);
     }
-    if (highlightQuery) highlightLineKeyword(target, highlightQuery);
     updateVirtualScrollSpy(lineNum);
   }
 
@@ -2473,7 +2732,7 @@
 
   // Attempt to open a large file via the virtualized path. Returns true if
   // handled; false means the caller should fall through to the full render.
-  async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery, token, signal) {
+  async function tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery, token, signal, searchMode) {
     // Reuse a cached section index when the file is unchanged: send If-None-Match
     // so the server answers 304 and skips the multi-MB payload on re-opens.
     const cachedSi = state.sectionIndexCache.get(filePath);
@@ -2574,7 +2833,7 @@
     $('contentWrapper').style.display = 'block';
 
     if (scrollToLineNum) {
-      await scrollToLineVirtual(scrollToLineNum, highlightQuery);
+      await scrollToLineVirtual(scrollToLineNum, highlightQuery, searchMode);
     } else {
       await ensureChunk(0);
       $('content').scrollTop = 0;
@@ -2593,7 +2852,7 @@
     return true;
   }
 
-  async function openFile(filePath, scrollToLineNum, highlightQuery) {
+  async function openFile(filePath, scrollToLineNum, highlightQuery, searchMode) {
     if (state._openFileAbort) {
       state._openFileAbort.abort();
       state._openFileAbort = null;
@@ -2646,7 +2905,7 @@
     // requested entry — consecutive dictionary result clicks then feel instant.
     if (state.virtual && state.virtual.filePath === filePath && !forceFull) {
       highlightActiveFile(filePath);
-      await scrollToLineVirtual(scrollToLineNum || 1, highlightQuery);
+      await scrollToLineVirtual(scrollToLineNum || 1, highlightQuery, searchMode);
       if (token !== state._openToken) return;
       return;
     }
@@ -2669,7 +2928,7 @@
     const fileSize = state.fileSizes.get(filePath) || 0;
     if ((fileSize >= LARGE_FILE_MIN_BYTES || isDictFile) && !forceFull) {
       try {
-        const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery, token, abortCtrl.signal);
+        const handled = await tryOpenVirtualFile(filePath, scrollToLineNum, highlightQuery, token, abortCtrl.signal, searchMode);
         if (token !== state._openToken) return;
         if (handled) return;
       } catch (err) {
@@ -2704,7 +2963,7 @@
         generateTOC(headings);
         loading.style.display = 'none';
         wrapper.style.display = 'block';
-        if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery), 80);
+        if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery, searchMode), 80);
         else content.scrollTop = 0;
         setTimeout(() => saveReadProgress(filePath), 350);
         if (cachedMeta) {
@@ -2739,8 +2998,9 @@
           
           loading.style.display = 'none';
           wrapper.style.display = 'block';
+          updateCachedLineAnchors(el);
           if (scrollToLineNum) {
-            setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery), 80);
+            setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery, searchMode), 80);
           } else {
             content.scrollTop = 0;
           }
@@ -2761,7 +3021,7 @@
         } else {
           // 304 Not Modified received, but item was evicted from LRU cache!
           if (renderCache.__etag) renderCache.__etag.delete(filePath);
-          return openFile(filePath, scrollToLineNum, highlightQuery);
+          return openFile(filePath, scrollToLineNum, highlightQuery, searchMode);
         }
       }
       if (!res.ok) throw new Error('File not found');
@@ -2798,12 +3058,15 @@
       // Cache for instant re-opens
       cacheSet(filePath, html);
 
+      // Index line anchors immediately so scrollToLine finds them without waiting for idle
+      updateCachedLineAnchors(el);
+
       // Reveal text immediately (FCP First)
       loading.style.display = 'none';
       wrapper.style.display = 'block';
 
       if (scrollToLineNum) {
-        setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery), 80);
+        setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery, searchMode), 80);
       } else {
         content.scrollTop = 0;
       }
@@ -4079,9 +4342,7 @@
     return escaped.replace(regex, '<mark>$1</mark>');
   }
 
-  // 前端透明集合鏡像：此處為 lib/text.js 透明集合 T (TRANSPARENT_RE / isTransparent) 的前端鏡像，任何變更必須兩邊同步保持一致
-  const LOOSE_TRANSPARENT_RE = /[\p{P}\n\r\u0085\u2028\u2029]/u;
-
+  // 前端透明集合鏡像：定義於上方 LOOSE_TRANSPARENT_RE，與 lib/text.js 透明集合 T 保持一致
   function highlightLooseSnippet(rawSnippet, terms) {
     if (!rawSnippet) return '';
     if (!terms || terms.length === 0) return escHtml(rawSnippet);
@@ -5482,7 +5743,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -6047,7 +6308,8 @@
           const file = itemEl.getAttribute('data-file');
           const line = itemEl.getAttribute('data-line');
           const query = (state.lastSearchData && state.lastSearchData.query) || $('globalSearchInput')?.value || '';
-          openFile(file, line ? parseInt(line, 10) : null, query);
+          const searchMode = (state.lastSearchData && state.lastSearchData.mode) || state.searchMode || 'loose';
+          openFile(file, line ? parseInt(line, 10) : null, query, searchMode);
         }
       });
     }
@@ -6868,7 +7130,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7161,7 +7423,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.6',
+            version: data.settings?.version || '3.6.7',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });

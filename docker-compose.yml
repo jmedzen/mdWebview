@@ -11,6 +11,9 @@ services:
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
       - DICTIONARY_PATH=/data/dicts
+      # Bigram 索引 .bin 快取約 650MB，建置峰值記憶體需 ≥ 索引大小之 2 倍。
+      # 建議容器主機至少提供 4GB（建議 8GB）RAM。可透過 NODE_MAX_OLD_SPACE_MB 彈性調校 V8 heap 上限。
+      - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144}
     volumes:
       # Mount local ./data folder for config persistence
       - ./data:/data

@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.6.6 | 最後更新：2026-10
+> 版本：v3.6.7 | 最後更新：2026-10
 
 ---
 
@@ -238,7 +238,11 @@ sequenceDiagram
 - **標點/換行透明性**：CJK 字元間遇到標點符號或行終止符（`\p{P}`、LF `\n`、CR `\r`、NEL `\u0085`、`\u2028`、`\u2029`）等透明字元 T 時不中斷 Bigram 產生（如「菩薩，行深」或跨行「菩薩\n行深」均產生「薩行」）；空白（半形、Tab、全形空格、NBSP）為詞分隔符號不屬於 T（「菩薩 行深」不產生「薩行」）。
 - **索引超集不變式 (Index Superset Invariant)**：索引抽取透明集必須 ⊇ 掃描透明集。目前磁碟 `.bin` 以「標點+空白+換行」建置，比掃描的「標點+換行」更寬，故仍為合法超集，無需 bump magic 或重建現有 `.bin`。日後若要放寬掃描透明集（例如重新納入空白），才需 bump magic 並觸發重建。
 - **辭典索引**：獨立於主庫索引，避免辭典大小影響主庫搜尋速度
-- **索引格式**：`bigramMap: Map<string, number|number[]>` 記錄 unitId 清單，配合二進位磁碟快取（Magic: 0x42475835 / 0x42475836）
+- **索引格式與串流寫入**：`bigramMap: Map<string, number|Uint16Array|Uint32Array>` 記錄 unitId 清單；建置時採 in-place 就地壓縮（單元素收納為 number primitive、多元素原地轉換為 TypedArray，避免雙 Map 同時存活），並以分塊串流（`ChunkedBinaryWriter`）寫入二進位磁碟快取（Magic: 0x42475835 / 0x42475836），不再配置單一巨大 Buffer，使建置過程可平穩完成。
+- **部署記憶體需求與 NODE_MAX_OLD_SPACE_MB 調校**：
+  - 磁碟快取約 650MB（4.55M unique bigrams），建置峰值記憶體需 ≥ 索引大小之 2 倍。
+  - 建議容器或主機記憶體至少 **4GB**（推薦 **8GB**）。
+  - 透過 Dockerfile 預設 `NODE_OPTIONS="--max-old-space-size=6144"` 與 `docker-compose.yml` 的 `NODE_MAX_OLD_SPACE_MB` 可自訂 V8 old-space 上限（請勿使用嚴苛的容器 mem_limit 以免未達 GC 門檻即遭 OOM Killer 終止）。
 
 ---
 
@@ -544,8 +548,9 @@ flowchart TD
 
 | 常數 | 定義位置 | 值 | 說明 |
 |------|---------|-----|------|
+| `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.6.6'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.6.7'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/constants.js` | `500` | 靜態資源記憶體 LRU 快取上限筆數 |
 | `STATIC_CACHE_TTL_MS` | `lib/constants.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
