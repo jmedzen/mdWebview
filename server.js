@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.6.6
+ * @version 3.6.7
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -42,6 +42,7 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const os = require('os');
 const net = require('net');
+const v8 = require('v8');
 const readline = require('readline');
 const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
@@ -1877,7 +1878,8 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
       bigrams
     };
 
-    Logger.info('Index', `Loaded Bigram Index from disk cache: ${fileCount} files, ${unitCount} units, ${bigrams.size} bigrams in ${Date.now() - loadStart}ms`);
+    const loadRssGb = (process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2);
+    Logger.info('Index', `Loaded Bigram Index from disk cache: ${fileCount} files, ${unitCount} units, ${bigrams.size} bigrams (RSS: ${loadRssGb} GB) in ${Date.now() - loadStart}ms`);
     if (global.gc) global.gc();
     return true;
   } catch (err) {
@@ -1886,115 +1888,184 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
   }
 }
 
+class ChunkedBinaryWriter {
+  constructor(filePath, chunkSize = 1024 * 1024) {
+    this.filePath = filePath;
+    this.chunkSize = chunkSize;
+    this.buffer = Buffer.allocUnsafe(chunkSize);
+    this.offset = 0;
+    this.stream = fs.createWriteStream(filePath, { highWaterMark: chunkSize });
+    this.totalBytes = 0;
+    this.error = null;
+    this.stream.on('error', (err) => { this.error = err; });
+  }
+
+  async _flush() {
+    if (this.offset === 0) return;
+    if (this.error) throw this.error;
+    const slice = Buffer.from(this.buffer.subarray(0, this.offset));
+    this.offset = 0;
+    if (!this.stream.write(slice)) {
+      await new Promise((resolve, reject) => {
+        const onDrain = () => { cleanup(); resolve(); };
+        const onError = (err) => { cleanup(); reject(err); };
+        const cleanup = () => {
+          this.stream.removeListener('drain', onDrain);
+          this.stream.removeListener('error', onError);
+        };
+        this.stream.on('drain', onDrain);
+        this.stream.on('error', onError);
+      });
+    }
+  }
+
+  async writeUInt8(val) {
+    if (this.offset + 1 > this.chunkSize) await this._flush();
+    this.buffer.writeUInt8(val, this.offset);
+    this.offset += 1;
+    this.totalBytes += 1;
+  }
+
+  async writeUInt16BE(val) {
+    if (this.offset + 2 > this.chunkSize) await this._flush();
+    this.buffer.writeUInt16BE(val, this.offset);
+    this.offset += 2;
+    this.totalBytes += 2;
+  }
+
+  async writeInt32BE(val) {
+    if (this.offset + 4 > this.chunkSize) await this._flush();
+    this.buffer.writeInt32BE(val, this.offset);
+    this.offset += 4;
+    this.totalBytes += 4;
+  }
+
+  async writeUInt32BE(val) {
+    if (this.offset + 4 > this.chunkSize) await this._flush();
+    this.buffer.writeUInt32BE(val, this.offset);
+    this.offset += 4;
+    this.totalBytes += 4;
+  }
+
+  async writeBuffer(buf) {
+    let bufOffset = 0;
+    while (bufOffset < buf.length) {
+      const available = this.chunkSize - this.offset;
+      if (available === 0) {
+        await this._flush();
+        continue;
+      }
+      const toCopy = Math.min(available, buf.length - bufOffset);
+      buf.copy(this.buffer, this.offset, bufOffset, bufOffset + toCopy);
+      this.offset += toCopy;
+      bufOffset += toCopy;
+      this.totalBytes += toCopy;
+    }
+  }
+
+  async close() {
+    await this._flush();
+    if (this.error) throw this.error;
+    await new Promise((resolve, reject) => {
+      this.stream.end((err) => {
+        if (err || this.error) reject(err || this.error);
+        else resolve();
+      });
+    });
+  }
+}
+
 /**
  * Saves Bigram index as compact binary cache file (.bin) atomically (Crash-Safe)
  */
 async function saveSearchIndexBinCacheAsync(vaultSig, fileList, units, bigrams) {
+  const tmpCacheFile = SEARCH_INDEX_CACHE_BIN + '.tmp';
   try {
     const saveStart = Date.now();
     const useUint16 = units.length < 65536;
     // v4: punctuation/whitespace-transparent bigrams (loose search mode)
     const magic = useUint16 ? 0x42475835 : 0x42475836;
-    const bytesPerId = useUint16 ? 2 : 4;
 
-    let totalBytes = 4 + 2 + Buffer.byteLength(vaultSig || '') + 4 + 4 + 4;
+    const writer = new ChunkedBinaryWriter(tmpCacheFile, 1024 * 1024);
 
-    for (const f of fileList) {
-      totalBytes += 4 + 2 + Buffer.byteLength(f.relPath) + 2 + Buffer.byteLength(f.name) + 2 + Buffer.byteLength(f.fullPath);
-    }
-
-    for (const u of units) {
-      totalBytes += 4 + 4 + 4 + 2 + Buffer.byteLength(u.headword || '') + 4 + 4 + 4;
-    }
-
-    const entries = Array.from(bigrams.entries());
-    for (const entry of entries) {
-      const bg = entry[0];
-      const val = entry[1];
-      const count = typeof val === 'number' ? 1 : val.length;
-      totalBytes += 1 + Buffer.byteLength(bg) + 4 + (count * bytesPerId);
-    }
-
-    const buf = Buffer.allocUnsafe(totalBytes);
-    let pos = 0;
-
-    buf.writeUInt32BE(magic, pos); pos += 4;
+    await writer.writeUInt32BE(magic);
     const sigBuf = Buffer.from(vaultSig || '');
-    buf.writeUInt16BE(sigBuf.length, pos); pos += 2;
-    sigBuf.copy(buf, pos); pos += sigBuf.length;
+    await writer.writeUInt16BE(sigBuf.length);
+    await writer.writeBuffer(sigBuf);
 
-    buf.writeUInt32BE(fileList.length, pos); pos += 4;
-    buf.writeUInt32BE(units.length, pos); pos += 4;
-    buf.writeUInt32BE(entries.length, pos); pos += 4;
+    await writer.writeUInt32BE(fileList.length);
+    await writer.writeUInt32BE(units.length);
+    await writer.writeUInt32BE(bigrams.size);
 
     for (const f of fileList) {
-      buf.writeUInt32BE(f.id, pos); pos += 4;
+      await writer.writeUInt32BE(f.id);
 
       const relB = Buffer.from(f.relPath);
-      buf.writeUInt16BE(relB.length, pos); pos += 2;
-      relB.copy(buf, pos); pos += relB.length;
+      await writer.writeUInt16BE(relB.length);
+      await writer.writeBuffer(relB);
 
       const nameB = Buffer.from(f.name);
-      buf.writeUInt16BE(nameB.length, pos); pos += 2;
-      nameB.copy(buf, pos); pos += nameB.length;
+      await writer.writeUInt16BE(nameB.length);
+      await writer.writeBuffer(nameB);
 
       const fullB = Buffer.from(f.fullPath);
-      buf.writeUInt16BE(fullB.length, pos); pos += 2;
-      fullB.copy(buf, pos); pos += fullB.length;
+      await writer.writeUInt16BE(fullB.length);
+      await writer.writeBuffer(fullB);
     }
 
     for (const u of units) {
-      buf.writeUInt32BE(u.unitId, pos); pos += 4;
-      buf.writeUInt32BE(u.fileId, pos); pos += 4;
-      buf.writeInt32BE(u.entryIndex, pos); pos += 4;
+      await writer.writeUInt32BE(u.unitId);
+      await writer.writeUInt32BE(u.fileId);
+      await writer.writeInt32BE(u.entryIndex);
 
       const hwB = Buffer.from(u.headword || '');
-      buf.writeUInt16BE(hwB.length, pos); pos += 2;
-      hwB.copy(buf, pos); pos += hwB.length;
+      await writer.writeUInt16BE(hwB.length);
+      await writer.writeBuffer(hwB);
 
-      buf.writeUInt32BE(u.byteOffset, pos); pos += 4;
-      buf.writeUInt32BE(u.byteLength, pos); pos += 4;
-      buf.writeUInt32BE(u.lineStart, pos); pos += 4;
+      await writer.writeUInt32BE(u.byteOffset);
+      await writer.writeUInt32BE(u.byteLength);
+      await writer.writeUInt32BE(u.lineStart);
     }
 
-    for (const entry of entries) {
-      const bgB = Buffer.from(entry[0]);
-      const val = entry[1];
+    for (const [bg, val] of bigrams.entries()) {
+      const bgB = Buffer.from(bg);
       const isSingle = typeof val === 'number';
       const count = isSingle ? 1 : val.length;
 
-      buf.writeUInt8(bgB.length, pos); pos += 1;
-      bgB.copy(buf, pos); pos += bgB.length;
+      await writer.writeUInt8(bgB.length);
+      await writer.writeBuffer(bgB);
 
-      buf.writeUInt32BE(count, pos); pos += 4;
+      await writer.writeUInt32BE(count);
 
       if (useUint16) {
         if (isSingle) {
-          buf.writeUInt16BE(val, pos); pos += 2;
+          await writer.writeUInt16BE(val);
         } else {
           for (let j = 0; j < count; j++) {
-            buf.writeUInt16BE(val[j], pos); pos += 2;
+            await writer.writeUInt16BE(val[j]);
           }
         }
       } else {
         if (isSingle) {
-          buf.writeUInt32BE(val, pos); pos += 4;
+          await writer.writeUInt32BE(val);
         } else {
           for (let j = 0; j < count; j++) {
-            buf.writeUInt32BE(val[j], pos); pos += 4;
+            await writer.writeUInt32BE(val[j]);
           }
         }
       }
     }
 
-    // Write to temporary file first and atomically rename for 100% crash-safe disk persistence
-    const tmpCacheFile = SEARCH_INDEX_CACHE_BIN + '.tmp';
-    await fs.promises.writeFile(tmpCacheFile, buf);
+    await writer.close();
+
+    // Atomically rename temporary file for 100% crash-safe disk persistence
     await fs.promises.rename(tmpCacheFile, SEARCH_INDEX_CACHE_BIN);
 
-    const sizeMb = (buf.length / (1024 * 1024)).toFixed(1);
-    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB, ${units.length} units) atomically in ${Date.now() - saveStart}ms`);
+    const sizeMb = (writer.totalBytes / (1024 * 1024)).toFixed(1);
+    const rssGb = (process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2);
+    Logger.info('Index', `Saved Binary Bigram Index cache (${sizeMb} MB, ${units.length} units, RSS ${rssGb} GB) atomically in ${Date.now() - saveStart}ms`);
   } catch (err) {
+    try { await fs.promises.unlink(tmpCacheFile); } catch (_) {}
     Logger.error('Index', 'Failed to save binary search index cache', err);
   }
 }
@@ -2112,7 +2183,12 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       }
     }
 
-    Logger.info('Index', `Starting Full-text Bigram Inverted Index build #${buildId} for ${files.length} files...`);
+    const heapLimitMb = Math.round(v8.getHeapStatistics().heap_size_limit / (1024 * 1024));
+    const startRssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
+    if (heapLimitMb < 4096) {
+      Logger.warn('Index', `[Build #${buildId}] Node heap size limit is ${heapLimitMb} MB (< 4096 MB). Bigram index build for large vaults may experience heap pressure. Consider setting NODE_OPTIONS=--max-old-space-size=6144 or higher.`);
+    }
+    Logger.info('Index', `Starting Full-text Bigram Inverted Index build #${buildId} for ${files.length} files (Heap limit: ${heapLimitMb} MB, Current RSS: ${startRssMb} MB)...`);
 
     // Build the unit list: large files → one unit per dictionary entry; small files → one whole-file unit.
     const fileList = [];
@@ -2185,15 +2261,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       return;
     }
 
-    // Sort posting lists for O(n+m) sorted-merge intersection, then compact to TypedArrays
-    const compactBigrams = new Map();
+    // Sort posting lists for O(n+m) sorted-merge intersection, then compact in-place to TypedArrays
     const useUint16 = units.length < 65536;
     for (const [bg, list] of bigrams.entries()) {
       if (list.length === 1) {
-        compactBigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
+        bigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
       } else {
         list.sort((a, b) => a - b);
-        compactBigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list));
+        bigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list));
       }
     }
 
@@ -2206,16 +2281,23 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       fileList,
       fileMap,
       units,
-      bigrams: compactBigrams
+      bigrams
     };
 
-    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files / ${units.length} units (${compactBigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
+    const buildRssGb = (process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2);
+    Logger.info('Index', `Full-text Bigram Index built #${buildId} for ${fileList.length} files / ${units.length} units (${bigrams.size} unique 2-grams, RSS: ${buildRssGb} GB) in ${Date.now() - indexStart}ms`);
+
+    if (global.gc) global.gc();
 
     // Save binary cache to disk for ultra-fast server restarts
-    await saveSearchIndexBinCacheAsync(vaultSig, fileList, units, compactBigrams);
+    await saveSearchIndexBinCacheAsync(vaultSig, fileList, units, bigrams);
     if (global.gc) global.gc();
   } catch (err) {
-    Logger.error('Index', `Failed to build Bigram search index #${buildId}`, err);
+    if (err instanceof RangeError) {
+      Logger.error('Index', `[Build #${buildId}] Out of memory / RangeError during Bigram index build (RSS: ${(process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2)} GB). Please increase container memory or NODE_OPTIONS=--max-old-space-size.`, err);
+    } else {
+      Logger.error('Index', `Failed to build Bigram search index #${buildId}`, err);
+    }
   } finally {
     if (buildId === activeIndexBuildId) {
       searchIndex.building = false;
@@ -2398,7 +2480,8 @@ async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
     } catch (_) {}
 
     dictIndex = { ready: true, building: false, dictSig: expectedDictSig, createdAt, fileList, fileMap, units, bigrams };
-    Logger.info('DictIndex', `Loaded dictionary index from disk cache: ${fileCount} files, ${unitCount} units, ${bigrams.size} bigrams in ${Date.now() - loadStart}ms`);
+    const dictLoadRssGb = (process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2);
+    Logger.info('DictIndex', `Loaded dictionary index from disk cache: ${fileCount} files, ${unitCount} units, ${bigrams.size} bigrams (RSS: ${dictLoadRssGb} GB) in ${Date.now() - loadStart}ms`);
     if (global.gc) global.gc();
     return true;
   } catch (err) {
@@ -2408,82 +2491,83 @@ async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
 }
 
 async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
+  const tmpCacheFile = DICT_INDEX_CACHE_BIN + '.tmp';
   try {
     const saveStart = Date.now();
     const useUint16 = units.length < 65536;
     // v4: punctuation/whitespace-transparent bigrams (loose search mode)
     const magic = useUint16 ? 0x44475835 : 0x44475836;
-    const bytesPerId = useUint16 ? 2 : 4;
 
-    let totalBytes = 4 + 2 + Buffer.byteLength(dictSig || '') + 4 + 4 + 4;
-    for (const f of fileList) {
-      totalBytes += 4 + 2 + Buffer.byteLength(f.relPath) + 2 + Buffer.byteLength(f.name) + 2 + Buffer.byteLength(f.fullPath);
-    }
-    for (const u of units) {
-      totalBytes += 4 + 4 + 4 + 2 + Buffer.byteLength(u.headword || '') + 4 + 4 + 4;
-    }
-    const entries = Array.from(bigrams.entries());
-    for (const entry of entries) {
-      const val = entry[1];
-      const count = typeof val === 'number' ? 1 : val.length;
-      totalBytes += 1 + Buffer.byteLength(entry[0]) + 4 + (count * bytesPerId);
-    }
+    const writer = new ChunkedBinaryWriter(tmpCacheFile, 1024 * 1024);
 
-    const buf = Buffer.allocUnsafe(totalBytes);
-    let pos = 0;
-
-    buf.writeUInt32BE(magic, pos); pos += 4;
+    await writer.writeUInt32BE(magic);
     const sigBuf = Buffer.from(dictSig || '');
-    buf.writeUInt16BE(sigBuf.length, pos); pos += 2;
-    sigBuf.copy(buf, pos); pos += sigBuf.length;
+    await writer.writeUInt16BE(sigBuf.length);
+    await writer.writeBuffer(sigBuf);
 
-    buf.writeUInt32BE(fileList.length, pos); pos += 4;
-    buf.writeUInt32BE(units.length, pos); pos += 4;
-    buf.writeUInt32BE(entries.length, pos); pos += 4;
+    await writer.writeUInt32BE(fileList.length);
+    await writer.writeUInt32BE(units.length);
+    await writer.writeUInt32BE(bigrams.size);
 
     for (const f of fileList) {
-      buf.writeUInt32BE(f.id, pos); pos += 4;
+      await writer.writeUInt32BE(f.id);
       const relB = Buffer.from(f.relPath);
-      buf.writeUInt16BE(relB.length, pos); pos += 2; relB.copy(buf, pos); pos += relB.length;
+      await writer.writeUInt16BE(relB.length);
+      await writer.writeBuffer(relB);
       const nameB = Buffer.from(f.name);
-      buf.writeUInt16BE(nameB.length, pos); pos += 2; nameB.copy(buf, pos); pos += nameB.length;
+      await writer.writeUInt16BE(nameB.length);
+      await writer.writeBuffer(nameB);
       const fullB = Buffer.from(f.fullPath);
-      buf.writeUInt16BE(fullB.length, pos); pos += 2; fullB.copy(buf, pos); pos += fullB.length;
+      await writer.writeUInt16BE(fullB.length);
+      await writer.writeBuffer(fullB);
     }
 
     for (const u of units) {
-      buf.writeUInt32BE(u.unitId, pos); pos += 4;
-      buf.writeUInt32BE(u.fileId, pos); pos += 4;
-      buf.writeInt32BE(u.entryIndex, pos); pos += 4;
+      await writer.writeUInt32BE(u.unitId);
+      await writer.writeUInt32BE(u.fileId);
+      await writer.writeInt32BE(u.entryIndex);
       const hwB = Buffer.from(u.headword || '');
-      buf.writeUInt16BE(hwB.length, pos); pos += 2; hwB.copy(buf, pos); pos += hwB.length;
-      buf.writeUInt32BE(u.byteOffset, pos); pos += 4;
-      buf.writeUInt32BE(u.byteLength, pos); pos += 4;
-      buf.writeUInt32BE(u.lineStart, pos); pos += 4;
+      await writer.writeUInt16BE(hwB.length);
+      await writer.writeBuffer(hwB);
+      await writer.writeUInt32BE(u.byteOffset);
+      await writer.writeUInt32BE(u.byteLength);
+      await writer.writeUInt32BE(u.lineStart);
     }
 
-    for (const entry of entries) {
-      const bgB = Buffer.from(entry[0]);
-      const val = entry[1];
+    for (const [bg, val] of bigrams.entries()) {
+      const bgB = Buffer.from(bg);
       const isSingle = typeof val === 'number';
       const count = isSingle ? 1 : val.length;
-      buf.writeUInt8(bgB.length, pos); pos += 1;
-      bgB.copy(buf, pos); pos += bgB.length;
-      buf.writeUInt32BE(count, pos); pos += 4;
+      await writer.writeUInt8(bgB.length);
+      await writer.writeBuffer(bgB);
+      await writer.writeUInt32BE(count);
       if (useUint16) {
-        if (isSingle) { buf.writeUInt16BE(val, pos); pos += 2; }
-        else { for (let j = 0; j < count; j++) { buf.writeUInt16BE(val[j], pos); pos += 2; } }
+        if (isSingle) {
+          await writer.writeUInt16BE(val);
+        } else {
+          for (let j = 0; j < count; j++) {
+            await writer.writeUInt16BE(val[j]);
+          }
+        }
       } else {
-        if (isSingle) { buf.writeUInt32BE(val, pos); pos += 4; }
-        else { for (let j = 0; j < count; j++) { buf.writeUInt32BE(val[j], pos); pos += 4; } }
+        if (isSingle) {
+          await writer.writeUInt32BE(val);
+        } else {
+          for (let j = 0; j < count; j++) {
+            await writer.writeUInt32BE(val[j]);
+          }
+        }
       }
     }
 
-    const tmpCacheFile = DICT_INDEX_CACHE_BIN + '.tmp';
-    await fs.promises.writeFile(tmpCacheFile, buf);
+    await writer.close();
+
     await fs.promises.rename(tmpCacheFile, DICT_INDEX_CACHE_BIN);
-    Logger.info('DictIndex', `Saved dictionary index cache (${(buf.length / 1048576).toFixed(1)} MB, ${units.length} units) in ${Date.now() - saveStart}ms`);
+    const sizeMb = (writer.totalBytes / (1024 * 1024)).toFixed(1);
+    const rssGb = (process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2);
+    Logger.info('DictIndex', `Saved dictionary index cache (${sizeMb} MB, ${units.length} units, RSS ${rssGb} GB) in ${Date.now() - saveStart}ms`);
   } catch (err) {
+    try { await fs.promises.unlink(tmpCacheFile); } catch (_) {}
     Logger.error('DictIndex', 'Failed to save dictionary index cache', err);
   }
 }
@@ -2515,6 +2599,10 @@ async function buildDictIndexAsync(forceRebuild = false) {
   const indexStart = Date.now();
 
   try {
+    const heapLimitMb = Math.round(v8.getHeapStatistics().heap_size_limit / (1024 * 1024));
+    const startRssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
+    Logger.info('DictIndex', `Starting dictionary index build #${buildId} (Heap limit: ${heapLimitMb} MB, Current RSS: ${startRssMb} MB)...`);
+
     const files = await scanDictFiles();
     if (buildId !== activeDictIndexBuildId) return;
     const dictSig = await computeDictSignature(files);
@@ -2591,11 +2679,11 @@ async function buildDictIndexAsync(forceRebuild = false) {
 
     if (buildId !== activeDictIndexBuildId) return;
 
-    const compactBigrams = new Map();
+    // Compact posting lists in-place
     const useUint16 = units.length < 65536;
     for (const [bg, list] of bigrams.entries()) {
-      if (list.length === 1) compactBigrams.set(bg, list[0]);
-      else { list.sort((a, b) => a - b); compactBigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list)); }
+      if (list.length === 1) bigrams.set(bg, list[0]);
+      else { list.sort((a, b) => a - b); bigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list)); }
     }
 
     dictIndex = {
@@ -2606,14 +2694,21 @@ async function buildDictIndexAsync(forceRebuild = false) {
       fileList,
       fileMap,
       units,
-      bigrams: compactBigrams
+      bigrams
     };
 
-    Logger.info('DictIndex', `Dictionary full-text index built for ${fileList.length} files / ${units.length} entries (${compactBigrams.size} unique 2-grams) in ${Date.now() - indexStart}ms`);
-    await saveDictIndexBinCacheAsync(dictSig, fileList, units, compactBigrams);
+    const dictRssGb = (process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2);
+    Logger.info('DictIndex', `Dictionary full-text index built for ${fileList.length} files / ${units.length} entries (${bigrams.size} unique 2-grams, RSS: ${dictRssGb} GB) in ${Date.now() - indexStart}ms`);
+    if (global.gc) global.gc();
+
+    await saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams);
     if (global.gc) global.gc();
   } catch (err) {
-    Logger.error('DictIndex', 'Failed to build dictionary index', err);
+    if (err instanceof RangeError) {
+      Logger.error('DictIndex', `[Build #${buildId}] Out of memory / RangeError during dictionary index build (RSS: ${(process.memoryUsage().rss / (1024 * 1024 * 1024)).toFixed(2)} GB).`, err);
+    } else {
+      Logger.error('DictIndex', 'Failed to build dictionary index', err);
+    }
   } finally {
     if (buildId === activeDictIndexBuildId) {
       dictIndex.building = false;
@@ -4904,6 +4999,13 @@ if (typeof module !== "undefined" && module.exports) {
     resetConfigWatcher,
     generateSitemapXml,
     autoRebuildSitemapAsync,
-    terminateWorkerPools
+    terminateWorkerPools,
+    saveSearchIndexBinCacheAsync,
+    loadSearchIndexFromBinCacheAsync,
+    saveDictIndexBinCacheAsync,
+    loadDictIndexFromBinCacheAsync,
+    buildSearchIndexAsync,
+    buildDictIndexAsync,
+    ChunkedBinaryWriter
   };
 }

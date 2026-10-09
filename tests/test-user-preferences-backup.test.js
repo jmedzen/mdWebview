@@ -67,7 +67,7 @@ describe('使用者自定義偏好設定與備份還原功能測試 (User Prefer
 
     const simulatedExport = {
       app: 'mdWebview',
-      version: '3.6.5',
+      version: '3.6.7',
       exportDate: new Date().toISOString(),
       type: 'mdWebview-user-preferences',
       preferences: {
