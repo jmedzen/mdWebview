@@ -40,4 +40,19 @@ describe('手機版本排版與 RWD 審計自動化測試 (Mobile Layout & RWD A
     // 驗證社群卡片預覽在手機端為 column
     assert.match(cssContent, /\.og-card-inner\s*\{[^}]*flex-direction:\s*column\s*!important;/, '社群卡片在手機端必須轉為垂直排列');
   });
+
+  test('6. 行動端側邊欄 (Sidebar & Dict-Sidebar) 與遮罩層疊 (z-index) 及 iOS 輸入體驗檢驗 (P0 級)', () => {
+    // 驗證 sidebar-backdrop 的 z-index 為 85
+    assert.match(cssContent, /\.sidebar-backdrop\s*\{[^}]*z-index:\s*85;/s, '遮罩層 z-index 應為 85');
+
+    // 驗證行動端 .dict-sidebar 的 z-index 必須為 90 !important，防止後方一般樣式 (z-index: 10) 覆寫，確保浮於遮罩之上
+    assert.match(cssContent, /\.dict-sidebar\s*\{[^}]*z-index:\s*90\s*!important;[^}]*background:\s*var\(--bg-secondary\)\s*!important;/s, '行動端 dict-sidebar 必須有 z-index: 90 !important 與不透明背景');
+
+    // 驗證行動端 .sidebar 的 z-index 必須為 90 !important
+    assert.match(cssContent, /\.sidebar\s*\{[^}]*z-index:\s*90\s*!important;/s, '行動端 sidebar 必須有 z-index: 90 !important');
+
+    // 驗證行動端 .dict-search-input 具備 16px !important，防止 iOS Safari 點擊聚焦時自動放大畫面
+    assert.match(cssContent, /\.dict-search-input\s*\{[^}]*font-size:\s*16px\s*!important;/s, '行動端字典輸入框必須設為 16px !important 防止 iOS 自動放大');
+  });
 });
+
