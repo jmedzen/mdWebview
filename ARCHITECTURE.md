@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.6.7 | 最後更新：2026-10
+> 版本：v3.6.8 | 最後更新：2026-10
 
 ---
 
@@ -93,7 +93,7 @@ flowchart TD
 ```
 
 **核心設計原則：**
-- **原生 CommonJS 模組化**：`server.js` 為乾淨路由入口，職責解耦至 `lib/` 8 大原生模組（無 Express/第三方依賴）
+- **原生 CommonJS 模組化**：`server.js` 為乾淨路由入口，職責解耦至 `lib/` 模組（無 Express/第三方依賴）
 - **雙 Worker Thread Pool**：CPU 密集型工作（Markdown 渲染、Bigram 倒排索引）透過獨立 Worker Thread 池並行處理，主事件迴圈零阻塞
 - **全非同步 I/O**：所有磁碟存取與 Worker 呼叫均採用 Promise-based async/await
 - **零外部 CDN**：所有前端依賴（marked.js、KaTeX、mermaid、字型）均本地託管於專案內
@@ -327,7 +327,7 @@ flowchart TD
 
 ## 8. 後端模組架構與 API 路由索引
 
-後端採用 **原生 CommonJS 模組解耦架構**，無任何外部第三方 HTTP 框架（如 Express/Fastify）。`server.js` 作為頂層組裝入口，所有重型與專項業務邏輯抽離至 `lib/` 目錄下的 8 大原生模組。
+後端採用 **原生 CommonJS 模組解耦架構**，無任何外部第三方 HTTP 框架（如 Express/Fastify）。`server.js` 作為頂層組裝入口，所有重型與專項業務邏輯抽離至 `lib/` 目錄下的原生模組。
 
 ### 8.1 lib/ 原生模組職責劃分
 
@@ -355,6 +355,7 @@ flowchart TD
 | `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`, `getLogFilePath`, `appendToPersistentLog`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
 | `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝 | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`) |
 | `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入 | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
+| `lib/markdown.js` | Markdown 與 Frontmatter 文本處理：YAML 標頭剝離、metadata 解析與行號偏移 (lineOffset) 計算 | `stripFrontmatter` |
 
 ### 8.2 server.js API 路由索引表
 
@@ -550,7 +551,7 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.6.7'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.6.8'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/constants.js` | `500` | 靜態資源記憶體 LRU 快取上限筆數 |
 | `STATIC_CACHE_TTL_MS` | `lib/constants.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
