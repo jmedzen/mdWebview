@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.6.7
+ * @version 3.6.8
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -108,6 +108,10 @@ const {
 const {
   extractBigramsFromText, normalizeLooseTerm
 } = require('./lib/text');
+
+const {
+  stripFrontmatter
+} = require('./lib/markdown');
 
 // Configure marked once at startup
 marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
@@ -717,12 +721,13 @@ async function handleCrawlerSsr(req, res, filePath, query) {
     const fallbackName = path.basename(filePath, '.md');
     const { title, description } = extractMarkdownMetadata(rawMarkdown, fallbackName);
 
-    // Render markdown to static HTML
+    // Render markdown to static HTML (strip frontmatter and pass lineOffset)
+    const { body: crawlerBody, lineOffset: crawlerLineOffset } = stripFrontmatter(rawMarkdown);
     let bodyHtml = '';
     try {
-      bodyHtml = await renderWithWorker(rawMarkdown, filePath);
+      bodyHtml = await renderWithWorker(crawlerBody, filePath, crawlerLineOffset);
     } catch (_) {
-      bodyHtml = marked.parse(rawMarkdown);
+      bodyHtml = marked.parse(crawlerBody);
     }
 
     const nonce = crypto.randomBytes(16).toString('base64');
@@ -1077,26 +1082,7 @@ async function handleRender(req, res, query) {
     let raw = await fs.promises.readFile(resolved, 'utf-8');
 
     // Strip frontmatter before rendering (O(1) fast scanning without regex string-duplication)
-    let frontmatter = {};
-    if (raw.startsWith('---\n') || raw.startsWith('---\r\n')) {
-      const isCrlf = raw.startsWith('---\r\n');
-      const startOffset = isCrlf ? 5 : 4;
-      const endFmIndex = raw.indexOf(isCrlf ? '\r\n---' : '\n---', startOffset);
-      if (endFmIndex !== -1) {
-        const fmText = raw.substring(startOffset, endFmIndex);
-        fmText.split(/\r?\n/).forEach((l) => {
-          const idx = l.indexOf(':');
-          if (idx !== -1) {
-            const k = l.substring(0, idx).trim();
-            const v = l.substring(idx + 1).trim();
-            if (k) frontmatter[k] = v;
-          }
-        });
-        const contentStart = endFmIndex + (isCrlf ? 5 : 4);
-        const nextNL = raw.indexOf('\n', contentStart);
-        raw = nextNL !== -1 ? raw.substring(nextNL + 1) : raw.substring(contentStart);
-      }
-    }
+    const { body: renderedBody, frontmatter, lineOffset } = stripFrontmatter(raw);
 
     const abortCtrl = new AbortController();
     req.on('close', () => {
@@ -1104,7 +1090,7 @@ async function handleRender(req, res, query) {
     });
 
     // Offload CPU-bound rendering to worker thread pool
-    const html = await renderWithWorker(raw, filePath, 0, abortCtrl.signal);
+    const html = await renderWithWorker(renderedBody, filePath, lineOffset, abortCtrl.signal);
     Logger.info('Render', `Loaded document: "${filePath}" (${Date.now() - renderStart}ms)`, req, { path: filePath });
 
     // Encode frontmatter as base64 in response header (avoids JSON wrapping the HTML)
@@ -5006,6 +4992,7 @@ if (typeof module !== "undefined" && module.exports) {
     loadDictIndexFromBinCacheAsync,
     buildSearchIndexAsync,
     buildDictIndexAsync,
+    stripFrontmatter,
     ChunkedBinaryWriter
   };
 }
