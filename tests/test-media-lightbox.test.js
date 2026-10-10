@@ -69,12 +69,48 @@ describe('媒體檔案全螢幕燈箱與縮放平移功能測試 (Media Lightbox
   test('4. app.js 正文圖片點擊委派與防誤觸機制驗證', () => {
     // 正文圖片點擊喚起燈箱且阻斷預設跳轉（例如圖文超連結 a 包裹 img）
     assert.match(appJsContent, /imgEl\s*&&\s*\$\('markdownBody'\)\.contains\(imgEl\)/, '點擊圖片時應檢驗是否位於 markdownBody 內部');
-    assert.match(appJsContent, /openMediaLightbox\(imgEl\.src,\s*imgEl\.getAttribute\('alt'\)/, '點擊圖片應呼叫 openMediaLightbox 傳入 src 與 alt');
+    assert.match(appJsContent, /openMediaLightbox\(src,\s*imgEl\.getAttribute\('alt'\)/, '點擊圖片應呼叫 openMediaLightbox 傳入 src 與 alt');
+
+    // 全域捕獲階段監聽確保行動端與各容器均能正常喚起
+    assert.match(appJsContent, /document\.addEventListener\('click'[\s\S]*?openMediaLightbox[\s\S]*?true\);/, '應在 document 上建立捕獲階段監聽器以保證行動裝置正確觸發');
 
     // 雙擊縮放（Double click toggle 1x <-> 2.5x）
     assert.match(appJsContent, /viewport\.addEventListener\('dblclick'/, '視口應監聽 dblclick 進行快速放大縮小切換');
 
     // 鍵盤 Esc 鍵與快速鍵綁定
     assert.match(appJsContent, /e\.key\s*===\s*'Escape'/, '按下 Escape 鍵應能關閉燈箱');
+  });
+
+  test('5. index.html DOM 層級獨立性驗證（杜絕巢狀隱藏造成點擊無效）', () => {
+    // 驗證 adminSettingsOverlay 已在 mediaLightboxOverlay 之前正確閉合
+    const adminIdx = htmlContent.indexOf('id="adminSettingsOverlay"');
+    const lightboxIdx = htmlContent.indexOf('id="mediaLightboxOverlay"');
+    assert.ok(adminIdx !== -1 && lightboxIdx !== -1, '必須同時存在兩個節點');
+    assert.ok(adminIdx < lightboxIdx, 'adminSettingsOverlay 應在 mediaLightboxOverlay 之前定義');
+
+    // 計算 adminSettingsOverlay 到 mediaLightboxOverlay 之間的 div 平衡，確保已完全閉合
+    const segment = htmlContent.substring(adminIdx, lightboxIdx);
+    const cleanSegment = segment.replace(/<!--[\s\S]*?-->/g, '');
+    const opens = (cleanSegment.match(/<div\b/g) || []).length;
+    const closes = (cleanSegment.match(/<\/div>/g) || []).length;
+    assert.equal(opens, closes, 'adminSettingsOverlay 必須在 mediaLightboxOverlay 之前完全閉合（div 開閉數量相等），不可使燈箱淪為隱藏子節點');
+  });
+
+  test('6. 行動端手勢與觸控體驗驗證 (Mobile Gestures & Touch Support)', () => {
+    // 行動端雙擊 (Double Tap) 偵測
+    assert.match(appJsContent, /lastTapTime[\s\S]*?320/, 'app.js 必須支援行動端雙擊縮放（320ms 內雙擊）');
+
+    // 雙指平移與捏合縮放 (Pinch-to-zoom & Pan)
+    assert.match(appJsContent, /lastPinchDist[\s\S]*?scaleDelta/, 'app.js 必須支援雙指無段式捏合縮放');
+    assert.match(appJsContent, /lastPinchCenter[\s\S]*?panDx/, 'app.js 雙指縮放時必須同步跟隨中心平移');
+
+    // iOS 背景滾動與彈動阻斷
+    assert.match(appJsContent, /overlay\.addEventListener\('touchmove'[\s\S]*?e\.preventDefault\(\)/, 'app.js 必須在 touchmove 中阻斷行動端背景橡皮筋彈動');
+
+    // CSS 安全區與 300ms 點擊延遲優化
+    assert.match(cssContent, /touch-action:\s*manipulation/, 'style.css 圖片樣式必須包含 touch-action: manipulation 消除行動端 300ms 點擊延遲');
+    assert.match(cssContent, /safe-area-inset-top/, 'style.css 必須適配行動端安全區頂部 safe-area-inset-top');
+    assert.match(cssContent, /safe-area-inset-right/, 'style.css 必須適配行動端安全區右側 safe-area-inset-right');
+    assert.match(cssContent, /safe-area-inset-bottom/, 'style.css 必須適配行動端安全區底部 safe-area-inset-bottom');
   });
 });
