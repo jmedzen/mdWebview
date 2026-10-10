@@ -668,6 +668,16 @@ body,
   flex-shrink: 0;
   opacity: 0.8;
 }
+#searchModeBtn {
+  min-width: 24px;
+  justify-content: center;
+}
+#searchModeBtn svg {
+  transition: transform 0.12s ease;
+}
+#searchModeBtn:active svg {
+  transform: scale(0.9);
+}
 #searchModeBtn.active {
   background: var(--accent-dim);
   color: var(--accent);

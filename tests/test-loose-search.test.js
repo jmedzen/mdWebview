@@ -104,4 +104,26 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     assert.ok(intersection.length > 0, '帶標點與不帶標點之 Bigram 倒排索引集合交集必須非空');
     assert.deepEqual(intersection.sort(), ['佛法', '法僧']);
   });
+
+  test('UI 規範：#searchModeBtn 採用雙波浪近似號 ≈ 與精確等號 = 切換', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const indexHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+    const appJs = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+    const styleCss = fs.readFileSync(path.join(__dirname, '../style.css'), 'utf8');
+
+    // 1. index.html 必須含有 id="searchModeBtn" 並預設為寬鬆雙波浪圖示
+    assert.match(indexHtml, /id="searchModeBtn"/, 'index.html 必須含有 searchModeBtn');
+    assert.match(indexHtml, /<svg[^>]*>[\s\S]*?M2\.5 6c1\.8-2[\s\S]*?<\/svg>/, '預設 SVG 必須採用雙波浪 ≈ 圖標');
+    assert.match(indexHtml, /title="寬鬆比對：已忽略標點與換行/, '按鈕標題必須明確告知寬鬆比對狀態');
+
+    // 2. app.js 必須具備 updateSearchModeUI 並支援 ≈ 與 = 切換
+    assert.match(appJs, /function updateSearchModeUI\(\)/, 'app.js 必須定義 updateSearchModeUI 函式');
+    assert.match(appJs, /M3\.5 6h9/, 'app.js 精確模式下必須切換為等號 = 圖示');
+
+    // 3. style.css 必須含有 #searchModeBtn 與 active 樣式
+    assert.match(styleCss, /#searchModeBtn/, 'style.css 必須定義 #searchModeBtn 樣式');
+    assert.match(styleCss, /#searchModeBtn\.active/, 'style.css 必須定義 #searchModeBtn.active 樣式');
+  });
 });
+

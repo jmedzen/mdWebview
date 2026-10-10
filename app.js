@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.7.0
+   mdWebview — Application Logic (app.js) v3.7.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -4155,6 +4155,21 @@
   // §9 GLOBAL SEARCH (Bigram Full-Text & Filename Search)
   // ═══════════════════════════════════════════════════════════
 
+  function updateSearchModeUI() {
+    const searchModeBtn = $('searchModeBtn');
+    if (!searchModeBtn) return;
+    const isLoose = state.searchMode === 'loose';
+    searchModeBtn.classList.toggle('active', isLoose);
+    searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
+    searchModeBtn.setAttribute('title', isLoose
+      ? '寬鬆比對：已忽略標點與換行（點擊切換為精確模式）'
+      : '精確比對：完全符合原始文字（點擊切換為寬鬆模式）');
+    searchModeBtn.setAttribute('aria-label', isLoose ? '寬鬆搜尋模式（忽略標點與換行）' : '精確搜尋模式（字面完全比對）');
+    searchModeBtn.innerHTML = isLoose
+      ? `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6c1.8-2 3.8-2 5.5 0s3.8 2 5.5 0"/><path d="M2.5 10c1.8-2 3.8-2 5.5 0s3.8 2 5.5 0"/></svg>`
+      : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6h9"/><path d="M3.5 10h9"/></svg>`;
+  }
+
   let searchAbortController = null;
 
   async function performGlobalSearch(query) {
@@ -5744,7 +5759,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -5841,12 +5856,7 @@
         if (pref.searchMode === 'loose' || pref.searchMode === 'strict') {
           state.searchMode = pref.searchMode;
           storage.set(STORAGE_KEYS.SEARCH_MODE, state.searchMode);
-          const searchModeBtn = $('searchModeBtn');
-          if (searchModeBtn) {
-            const isLoose = state.searchMode === 'loose';
-            searchModeBtn.classList.toggle('active', isLoose);
-            searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
-          }
+          updateSearchModeUI();
         }
 
         // 2. 還原書籤最愛
@@ -6473,14 +6483,9 @@
       });
     });
 
-    // ── Search Mode (Loose / Strict) ──
+    // ── Search Mode (Loose ≈ / Strict =) ──
     const searchModeBtn = $('searchModeBtn');
     if (searchModeBtn) {
-      const updateSearchModeUI = () => {
-        const isLoose = state.searchMode === 'loose';
-        searchModeBtn.classList.toggle('active', isLoose);
-        searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
-      };
       updateSearchModeUI();
       searchModeBtn.addEventListener('click', () => {
         state.searchMode = state.searchMode === 'loose' ? 'strict' : 'loose';
@@ -7526,7 +7531,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
