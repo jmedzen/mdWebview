@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.9
+   mdWebview — Application Logic (app.js) v3.7.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -5744,7 +5744,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.9';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -6073,6 +6073,8 @@
     mediaLightboxState.translateX = 0;
     mediaLightboxState.translateY = 0;
     mediaLightboxState.pointers.clear();
+    mediaLightboxState.lastPinchDist = 0;
+    mediaLightboxState.lastTapTime = 0;
 
     img.src = src;
     img.alt = altText || '';
@@ -6088,23 +6090,31 @@
       }
     }
 
-    updateLightboxTransform(0);
+    resetLightboxZoom(0);
 
     // 鎖定頁面背景滾動
     mediaLightboxState.previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     overlay.style.display = 'flex';
+    overlay.classList.add('open');
+    overlay.setAttribute('aria-hidden', 'false');
   }
 
   function closeMediaLightbox() {
     const overlay = $('mediaLightboxOverlay');
     if (!overlay || !mediaLightboxState.isOpen) return;
 
+    overlay.classList.remove('open');
     overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
     mediaLightboxState.isOpen = false;
     mediaLightboxState.pointers.clear();
     mediaLightboxState.isDragging = false;
+    mediaLightboxState.lastPinchDist = 0;
+
+    const viewport = $('mediaLightboxViewport');
+    if (viewport) viewport.classList.remove('is-dragging');
 
     const img = $('mediaLightboxImg');
     if (img) img.src = '';
@@ -6121,6 +6131,7 @@
     const zoomInBtn = $('mediaLightboxZoomInBtn');
     const zoomOutBtn = $('mediaLightboxZoomOutBtn');
     const resetBtn = $('mediaLightboxResetBtn');
+    const img = $('mediaLightboxImg');
     if (!overlay || !viewport) return;
 
     // 關閉按鈕
@@ -6172,11 +6183,13 @@
       }
     });
 
-    // 指針手勢（滑鼠拖曳、單指平移、雙指捏合縮放）
+    // 指針手勢（滑鼠拖曳、單指平移、雙指捏合縮放、行動版雙擊）
     viewport.addEventListener('pointerdown', (e) => {
       if (!mediaLightboxState.isOpen) return;
       // 忽略右鍵
       if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+      mediaLightboxState.downTarget = e.target;
 
       try {
         viewport.setPointerCapture(e.pointerId);
@@ -6196,9 +6209,8 @@
         mediaLightboxState.isDragging = false;
         mediaLightboxState.hasMoved = true;
         const pts = Array.from(mediaLightboxState.pointers.values());
-        mediaLightboxState.initialPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
-        mediaLightboxState.initialPinchScale = mediaLightboxState.scale;
-        mediaLightboxState.initialPinchCenter = {
+        mediaLightboxState.lastPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        mediaLightboxState.lastPinchCenter = {
           x: (pts[0].x + pts[1].x) / 2,
           y: (pts[0].y + pts[1].y) / 2
         };
@@ -6222,16 +6234,19 @@
       } else if (mediaLightboxState.pointers.size === 2) {
         const pts = Array.from(mediaLightboxState.pointers.values());
         const currDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
-        const currCenter = {
-          x: (pts[0].x + pts[1].x) / 2,
-          y: (pts[0].y + pts[1].y) / 2
-        };
+        const currCenterX = (pts[0].x + pts[1].x) / 2;
+        const currCenterY = (pts[0].y + pts[1].y) / 2;
 
-        if (mediaLightboxState.initialPinchDist > 0) {
-          const factor = currDist / mediaLightboxState.initialPinchDist;
-          const targetScale = mediaLightboxState.initialPinchScale * factor;
-          zoomLightboxAt(targetScale, currCenter.x, currCenter.y, 0);
+        if (mediaLightboxState.lastPinchDist) {
+          const scaleDelta = currDist / mediaLightboxState.lastPinchDist;
+          const panDx = currCenterX - mediaLightboxState.lastPinchCenter.x;
+          const panDy = currCenterY - mediaLightboxState.lastPinchCenter.y;
+          mediaLightboxState.translateX += panDx;
+          mediaLightboxState.translateY += panDy;
+          zoomLightboxAt(mediaLightboxState.scale * scaleDelta, currCenterX, currCenterY, 0);
         }
+        mediaLightboxState.lastPinchDist = currDist;
+        mediaLightboxState.lastPinchCenter = { x: currCenterX, y: currCenterY };
       }
     });
 
@@ -6248,14 +6263,30 @@
 
       if (mediaLightboxState.pointers.size === 0) {
         viewport.classList.remove('is-dragging');
-        // 若沒有移動過，且點擊在背景上（非點在工具列或圖片正在操作時），判定為點擊關閉
-        if (!mediaLightboxState.hasMoved && mediaLightboxState.isDragging) {
-          // 點擊圖片以外的背景（viewport 或 backdrop）
-          if (e.target === viewport || e.target === backdrop) {
+
+        // 行動端雙擊 (Double Tap to Zoom 1x <-> 2.5x)
+        const wasOnImg = mediaLightboxState.downTarget === img || (img && img.contains(mediaLightboxState.downTarget));
+        if (!mediaLightboxState.hasMoved && wasOnImg) {
+          const now = Date.now();
+          if (now - (mediaLightboxState.lastTapTime || 0) < 320) {
+            if (mediaLightboxState.scale <= 1.05) {
+              zoomLightboxAt(2.5, e.clientX, e.clientY, 240);
+            } else {
+              resetLightboxZoom(240);
+            }
+            mediaLightboxState.lastTapTime = 0;
+          } else {
+            mediaLightboxState.lastTapTime = now;
+          }
+        } else if (!mediaLightboxState.hasMoved && mediaLightboxState.isDragging) {
+          // 若點擊在背景空白處（viewport 或 backdrop），則關閉燈箱
+          const wasBackground = mediaLightboxState.downTarget === viewport || mediaLightboxState.downTarget === backdrop;
+          if (wasBackground) {
             closeMediaLightbox();
           }
         }
         mediaLightboxState.isDragging = false;
+        mediaLightboxState.lastPinchDist = 0;
       } else if (mediaLightboxState.pointers.size === 1) {
         // 從雙指轉為單指
         const remaining = mediaLightboxState.pointers.values().next().value;
@@ -6264,6 +6295,7 @@
         mediaLightboxState.dragStartY = remaining.y;
         mediaLightboxState.startTranslateX = mediaLightboxState.translateX;
         mediaLightboxState.startTranslateY = mediaLightboxState.translateY;
+        mediaLightboxState.lastPinchDist = 0;
       }
     }
 
@@ -6272,10 +6304,18 @@
 
     // 點擊背景遮罩關閉
     if (backdrop) {
-      backdrop.addEventListener('click', () => {
+      backdrop.addEventListener('click', (e) => {
+        e.stopPropagation();
         closeMediaLightbox();
       });
     }
+
+    // 防止 iOS 行動端燈箱開啟時背景彈動或滾動
+    overlay.addEventListener('touchmove', (e) => {
+      if (mediaLightboxState.isOpen) {
+        e.preventDefault();
+      }
+    }, { passive: false });
 
     // 鍵盤監聽（Esc 關閉、+ 放大、- 縮小、0 重設）
     window.addEventListener('keydown', (e) => {
@@ -6479,10 +6519,11 @@
       // ── Media Image Lightbox Click ──
       const imgEl = e.target.closest('img');
       if (imgEl && $('markdownBody').contains(imgEl)) {
-        if (imgEl.src) {
+        const src = imgEl.currentSrc || imgEl.getAttribute('src') || imgEl.src;
+        if (src) {
           e.preventDefault();
           e.stopPropagation();
-          openMediaLightbox(imgEl.src, imgEl.getAttribute('alt') || imgEl.getAttribute('title') || '');
+          openMediaLightbox(src, imgEl.getAttribute('alt') || imgEl.getAttribute('title') || '');
           return;
         }
       }
@@ -6560,6 +6601,33 @@
         }
       }
     });
+
+    // ── Media Image Click Capture (Global - Desktop & Mobile) ──
+    document.addEventListener('click', (e) => {
+      const imgEl = e.target.closest('img');
+      if (!imgEl) return;
+      if (imgEl.closest('#mediaLightboxOverlay') ||
+          imgEl.closest('#appHeader') ||
+          imgEl.closest('#sidebarTabs') ||
+          imgEl.closest('.modal-header') ||
+          imgEl.classList.contains('tab-icon') ||
+          imgEl.classList.contains('logo-icon')) {
+        return;
+      }
+      if (imgEl.closest('.markdown-body') ||
+          imgEl.closest('#markdownBody') ||
+          imgEl.closest('#contentWrapper') ||
+          imgEl.closest('.dict-body') ||
+          imgEl.closest('#dictResults') ||
+          imgEl.classList.contains('markdown-img')) {
+        const src = imgEl.currentSrc || imgEl.getAttribute('src') || imgEl.src;
+        if (src) {
+          e.preventDefault();
+          e.stopPropagation();
+          openMediaLightbox(src, imgEl.getAttribute('alt') || imgEl.getAttribute('title') || '');
+        }
+      }
+    }, true);
 
     // ── Font size ──
     const fontDec = $('fontDecrease');
@@ -7458,7 +7526,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.9';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7751,7 +7819,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.9',
+            version: data.settings?.version || '3.7.0',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });

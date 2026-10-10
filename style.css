@@ -2467,16 +2467,23 @@ kbd {
 }
 
 /* Images */
-.markdown-body img {
+.markdown-body img,
+.dict-body img,
+img.markdown-img {
   max-width: 100%;
   height: auto;
   border-radius: 8px;
   margin: 1em 0;
+  cursor: pointer;
   cursor: zoom-in;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
   transition: opacity 0.15s ease, filter 0.15s ease;
 }
 
-.markdown-body img:hover {
+.markdown-body img:hover,
+.dict-body img:hover,
+img.markdown-img:hover {
   filter: brightness(1.05);
 }
 
@@ -7087,7 +7094,7 @@ body.modal-open {
   position: fixed;
   inset: 0;
   z-index: 2100;
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -7096,6 +7103,10 @@ body.modal-open {
   user-select: none;
   -webkit-user-select: none;
   animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.media-lightbox-overlay.open {
+  display: flex !important;
 }
 
 .media-lightbox-backdrop {
@@ -7238,16 +7249,16 @@ body.modal-open {
 @media (max-width: 768px) {
   .media-lightbox-toolbar {
     top: calc(12px + env(safe-area-inset-top, 0px));
-    right: 12px;
+    right: calc(12px + env(safe-area-inset-right, 0px));
     gap: 4px;
-    padding: 3px 5px;
+    padding: 3px 6px;
   }
   .media-lightbox-btn {
-    width: 32px;
-    height: 32px;
+    width: 38px;
+    height: 38px;
   }
   .media-lightbox-scale-btn {
-    min-width: 44px;
+    min-width: 46px;
     padding: 0 6px;
     font-size: 11px;
   }

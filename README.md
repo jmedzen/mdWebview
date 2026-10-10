@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.6.9) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.7.0) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -81,7 +81,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.6.9）
+├── package.json        # Node.js 套件設定（v3.7.0）
 └── README.md           # 本說明文件
 ```
 
@@ -176,7 +176,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.6.9) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.7.0) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -250,7 +250,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.6.9)
+├── package.json        # Node.js package manifest (v3.7.0)
 └── README.md           # Project documentation
 ```
 
