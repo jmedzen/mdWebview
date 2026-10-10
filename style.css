@@ -2472,6 +2472,12 @@ kbd {
   height: auto;
   border-radius: 8px;
   margin: 1em 0;
+  cursor: zoom-in;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.markdown-body img:hover {
+  filter: brightness(1.05);
 }
 
 /* Search highlight */
@@ -7075,5 +7081,186 @@ body.modal-open {
 .table-action-link:hover {
   background: rgba(56, 139, 253, 0.2);
 }
+
+/* ── §36 Media Lightbox (全螢幕圖片放大、縮放與平移檢視器) ───── */
+.media-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.media-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.86);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 1;
+}
+
+.media-lightbox-toolbar {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  right: calc(20px + env(safe-area-inset-right, 0px));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(22, 22, 28, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border-radius: 40px;
+  padding: 4px 6px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.media-lightbox-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.media-lightbox-btn {
+  background: transparent;
+  border: none;
+  color: #f0f0f3;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.media-lightbox-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.media-lightbox-btn:active {
+  transform: scale(0.92);
+}
+
+.media-lightbox-scale-btn {
+  width: auto;
+  min-width: 50px;
+  padding: 0 8px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.media-lightbox-close-btn {
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  margin-left: 2px;
+}
+
+.media-lightbox-close-btn:hover {
+  background: rgba(248, 81, 73, 0.35);
+  color: #ff7b72;
+}
+
+.media-lightbox-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.media-lightbox-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.media-lightbox-canvas {
+  will-change: transform;
+  transform-origin: center center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.media-lightbox-img {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  pointer-events: auto;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.media-lightbox-caption {
+  position: absolute;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  max-width: 80vw;
+  background: rgba(18, 18, 22, 0.85);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 768px) {
+  .media-lightbox-toolbar {
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    gap: 4px;
+    padding: 3px 5px;
+  }
+  .media-lightbox-btn {
+    width: 32px;
+    height: 32px;
+  }
+  .media-lightbox-scale-btn {
+    min-width: 44px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+  .media-lightbox-img {
+    max-width: 95vw;
+    max-height: 82vh;
+  }
+  .media-lightbox-caption {
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    font-size: 12px;
+    max-width: 90vw;
+  }
+}
+
 
 
