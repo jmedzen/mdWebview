@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.6.8
+   mdWebview — Application Logic (app.js) v3.6.9
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -10,6 +10,7 @@
    §4  Announcement Modal        checkAndShowAnnouncementModal, openAnnouncementModal
    §5  File Tree                 buildTree, renderTree, sortTree
    §6  Markdown Viewer           openFile, virtualized rendering, footnotes
+   §6.5 Media Lightbox           openMediaLightbox, zoom, pan, pinch
    §7  Wikilink Resolver         wikilinkIndex, resolveWikilink
    §8  Table of Contents         buildToc, renderToc, scrollSpy
    §9  Global Search             doSearch, renderSearchResults
@@ -5743,7 +5744,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.8';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.9';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -5989,7 +5990,323 @@
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // §6.5 MEDIA LIGHTBOX (文檔圖片全螢幕半透明放大、縮放與平移)
+  // ═══════════════════════════════════════════════════════════
+  const mediaLightboxState = {
+    isOpen: false,
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+    isDragging: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    startTranslateX: 0,
+    startTranslateY: 0,
+    hasMoved: false,
+    pointers: new Map(), // pointerId => { x, y }
+    initialPinchDist: 0,
+    initialPinchScale: 1,
+    initialPinchCenter: { x: 0, y: 0 },
+    previousBodyOverflow: ''
+  };
+
+  const LIGHTBOX_MIN_SCALE = 0.5;
+  const LIGHTBOX_MAX_SCALE = 8.0;
+
+  function updateLightboxTransform(transitionDuration = 0) {
+    const canvas = $('mediaLightboxCanvas');
+    if (!canvas) return;
+    if (transitionDuration > 0) {
+      canvas.style.transition = `transform ${transitionDuration}ms cubic-bezier(0.2, 0, 0.2, 1)`;
+    } else {
+      canvas.style.transition = 'none';
+    }
+    canvas.style.transform = `translate3d(${mediaLightboxState.translateX}px, ${mediaLightboxState.translateY}px, 0) scale(${mediaLightboxState.scale})`;
+    const scaleText = $('mediaLightboxScaleText');
+    if (scaleText) {
+      scaleText.textContent = `${Math.round(mediaLightboxState.scale * 100)}%`;
+    }
+  }
+
+  function zoomLightboxAt(newScale, focalX, focalY, transitionDuration = 0) {
+    const viewport = $('mediaLightboxViewport');
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    const clampedScale = Math.max(LIGHTBOX_MIN_SCALE, Math.min(LIGHTBOX_MAX_SCALE, newScale));
+    const oldScale = mediaLightboxState.scale;
+    if (Math.abs(clampedScale - oldScale) < 0.001) return;
+
+    // 焦點相對於圖片中心與位移的距離
+    const fx = (typeof focalX === 'number') ? focalX : centerX;
+    const fy = (typeof focalY === 'number') ? focalY : centerY;
+
+    const dx = fx - centerX - mediaLightboxState.translateX;
+    const dy = fy - centerY - mediaLightboxState.translateY;
+
+    const ratio = clampedScale / oldScale;
+    mediaLightboxState.translateX -= dx * (ratio - 1);
+    mediaLightboxState.translateY -= dy * (ratio - 1);
+    mediaLightboxState.scale = clampedScale;
+
+    updateLightboxTransform(transitionDuration);
+  }
+
+  function resetLightboxZoom(transitionDuration = 240) {
+    mediaLightboxState.scale = 1;
+    mediaLightboxState.translateX = 0;
+    mediaLightboxState.translateY = 0;
+    updateLightboxTransform(transitionDuration);
+  }
+
+  function openMediaLightbox(src, altText = '') {
+    const overlay = $('mediaLightboxOverlay');
+    const img = $('mediaLightboxImg');
+    const caption = $('mediaLightboxCaption');
+    if (!overlay || !img) return;
+
+    mediaLightboxState.isOpen = true;
+    mediaLightboxState.scale = 1;
+    mediaLightboxState.translateX = 0;
+    mediaLightboxState.translateY = 0;
+    mediaLightboxState.pointers.clear();
+
+    img.src = src;
+    img.alt = altText || '';
+
+    if (caption) {
+      const cleanAlt = (altText || '').trim();
+      if (cleanAlt) {
+        caption.textContent = cleanAlt;
+        caption.style.display = 'block';
+      } else {
+        caption.textContent = '';
+        caption.style.display = 'none';
+      }
+    }
+
+    updateLightboxTransform(0);
+
+    // 鎖定頁面背景滾動
+    mediaLightboxState.previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    overlay.style.display = 'flex';
+  }
+
+  function closeMediaLightbox() {
+    const overlay = $('mediaLightboxOverlay');
+    if (!overlay || !mediaLightboxState.isOpen) return;
+
+    overlay.style.display = 'none';
+    mediaLightboxState.isOpen = false;
+    mediaLightboxState.pointers.clear();
+    mediaLightboxState.isDragging = false;
+
+    const img = $('mediaLightboxImg');
+    if (img) img.src = '';
+
+    // 恢復背景滾動
+    document.body.style.overflow = mediaLightboxState.previousBodyOverflow || '';
+  }
+
+  function initMediaLightboxEvents() {
+    const overlay = $('mediaLightboxOverlay');
+    const viewport = $('mediaLightboxViewport');
+    const backdrop = $('mediaLightboxBackdrop');
+    const closeBtn = $('mediaLightboxCloseBtn');
+    const zoomInBtn = $('mediaLightboxZoomInBtn');
+    const zoomOutBtn = $('mediaLightboxZoomOutBtn');
+    const resetBtn = $('mediaLightboxResetBtn');
+    if (!overlay || !viewport) return;
+
+    // 關閉按鈕
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeMediaLightbox();
+      });
+    }
+
+    // 縮放按鈕群
+    if (zoomInBtn) {
+      zoomInBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        zoomLightboxAt(mediaLightboxState.scale * 1.3, undefined, undefined, 200);
+      });
+    }
+
+    if (zoomOutBtn) {
+      zoomOutBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        zoomLightboxAt(mediaLightboxState.scale * 0.77, undefined, undefined, 200);
+      });
+    }
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        resetLightboxZoom(220);
+      });
+    }
+
+    // 滑鼠滾輪縮放 (Wheel Zoom)
+    viewport.addEventListener('wheel', (e) => {
+      if (!mediaLightboxState.isOpen) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1.15 : 0.87;
+      zoomLightboxAt(mediaLightboxState.scale * delta, e.clientX, e.clientY, 0);
+    }, { passive: false });
+
+    // 雙擊縮放 (Double Click to Zoom 2.5x <-> 1x)
+    viewport.addEventListener('dblclick', (e) => {
+      if (!mediaLightboxState.isOpen) return;
+      e.preventDefault();
+      if (mediaLightboxState.scale <= 1.05) {
+        zoomLightboxAt(2.5, e.clientX, e.clientY, 240);
+      } else {
+        resetLightboxZoom(240);
+      }
+    });
+
+    // 指針手勢（滑鼠拖曳、單指平移、雙指捏合縮放）
+    viewport.addEventListener('pointerdown', (e) => {
+      if (!mediaLightboxState.isOpen) return;
+      // 忽略右鍵
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+      try {
+        viewport.setPointerCapture(e.pointerId);
+      } catch (_) {}
+
+      mediaLightboxState.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (mediaLightboxState.pointers.size === 1) {
+        mediaLightboxState.isDragging = true;
+        mediaLightboxState.hasMoved = false;
+        mediaLightboxState.dragStartX = e.clientX;
+        mediaLightboxState.dragStartY = e.clientY;
+        mediaLightboxState.startTranslateX = mediaLightboxState.translateX;
+        mediaLightboxState.startTranslateY = mediaLightboxState.translateY;
+        viewport.classList.add('is-dragging');
+      } else if (mediaLightboxState.pointers.size === 2) {
+        mediaLightboxState.isDragging = false;
+        mediaLightboxState.hasMoved = true;
+        const pts = Array.from(mediaLightboxState.pointers.values());
+        mediaLightboxState.initialPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        mediaLightboxState.initialPinchScale = mediaLightboxState.scale;
+        mediaLightboxState.initialPinchCenter = {
+          x: (pts[0].x + pts[1].x) / 2,
+          y: (pts[0].y + pts[1].y) / 2
+        };
+      }
+    });
+
+    viewport.addEventListener('pointermove', (e) => {
+      if (!mediaLightboxState.isOpen || !mediaLightboxState.pointers.has(e.pointerId)) return;
+
+      mediaLightboxState.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (mediaLightboxState.pointers.size === 1 && mediaLightboxState.isDragging) {
+        const dx = e.clientX - mediaLightboxState.dragStartX;
+        const dy = e.clientY - mediaLightboxState.dragStartY;
+        if (Math.hypot(dx, dy) > 4) {
+          mediaLightboxState.hasMoved = true;
+        }
+        mediaLightboxState.translateX = mediaLightboxState.startTranslateX + dx;
+        mediaLightboxState.translateY = mediaLightboxState.startTranslateY + dy;
+        updateLightboxTransform(0);
+      } else if (mediaLightboxState.pointers.size === 2) {
+        const pts = Array.from(mediaLightboxState.pointers.values());
+        const currDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        const currCenter = {
+          x: (pts[0].x + pts[1].x) / 2,
+          y: (pts[0].y + pts[1].y) / 2
+        };
+
+        if (mediaLightboxState.initialPinchDist > 0) {
+          const factor = currDist / mediaLightboxState.initialPinchDist;
+          const targetScale = mediaLightboxState.initialPinchScale * factor;
+          zoomLightboxAt(targetScale, currCenter.x, currCenter.y, 0);
+        }
+      }
+    });
+
+    function handlePointerUpOrCancel(e) {
+      if (!mediaLightboxState.pointers.has(e.pointerId)) return;
+
+      try {
+        if (viewport.hasPointerCapture(e.pointerId)) {
+          viewport.releasePointerCapture(e.pointerId);
+        }
+      } catch (_) {}
+
+      mediaLightboxState.pointers.delete(e.pointerId);
+
+      if (mediaLightboxState.pointers.size === 0) {
+        viewport.classList.remove('is-dragging');
+        // 若沒有移動過，且點擊在背景上（非點在工具列或圖片正在操作時），判定為點擊關閉
+        if (!mediaLightboxState.hasMoved && mediaLightboxState.isDragging) {
+          // 點擊圖片以外的背景（viewport 或 backdrop）
+          if (e.target === viewport || e.target === backdrop) {
+            closeMediaLightbox();
+          }
+        }
+        mediaLightboxState.isDragging = false;
+      } else if (mediaLightboxState.pointers.size === 1) {
+        // 從雙指轉為單指
+        const remaining = mediaLightboxState.pointers.values().next().value;
+        mediaLightboxState.isDragging = true;
+        mediaLightboxState.dragStartX = remaining.x;
+        mediaLightboxState.dragStartY = remaining.y;
+        mediaLightboxState.startTranslateX = mediaLightboxState.translateX;
+        mediaLightboxState.startTranslateY = mediaLightboxState.translateY;
+      }
+    }
+
+    viewport.addEventListener('pointerup', handlePointerUpOrCancel);
+    viewport.addEventListener('pointercancel', handlePointerUpOrCancel);
+
+    // 點擊背景遮罩關閉
+    if (backdrop) {
+      backdrop.addEventListener('click', () => {
+        closeMediaLightbox();
+      });
+    }
+
+    // 鍵盤監聽（Esc 關閉、+ 放大、- 縮小、0 重設）
+    window.addEventListener('keydown', (e) => {
+      if (!mediaLightboxState.isOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMediaLightbox();
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomLightboxAt(mediaLightboxState.scale * 1.25, undefined, undefined, 180);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        zoomLightboxAt(mediaLightboxState.scale * 0.8, undefined, undefined, 180);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        resetLightboxZoom(200);
+      }
+    });
+  }
+
+  // 掛載到 window 供全域與測試調用
+  window.openMediaLightbox = openMediaLightbox;
+  window.closeMediaLightbox = closeMediaLightbox;
+  window.zoomMediaLightbox = zoomLightboxAt;
+  window.resetMediaLightbox = resetLightboxZoom;
+  window.mediaLightboxState = mediaLightboxState;
+
   function setupEventListeners() {
+    initMediaLightboxEvents();
+
     // ── Social share preview image fallback ──
     const ogImg = $('ogPreviewImg') || document.getElementById('ogPreviewImg');
     if (ogImg) ogImg.addEventListener('error', () => { ogImg.src = '/icon-512.png'; }, { once: true });
@@ -6159,6 +6476,17 @@
 
     // ── Footnotes & Line Anchor Click Delegation ──
     $('markdownBody').addEventListener('click', (e) => {
+      // ── Media Image Lightbox Click ──
+      const imgEl = e.target.closest('img');
+      if (imgEl && $('markdownBody').contains(imgEl)) {
+        if (imgEl.src) {
+          e.preventDefault();
+          e.stopPropagation();
+          openMediaLightbox(imgEl.src, imgEl.getAttribute('alt') || imgEl.getAttribute('title') || '');
+          return;
+        }
+      }
+
       // ── Line Anchor / Line Link Click ──
       const lineEl = e.target.closest('.line-anchor, [data-line]');
       if (lineEl && !e.target.closest('a, button, input, select, textarea')) {
@@ -7130,7 +7458,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.8';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.6.9';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7423,7 +7751,7 @@
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
-            version: data.settings?.version || '3.6.8',
+            version: data.settings?.version || '3.6.9',
             settings: data.settings || {}
           };
           const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
