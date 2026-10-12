@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.2
+ * @version 3.7.3
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -179,7 +179,7 @@ let treeWatcherChangeCount = 0;
 let sitemapDirty = false;
 let sitemapBuilding = false;
 let cachedSitemapTime = 0;
-const SITEMAP_CACHE_TTL_MS = 10 * 60 * 1000; // 10 分鐘快取保護期，防抖防刷同時確保磁碟異動及時反映
+const SITEMAP_CACHE_TTL_MS = 120 * 60 * 1000; // 120 分鐘快取保護期，防抖防刷同時確保磁碟異動及時反映
 let lastKnownBaseUrl = '';
 
 /**
@@ -4293,7 +4293,8 @@ async function handleAdminRebuildSitemap(req, res) {
       success: true,
       totalUrls,
       durationMs,
-      sitemapUrl: `${baseUrl}/sitemap.xml`
+      sitemapUrl: `${baseUrl}/sitemap.xml`,
+      sitemapBuiltAt: cachedSitemapTime
     });
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
@@ -4728,6 +4729,7 @@ const server = http.createServer((req, res) => {
       sitemapUrl: `${baseUrl}/sitemap.xml`,
       robotsUrl: `${baseUrl}/robots.txt`,
       sitemapCached: !!cachedSitemapXml,
+      sitemapBuiltAt: cachedSitemapTime || 0,
       robotsIndex: config.settings.seoRobotsIndex === true,
       blockAiBots: config.settings.seoBlockAiBots !== false
     });
@@ -5055,6 +5057,7 @@ if (typeof module !== "undefined" && module.exports) {
     generateSitemapXml,
     autoRebuildSitemapAsync,
     clearSitemapCache,
+    SITEMAP_CACHE_TTL_MS,
     terminateWorkerPools,
     saveSearchIndexBinCacheAsync,
     loadSearchIndexFromBinCacheAsync,

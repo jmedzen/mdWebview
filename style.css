@@ -3272,7 +3272,7 @@ img.markdown-img:hover {
 
 .seo-stats-box {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);

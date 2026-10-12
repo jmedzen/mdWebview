@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.7.2
+   mdWebview — Application Logic (app.js) v3.7.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -5759,7 +5759,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -7531,7 +7531,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9208,8 +9208,9 @@
           if (!res.ok) throw new Error(data.error || '生成失敗');
 
           if (resultMsg) {
+            const formattedTime = formatSitemapDateTime(data.sitemapBuiltAt || Date.now());
             resultMsg.className = 'form-success-text';
-            resultMsg.innerHTML = `✅ <b>Sitemap 重建完成</b>：共包含 <b>${data.totalUrls}</b> 個經文網址，耗時 <b>${data.durationMs}ms</b>。<br><a href="${data.sitemapUrl}" target="_blank" style="color: var(--accent);">檢視 Sitemap ↗</a>`;
+            resultMsg.innerHTML = `✅ <b>Sitemap 重建完成</b>：共包含 <b>${data.totalUrls}</b> 個經文網址，耗時 <b>${data.durationMs}ms</b>。<br>建立時間：<b>${formattedTime}</b> | <a href="${data.sitemapUrl}" target="_blank" style="color: var(--accent);">檢視 Sitemap ↗</a>`;
           }
           showToast(`✅ Sitemap 已成功重新生成 (${data.totalUrls} 筆)`, 'success');
           await fetchSeoStats();
@@ -9521,6 +9522,24 @@
     }
   }
 
+  function formatSitemapDateTime(ts) {
+    if (!ts || ts <= 0) return '尚未建立';
+    try {
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return '尚未建立';
+      const pad = n => String(n).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      const mm = pad(d.getMonth() + 1);
+      const dd = pad(d.getDate());
+      const hh = pad(d.getHours());
+      const min = pad(d.getMinutes());
+      const ss = pad(d.getSeconds());
+      return `${yyyy}/${mm}/${dd} ${hh}:${min}:${ss}`;
+    } catch (_) {
+      return '尚未建立';
+    }
+  }
+
   async function fetchSeoStats() {
     try {
       const res = await fetch('/api/admin/seo-stats', {
@@ -9531,12 +9550,14 @@
 
       const totalFilesEl = $('seoStatTotalFiles');
       const sitemapStatusEl = $('seoStatSitemapStatus');
+      const sitemapTimeEl = $('seoStatSitemapTime');
       const baseUrlEl = $('seoStatBaseUrl');
       const robotsLink = $('seoRobotsLink');
       const sitemapLink = $('seoSitemapLink');
 
       if (totalFilesEl) totalFilesEl.textContent = (data.totalMarkdownFiles || 0).toLocaleString() + ' 部';
       if (sitemapStatusEl) sitemapStatusEl.textContent = data.sitemapCached ? '已就緒 (快取中)' : '就緒 (即時生成)';
+      if (sitemapTimeEl) sitemapTimeEl.textContent = formatSitemapDateTime(data.sitemapBuiltAt);
       if (baseUrlEl) baseUrlEl.textContent = data.effectiveBaseUrl || window.location.origin;
       if (robotsLink && data.robotsUrl) robotsLink.href = data.robotsUrl;
       if (sitemapLink && data.sitemapUrl) sitemapLink.href = data.sitemapUrl;
