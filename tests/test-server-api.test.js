@@ -1,8 +1,8 @@
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { server, terminateWorkerPools, resetTreeWatcher, resetDictWatcher, resetConfigWatcher, clearSitemapCache } = require('../server.js');
-const { apiRateLimits } = require('../lib/auth.js');
+const { server, terminateWorkerPools, resetTreeWatcher, resetDictWatcher, resetConfigWatcher, clearSitemapCache, SITEMAP_CACHE_TTL_MS } = require('../server.js');
+const { apiRateLimits, sessions } = require('../lib/auth.js');
 const { renderWithWorker } = require('../lib/worker-pool.js');
 
 let baseUrl = '';
@@ -197,6 +197,37 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
         try { fs.unlinkSync(tempFile); } catch (_) {}
       }
       clearSitemapCache();
+    }
+  });
+
+  test('Sitemap 快取 TTL 設置為 120 分鐘，且管理員 SEO 端點回傳建立時間 (sitemapBuiltAt)', async () => {
+    assert.equal(SITEMAP_CACHE_TTL_MS, 120 * 60 * 1000, 'Sitemap 快取過期 TTL 必須為 120 分鐘');
+
+    // 建立臨時測試管理員 Session
+    const testToken = 'test-token-sitemap-time';
+    sessions.set(testToken, { expiry: Date.now() + 60000 });
+
+    try {
+      // 1. 執行手動重建
+      const rebuildRes = await request('/api/admin/rebuild-sitemap', {
+        method: 'POST',
+        headers: { 'X-Admin-Token': testToken }
+      });
+      assert.equal(rebuildRes.statusCode, 200);
+      const rebuildData = JSON.parse(rebuildRes.body);
+      assert.equal(rebuildData.success, true);
+      assert.ok(typeof rebuildData.sitemapBuiltAt === 'number' && rebuildData.sitemapBuiltAt > 0, '手動重建必須回傳建立時間戳記');
+
+      // 2. 查詢 SEO 狀態
+      const statsRes = await request('/api/admin/seo-stats', {
+        method: 'GET',
+        headers: { 'X-Admin-Token': testToken }
+      });
+      assert.equal(statsRes.statusCode, 200);
+      const statsData = JSON.parse(statsRes.body);
+      assert.equal(statsData.sitemapBuiltAt, rebuildData.sitemapBuiltAt, 'SEO 狀態中之 sitemapBuiltAt 必須與重建時間戳一致');
+    } finally {
+      sessions.delete(testToken);
     }
   });
 
