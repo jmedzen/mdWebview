@@ -1,7 +1,7 @@
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
-const { server, terminateWorkerPools, resetTreeWatcher, resetDictWatcher, resetConfigWatcher } = require('../server.js');
+const { server, terminateWorkerPools, resetTreeWatcher, resetDictWatcher, resetConfigWatcher, clearSitemapCache } = require('../server.js');
 const { apiRateLimits } = require('../lib/auth.js');
 const { renderWithWorker } = require('../lib/worker-pool.js');
 
@@ -132,6 +132,72 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
     assert.ok(res.body.includes('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'), '應為合法 sitemap urlset');
     assert.ok(res.body.includes('<loc>'), '應包含 loc 節點');
     assert.ok(res.body.includes('<lastmod>'), '應包含 lastmod 節點');
+  });
+
+  test('getBaseUrl 單元測試：無 req 或有內部 Host 時自動且優先讀取 config.settings.siteUrl', () => {
+    const { getBaseUrl } = require('../lib/utils');
+    const { config } = require('../lib/config');
+    const originalSiteUrl = config.settings.siteUrl;
+    try {
+      config.settings.siteUrl = 'https://mbt.mahabodhi.co';
+      assert.equal(getBaseUrl(null), 'https://mbt.mahabodhi.co', '無 req 時必須優先回傳 config.settings.siteUrl');
+      assert.equal(getBaseUrl({ headers: { host: 'internal-docker:8330' } }), 'https://mbt.mahabodhi.co', '即使有 req.headers.host 仍應優先採用管理員設定');
+    } finally {
+      config.settings.siteUrl = originalSiteUrl;
+    }
+  });
+
+  test('Sitemap 與 Robots.txt 優先採用管理員設定之 siteUrl，絕不出現 localhost', async () => {
+    const { config } = require('../lib/config');
+    const originalSiteUrl = config.settings.siteUrl;
+    try {
+      config.settings.siteUrl = 'https://sutra.example.org';
+      clearSitemapCache();
+
+      const sitemapRes = await request('/sitemap.xml');
+      assert.equal(sitemapRes.statusCode, 200);
+      assert.ok(sitemapRes.body.includes('<loc>https://sutra.example.org/</loc>'), '首頁 loc 必須為管理員設定的 URL');
+      assert.ok(!sitemapRes.body.includes('localhost'), 'Sitemap 不得包含 localhost');
+
+      const robotsRes = await request('/robots.txt');
+      assert.equal(robotsRes.statusCode, 200);
+      assert.ok(robotsRes.body.includes('Sitemap: https://sutra.example.org/sitemap.xml'), 'robots.txt 中的 Sitemap 必須為管理員設定的 URL');
+    } finally {
+      config.settings.siteUrl = originalSiteUrl;
+      clearSitemapCache();
+    }
+  });
+
+  test('Sitemap 動態刪除同步：磁碟刪除檔案後重新生成時絕不殘留該檔案 URL', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { config } = require('../lib/config');
+    const mdRoot = config.settings.mdRoot;
+    const tempFile = path.join(mdRoot, 'z-temp-delete-test.md');
+
+    try {
+      // 1. 建立測試檔案
+      fs.writeFileSync(tempFile, '# 臨時經文測試\n用於測試 Sitemap 刪除即時同步。', 'utf8');
+      clearSitemapCache();
+
+      const res1 = await request('/sitemap.xml');
+      assert.equal(res1.statusCode, 200);
+      assert.ok(res1.body.includes('z-temp-delete-test.md'), '建立檔案後 Sitemap 必須包含該檔案');
+
+      // 2. 刪除該測試檔案
+      fs.unlinkSync(tempFile);
+      clearSitemapCache();
+
+      // 3. 重新取得 Sitemap
+      const res2 = await request('/sitemap.xml');
+      assert.equal(res2.statusCode, 200);
+      assert.ok(!res2.body.includes('z-temp-delete-test.md'), '刪除檔案後 Sitemap 絕對不得殘留該檔案 URL');
+    } finally {
+      if (fs.existsSync(tempFile)) {
+        try { fs.unlinkSync(tempFile); } catch (_) {}
+      }
+      clearSitemapCache();
+    }
   });
 
   test('安全防禦：畸形 Host 標頭回傳 400 且不懸置連線 (P0-2)', async () => {
