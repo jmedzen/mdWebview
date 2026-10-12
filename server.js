@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.1
+ * @version 3.7.2
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -178,7 +178,58 @@ let treeWatcherStartTime = 0;
 let treeWatcherChangeCount = 0;
 let sitemapDirty = false;
 let sitemapBuilding = false;
+let cachedSitemapTime = 0;
+const SITEMAP_CACHE_TTL_MS = 10 * 60 * 1000; // 10 分鐘快取保護期，防抖防刷同時確保磁碟異動及時反映
 let lastKnownBaseUrl = '';
+
+/**
+ * 跨平台目錄遞迴監聽器。
+ * macOS / Windows 原生支援 recursive: true；
+ * Linux (如 Docker 容器) 原生 inotify 不支援遞迴，此處自動遍歷現有子目錄並分別綁定，
+ * 確保在 Docker 容器內深層目錄刪除/新增檔案時，仍能即時捕獲事件。
+ */
+function watchTreeRecursive(rootDir, onEvent) {
+  const watchers = [];
+  try {
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      const w = fs.watch(rootDir, { recursive: true }, onEvent);
+      watchers.push(w);
+    } else {
+      function attachWatchers(dir) {
+        try {
+          const w = fs.watch(dir, (eventType, filename) => {
+            if (filename) {
+              const full = path.join(dir, filename);
+              fs.stat(full, (err, stats) => {
+                if (!err && stats.isDirectory()) {
+                  attachWatchers(full);
+                }
+              });
+            }
+            onEvent(eventType, filename ? path.relative(rootDir, path.join(dir, filename)) : '');
+          });
+          watchers.push(w);
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const ent of entries) {
+            if (ent.isDirectory() && !ent.name.startsWith('.')) {
+              attachWatchers(path.join(dir, ent.name));
+            }
+          }
+        } catch (_) {}
+      }
+      attachWatchers(rootDir);
+    }
+  } catch (err) {
+    Logger.error('Index', 'Failed to watch directory: ' + rootDir, err);
+  }
+  return {
+    close: () => {
+      for (const w of watchers) {
+        try { w.close(); } catch (_) {}
+      }
+    }
+  };
+}
 
 function setupTreeWatcher() {
   if (treeWatcher) return;
@@ -186,8 +237,8 @@ function setupTreeWatcher() {
     const mdRoot = getMdRoot();
     if (fs.existsSync(mdRoot)) {
       treeWatcherStartTime = Date.now();
-      treeWatcher = fs.watch(mdRoot, { recursive: true }, (eventType, filename) => {
-        // Ignore initial macOS fs.watch attach noise within 3 seconds of initialization
+      treeWatcher = watchTreeRecursive(mdRoot, (eventType, filename) => {
+        // Ignore initial attach noise within 3 seconds of initialization
         if (Date.now() - treeWatcherStartTime < 3000) {
           return;
         }
@@ -349,7 +400,7 @@ async function handleTree(req, res) {
 // ── §7 SEO: Robots, Manifest & Sitemap ───────────────────────
 
 function handleRobotsTxt(req, res) {
-  const baseUrl = getBaseUrl(req);
+  const baseUrl = getBaseUrl(req, config.settings.siteUrl);
   const lines = [];
 
   if (!config.settings || config.settings.seoRobotsIndex !== true) {
@@ -453,7 +504,8 @@ function handleManifestJson(req, res) {
  * @returns {Promise<{ xml: string, totalUrls: number }>}
  */
 async function generateSitemapXml(baseUrl, optionalTree = null) {
-  let tree = optionalTree || cachedTree;
+  // 強制重新掃描真實磁碟，確保已在磁碟上移除的檔案不會被納入 Sitemap
+  let tree = optionalTree;
   if (!tree) {
     tree = await scanDirAsync(getMdRoot(), '');
     cachedTree = tree;
@@ -461,7 +513,7 @@ async function generateSitemapXml(baseUrl, optionalTree = null) {
 
   const files = flattenMarkdownFiles(tree);
   const today = new Date().toISOString().slice(0, 10);
-  const effectiveBaseUrl = (baseUrl || getBaseUrl(null)).replace(/\/+$/, '');
+  const effectiveBaseUrl = (baseUrl || getBaseUrl(null, config.settings.siteUrl)).replace(/\/+$/, '');
 
   let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
@@ -508,9 +560,11 @@ async function autoRebuildSitemapAsync() {
   try {
     const t0 = Date.now();
     Logger.info('SEO', 'Starting debounced background auto-rebuild for sitemap.xml...');
-    const baseUrl = getBaseUrl(null);
-    const { xml, totalUrls } = await generateSitemapXml(baseUrl);
+    cachedTree = null; // 強制重置目錄樹快取，確保反映磁碟最新狀態
+    const baseUrl = getBaseUrl(null, config.settings.siteUrl);
+    const { xml, totalUrls } = await generateSitemapXml(baseUrl, null);
     cachedSitemapXml = xml;
+    cachedSitemapTime = Date.now();
     sitemapDirty = false;
     const durationMs = Date.now() - t0;
     const xmlBytes = Buffer.byteLength(xml, 'utf8');
@@ -523,14 +577,22 @@ async function autoRebuildSitemapAsync() {
   }
 }
 
+function clearSitemapCache() {
+  cachedSitemapXml = null;
+  cachedSitemapTime = 0;
+  cachedTree = null;
+  sitemapDirty = true;
+}
+
 async function handleSitemapXml(req, res) {
   setupTreeWatcher();
-  const baseUrl = getBaseUrl(req);
+  const baseUrl = getBaseUrl(req, config.settings.siteUrl);
+  const isCacheExpired = !cachedSitemapTime || (Date.now() - cachedSitemapTime > SITEMAP_CACHE_TTL_MS);
 
-  // 1. 若已有快取：
+  // 1. 若已有快取且未過期：
   //    - 若目前處於大量檔案變更 debounce 期間（treeWatcherDebounceTimer 存在），或者 sitemap 尚未變更（!sitemapDirty）：
   //      立即回傳現有快取（Stale-While-Revalidate），避免大量檔案寫入時掃描磁碟造成 CPU 飆高！
-  if (cachedSitemapXml && (treeWatcherDebounceTimer || !sitemapDirty)) {
+  if (cachedSitemapXml && !isCacheExpired && (treeWatcherDebounceTimer || !sitemapDirty)) {
     const isDebouncing = !!treeWatcherDebounceTimer;
     if (isDebouncing) {
       Logger.info('SEO', 'GET /sitemap.xml served from cache during vault write cooldown (debounce protected, Stale-While-Revalidate)', req);
@@ -545,16 +607,18 @@ async function handleSitemapXml(req, res) {
     return res.end(cachedSitemapXml);
   }
 
-  // 2. 若快取不存在（冷啟動尚未生成）或防抖沉降已過且需即時建置：
+  // 2. 若快取過期、不存在或標記 dirty：即時掃描真實磁碟重新建置！
   try {
     const t0 = Date.now();
-    const { xml, totalUrls } = await generateSitemapXml(baseUrl);
+    cachedTree = null; // 強制重新掃描真實磁碟
+    const { xml, totalUrls } = await generateSitemapXml(baseUrl, null);
     cachedSitemapXml = xml;
+    cachedSitemapTime = Date.now();
     sitemapDirty = false;
     const durationMs = Date.now() - t0;
     const xmlBytes = Buffer.byteLength(xml, 'utf8');
     const xmlKb = (xmlBytes / 1024).toFixed(1);
-    Logger.info('SEO', `GET /sitemap.xml generated on demand: ${totalUrls} URLs (${xmlKb} KB) in ${durationMs}ms`, req);
+    Logger.info('SEO', `GET /sitemap.xml generated on demand from disk: ${totalUrls} URLs (${xmlKb} KB) in ${durationMs}ms`, req);
 
     res.writeHead(200, Object.assign({
       'Content-Type': 'application/xml; charset=utf-8',
@@ -635,7 +699,7 @@ function extractMarkdownMetadata(rawMarkdown, fallbackName) {
  * @param {Object}               query    - 已解析的 URL 查詢參數
  */
 async function handleCrawlerSsr(req, res, filePath, query) {
-  const baseUrl = getBaseUrl(req);
+  const baseUrl = getBaseUrl(req, config.settings.siteUrl);
   const siteName = escapeHtmlString(config.settings.siteName || 'mdWebview');
   let rawOgImage = (config.settings.seoOgImage || '/og-preview.png').trim();
   const ogImageUrl = rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')
@@ -2735,7 +2799,7 @@ function setupDictWatcher() {
   const root = getDictionaryPath();
   if (!root || !fs.existsSync(root)) return;
   try {
-    dictWatcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
+    dictWatcher = watchTreeRecursive(root, (eventType, filename) => {
       if (filename && (filename.startsWith('.') || filename.includes('/.'))) return;
       invalidateDictIndex();
       if (filename) {
@@ -4215,10 +4279,11 @@ async function handleAdminRebuildSitemap(req, res) {
 
   try {
     const t0 = Date.now();
-    cachedTree = null; // 強制重新掃描保管庫目錄樹
-    const baseUrl = getBaseUrl(req);
-    const { xml, totalUrls } = await generateSitemapXml(baseUrl);
+    clearSitemapCache(); // 強制重新掃描保管庫目錄樹並清空快取
+    const baseUrl = getBaseUrl(req, config.settings.siteUrl);
+    const { xml, totalUrls } = await generateSitemapXml(baseUrl, null);
     cachedSitemapXml = xml;
+    cachedSitemapTime = Date.now();
     sitemapDirty = false;
 
     const durationMs = Date.now() - t0;
@@ -4570,7 +4635,10 @@ const server = http.createServer((req, res) => {
           salt: salt
         };
         config.settings.siteUrl = cleanSiteUrl;
+        cachedSitemapXml = null;
+        sitemapDirty = true;
         saveConfig();
+        autoRebuildSitemapAsync().catch(() => {});
         Logger.info('Admin', `Admin account "${username.trim()}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, null, req);
         return sendJSON(res, 200, { success: true });
       });
@@ -4651,7 +4719,7 @@ const server = http.createServer((req, res) => {
     if (!isAuthenticated(req)) {
       return sendJSON(res, 401, { error: 'Unauthorized' });
     }
-    const baseUrl = getBaseUrl(req);
+    const baseUrl = getBaseUrl(req, config.settings.siteUrl);
     const files = cachedTree ? flattenMarkdownFiles(cachedTree) : [];
     return sendJSON(res, 200, {
       totalMarkdownFiles: files.length,
@@ -4781,6 +4849,7 @@ const server = http.createServer((req, res) => {
         if (baiduSiteVerification !== undefined) config.settings.baiduSiteVerification = String(baiduSiteVerification).trim();
         if (seoEnableSearchBox !== undefined) config.settings.seoEnableSearchBox = (seoEnableSearchBox === true || seoEnableSearchBox === 'true' || seoEnableSearchBox === 1 || seoEnableSearchBox === '1');
         if (seoHomepageSummary !== undefined) config.settings.seoHomepageSummary = String(seoHomepageSummary).trim();
+        cachedSitemapXml = null;
         sitemapDirty = true;
         Logger.info('SEO', 'SEO configuration modified: Triggering sitemap background rebuild', null, req);
         autoRebuildSitemapAsync().catch(() => {});
@@ -4985,6 +5054,7 @@ if (typeof module !== "undefined" && module.exports) {
     resetConfigWatcher,
     generateSitemapXml,
     autoRebuildSitemapAsync,
+    clearSitemapCache,
     terminateWorkerPools,
     saveSearchIndexBinCacheAsync,
     loadSearchIndexFromBinCacheAsync,
