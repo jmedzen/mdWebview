@@ -10,8 +10,16 @@
  *       → { ok, result:{entryLevel,preambleLineCount,totalLines,totalBytes,entries,groups} }
  *   { type:'index-build-file', jobId, fullPath, units:[{unitId,byteOffset,byteLength}] }
  *       → { ok, result:{ results:[{unitId, bigrams:[...]}] } }
- *   { type:'search-scan', jobId, fullPath, units:[{unitId,file,fileName,entryIndex,headword,byteOffset,byteLength,lineStart}], terms, maxProximityDist, maxPerFile, ignorePunct }
- *       → { ok, result:{ matches:[{file,fileName,entryIndex,headword,line,snippet}] } }
+ *   { type:'search-scan', jobId, fullPath, units:[{unitId,file,fileName,entryIndex,headword,byteOffset,byteLength,lineStart}], terms, maxProximityDist, maxPerFile, ignorePunct, skip }
+ *       `skip` is the pagination cursor: the number of matches already delivered for this
+ *       file by earlier pages. Matches are numbered in document order across ALL units by
+ *       one running counter, and only indices in [skip, skip+maxPerFile) are emitted, so
+ *       `maxPerFile` is the page SIZE rather than a hard ceiling — the same file is simply
+ *       re-scanned with a larger `skip` for the next page. Absent or invalid `skip` means 0.
+ *       → { ok, result:{ matches:[{file,fileName,entryIndex,headword,line,snippet}], truncated } }
+ *       `line` is absolute (`u.lineStart + m.line - 1`). `truncated` is true iff at least
+ *       one further match exists beyond the emitted window, in which case the scan
+ *       early-exits; it is false when the window reached end of file (or `skip` was absent).
  */
 'use strict';
 
@@ -159,11 +167,24 @@ parentPort.on('message', async (msg) => {
     } else if (msg.type === 'search-scan') {
       const { fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct } = msg;
       const cap = typeof maxPerFile === 'number' ? maxPerFile : Infinity;
+      // Cursor pagination. Matches are numbered in document order across all units;
+      // `skip` counts the matches already delivered by earlier pages. Matches with
+      // index < skip are counted but not emitted, the emitted page window is
+      // [skip, skip + cap), and `truncated` reports that at least one further match
+      // exists past that window. Absent/invalid `skip` means 0, so callers that do
+      // not paginate behave exactly as before (and get truncated: false).
+      const rawSkip = Number(msg.skip);
+      const skip = Number.isFinite(rawSkip) && rawSkip > 0 ? Math.floor(rawSkip) : 0;
+      const endExclusive = skip + cap;
       const fileBuf = await fs.promises.readFile(fullPath);
       const matches = [];
       const fileSize = fileBuf.length;
+      let seen = 0;
+      let truncated = false;
       for (const u of units) {
-        if (matches.length >= cap) break;
+        // Early exit: a further match already proved a next page exists, so the
+        // remaining units cannot change the result.
+        if (truncated) break;
         const offset = u.byteOffset || 0;
         const length = u.byteLength || 0;
         if (offset >= fileSize) continue;
@@ -171,7 +192,9 @@ parentPort.on('message', async (msg) => {
         const slice = fileBuf.subarray(offset, end);
         const ms = scanText(slice.toString('utf-8'), terms, maxProximityDist, ignorePunct);
         for (const m of ms) {
-          if (matches.length >= cap) break;
+          const idx = seen++;
+          if (idx < skip) continue;
+          if (idx >= endExclusive) { truncated = true; break; }
           matches.push({
             file: u.file,
             fileName: u.fileName,
@@ -182,7 +205,7 @@ parentPort.on('message', async (msg) => {
           });
         }
       }
-      parentPort.postMessage({ jobId: msg.jobId, ok: true, result: { matches } });
+      parentPort.postMessage({ jobId: msg.jobId, ok: true, result: { matches, truncated } });
     } else {
       parentPort.postMessage({ jobId: msg.jobId, ok: false, error: 'Unknown message type: ' + msg.type });
     }

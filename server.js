@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.5
+ * @version 3.7.6
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -26,6 +26,7 @@
  *   §11 Section Index Engine     getSectionIndex, binary disk cache (.bin)
  *   §12 Bigram Search Engine     buildSearchIndexAsync, binary cache, worker jobs
  *   §13 Dictionary Index & API   buildDictIndexAsync, handleDictHeadwords, handleDictSearch
+ *                                (full-text search pages via after/done cursor params)
  *   §14 Search Handlers          handleSearch (/api/search), handleFileSearch, handlePageSearch
  *   §15 Static Asset Cache       serveStatic, LRU memory cache, ETag
  *   §16 Auth & Rate Limiting     PBKDF2 hash, session store, sliding window rate limiter
@@ -2957,12 +2958,36 @@ async function handleDictFiles(req, res) {
 // ── API: Dictionary Full-text Search ──────────────────────────────────────
 /**
  * 在辭典獨立 Bigram 索引中執行全文搜尋（GET /api/dict/search?q=...）。
- * 支援簡繁轉換（toTraditional）；按 proximity 距離排序結果。
- * 每個辭典檔案最多回傳 DICT_SEARCH_MAX_PER_FILE（1500）筆命中，防止記憶體膨脹。
+ * 支援簡繁轉換（toTraditional）；結果依檔案路徑與行號排序。
+ *
+ * 分頁採游標制（cursor pagination）：每個辭典檔案每頁最多回傳
+ * DICT_SEARCH_MAX_PER_FILE（1500）筆命中，避免常見詞（如「一切」）產生數萬筆
+ * 結果而撐爆記憶體。`after` 帶入各檔案「已交付筆數」游標，
+ * 伺服器只回傳該游標之後的下一頁，並以 `nextAfter` 給出累計後的新游標。
+ * 用戶端把 `nextAfter` 原樣回傳為下一頁的 `after`（兩者鍵空間相同，皆為
+ * `results[].file` 的 `dict:` relPath）；`done` 則帶入已走完的檔案清單，使其
+ * 完全不參與掃描，避免對動輒數萬筆的辭典反覆重掃。
  *
  * @param {http.IncomingMessage} req   - HTTP 請求物件
  * @param {http.ServerResponse}  res   - HTTP 回應物件
- * @param {Object}               query - 查詢參數：q（必要）、files（可選，逗號分隔的辭典路徑限制）
+ * @param {Object}               query - 查詢參數：
+ *   - `q`     必要，查詢字串（空白分隔多詞）
+ *   - `files` 可選，逗號分隔的辭典 relPath 限制
+ *   - `s2t`   可選，'1'/'true' 啟用簡轉繁（預設啟用）
+ *   - `after` 可選，URL-encoded JSON，`dict:` relPath → 該檔已交付的命中數
+ *   - `done`  可選，逗號分隔，已走完（可略過掃描）的 `dict:` relPath
+ * @returns {Promise<void>} 以 JSON 回應：
+ *   - `query`     正規化後的查詢字串
+ *   - `results`   本頁命中（每筆 {file,fileName,entryIndex,headword,line,snippet}）
+ *   - `total`     本頁命中數（= results.length）
+ *   - `capped`    本頁是否觸及每檔上限（向後相容的舊訊號）
+ *   - `nextAfter` 本頁所有掃描檔案的累計游標，可直接作為下一頁的 `after`
+ *   - `hasMore`   是否至少還有一個檔案有後續命中
+ *   - `exhausted` 累計已走完的 relPath（用戶端可回傳為 `done`）
+ *
+ * `after` / `done` 皆防禦性解析：缺漏、格式錯誤或非有限數值一律視為「無」，
+ * 永不因此回傳錯誤。未帶 `after` / `done` 時，回應除了新增的 `nextAfter`、
+ * `hasMore`、`exhausted` 之外，與舊版完全一致（向後相容）。
  */
 async function handleDictSearch(req, res, query) {
   // Cap full-text matches per selected dictionary. Without this, a common term
@@ -3071,14 +3096,82 @@ async function handleDictSearch(req, res, query) {
       if (!g) { g = { fullPath: u.fullPath, units: [] }; byFile.set(u.fullPath, g); }
       g.units.push(u);
     }
-    const scanTasks = Array.from(byFile.values());
+    // Units are grouped around `fullPath`, but the public cursor/result identity is the
+    // `dict:` relPath, so correlate the two up front (needed for both the cursor maps
+    // and the exhausted-file filter below).
+    const relPathByFullPath = new Map();
+    for (const u of unitsToScan) relPathByFullPath.set(u.fullPath, u.file);
+
+    // Cursor pagination: `after` is a URL-encoded JSON object mapping file path →
+    // the number of matches already delivered for that file, e.g.
+    // after={"dict:法相辭典.md":1500}. Keys are the same `relPath` values the API
+    // returns in `results[].file` (and therefore the same keys as `nextAfter`), so a
+    // client can echo `nextAfter` straight back as `after`. Parsed defensively —
+    // anything missing, malformed, non-object, or non-finite is treated as page 1.
+    let afterMap = {};
+    if (query.after !== undefined && query.after !== null && query.after !== '') {
+      try {
+        const parsed = JSON.parse(String(query.after));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [k, v] of Object.entries(parsed)) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) afterMap[k] = Math.floor(n);
+          }
+        }
+      } catch (_) {
+        afterMap = {};
+      }
+    }
+
+    // `done` is a comma-separated list of relPaths the client has already walked to the
+    // end (the union of the `exhausted` arrays it received on earlier pages). Such files
+    // are removed from the scan entirely: re-scanning an exhausted file would count all
+    // of its matches again and emit none, which for a 68k-hit dictionary means scanning
+    // the whole 9MB file on every remaining page for nothing. Parsed defensively —
+    // missing/malformed entries are ignored, and only paths belonging to this query's
+    // file set are honoured so a client cannot make the response echo grow unbounded.
+    const relPathSet = new Set(unitsToScan.map(u => u.file));
+    const doneSet = new Set();
+    if (query.done !== undefined && query.done !== null && query.done !== '') {
+      for (const rawPart of String(query.done).split(',')) {
+        let part = rawPart.trim();
+        if (!part) continue;
+        // The outer URL decode already happened, but tolerate a double-encoded value.
+        if (part.includes('%')) {
+          try { part = decodeURIComponent(part); } catch (_) { /* keep raw */ }
+        }
+        if (relPathSet.has(part)) doneSet.add(part);
+      }
+    }
+
+    const scanTasks = Array.from(byFile.values())
+      .filter(t => !doneSet.has(relPathByFullPath.get(t.fullPath)));
     const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
+
+    const skipFor = (fullPath) => afterMap[relPathByFullPath.get(fullPath)] || 0;
+
+    // Per-file pagination state for the files actually scanned this page. `skip` is the
+    // page's starting cursor (needed to compute the next one); `truncated` means at least
+    // one further match exists, i.e. the file is NOT yet exhausted.
+    const pageStats = new Map();
+    for (const t of scanTasks) {
+      const relPath = relPathByFullPath.get(t.fullPath);
+      pageStats.set(relPath, { skip: skipFor(t.fullPath), delivered: 0, truncated: false });
+    }
 
     let hitCap = false;
     await runIndexWorkerPool(scanTasks,
-      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: DICT_SEARCH_MAX_PER_FILE } }),
-      (result) => {
+      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: DICT_SEARCH_MAX_PER_FILE, skip: skipFor(task.fullPath) } }),
+      (result, task) => {
+        const stat = pageStats.get(relPathByFullPath.get(task.fullPath));
+        if (stat) {
+          stat.delivered += result.matches.length;
+          if (result.truncated) stat.truncated = true;
+        }
+        // Back-compat: keep the original "page reached the page size" signal for
+        // workers/callers that predate `truncated`.
         if (result.matches.length >= DICT_SEARCH_MAX_PER_FILE) hitCap = true;
+        if (result.truncated) hitCap = true;
         for (const m of result.matches) {
           results.push({ file: m.file, fileName: m.fileName, headword: m.headword, entryIndex: m.entryIndex, line: m.line, snippet: m.snippet });
         }
@@ -3087,7 +3180,28 @@ async function handleDictSearch(req, res, query) {
 
     results.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
 
-    sendJSON(res, 200, { query: q, results, total: results.length, capped: hitCap });
+    // nextAfter carries the new cumulative cursor for EVERY file scanned this page —
+    // truncated or exhausted. Omitting an exhausted file would drop its cursor, and the
+    // next request's `after` object would then have no key for it, making `skipFor`
+    // return 0 and restart that file from its first match (a walk that never terminates).
+    // Files already in `done` are not rescanned, so instead of recomputing their cursor
+    // we carry the one the client sent forward — this keeps the cursor map total for
+    // `after`-only clients that never send `done`.
+    const nextAfter = {};
+    let hasMore = false;
+    const exhausted = new Set(doneSet);
+    for (const [relPath, stat] of pageStats) {
+      nextAfter[relPath] = stat.skip + stat.delivered;
+      if (stat.truncated) hasMore = true;
+      else exhausted.add(relPath);
+    }
+    for (const relPath of doneSet) {
+      if (nextAfter[relPath] === undefined && afterMap[relPath] !== undefined) {
+        nextAfter[relPath] = afterMap[relPath];
+      }
+    }
+
+    sendJSON(res, 200, { query: q, results, total: results.length, capped: hitCap, nextAfter, hasMore, exhausted: Array.from(exhausted) });
   } catch (err) {
     Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
     sendJSON(res, 500, { error: 'Dictionary search failed' });

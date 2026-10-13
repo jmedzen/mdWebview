@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.7.5) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.7.6) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -25,6 +25,11 @@
   - **單飛重建互斥 (Single-Flight)**：索引防抖與管理員重建共用單飛旗標，杜絕並行重複計算與暫存檔寫入衝突。
   - **空白多關鍵詞 AND 搜尋**：支援輸入 `阿賴耶識 唯識` 或 `解深密經 圓測` 空白分隔關鍵詞進行交集比對。
   - **鄰近詞距上限限制 (Proximity Filtering)**：自動過濾字詞相隔過遠的非相關結果。可在管理員後台面板自訂「搜尋鄰近詞距上限」（預設 150 字元）。
+- 📖 **佛學辭典查詢（前綴 / 模糊 / 全文）**：
+  - **游標分頁 (Cursor Pagination)**：辭典全文搜尋改採每檔 1,500 筆一頁的游標分頁。舊版對每檔硬性截斷於 1,500 筆，常見字詞（如「一切」）僅能觸及檔案前 ~11% 便無法再往下；現在可逐頁翻至檔案末尾（實測「法」於四部辭典可完整走訪全部 116,634 筆命中，與整檔掃描結果完全一致、零重複零遺漏）。
+  - **取代式渲染與有界 DOM**：翻頁時整批取代結果清單（非累積附加），並快取已抓取頁面，往回翻不重發請求，長篇辭典瀏覽時 DOM 節點數維持恆定。
+  - **精確跳轉定位**：點擊後段搜尋結果時，以「目標行號」而非「首個高亮標記」為滾動依據，並於渲染後自我校正至 ±2px，且對 12–32px 全字級範圍有效。
+  - **已耗盡檔案不再重掃**：走訪過程中已翻完的辭典檔會記錄於游標狀態並自後續掃描中移除，避免重複掃描拖慢翻頁。
 - 📑 **自動大綱導航 (TOC)**：開啟經論檔案後，自動解析 Markdown 標題（H1~H6）並動態生成側邊欄大綱，支援點擊滾動與閱讀進度追蹤（ScrollSpy）。
 - 🔔 **全系統 Toast 提示訊息**：全站操作（複製連結、書籤、歷史記錄、主題切換、搜尋、管理員登入/儲存/數據導出）配備毛玻璃動畫 Toast 提示與 `success` / `warning` / `error` / `info` 狀態燈號。
 - 🎨 **五種精緻閱讀主題**：
@@ -85,7 +90,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.7.5）
+├── package.json        # Node.js 套件設定（v3.7.6）
 └── README.md           # 本說明文件
 ```
 
@@ -180,7 +185,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.7.5) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.7.6) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -198,6 +203,11 @@ docker-compose up -d
   - **Single-Flight Rebuild**: Serializes concurrent index build requests between file watcher debounce and admin triggers to prevent memory doubling.
   - **Multi-Term AND Search**: Supports space-separated queries (e.g., `阿賴耶識 唯識`).
   - **Proximity Distance Filtering**: Filters out matches where terms are too far apart. Maximum character distance (`MAX_PROXIMITY_DISTANCE`) is configurable in the Admin Panel (default 150 chars).
+- 📖 **Buddhist Dictionary Lookup (Prefix / Fuzzy / Full-Text)**:
+  - **Cursor Pagination**: Full-text dictionary search now paginates at 1,500 results per file per page. The previous per-file hard cap silently truncated at 1,500, so a common term such as `一切` could only ever reach the first ~11% of a file; you can now page through to the end (measured: `法` walks all 116,634 matches across four dictionaries, exactly matching a whole-file scan with zero duplicates and zero omissions).
+  - **Replace-Not-Append Rendering**: Each page repaints the whole result list rather than appending, and fetched pages are cached so paging back never refetches — DOM node count stays flat while browsing long dictionaries.
+  - **Accurate Deep-Jump Landing**: Clicking a result deep in a large file scrolls to the requested line (not the first highlight of a matched window) and self-corrects to within ±2px after render, across the full 12–32px font range.
+  - **Exhausted Files Are Never Rescanned**: Dictionaries fully paged through are recorded in the cursor state and dropped from later scans, so paging stays fast.
 - 📑 **Auto Outline Navigation (TOC)**: Dynamically parses Markdown headings (H1–H6) into a sidebar table of contents with click-to-scroll and ScrollSpy progress tracking.
 - 🔔 **Systemwide Toast Notifications**: Glassmorphism toast alerts with `success`, `warning`, `error`, and `info` status badges across all user actions.
 - 🎨 **Five Curated Reading Themes**:
@@ -258,7 +268,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.7.5)
+├── package.json        # Node.js package manifest (v3.7.6)
 └── README.md           # Project documentation
 ```
 

@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.7.5 | 最後更新：2026-10
+> 版本：v3.7.6 | 最後更新：2026-10
 
 ---
 
@@ -14,6 +14,8 @@
 3. [資料流：頁面載入](#3-資料流頁面載入)
 4. [資料流：大型檔案虛擬化](#4-資料流大型檔案虛擬化)
 5. [資料流：全文搜尋](#5-資料流全文搜尋)
+   - [5.1 辭典全文搜尋：游標分頁模型](#51-辭典全文搜尋游標分頁模型)
+   - [5.2 已知限制：辭典詞條邊界造成多詞鄰近查詢漏失](#52-已知限制辭典詞條邊界造成多詞鄰近查詢漏失)
 6. [公告彈窗顯示邏輯](#6-公告彈窗顯示邏輯)
 7. [使用者偏好與排版控制](#7-使用者偏好與排版控制)
    - [7.1 集中式常數池與安全儲存封裝](#71-集中式常數池與安全儲存封裝)
@@ -216,6 +218,10 @@ flowchart TD
 - 每個 "entry"（如辭典詞條）的起止行號與位元組偏移
 - 用於辭典條目導航（`entryNav` prev/next）與精確分塊邊界
 
+**虛擬化判定（`isVirtualizedFile(filePath)`，~L1968）**：一律以 `String(filePath).startsWith('dict:')` 為真，否則再比較 `(state.fileSizes.get(filePath) || 0) >= LARGE_FILE_MIN_BYTES`。此 Helper 存在的理由是：**辭典檔（`dict:`）永遠走虛擬分塊路徑，但它們並不在主樹的 `state.fileSizes` 對照表中**（`/api/tree` 不含任何 `dict:` 節點——實測 7,598 個檔案節點、0 個 dict 節點）。因此單憑檔案大小判斷會把辭典檔誤判為一般檔案，讓 `restoreReadProgress()` 補送延遲的絕對 `content.scrollTo`，覆蓋掉 `openFile` 剛完成的逐行定位。凡需判斷「這是不是虛擬檔案」處都應走此 Helper。
+
+**深度跳轉定位對齊（v3.7.6）**：`scrollToLine`（~L995）與 `scrollToLineVirtual`（~L2338）過去以 `hlRes.firstMark`（寬鬆模式多區塊高亮視窗中的**第一個** highlight）作為 `scrollTarget`，可能距要求行甚遠，導致跳轉落在錯誤偏移（實測切換檔案後最大偏差 +371,784 px；非虛擬路徑亦曾偏差 +528 px）。現行兩者皆以 `target`（即要求行號對應的 anchor 元素）為 `scrollTarget`。`scrollToLineVirtual` 另加一段**有界自我修正對齊迴圈**（最多 4 次嘗試）：量測 `target.getBoundingClientRect().top - #content.getBoundingClientRect().top - 12` 並重新捲動，直到誤差 ≤ 2 px，若無進展即中止。該迴圈受 `state.virtual !== v`、`jumpToken = state._openToken` 快照與 `target.isConnected` 三方守衛，且**迴圈內絕不重新解析 anchor 或重查 DOM**（曾因重新解析而在切檔後取到最後一個 anchor，把畫面甩到文末）。迴圈使用專屬的 `v._lineJumpRaf` RAF 控制代碼（**不可**重用 `v._scrollRaf`，後者是 `setupVirtualScroll` 的節流閘門），並由 `teardownVirtual()`（~L2707）取消。
+
 ---
 
 ## 5. 資料流：全文搜尋
@@ -246,6 +252,65 @@ sequenceDiagram
   - 磁碟快取約 650MB（4.55M unique bigrams），建置峰值記憶體需 ≥ 索引大小之 2 倍。
   - 建議容器或主機記憶體至少 **4GB**（推薦 **8GB**）。
   - 透過 Dockerfile 預設 `NODE_OPTIONS="--max-old-space-size=6144"` 與 `docker-compose.yml` 的 `NODE_MAX_OLD_SPACE_MB` 可自訂 V8 old-space 上限（請勿使用嚴苛的容器 mem_limit 以免未達 GC 門檻即遭 OOM Killer 終止）。
+
+> [!IMPORTANT]
+> 本節描述的是**經論主庫全文搜尋（vault search，`/api/search`）**的資料流：單次請求即回傳該次命中的完整（上限內）結果集，沒有分頁游標。**辭典全文搜尋（`/api/dict-search`）走的是另一條路徑**，自 v3.7.6 起改採游標分頁模型，詳見 §5.1。
+
+### 5.1 辭典全文搜尋：游標分頁模型
+
+辭典全文搜尋（`/api/dict-search`）與主庫搜尋在資料流上完全獨立，且**自 v3.7.6 起改為游標分頁（cursor pagination）**，不再是「每檔取前 N 筆並丟棄其餘」的硬性截斷。
+
+**舊行為與問題**：先前 `index-worker.js` 的 `search-scan` 以 `maxPerFile = DICT_SEARCH_MAX_PER_FILE = 1500` 作為**每檔硬性上限**，超出即直接丟棄。對常見詞而言幾乎整個檔案都無法觸及——實測查詢 `一切` 於 `dicts/法相辭典.md` 僅能觸及第 17,172 行（全檔 156,712 行，約 11%）。之所以不選擇直接調高上限，是因為真正的成本在瀏覽器端渲染：5,257 筆結果約產生 26,141 個 DOM 節點與約 1,593 KB HTML，因此改以分頁將每頁結果量固定住，而非放大單次回傳量。
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant B as Browser (app.js)
+    participant S as server.js
+    participant IX as index-worker.js
+
+    U->>B: 輸入關鍵詞（辭典全文模式）
+    B->>S: GET /api/dict-search?q=…&files=…&s2t=…<br/>（第 1 頁：不帶 after / done）
+    S->>IX: executeIndexJob('search-scan', {units, terms, maxPerFile: 1500, skip: 0})
+    Note over IX: 依文件順序跨「所有 unit」連續編號<br/>只輸出索引落在 [skip, skip+cap) 的命中<br/>超出視窗仍存在下筆命中 → truncated=true（提早結束）
+    IX-->>S: { matches, truncated }
+    S->>S: 彙整 results、逐檔計算 nextAfter = skip + delivered<br/>truncated 任一檔為真 → hasMore = true<br/>未 truncated 的檔併入 exhausted
+    S-->>B: { query, results, total, capped, nextAfter, hasMore, exhausted }
+    B->>B: normalizeDictFulltextPage() 存入 cache.pages<br/>showDictFulltextPage() 整批置換 DOM 並還原 scrollTop
+    U->>B: 點「下一頁」
+    B->>S: GET /api/dict-search?…&after=<nextAfter JSON>&done=<exploded 已耗盡清單>
+    Note over S: done 中的檔案自掃描集合移除（不再重掃）<br/>after 提供各檔 skip 游標
+    S-->>B: 下一頁 + 累積 exhausted + 新的 hasMore
+    B->>B: cache.pages.push(...)；已抓過的分頁直接由快取重繪，不再發請求
+    Note over U,B: hasMore = false 且 exhausted 覆蓋全部檔案 → 分頁走訪結束
+```
+
+**請求契約（皆為可選參數）**：
+
+| 參數 | 方向 | 格式 | 說明 |
+|------|------|------|------|
+| `after` | 請求 | URL-encoded JSON 物件 | 以 `dict:` relPath 為鍵，值為「該檔已交付的命中數」。缺少／空字串／非法 JSON／非物件／陣列／非有限數／負數，一律視為 `{}`（即第 1 頁）。鍵空間與回應中 `results[].file` 完全一致，故客戶端可直接把 `nextAfter` 原樣回傳 |
+| `done` | 請求 | 逗號分隔的 `dict:` relPath | 客戶端跨頁累積的「已窮盡」檔案清單；這些檔案**完全自掃描集合移除**，避免已窮盡檔案被逐頁重掃。僅接受屬於本次查詢檔案集合的路徑，其餘忽略 |
+| `nextAfter` | 回應 | JSON 物件 | **本頁所有被掃描檔案**（無論 truncated 或 exhausted）的最新累積游標，值為 `skip + delivered` |
+| `hasMore` | 回應 | boolean | 只要仍有任一檔案存在更多命中即為 `true` |
+| `exhausted` | 回應 | `dict:` relPath 陣列 | **累積**清單：本頁新窮盡的檔案，加上請求已透過 `done` 回報者（取聯集） |
+| `total` | 回應 | number | 維持原義：**本頁**筆數（非全庫總數） |
+| `capped` | 回應 | boolean | 維持原義：本頁是否至少有一個檔案被截斷 |
+
+**回應欄位**：保留 `{query, results, total, capped}` 且語意不變，另新增上述 `nextAfter`、`hasMore`、`exhausted` 三欄。**向後相容**：未帶 `after` / `done` 的請求，回應內容與舊版完全相同，僅多出這三個新欄位。
+
+**驗證期間發現並修正的關鍵缺陷**：`nextAfter` 最初只列出 truncated 的檔案，導致已窮盡檔案沒有游標；下一頁該檔的 `skip` 因此回到 0 而從頭重掃，整個多檔走訪永不終止（實測 30+ 頁、85,728 筆重複結果）。修正後每個被掃描檔案都會輸出游標，且 `done` 機制確保已窮盡檔案不再重掃。
+
+**端到端驗證**：查詢 `法`（涵蓋全部 4 部辭典）的分頁走訪於第 46 頁終止（`hasMore=false`），游標單調不減，交付結果的多重集合與整檔參考掃描**完全相等**——116,634 筆命中，0 筆重複交付、0 筆遺漏。各檔總數與 ground truth 完全一致：佛光辭典 68,868／南山律學辭典 12,173／法相辭典 26,231／淨土藏彙粹 9,362。
+
+**前端（`app.js`）**：`state.dictFulltextCache = { query, files, pageIndex, pages:[{after,results,total,capped,hasMore,nextAfter,scrollTop,done,exhausted}] }`。相關 Helper：`fetchDictFulltextPage`（~L5078）、`normalizeDictFulltextPage`（~L5104）、`showDictFulltextPage`（~L5161）、`dictFulltextNextPage`（~L5183）、`dictFulltextPrevPage`（~L5229）、`renderDictFulltextPager`（~L5248）。渲染一律**整批置換**結果列表（絕不追加），因此 DOM 節點數在任何頁深都維持有界（實測第 1～4 頁為 26.5k → 25.8k 節點）。切頁前會先保存當前頁 `scrollTop`、切回後還原；已抓取過的分頁直接由快取重繪，**不再發出請求**。`下一頁` 以 `hasMore` 為閘、`上一頁` 以 `pageIndex > 0` 為閘；單頁即可容納全部結果時完全不顯示分頁器。頁面快取與 `done` 於 5 處一起重置：空查詢（`runDictSearch` ~L4898）、查詢詞變更（~L4914）、模式切換（~L7087）、單檔核取方塊變更（~L7109）、全選切換（~L7121）。樣式由 `style.css` 的 `.dict-pager`、`.dict-pager-btn`、`.dict-pager-info`（約 L6088）提供，採 flex + `flex-wrap: wrap`，避免可拖曳寬度的側邊欄溢出；所有色彩皆沿用既有 CSS 變數。
+
+### 5.2 已知限制：辭典詞條邊界造成多詞鄰近查詢漏失
+
+> [!WARNING]
+> **此限制於 v3.7.6 尚未修正**，僅在此記錄以供後續讀者辨識，避免重複追查。
+
+辭典索引會把大型檔案切分為「以詞條為單位」的多個 unit，因此一個跨越兩個 unit 的鄰近詞叢集，在任一個 unit 內都無法成立，於是多詞鄰近查詢會漏失這類命中。以真實 unit 邊界實測（位元組覆蓋率 100.00%）：`一切 法` 整檔掃描 6,149 筆 vs 逐 unit 掃描 5,212 筆（漏失 937 筆）；`眾生 佛` 為 220 vs 200。關鍵在於 **bigram 前綴過濾本身毫無損失**（逐 unit 候選損失 = 0），全部損失都來自 unitization。單詞查詢不受影響（差異為 0）。線上確認：`q=眾生 佛` 回傳 213 筆，而整檔掃描能找到的某一行確實不在回應中。分頁只影響交付切分、不影響路徑選擇，因此**不會加重**此限制。
 
 ---
 
@@ -381,7 +446,7 @@ flowchart TD
 | `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 s2t 簡繁轉換、mode=strict|loose 寬鬆模式與鄰近過濾） |
 | `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索（虛擬化模式的頁內搜尋） |
 | `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料（支援 `If-None-Match` 304） |
-| `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文） |
+| `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文）；全文模式自 v3.7.6 起採**游標分頁**（`after` / `done` 進、`nextAfter` / `hasMore` / `exhausted` 出，每頁每檔 1500 筆） |
 | `/api/dict-event` | POST | `handleDictEvent()` | ❌ | 辭典查閱行為日誌 Beacon |
 | `/api/dict-files` | GET | `handleDictFiles()` | ❌ | 辭典來源檔案清單 |
 | `/api/suggest-list` | GET | `handleSuggestList()` | ❌ | 首頁推薦經論、熱門榜與每日單詞 |
@@ -499,8 +564,8 @@ flowchart TD
 | `dictSidebarOpen` | `boolean` | 辭典側邊欄是否開啟 |
 | `dictMode` | `string` | 查詢模式：`'prefix'`（前綴）|`'fulltext'`（全文） |
 | `dictAbortController` | `AbortController|null` | 取消進行中辭典請求 |
-| `dictFulltextCache` | `Object|null` | 辭典全文搜尋快取（避免重複請求） |
-| `dictFulltextScrollTop` | `number` | 辭典全文搜尋結果的滾動位置 |
+| `dictFulltextCache` | `Object|null` | 辭典全文搜尋的**分頁快取**。結構：`{query, files, pageIndex, pages:[{after, results, total, capped, hasMore, nextAfter, scrollTop, done, exhausted}]}`。`after` 為產生該頁的游標、`nextAfter` 為下一頁游標、`done` 為該頁帶入的已窮盡清單。已抓取的分頁直接重繪不重發請求；於 5 處與 `dictFulltextScrollTop` 一起重置：空查詢（`runDictSearch` ~L4898）、查詢詞變更（~L4914）、模式切換（~L7087）、單檔核取方塊變更（~L7109）、全選切換（~L7121）（`null` = 尚無分頁走訪） |
+| `dictFulltextScrollTop` | `number` | 辭典全文搜尋結果的滾動位置；切頁前保存當前頁、還原時寫回對應 `pages[i].scrollTop`，並隨頁面快取於上述 5 處一併歸零 |
 | `dictSidebarWidth` | `number|null` | 辭典側邊欄寬度（px），使用者可拖拉調整 |
 | `dictHeadwordsETag` | `string|null` | 辭典 headwords 的 ETag（用於 304 Not Modified） |
 | `dictPollTimer` | `number|null` | 辭典輪詢 timer ID（檢查辭典更新） |
@@ -558,7 +623,7 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.7.5'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.7.6'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -610,6 +675,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 
 - **用途**：Bigram 全文倒排索引的建立與搜尋（共用 `lib/text.js`）
 - **工作模式**：非同步 job 分發；支援 `section`（章節解析）、`index-build-file`（建立標點透明 Bigram 索引）、`search-scan`（內文掃描，支援 `ignorePunct` 寬鬆模式）任務
+- **`search-scan` 游標分頁（v3.7.6）**：訊息新增 `skip`（先前分頁已交付的命中數）。Worker 以**跨所有 unit 的單一遞增計數器**依文件順序為命中編號，只輸出索引落在 `[skip, skip+cap)` 視窗內的命中；若視窗之後仍存在下一筆命中，即設 `truncated=true` 並提早結束。回傳信封不變（仍為 `{jobId, ok:true, result:{...}}`），`result` 為 `{ matches, truncated }`。`skip` 缺席或非法一律視為 `0`、`truncated` 為 `false`，因此未分頁的舊呼叫端行為與過去完全相同。`maxPerFile` 語意已由「每檔硬性上限」改為**頁大小**（辭典全文仍為 1500），不再是天花板。
 - **池大小**：`max(2, min(4, CPU - 1))`
 - **單飛重建互斥旗標（Single-flight Rebuild）**：檔案變更防抖與管理員強制重建共用單飛旗標（`searchIndex.building` 與 `searchIndexRebuildPending`），杜絕並行重建引發 2× 峰值記憶體與 `.bin` 暫存檔寫入衝突。
 - **二進位索引緩衝區防禦**：載入 `.bin` 磁碟快取時嚴格驗證緩衝區位元組長度與條目數量邊界，防範損毀檔案觸發 OOM。
@@ -715,6 +781,9 @@ flowchart TD
 | **全域與頁內搜尋取消 (P1-15)** | `performGlobalSearch` / `doPageSearchVirtual` | 支援輸入清除或換詞時即時中止前次搜尋請求，釋放伺服器運算與網路頻寬。 |
 | **二分搜尋消除排版卡頓 (P1-16)** | `saveReadProgress` | 避免在萬行經文中對每一行呼叫 `getBoundingClientRect()` 引發嚴重的 Layout Thrashing，改用已快取行號錨點執行二分搜尋（只需 10~15 次量測）。 |
 | **大陣列展延堆疊防護 (P1-17)** | `buildVirtualTocItems` / `generateTOC` | 移除 `Math.min(...largeArr)`，改採單次迴圈遍歷，徹底防範大經文目錄深度觸發 RangeError: Maximum call stack size exceeded。 |
+| **閱讀進度還原不干擾深度跳轉 (v3.7.6)** | `restoreReadProgress` / `isVirtualizedFile` | 先以 `isVirtualizedFile(data.filePath)` 早退（`dict:` 一律為真，否則比對 `LARGE_FILE_MIN_BYTES`），因為辭典檔永遠走虛擬路徑卻不在主樹 `state.fileSizes` 中，舊的「只看大小」判斷會誤判而補送絕對 `scrollTo`。兩個延遲計時器（150 ms 與 500 ms）各自以 **`openFile()` 之後**才捕捉的 token（`openFile` 本身會遞增 `state._openToken`）加上 `state.currentFile !== data.filePath` 為守衛，並於觸發時重新查詢 `#content` 元素。實測 A/B：舊守衛產生 2 次針對過期 `scrollTop` 的殘留捲動（停在 1234567），修正後為 0 次且正確還原；一般非辭典檔案兩種版本還原結果相同。 |
+| **虛擬深度跳轉自我修正對齊 (v3.7.6)** | `scrollToLineVirtual` | 以「要求行」的 anchor 為 `scrollTarget`（非第一個 highlight），並以最多 4 次嘗試的對齊迴圈量測 `target` 與 `#content` 的相對位置、收斂至 ≤ 2 px，無進展即中止；守衛為 `state.virtual !== v`、`jumpToken = state._openToken` 快照與 `target.isConnected`。使用專屬 `v._lineJumpRaf`（不與 `setupVirtualScroll` 的 `v._scrollRaf` 節流閘門共用），`teardownVirtual()` 負責取消。 |
+| **辭典分頁走訪失效守衛 (v3.7.6)** | `dictFulltextNextPage` / `runDictSearch` | 在途分頁請求以 `state.dictAbortController === controller` 判定所有權，回應落地前再比對 `state.dictFulltextCache === cache` 且 `cache.query` / `cache.files` 與送出時相符，否則直接丟棄（避免新查詢／新檔案集在途時被舊頁復活）；`state.dictFulltextCache` 於 5 處（空查詢、查詢詞變更、模式切換、單檔勾選、全選）與 `dictFulltextScrollTop` 一起重置。 |
 | **Service Worker 離線回退 (P2-1)** | `sw.js` Fetch Handler | 當處於完全離線且快取未命中時，回傳明確的 HTTP 504 Gateway Timeout Response 而非丟出未處理的拒絕錯誤；安裝後發送 `SKIP_WAITING` 實現無縫即時生效。 |
 | **Service Worker 同源快取隔離** | `sw.js` `activate` | 版本升級時僅刪除前綴為 `mdwebview-shell-` 與 `mdwebview-content-` 的舊快取，不再無差別清空 `caches.keys()`；同一 origin 上其他應用程式（或其他部署路徑）的快取得以完整保留。 |
 

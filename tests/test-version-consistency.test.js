@@ -66,13 +66,13 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
     );
   });
 
-  test('反向斷言：核心檔案內不得再出現舊版本字串 v3.7.4', () => {
+  test('反向斷言：核心檔案內不得再出現舊版本字串 v3.7.5', () => {
     const targetFiles = ['app.js', 'index.html', 'README.md', 'ARCHITECTURE.md'];
     for (const relPath of targetFiles) {
       const content = fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf8');
       assert.ok(
-        !content.includes('v3.7.4'),
-        `${relPath} 內不得再出現舊版本字串 "v3.7.4"`
+        !content.includes('v3.7.5'),
+        `${relPath} 內不得再出現舊版本字串 "v3.7.5"`
       );
     }
   });

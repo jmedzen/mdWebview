@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.7.5
+   mdWebview — Application Logic (app.js) v3.7.6
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -221,8 +221,16 @@
    * @property {boolean}      dictSidebarOpen    - 辭典側邊欄是否開啟
    * @property {string}       dictMode           - 查詢模式 ('prefix'|'fulltext')
    * @property {AbortController|null} dictAbortController - 用於取消進行中的辭典請求
-   * @property {Object|null}  dictFulltextCache  - 辭典全文搜尋快取（避免重複請求）
-   * @property {number}       dictFulltextScrollTop - 辭典全文搜尋結果的滾動位置
+   * @property {Object|null}  dictFulltextCache  - 辭典全文搜尋的分頁走訪快取
+   *   { query, files, pageIndex, pages: [{ after, done, results, total, capped,
+   *     hasMore, nextAfter, exhausted, scrollTop }] }
+   *   `pages` 是已抓取的分頁陣列（每筆由 normalizeDictFulltextPage 正規化），
+   *   `after` 為產生該頁的游標、`nextAfter` 為下一頁游標、`done`/`exhausted`
+   *   為累計已走完的辭典清單；`scrollTop` 保存該頁自己的捲動位置。
+   *   因整份結果集可能極大，任一時刻只渲染一頁（replace 而非 append），
+   *   翻回上一頁時直接重用快取而不重新請求；新查詢／切換模式／變更辭典
+   *   選取都會重置為第 0 頁。
+   * @property {number}       dictFulltextScrollTop - 目前分頁的滾動位置
    * @property {number|null}  dictSidebarWidth   - 辭典側邊欄寬度（px，使用者可拖拉調整）
    * @property {string|null}  dictHeadwordsETag  - 辭典 headwords 的 ETag（用於 304 Not Modified）
    * @property {number|null}  dictPollTimer      - 辭典輪詢 timer ID（檢查辭典更新）
@@ -282,6 +290,8 @@
     dictSidebarOpen: false,
     dictMode: 'prefix',
     dictAbortController: null,
+    // 全文搜尋分頁快取：{ query, files, pageIndex, pages: [...] }。每頁各自保存
+    // scrollTop，切頁時先寫回目前頁再還原目標頁，故翻頁不會遺失閱讀位置。
     dictFulltextCache: null,
     dictFulltextScrollTop: 0,
     dictSidebarWidth: null,
@@ -969,6 +979,19 @@
     return { matched: true, hitBlock, firstMark };
   }
 
+  /**
+   * 捲動至指定行並選擇性閃示關鍵字高亮（非虛擬化路徑；虛擬化則轉交
+   * scrollToLineVirtual）。
+   *
+   * 定位目標一律是「要求的那一行」anchor（`target`），而非 `hlRes.firstMark`：
+   * 寬鬆模式的高亮視窗會向前納入兄弟區塊（見 highlightLineKeyword），
+   * firstMark 因此可能位在要求行之前，若以它定位游標會停在該 mark 而非使用者
+   * 點選的行。關鍵字 mark 僅用於閃示。
+   *
+   * @param {number} lineNum        - 目標行號（0/null 時直接返回）
+   * @param {string} [highlightQuery] - 要閃示的關鍵字（可省略）
+   * @param {string} [searchMode]   - 高亮模式（'loose'/'strict'），預設沿用上次搜尋
+   */
   function scrollToLine(lineNum, highlightQuery, searchMode) {
     clearLineKeywordHighlights();
     if (!lineNum) return;
@@ -999,11 +1022,13 @@
 
       if (hlRes && hlRes.matched) {
         flashBlock = hlRes.hitBlock;
-        scrollTarget = hlRes.firstMark || hlRes.hitBlock;
       } else {
         flashBlock = target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || target.nextElementSibling || target.parentElement;
-        scrollTarget = target;
       }
+      // 一律以「要求的那一行」anchor 為定位目標，關鍵字 mark 只用於閃示。寬鬆模式
+      // 的高亮視窗會向前納入兄弟區塊（見 highlightLineKeyword），firstMark 因此可能
+      // 位在要求行之前；若以它定位，游標會停在該 mark 而非使用者點選的行。
+      scrollTarget = target;
 
       if (flashBlock) {
         flashBlock.classList.add('line-highlight');
@@ -1929,6 +1954,23 @@
     return !!(state.virtual && state.virtual.filePath === state.currentFile);
   }
 
+  /**
+   * 判斷某檔案是否以虛擬滾動（分塊）方式呈現。
+   *
+   * 字典檔（`dict:`）永遠走虛擬路徑，且它們不在主樹的 `state.fileSizes` 對照表中
+   * （`/api/tree` 不含 `dict:` 節點），因此單靠檔案大小判斷會漏掉字典檔，讓呼叫端
+   * 誤以為一般檔案而補送 scrollTop 還原（破壞剛完成的跳轉定位）。凡需要「這是不是
+   * 虛擬檔案」的判斷都應走這裡，而非各自比對檔案大小。
+   *
+   * @param {string|null} filePath - 檔案路徑（可能為 `dict:` 前綴或主樹相對路徑）
+   * @returns {boolean} `dict:` 檔案，或大小 >= LARGE_FILE_MIN_BYTES 的檔案為 true
+   */
+  function isVirtualizedFile(filePath) {
+    if (!filePath) return false;
+    if (String(filePath).startsWith('dict:')) return true;
+    return (state.fileSizes.get(filePath) || 0) >= LARGE_FILE_MIN_BYTES;
+  }
+
   function chunkIndexForEntry(entryIndex) {
     // Chunk boundaries are byte-bounded and non-uniform (server clamps chunks to
     // CHUNK_MAX_BYTES), so find the range by binary search over the precomputed
@@ -2271,6 +2313,28 @@
     updateCachedLineAnchors($('markdownBody'));
   }
 
+  /**
+   * 虛擬滾動版本的深層跳行：掛載目標區塊後，以其實際 rect 精準定位。
+   *
+   * 與 scrollToLine 相同，定位目標是「要求的那一行」anchor（`target`）而非
+   * `hlRes.firstMark`（理由見 scrollToLine）；`target` 只在迴圈外解析一次並重複
+   * 使用，修正迴圈中絕不重新呼叫 anchorAtOrBefore() / 重新查詢 DOM——切換檔案後
+   * 殘留的影格若對新文件重新解析，可能取到最後一個 anchor 而把畫面甩到文末。
+   *
+   * 首次定位後會執行有界的自我修正迴圈（最多 4 次）：字體、行高、最大寬度都會
+   * 改變實際行高，且 spacer 高度以單一 avgPxPerLine 估算（離已掛載窗越遠誤差越大），
+   * 故第一次可能失準。迴圈以 `target.getBoundingClientRect().top -
+   * #content.getBoundingClientRect().top - 12` 為誤差，收斂（|d| <= 2）或無進展
+   * （|d| 未下降 / 已達捲動邊界）即中止；並以 `state.virtual !== v`（文件已換）、
+   * `jumpToken = state._openToken` 快照（期間又開了新檔）與 `target.isConnected`
+   * （節點已卸載）三重守衛防止對已失效的文件繼續捲動。RAF 使用 v._lineJumpRaf
+   * 專屬欄位，不可重用 v._scrollRaf（那是 setupVirtualScroll 的節流閘門）。
+   *
+   * @param {number} lineNum          - 目標行號（0/null 時直接返回）
+   * @param {string} [highlightQuery] - 要閃示的關鍵字（可省略）
+   * @param {string} [searchMode]     - 高亮模式（'loose'/'strict'），預設沿用上次搜尋
+   * @returns {Promise<void>}
+   */
   async function scrollToLineVirtual(lineNum, highlightQuery, searchMode) {
     clearLineKeywordHighlights();
     if (!lineNum) return;
@@ -2304,16 +2368,41 @@
 
     if (hlRes && hlRes.matched) {
       flashBlock = hlRes.hitBlock;
-      scrollTarget = hlRes.firstMark || hlRes.hitBlock;
     } else {
       flashBlock = target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || target.nextElementSibling || target.parentElement;
-      scrollTarget = target;
     }
+    // 一律以「要求的那一行」anchor 為定位目標（理由同 scrollToLine）。target 僅在迴圈
+    // 外解析一次並重複使用；切勿於修正迴圈中重新呼叫 anchorAtOrBefore()，否則切換檔案
+    // 後殘留的影格可能對新文件取到最後一個 anchor，把畫面甩到文末。
+    scrollTarget = target;
 
     const content = $('content');
     const targetRect = scrollTarget.getBoundingClientRect();
     const containerRect = content.getBoundingClientRect();
     content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - 12);
+
+    // 有界的事後修正：字體大小／行高／最大寬度都會改變實際行高，且 spacer 高度是以單一
+    // avgPxPerLine 估算（離已掛載窗越遠誤差越大），因此第一次定位可能失準。以 anchor 的
+    // 實際 rect 最多修正 3 次即收斂；任何文件切換、節點卸載或無進展即中止。
+    const jumpToken = state._openToken;
+    let lastAbs = Infinity;
+    const alignJump = (attempt) => {
+      if (state.virtual !== v || state._openToken !== jumpToken) return;
+      if (!target.isConnected) return;
+      const c = $('content');
+      if (!c) return;
+      const d = (target.getBoundingClientRect().top - c.getBoundingClientRect().top) - 12;
+      const abs = Math.abs(d);
+      if (abs <= 2) return;
+      if (abs >= lastAbs || attempt >= 3) return;
+      lastAbs = abs;
+      const next = Math.max(0, c.scrollTop + d);
+      if (next === c.scrollTop) return; // 已達捲動邊界，視為終止
+      c.scrollTop = next;
+      // 獨立欄位：不可重用 v._scrollRaf（那是 setupVirtualScroll 的節流閘門）。
+      v._lineJumpRaf = requestAnimationFrame(() => { v._lineJumpRaf = null; alignJump(attempt + 1); });
+    };
+    v._lineJumpRaf = requestAnimationFrame(() => { v._lineJumpRaf = null; alignJump(0); });
 
     if (flashBlock) {
       flashBlock.classList.add('line-highlight');
@@ -2608,10 +2697,13 @@
     renderTocWindow();
   }
 
-  // Tear down a virtualized (chunked) document: detach its scroll handlers,
-  // cancel any pending RAF, and release the large per-document structures
-  // (section index, TOC items/offsets, chunk/heights Maps) so switching to
-  // another file or returning home doesn't pin them in memory for the session.
+  /**
+   * 拆除已虛擬化的（分塊）文件：卸載其滾動 handler、取消所有待處理的 RAF
+   * （包含 `v._scrollRaf`、TOC 的 `v._tocRaf`，以及行跳轉事後修正的
+   * `v._lineJumpRaf`——後者若未取消，會對已卸載的文件繼續捲動），並釋放
+   * 每份文件的大型結構（section index、TOC items/offsets、chunk/heights Map），
+   * 使切換檔案或返回首頁時不會把它們釘在記憶體中一整個 session。
+   */
   function teardownVirtual() {
     const v = state.virtual;
     if (!v) {
@@ -2622,6 +2714,8 @@
     const content = $('content');
     if (v._scrollHandler && content) content.removeEventListener('scroll', v._scrollHandler);
     if (v._scrollRaf) { cancelAnimationFrame(v._scrollRaf); v._scrollRaf = null; }
+    // 取消仍在排隊的「行跳轉事後修正」影格，避免它對已卸載的文件繼續捲動。
+    if (v._lineJumpRaf) { cancelAnimationFrame(v._lineJumpRaf); v._lineJumpRaf = null; }
     const tocList = $('tocList');
     if (v._tocScrollHandler && tocList) tocList.removeEventListener('scroll', v._tocScrollHandler);
     if (v._tocRaf) { cancelAnimationFrame(v._tocRaf); v._tocRaf = null; }
@@ -4928,30 +5022,36 @@
   function dictSearchFulltext(q) {
     const filesParam = dictSelectedFiles().map(encodeURIComponent).join(',');
     const results = $('dictResults');
-    // If fulltext results for the same query and files are already cached, restore them directly
+    // If fulltext results for the same query and files are already cached, restore the
+    // cached page the user was on. The cache holds the whole page walk (see
+    // state.dictFulltextCache), so returning to a query never refetches.
     if (state.dictFulltextCache && state.dictFulltextCache.query === q && state.dictFulltextCache.files === filesParam) {
       if (state.dictAbortController) { state.dictAbortController.abort(); state.dictAbortController = null; }
-      renderDictFulltextResults(state.dictFulltextCache.data, q);
-      if (state.dictFulltextScrollTop && results) {
-        results.scrollTop = state.dictFulltextScrollTop;
-      }
+      const cache = state.dictFulltextCache;
+      const page = cache.pages[cache.pageIndex] || cache.pages[0];
+      renderDictFulltextResults(page, q, cache.pageIndex, cache.pages.length);
+      const scroll = page && typeof page.scrollTop === 'number' ? page.scrollTop : state.dictFulltextScrollTop;
+      if (scroll && results) results.scrollTop = scroll;
       return;
     }
     if (state.dictAbortController) state.dictAbortController.abort();
     const controller = new AbortController();
     state.dictAbortController = controller;
     results.innerHTML = '<div class="dict-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
-    const s2tParam = state.autoS2T ? '1' : '0';
-    fetch(`/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}&s2t=${s2tParam}`, { signal: controller.signal })
-      .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+    fetchDictFulltextPage(q, filesParam, null, controller)
       .then(data => {
         // Drop responses from a superseded request (a newer query or mode switch
         // aborted this controller) so a stale result never overwrites the view.
         if (state.dictAbortController !== controller) return;
         state.dictAbortController = null;
-        state.dictFulltextCache = { query: q, files: filesParam, data: data };
+        state.dictFulltextCache = {
+          query: q,
+          files: filesParam,
+          pageIndex: 0,
+          pages: [normalizeDictFulltextPage(data, null, [])],
+        };
         state.dictFulltextScrollTop = 0;
-        renderDictFulltextResults(data, q);
+        renderDictFulltextResults(state.dictFulltextCache.pages[0], q, 0, 1);
       })
       .catch(err => {
         if (err.name === 'AbortError') return;
@@ -4961,7 +5061,63 @@
       });
   }
 
-  function renderDictFulltextResults(data, q) {
+  /**
+   * 抓取辭典全文搜尋的單一分頁（GET /api/dict-search）。
+   *
+   * `after` 是上一頁的 nextAfter 游標（第一頁為 null），`done` 是累計已走完的
+   * 檔案清單；兩者只在非空時才附帶於查詢字串。中斷與過期判斷由呼叫端透過傳入的
+   * controller 自行負責（本函式不含任何 staleness 邏輯）。
+   *
+   * @param {string} q           - 查詢字串
+   * @param {string} filesParam  - 逗號分隔且已 encodeURIComponent 的辭典路徑
+   * @param {Object|null} after  - 游標物件（relPath → 已交付命中數），首頁為 null
+   * @param {AbortController} [controller] - 用於取消請求（可省略）
+   * @param {string[]} [done]    - 已走完的 relPath 清單（可省略）
+   * @returns {Promise<Object>} 原始 JSON 分頁資料（未正規化）
+   */
+  function fetchDictFulltextPage(q, filesParam, after, controller, done) {
+    const s2tParam = state.autoS2T ? '1' : '0';
+    let url = `/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}&s2t=${s2tParam}`;
+    if (after && Object.keys(after).length > 0) {
+      url += `&after=${encodeURIComponent(JSON.stringify(after))}`;
+    }
+    if (done && done.length > 0) {
+      url += `&done=${encodeURIComponent(done.join(','))}`;
+    }
+    const opts = controller ? { signal: controller.signal } : {};
+    return fetch(url, opts).then(res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    });
+  }
+
+  /**
+   * 把單頁 API payload 正規化為分頁快取紀錄（state.dictFulltextCache.pages 的元素）。
+   *
+   * @param {Object} data       - /api/dict-search 的原始回應
+   * @param {Object|null} after - 產生此頁的游標（首頁為 null）
+   * @param {string[]} [done]   - 請求此頁時送出的累計已走完檔案清單
+   * @returns {{after: (Object|null), done: string[], results: Object[], total: number, capped: boolean, hasMore: boolean, nextAfter: (Object|null), exhausted: string[], scrollTop: number}}
+   *   `hasMore` 決定「下一頁」是否可用，`exhausted` / `done` 供走訪時累計為下一頁的
+   *   `done`；`scrollTop` 為此頁自己的捲動位置（切頁時保存／還原）。
+   */
+  function normalizeDictFulltextPage(data, after, done) {
+    return {
+      after: after || null,
+      done: done || [],
+      results: data.results || [],
+      total: data.total || 0,
+      capped: !!data.capped,
+      hasMore: !!data.hasMore,
+      nextAfter: data.nextAfter || null,
+      exhausted: Array.isArray(data.exhausted) ? data.exhausted : [],
+      scrollTop: 0,
+    };
+  }
+
+  // pagerIndex / pagerCount drive the page indicator; the result list is rendered from
+  // one page record at a time, so page navigation always REPLACES the DOM content.
+  function renderDictFulltextResults(data, q, pagerIndex, pagerCount) {
     const results = $('dictResults');
     const list = data.results || [];
     if (list.length === 0) {
@@ -4989,7 +5145,116 @@
       }
       html += `</div>`;
     }
+    html += renderDictFulltextPager(data, pagerIndex, pagerCount);
     results.innerHTML = html;
+  }
+
+  /**
+   * 顯示快取中已抓取的第 `index` 頁，並還原該頁自己的捲動位置。
+   *
+   * 結果列表是整份「替換」而非追加，因此無論走訪到第幾頁，DOM 中的結果數都固定在
+   * 一頁的量；`index` 會先夾在 [0, pages.length-1]，切頁前把目前頁的 DOM scrollTop
+   * 存回快取紀錄，切頁後再套用目標頁保存的值（同時同步 state.dictFulltextScrollTop）。
+   *
+   * @param {number} index - 目標分頁索引（超界時夾至有效範圍）
+   */
+  function showDictFulltextPage(index) {
+    const cache = state.dictFulltextCache;
+    if (!cache || !Array.isArray(cache.pages) || cache.pages.length === 0) return;
+    const clamped = Math.max(0, Math.min(index, cache.pages.length - 1));
+    const results = $('dictResults');
+    const current = cache.pages[cache.pageIndex];
+    if (current && results) current.scrollTop = results.scrollTop;
+    cache.pageIndex = clamped;
+    const page = cache.pages[clamped];
+    renderDictFulltextResults(page, cache.query, clamped, cache.pages.length);
+    if (results) results.scrollTop = page.scrollTop || 0;
+    state.dictFulltextScrollTop = page.scrollTop || 0;
+  }
+
+  /**
+   * 前往下一頁。只在目前頁 `hasMore` 且帶有 `nextAfter` 時才動作。
+   *
+   * 已抓取過（使用者曾翻回去再翻過來）則直接由快取顯示，不重新請求；否則以目前頁的
+   * `nextAfter` 作為 `after`、並把「目前頁已累計的 done + 本頁回報的 exhausted」取
+   * 聯集後作為 `done` 送出，讓已走完的辭典不再被重掃。回應抵達時若 controller 已
+   * 被取代、或快取已被重置／查詢或檔案集已變更，則丟棄該回應，避免復活過期結果。
+   */
+  function dictFulltextNextPage() {
+    const cache = state.dictFulltextCache;
+    if (!cache || !Array.isArray(cache.pages) || cache.pages.length === 0) return;
+    const page = cache.pages[cache.pageIndex];
+    if (!page || !page.hasMore || !page.nextAfter) return;
+    // Already fetched (user paged back then forward) → reuse, no refetch.
+    if (cache.pageIndex + 1 < cache.pages.length) {
+      showDictFulltextPage(cache.pageIndex + 1);
+      return;
+    }
+    const results = $('dictResults');
+    const current = cache.pages[cache.pageIndex];
+    if (current && results) current.scrollTop = results.scrollTop;
+    if (state.dictAbortController) state.dictAbortController.abort();
+    const controller = new AbortController();
+    state.dictAbortController = controller;
+    if (results) results.innerHTML = '<div class="dict-loading"><div class="spinner"></div><span>載入下一頁…</span></div>';
+    const after = page.nextAfter;
+    // Cumulative exhausted list: the pages already walked plus what this page reported
+    // (server union). It is passed forward as `done` so finished dictionaries are never
+    // rescanned for this query walk.
+    const done = Array.from(new Set([].concat(page.done || [], page.exhausted || [])));
+    const expectedQuery = cache.query;
+    const expectedFiles = cache.files;
+    fetchDictFulltextPage(cache.query, cache.files, after, controller, done)
+      .then(data => {
+        if (state.dictAbortController !== controller) return;
+        state.dictAbortController = null;
+        // The cache may have been reset (new query / mode or file-set change) while this
+        // page was in flight; drop the response rather than resurrect stale results.
+        if (state.dictFulltextCache !== cache || cache.query !== expectedQuery || cache.files !== expectedFiles) return;
+        cache.pages.push(normalizeDictFulltextPage(data, after, done));
+        showDictFulltextPage(cache.pages.length - 1);
+      })
+      .catch(err => {
+        if (err.name === 'AbortError') return;
+        if (state.dictAbortController !== controller) return;
+        state.dictAbortController = null;
+        if (results) results.innerHTML = `<div class="dict-placeholder"><span>⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
+      });
+  }
+
+  /**
+   * 返回上一頁：只做本地快取切換（showDictFulltextPage），不重新請求；
+   * 第 0 頁時不動作。
+   */
+  function dictFulltextPrevPage() {
+    const cache = state.dictFulltextCache;
+    if (!cache || cache.pageIndex <= 0) return;
+    showDictFulltextPage(cache.pageIndex - 1);
+  }
+
+  /**
+   * 產生分頁器（上一頁／下一頁）的 HTML 片段。
+   *
+   * 結果列表每次換頁都以整份替換（外層 renderDictFulltextResults 直接覆寫
+   * innerHTML），所以 DOM 中永遠只有一頁的結果；「下一頁」以 `hasMore` 決定是否
+   * 停用、「上一頁」以 `pagerIndex > 0` 決定。整份結果集僅單頁時回傳空字串，
+   * 讓小結果集不會出現無意義的分頁器。
+   *
+   * @param {Object} data       - 目前頁的快取紀錄（讀取 `hasMore`）
+   * @param {number} pagerIndex - 目前頁索引（0-based）
+   * @param {number} pagerCount - 已抓取的分頁總數
+   * @returns {string} 分頁器 HTML；無需分頁時為 ''
+   */
+  function renderDictFulltextPager(data, pagerIndex, pagerCount) {
+    const idx = Math.max(0, pagerIndex | 0);
+    const nextDisabled = !data.hasMore;
+    const prevDisabled = idx <= 0;
+    if (pagerCount <= 1 && !data.hasMore && idx === 0) return '';
+    return `<div class="dict-pager">` +
+      `<button type="button" class="dict-pager-btn" data-dict-page="prev"${prevDisabled ? ' disabled' : ''}>上一頁</button>` +
+      `<span class="dict-pager-info">第 ${idx + 1} 頁</span>` +
+      `<button type="button" class="dict-pager-btn" data-dict-page="next"${nextDisabled ? ' disabled' : ''}>下一頁</button>` +
+      `</div>`;
   }
 
   // ── Dictionary entry prev/next navigation (main reader) ──
@@ -5742,6 +6007,22 @@
     }, 250);
   }
 
+  /**
+   * 還原上次的閱讀進度（由 localStorage 的 LAST_READ_PROGRESS 讀取）。
+   *
+   * 虛擬滾動檔案（大型檔與所有 `dict:` 字典檔）直接 early-return：openFile 已用
+   * 絕對行號捲動定位，此時 scrollTop 沒有意義，因為區塊高度是延遲載入的；字典檔
+   * 不在主樹的 fileSizes 中，故不可只用檔案大小判斷（否則會補送 scrollTo 破壞剛
+   * 完成的跳轉定位）。因此一律走 isVirtualizedFile()。
+   *
+   * 非虛擬檔案會在 150ms / 500ms 兩個延遲點補正 scrollTop。守衛 token 必須在
+   * openFile()「之後」才取得：openFile 本身會遞增 state._openToken，之後任何新開檔
+   * 都會使其改變；若在呼叫前取得，token 會與 openFile 剛寫入的值不同而使還原永遠
+   * 失效。延遲期間只要 token 變動或 currentFile 已非目標檔案即放棄捲動，且每次都
+   * 重新查詢 #content（節點可能已被換掉）。
+   *
+   * @returns {boolean} 是否已排入還原流程（沒有可還原資料或功能關閉時為 false）
+   */
   function restoreReadProgress() {
     if (!state.autoReadProgress) return false;
     const data = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
@@ -5749,21 +6030,29 @@
     try {
       // Pass line for server-side rendering hint, but primarily use scrollTop for precise restoration
       openFile(data.filePath, data.line).then(() => {
-        // Virtualized files restore by absolute line (openFile already scrolled);
-        // scrollTop is meaningless there because chunk heights lazy-load.
-        if ((state.fileSizes.get(data.filePath) || 0) >= LARGE_FILE_MIN_BYTES) return;
+        // 虛擬滾動檔案（大型檔與所有 dict: 字典檔）以絕對行號還原，openFile 已經捲動
+        // 定位；此時 scrollTop 沒有意義，因為區塊高度是延遲載入的。字典檔不在主樹的
+        // fileSizes 中，故不可只用檔案大小判斷（否則會在此對字典檔補送 scrollTo，
+        // 破壞剛完成的跳轉定位）。
+        if (isVirtualizedFile(data.filePath)) return;
+        // 於 openFile 完成後才取得 token：openFile 本身會遞增 _openToken，之後任何
+        // 新開檔都會使其改變。延遲還原期間若使用者已切換檔案，即不再捲動。
+        const restoreToken = state._openToken;
         const content = $('content');
-        if (content && typeof data.scrollTop === 'number') {
-          // Restore precise scroll position (overrides the line-based scroll from openFile)
-          setTimeout(() => {
-            content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
-          }, 150);
-          setTimeout(() => {
-            content.scrollTo({ top: data.scrollTop, behavior: 'instant' });
-            // Re-save after final scroll position is settled
-            saveReadProgress(data.filePath);
-          }, 500);
-        }
+        if (!content || typeof data.scrollTop !== 'number') return;
+        setTimeout(() => {
+          if (state._openToken !== restoreToken || state.currentFile !== data.filePath) return;
+          const c = $('content');
+          if (c) c.scrollTo({ top: data.scrollTop, behavior: 'instant' });
+        }, 150);
+        setTimeout(() => {
+          if (state._openToken !== restoreToken || state.currentFile !== data.filePath) return;
+          const c = $('content');
+          if (!c) return;
+          c.scrollTo({ top: data.scrollTop, behavior: 'instant' });
+          // Re-save after final scroll position is settled
+          saveReadProgress(data.filePath);
+        }, 500);
       });
       return true;
     } catch (_) {}
@@ -5779,7 +6068,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.5';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.6';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -6793,6 +7082,9 @@
         if (state.dictMode === 'fulltext' && $('dictResults')) {
           state.dictFulltextScrollTop = $('dictResults').scrollTop;
         }
+        // A mode switch is a new result context: drop the page walk so the next
+        // full-text search starts fresh at page 0.
+        state.dictFulltextCache = null;
         state.dictMode = newMode;
         $$('.dict-tab', dictTabs).forEach(t => t.classList.toggle('active', t === tab));
         runDictSearch($('dictSearchInput')?.value || '');
@@ -6812,7 +7104,10 @@
         if (state.dictSelected === null) state.dictSelected = new Set();
         if (cb.checked) state.dictSelected.add(idx);
         else state.dictSelected.delete(idx);
+        // Changing the selected dictionary set invalidates the page walk (its cursors
+        // are keyed by file path), so drop the whole cache and restart at page 0.
         state.dictFulltextCache = null;
+        state.dictFulltextScrollTop = 0;
         persistDictSelection();
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');
@@ -6824,6 +7119,7 @@
         const allOn = files.every((_, i) => state.dictSelected && state.dictSelected.has(i));
         state.dictSelected = new Set(allOn ? [] : files.map((_, i) => i));
         state.dictFulltextCache = null;
+        state.dictFulltextScrollTop = 0;
         persistDictSelection();
         renderDictFileList();
         runDictSearch($('dictSearchInput')?.value || '');
@@ -6920,6 +7216,16 @@
     const dictResults = $('dictResults');
     if (dictResults) {
       dictResults.addEventListener('click', (e) => {
+        // Full-text pager controls. Handled before the group/item delegation so a
+        // click on 上一頁 / 下一頁 never falls through to a result open.
+        const pageBtn = e.target.closest('[data-dict-page]');
+        if (pageBtn) {
+          if (pageBtn.disabled) return;
+          const dir = pageBtn.getAttribute('data-dict-page');
+          if (dir === 'next') dictFulltextNextPage();
+          else if (dir === 'prev') dictFulltextPrevPage();
+          return;
+        }
         // Clicking a dictionary name header collapses/uncollapses that group's results.
         const fileHeader = e.target.closest('.dict-result-file');
         if (fileHeader) {
@@ -6940,6 +7246,15 @@
         // collapse it once a result is opened to reveal the entry.
         if (isMobileBrowser()) toggleDictSidebar(false);
       });
+      // Per-page scroll memory: record the current page's scroll offset as the user
+      // scrolls (also mirrored into state.dictFulltextScrollTop on tab switch).
+      dictResults.addEventListener('scroll', () => {
+        if (state.dictMode !== 'fulltext') return;
+        const cache = state.dictFulltextCache;
+        const page = cache && Array.isArray(cache.pages) ? cache.pages[cache.pageIndex] : null;
+        if (page) page.scrollTop = dictResults.scrollTop;
+        state.dictFulltextScrollTop = dictResults.scrollTop;
+      }, { passive: true });
     }
     const entryNavPrev = $('entryNavPrev');
     const entryNavNext = $('entryNavNext');
@@ -7551,7 +7866,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.5';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.6';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
