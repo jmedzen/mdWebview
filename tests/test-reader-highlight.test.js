@@ -150,17 +150,25 @@ describe('閱讀區搜尋結果跳轉與寬鬆高亮演算法測試 (Reader High
       '寬鬆模式必須建立連續區塊窗口並以 TreeWalker 走訪文字節點'
     );
 
-    // 4. 跳轉目標落在含有命中的區塊 (hitBlock) 且無命中時 fallback 至原 anchor
+    // 4. 閃示用命中區塊 (hitBlock)，但捲動定位一律以「要求的那一行」anchor (target)
+    //    為準。寬鬆模式的高亮視窗會向前納入兄弟區塊，firstMark 可能位在要求行之前；
+    //    若以 firstMark 定位，游標會停在該 mark 而非使用者點選的行（大檔後段跳轉錯位）。
     assert.match(
       appContent,
-      /if\s*\(\s*hlRes\s*&&\s*hlRes\.matched\s*\)\s*\{[\s\S]*?flashBlock\s*=\s*hlRes\.hitBlock[\s\S]*?scrollTarget\s*=\s*hlRes\.firstMark\s*\|\|\s*hlRes\.hitBlock/,
-      '命中時應以 hitBlock 與 firstMark 作為閃示與捲動目標'
+      /if\s*\(\s*hlRes\s*&&\s*hlRes\.matched\s*\)\s*\{\s*flashBlock\s*=\s*hlRes\.hitBlock;\s*\}[\s\S]{0,400}?scrollTarget\s*=\s*target;/,
+      '命中時應以 hitBlock 作為閃示目標，並以 target（要求行的 anchor）作為捲動目標'
+    );
+    assert.doesNotMatch(
+      appContent,
+      /scrollTarget\s*=\s*hlRes\.firstMark/,
+      '不得再以 firstMark 作為捲動目標（會造成大檔後段跳轉錯位）'
     );
 
     // 5. 修正捲動定位：佈局未定時量測 (requestAnimationFrame) 重算捲動位置
+    //    以有界跨度斷言，避免跨越大段無關程式碼而變成永遠通過的空洞斷言。
     assert.match(
       appContent,
-      /requestAnimationFrame\s*\(\s*\(\)\s*=>\s*\{[\s\S]*?getBoundingClientRect[\s\S]*?safeScrollToElement/,
+      /requestAnimationFrame\s*\(\s*\(\)\s*=>\s*\{[\s\S]{0,600}?getBoundingClientRect[\s\S]{0,600}?safeScrollToElement/,
       'scrollToLine 應在插入高亮後使用 requestAnimationFrame 檢查並修正捲動偏移'
     );
 
