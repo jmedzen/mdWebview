@@ -6,6 +6,21 @@
 /* global importScripts, marked, self */
 importScripts('marked.min.js');
 
+// ── Per-document scan gates (O(n²) defense) ──────────────────────────────────
+// Mirrors render-worker.js: marked invokes start(src) at every tokenization step
+// with the entire remaining suffix, so an unconditional indexOf is O(n²) in
+// document length. Gate per document so marker-free files skip the scan
+// entirely. See render-worker.js for the CPU-profile measurements.
+let _scanEq = false;
+let _scanDollar = false;
+let _scanDollar2 = false;
+
+function setScanGates(text) {
+  _scanEq = text.indexOf('==') !== -1;
+  _scanDollar = text.indexOf('$') !== -1;
+  _scanDollar2 = text.indexOf('$$') !== -1;
+}
+
 marked.setOptions({
   breaks: true,
   gfm: true,
@@ -32,7 +47,7 @@ marked.use({
     {
       name: 'highlight',
       level: 'inline',
-      start(src) { return src.indexOf('=='); },
+      start(src) { return _scanEq ? src.indexOf('==') : -1; },
       tokenizer(src, tokens) {
         const rule = /^==(?=[^\s=])([\s\S]*?[^\s=])==/;
         const match = rule.exec(src);
@@ -52,7 +67,7 @@ marked.use({
     {
       name: 'mathBlock',
       level: 'block',
-      start(src) { return src.indexOf('$$'); },
+      start(src) { return _scanDollar2 ? src.indexOf('$$') : -1; },
       tokenizer(src, tokens) {
         const rule = /^\$\$[\r\n]*([\s\S]*?)[\r\n]*\$\$/;
         const match = rule.exec(src);
@@ -71,7 +86,7 @@ marked.use({
     {
       name: 'mathInline',
       level: 'inline',
-      start(src) { return src.indexOf('$'); },
+      start(src) { return _scanDollar ? src.indexOf('$') : -1; },
       tokenizer(src, tokens) {
         const rule = /^\$(?!\s)([^$\n]+?)(?<!\s)\$/;
         const match = rule.exec(src);
@@ -300,7 +315,9 @@ function parseMarkdown(body, filePath) {
   }
 
   // ── 3. Parse main markdown body to HTML ─────────────────────
-  let html = marked.parse(annotatedLines.join('\n'));
+  const annotated = annotatedLines.join('\n');
+  setScanGates(annotated); // must gate on the exact string passed to marked.parse
+  let html = marked.parse(annotated);
   html = normalizeImageSrcs(html, filePath);
   html = sanitizeDangerousTags(html);
 
@@ -330,6 +347,7 @@ function parseMarkdown(body, filePath) {
     // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
     const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
     const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
+    setScanGates(combinedFnText); // same gates as the main body parse above
     let combinedFnHtml = marked.parse(combinedFnText).trim();
     combinedFnHtml = normalizeImageSrcs(combinedFnHtml, filePath);
     combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);

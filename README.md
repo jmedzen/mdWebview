@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.7.4) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.7.5) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -15,8 +15,10 @@
 - ⚡ **多執行緒與高效能架構**：
   - **Worker Thread SSR 與背壓防護**：將重度 CPU 運算的 Markdown 解析與註腳錨點生成移至背景工作執行緒池（Worker Threads）。配備佇列上限防爆（503 Backpressure）、任務入列即時計時（30s 逾時隔離）、連線中斷即刻取消 (`req.on('close')`) 與 15 秒 8 次崩潰退避重生機制。
   - **全非同步非阻塞 I/O**：伺服器端全數採用 Promise-based 非同步檔案存取，目錄樹掃描與設定記憶化快取杜絕 Event Loop 凍結。
-  - **智慧快取與 Gzip 壓縮**：結合記憶體 Tree 快取、弱 ETag（304 Not Modified）、500 筆 LRU 靜態資源長效快取與動態 Gzip 壓縮，顯著降低網路傳輸與載入時間。
+  - **智慧快取與 Gzip 壓縮**：結合記憶體 Tree 快取、弱 ETag（304 Not Modified）、200 筆 LRU 靜態資源快取與動態 Gzip 壓縮，顯著降低網路傳輸與載入時間。
   - **前端 LRU 快取與前端並發守衛**：前端配備最近使用（LRU）渲染快取、世代守衛標記（`_openToken`，徹底杜絕快速切換檔案時舊請求覆蓋新畫面）、`AbortController` 請求取消、二分搜尋閱讀進度儲存（杜絕 Layout Thrashing）與 `O(1)` 大綱標籤映射。
+  - **快取內容重新驗證 (ETag Revalidation)**：重新開啟檔案時不再直接回傳舊快取，改以 `If-None-Match` 條件式請求向後端確認；`304` 才掛載快取、`200` 以最新內容取代快取，確保同一個瀏覽器工作階段內檔案編輯即時反映。
+  - **虛擬分塊競態雙重防護**：大型檔案的每個分塊請求皆綁定所屬虛擬文件的 `AbortController` 並附帶 `signal`；返回首頁或切換檔案時統一中止所有在途分塊，且於讀取回應本文後再次確認文件身分才允許寫入 DOM，徹底封堵舊文件分塊插入新文件內容區的競態窗口。
 - 🔍 **倒排索引與空白 AND 鄰近搜尋 (Proximity Search)**：
   - **Bigram 雙字元倒排索引**：後端建立標點/換行透明全庫 2-gram 記憶體與二進位檔快取（`.bin`），支援 6,000+ 經文檔案毫秒級檢索。
   - **寬鬆模式（忽略標點與換行）**：支援一鍵切換寬鬆比對模式，自動忽略標點符號與換行（例如搜尋「佛法僧」可精準命中「佛法，僧」、「佛、法、僧」或跨行「佛法\n僧」）；空白仍為多詞分隔（走 AND 與鄰近距離比對）。全站預設為寬鬆模式，使用者偏好儲存於 localStorage，管理員可於後台調整。
@@ -44,9 +46,11 @@
 - 🔒 **安全性、後台管理與日誌修剪**：
   - 內建 PBKDF2 密碼雜湊防護、IP Rate-Limiting 防暴力破解與 Session 管理。
   - **嚴格安全防禦**：Footnote 註腳 XSS 雙重消毒與屬性跳脫、畸形 Host 標頭 400 防禦與連線逾時銷毀（防 DoS）、嚴格信任代理白名單（防 IP 偽造）、Analytics 匯出同源驗證。
+  - **匯出端點標頭專用認證**：Analytics CSV/JSON 匯出僅接受 `X-Admin-Token` 標頭，明確拒絕 URL 查詢字串中的 session token；前端以已驗證的 `fetch` 取得 Blob 後再觸發下載，避免權杖進入瀏覽器歷史、複製連結或代理伺服器日誌。
+  - **設定檔靜態存取封鎖**：靜態路由以檔名 `config.json`（不分大小寫）無條件拒絕，即使 `CONFIG_PATH` 指向其他位置（如 Docker `/data/config.json`）而專案根目錄仍留有 `config.json`，亦不會外洩管理員帳號、密碼雜湊與 salt。
   - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。
   - **90 天 Analytics 淘汰與 7 天 Log 修剪**：Analytics store 每日 bucket 90 天自動修剪；7 天以上歷史日誌自動精簡瘦身（節省 85% ~ 95% 空間），同時保留全時段關鍵計數。
-- 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險；Service Worker 離線提供明確 504 回退並支援無縫即時更新（`SKIP_WAITING`）。
+- 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險；Service Worker 離線提供明確 504 回退並支援無縫即時更新（`SKIP_WAITING`），且版本升級時僅清除自身 `mdwebview-shell-*` / `mdwebview-content-*` 前綴的舊快取，不影響同一網域下的其他應用。
 - 🐳 **Docker 與 GitHub Actions 自動化 CI/CD**：
   - **多平台映像檔構建**：內建 Dockerfile、`docker-compose.yml` 與 GitHub Actions，自動發布 `linux/amd64` 與 `linux/arm64` 雙架構 Docker Image 至 GHCR (`ghcr.io`)。
   - **GHCR 自動清理工作流程**：配備自動映像檔修剪維護機制（`cleanup-ghcr.yml`），構建完成後全自動執行或每週定時排程，自動保留最新 5 個版本、保護 `latest`/`main`/`dev` 分支標籤，並徹底清除未標記（untagged）與孤立 multi-arch 子層。
@@ -75,13 +79,13 @@ mdWebview/
 ├── marked.min.js       # 本地託管 Marked.js 引擎（無外部 CDN 依賴）
 ├── s2t.js              # 簡繁轉換模組（搜尋時自動處理簡體輸入）
 ├── manifest.json       # PWA Manifest 靜態預設（執行期由 server.js 動態覆寫）
-├── lib/                # 核心原生 CommonJS 模組（constants, utils, config, auth, worker-pool, analytics, logger, static-cache, text）
+├── lib/                # 核心原生 CommonJS 模組（constants, utils, config, auth, worker-pool, analytics, logger, static-cache, markdown, text）
 ├── server.js           # Node.js 後端主服務（HTTP 路由入口、API 分發、定時維護）
 ├── config.json         # 系統設定（站名、主題、辭典、公告、推薦清單等，後台儲存後持久化）
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.7.4）
+├── package.json        # Node.js 套件設定（v3.7.5）
 └── README.md           # 本說明文件
 ```
 
@@ -176,7 +180,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.7.4) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.7.5) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -185,8 +189,10 @@ docker-compose up -d
 - ⚡ **Multi-Threaded & High Performance Architecture**:
   - **Worker Thread SSR with Backpressure**: Offloads heavy CPU-bound Markdown parsing and footnote processing to background worker thread pools. Protected by queue bounds (`503 Service Unavailable` backpressure), entry-level 30s timers, client disconnect cancellation (`req.on('close')`), and crash-loop backoff retry (up to 8 times within 15 seconds).
   - **Asynchronous Non-Blocking I/O**: Promise-based asynchronous file operations throughout the server. Directory tree scanning and settings memoization prevent Event Loop stalls.
-  - **Smart Caching & Gzip Compression**: Combines memory tree caching, weak ETags (304 Not Modified), 500-entry LRU static asset caching, and dynamic Gzip compression.
+  - **Smart Caching & Gzip Compression**: Combines memory tree caching, weak ETags (304 Not Modified), 200-entry LRU static asset caching, and dynamic Gzip compression.
   - **Frontend LRU Cache & Concurrency Guard**: Equipped with an LRU rendering cache, generation guard tokens (`_openToken` to prevent out-of-order document rendering races), `AbortController` cancellation, binary search reading progress saving (eliminating layout thrashing), and `O(1)` outline tag mapping.
+  - **ETag Revalidation on Reopen**: Cached HTML is no longer served blindly; a conditional `If-None-Match` request confirms freshness, mounting the cached body only on `304` and replacing it on `200`, so in-session file edits are reflected immediately.
+  - **Dual-Layer Virtual Chunk Race Protection**: Every chunk request is bound to its owning virtual document's `AbortController`; returning home or switching files aborts all in-flight chunks, and document identity is re-checked after the response body is read before any DOM mutation, closing the window where a stale chunk could be injected into a newly opened document.
 - 🔍 **Bigram Inverted Index & Space-Separated AND Search with Proximity Filtering**:
   - **Bigram Inverted Index**: Server-side 2-gram in-memory and binary disk cache (`.bin`) for sub-millisecond search across 6,000+ commentary files.
   - **Single-Flight Rebuild**: Serializes concurrent index build requests between file watcher debounce and admin triggers to prevent memory doubling.
@@ -213,9 +219,11 @@ docker-compose up -d
 - 🔒 **Security, Admin Panel & 90-Day Analytics Pruning**:
   - Built-in PBKDF2 password hashing, IP rate limiting, and session management.
   - **Strict Security Hardening**: Double sanitization and attribute escaping on footnote elements (XSS defense), malformed Host header 400 rejection and socket timeout destruction (DoS prevention), strict trusted proxy CIDR whitelist, and mandatory Same-Origin verification on analytics exports.
+  - **Header-Only Export Authentication**: Analytics CSV/JSON exports accept the admin session token **only** via the `X-Admin-Token` header; query-string tokens are explicitly rejected. The UI downloads through an authenticated `fetch` + Blob, keeping tokens out of browser history, copied links, and proxy logs.
+  - **Config File Static-Serve Block**: The static route unconditionally rejects any request whose basename is `config.json` (case-insensitive), so an `APP_ROOT/config.json` left in place while `CONFIG_PATH` points elsewhere (e.g. Docker `/data/config.json`) can never leak the admin username, password hash, or salt.
   - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export.
   - **90-Day Analytics & 7-Day Log Pruning**: Automatic 90-day retention on daily analytics buckets with map pruning; raw log files older than 7 days are automatically pruned while permanently preserving key all-time aggregates.
-- 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies; Service Worker provides clean 504 offline fallback and seamless immediate updates (`SKIP_WAITING`).
+- 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies; Service Worker provides clean 504 offline fallback and seamless immediate updates (`SKIP_WAITING`), and on version upgrades purges only its own `mdwebview-shell-*` / `mdwebview-content-*` caches so other applications on the same origin are untouched.
 - 🐳 **Docker & GitHub Actions Automated CI/CD**:
   - **Multi-Architecture Builds**: Automatically builds and publishes multi-platform (`linux/amd64`, `linux/arm64`) container images to GitHub Container Registry (`ghcr.io`).
   - **GHCR Automated Image Cleanup**: Built-in retention workflow (`cleanup-ghcr.yml`) triggered automatically after image builds or via weekly schedule, retaining the latest 5 versions, protecting `latest`/`main`/`dev` pointer tags, and safely purging untagged/orphaned manifests.
@@ -244,13 +252,13 @@ mdWebview/
 ├── marked.min.js       # Self-hosted Marked.js engine (zero external CDN dependency)
 ├── s2t.js              # Simplified-to-Traditional Chinese converter (for search input)
 ├── manifest.json       # PWA Manifest static defaults (overridden at runtime by server.js)
-├── lib/                # Core native CommonJS modules (constants, utils, config, auth, worker-pool, analytics, logger, static-cache)
+├── lib/                # Core native CommonJS modules (constants, utils, config, auth, worker-pool, analytics, logger, static-cache, markdown, text)
 ├── server.js           # Node.js backend server (HTTP router, API dispatch, background maintenance)
 ├── config.json         # System config (site name, theme, dict, announcements, suggest list)
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.7.4)
+├── package.json        # Node.js package manifest (v3.7.5)
 └── README.md           # Project documentation
 ```
 
