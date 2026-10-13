@@ -54,6 +54,24 @@ function searchPrefix(idx, q, selectedFiles = new Set([0, 1])) {
 }
 
 describe('佛學辭典詞頭索引與搜尋引擎測試', () => {
+  test('dictionary file-size reconciliation removes only stale dictionary paths', () => {
+    const fileSizes = new Map([['sutra.md', 100], ['dict:old.md', 200], ['dict:kept.md', 300]]);
+    let trackedDictPaths = new Set(['dict:old.md', 'dict:kept.md']);
+    const files = [{ path: 'dict:kept.md', size: 350 }, { path: 'dict:new.md', size: 50 }];
+    const currentPaths = new Set(files.map(file => file.path));
+    for (const oldPath of trackedDictPaths) {
+      const currentFile = files.find(file => file.path === oldPath);
+      if (!currentFile || !Number.isFinite(currentFile.size)) fileSizes.delete(oldPath);
+    }
+    trackedDictPaths = currentPaths;
+    files.forEach(file => { if (Number.isFinite(file.size)) fileSizes.set(file.path, file.size); });
+
+    assert.equal(fileSizes.get('sutra.md'), 100, 'main-tree size must be preserved');
+    assert.equal(fileSizes.has('dict:old.md'), false, 'removed dictionary size must be pruned');
+    assert.equal(fileSizes.get('dict:kept.md'), 350, 'existing dictionary size must refresh');
+    assert.equal(fileSizes.get('dict:new.md'), 50, 'new dictionary size must be recorded');
+    assert.deepEqual([...trackedDictPaths], ['dict:kept.md', 'dict:new.md']);
+  });
   const sampleEntries = [
     [0, 1, 10, '阿賴耶識'],
     [0, 2, 25, '阿耨多羅三藐三菩提'],

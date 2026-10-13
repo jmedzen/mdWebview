@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.7.3
+   mdWebview — Application Logic (app.js) v3.7.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -254,6 +254,7 @@
     lastSearchData: null,
     searchRenderLimit: 0,
     fileSizes: new Map(),
+    dictFileSizePaths: new Set(),
     virtual: null,
     sectionIndexCache: new Map(), // filePath -> { etag, si } for virtual opens
     pageSearchQuery: null,
@@ -1155,6 +1156,13 @@
   }
   // ── Go Home: close reader, return to welcome screen ────────
   function goHome(clearUrl = true) {
+    // Invalidate every pending open, including operations that cannot be aborted
+    // (for example response-body decoding), before changing the visible screen.
+    state._openToken++;
+    if (state._openFileAbort) {
+      state._openFileAbort.abort();
+      state._openFileAbort = null;
+    }
     state.currentFile = null;
 
     // Release any virtualized document and full-render scroll-spy observer so
@@ -1960,13 +1968,18 @@
 
     const p = (async () => {
       try {
-        const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(v.filePath)}&from=${from}&to=${to}`);
+        const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(v.filePath)}&from=${from}&to=${to}`, {
+          signal: v.abortController.signal
+        });
         if (!res.ok) throw new Error('chunk load failed: ' + res.status);
         // The user may have switched files while this chunk was in flight; if the
         // virtual document we belong to is no longer current, drop the result so it
         // can't be inserted into the wrong file's body.
         if (state.virtual !== v) return null;
         const html = await res.text();
+        // The document may have been torn down while the response body was
+        // streaming; never mutate the DOM from a stale chunk after that await.
+        if (state.virtual !== v) return null;
         const sectionEl = document.createElement('section');
         sectionEl.className = 'chunk';
         sectionEl.setAttribute('data-chunk', ci);
@@ -2589,6 +2602,7 @@
       updateEntryNav();
       return;
     }
+    if (v.abortController) v.abortController.abort();
     const content = $('content');
     if (v._scrollHandler && content) content.removeEventListener('scroll', v._scrollHandler);
     if (v._scrollRaf) { cancelAnimationFrame(v._scrollRaf); v._scrollRaf = null; }
@@ -2765,6 +2779,7 @@
 
     const v = {
       filePath,
+      abortController: new AbortController(),
       entries: si.entries,       // [{h, ls, le}]
       groups: si.groups || [],
       totalLines: si.totalLines,
@@ -2946,33 +2961,9 @@
     disconnectScrollSpy();
 
     try {
-      // Check LRU cache first — cached files open instantly (no network at all)
-      const cachedHtml = cacheGet(filePath);
-      if (cachedHtml) {
-        if (token !== state._openToken) return;
-        const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : null;
-        if (cachedMeta) renderContentHeader(filePath, cachedMeta);
-        const el = $('markdownBody');
-        el.innerHTML = cachedHtml;
-        postProcessMarkdownDOM(el);
-        
-        // Cache line anchors and query headings once
-        updateCachedLineAnchors(el);
-        const headings = Array.from(el.querySelectorAll('h1, h2, h3, h4, h5, h6'));
-        headings.forEach((h, i) => { if (!h.id) h.id = 'heading-' + i; });
-        
-        generateTOC(headings);
-        loading.style.display = 'none';
-        wrapper.style.display = 'block';
-        if (scrollToLineNum) setTimeout(() => scrollToLine(scrollToLineNum, highlightQuery, searchMode), 80);
-        else content.scrollTop = 0;
-        setTimeout(() => saveReadProgress(filePath), 350);
-        if (cachedMeta) {
-          const dispName = filePath.startsWith('dict:') ? filePath.slice(5).split('/').pop().replace(/\.md$/, '') : filePath.split('/').pop().replace(/\.md$/, '');
-          document.title = `${cachedMeta.title || dispName} — ${state.siteName}`;
-        }
-        return;
-      }
+      // Revalidate cached HTML before returning it. The server's 304 path keeps
+      // the warm-cache fast path while ensuring edited files replace stale HTML.
+      cacheGet(filePath); // Refresh LRU position while conditional validation runs.
 
       // Build fetch headers — send ETag for 304 Not Modified support
       const fetchHeaders = {};
@@ -4597,8 +4588,18 @@
     const data = await res.json();
     state.dictHeadwords = data;
     buildDictFrontendIndex(data);
-    // Record dict file sizes so openFile's virtual gate has sizes available.
-    (data.files || []).forEach(f => { if (f.size) state.fileSizes.set(f.path, f.size); });
+    // Reconcile dictionary sizes with the current listing. Preserve main-tree
+    // sizes, but remove stale dictionary paths that disappeared from this list.
+    const dictFiles = data.files || [];
+    const currentDictPaths = new Set(dictFiles.map(f => f.path));
+    for (const oldPath of state.dictFileSizePaths) {
+      const currentFile = dictFiles.find(f => f.path === oldPath);
+      if (!currentFile || !Number.isFinite(currentFile.size)) state.fileSizes.delete(oldPath);
+    }
+    state.dictFileSizePaths = currentDictPaths;
+    dictFiles.forEach(f => {
+      if (Number.isFinite(f.size)) state.fileSizes.set(f.path, f.size);
+    });
     // Prune selection indices beyond the current file count (files removed), and
     // on first load restore the user's saved selection (by path) — falling back
     // to "all selected" when no preference has ever been saved.
@@ -5759,7 +5760,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.4';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -7531,7 +7532,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9011,23 +9012,32 @@
     const csvExportBtn = $('analyticsExportCsvBtn');
     const jsonExportBtn = $('analyticsExportJsonBtn');
 
-    if (csvExportBtn) {
-      csvExportBtn.addEventListener('click', () => {
-        const tz = getEffectiveTimezone();
-        const tokenParam = state.adminToken ? `&token=${encodeURIComponent(state.adminToken)}` : '';
-        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=csv&tz=${encodeURIComponent(tz)}${tokenParam}`, '_blank');
-        showToast('📥 已成功導出分析數據報告 (CSV)', 'success');
-      });
-    }
+    const exportAnalytics = async (format) => {
+      const tz = getEffectiveTimezone();
+      const params = new URLSearchParams({ range: stateAnalyticsRange, format, tz });
+      try {
+        const response = await fetch(`/api/admin/analytics/export?${params}`, {
+          headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `analytics-report-${stateAnalyticsRange}.${format}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`📥 已成功導出分析數據報告 (${format.toUpperCase()})`, 'success');
+      } catch (err) {
+        console.warn('[Analytics] Export failed:', err);
+        showToast('❌ 分析數據報告導出失敗', 'error');
+      }
+    };
 
-    if (jsonExportBtn) {
-      jsonExportBtn.addEventListener('click', () => {
-        const tz = getEffectiveTimezone();
-        const tokenParam = state.adminToken ? `&token=${encodeURIComponent(state.adminToken)}` : '';
-        window.open(`/api/admin/analytics/export?range=${stateAnalyticsRange}&format=json&tz=${encodeURIComponent(tz)}${tokenParam}`, '_blank');
-        showToast('📥 已成功導出分析數據報告 (JSON)', 'success');
-      });
-    }
+    if (csvExportBtn) csvExportBtn.addEventListener('click', () => exportAnalytics('csv'));
+    if (jsonExportBtn) jsonExportBtn.addEventListener('click', () => exportAnalytics('json'));
 
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => {
