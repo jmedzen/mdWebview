@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.7.4 | 最後更新：2026-10
+> 版本：v3.7.5 | 最後更新：2026-10
 
 ---
 
@@ -200,14 +200,17 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     Open["openFile(path)"] --> SizeCheck{"size >= 1MB?"}
-    SizeCheck -- "否（小型檔案）" --> DirectRender["直接 /api/file\n→ renderMarkdown()\n→ LRU Cache"]
-    SizeCheck -- "是（大型檔案）" --> SectionIndex["GET /api/section-index\n取得分塊 metadata (si)"]
-    SectionIndex --> VirtualMode["虛擬化模式\nstate.virtual = {si, chunks, ...}"]
-    VirtualMode --> Viewport["IntersectionObserver 監控 viewport"]
-    Viewport -- "chunk 進入視窗" --> ChunkRender["GET /api/render?file=...&chunk=N\n→ render-worker.js 渲染"]
-    ChunkRender --> MountChunk["掛載已渲染 chunk HTML"]
-    Viewport -- "chunk 離開視窗" --> UnmountChunk["卸載 chunk（保留高度佔位）"]
+    SizeCheck -- "否（小型檔案）" --> DirectRender["GET /api/render\n→ render-worker.js 渲染\n→ LRU 快取（存 ETag）"]
+    SizeCheck -- "是（大型檔案）" --> SectionIndex["GET /api/section-index\n（If-None-Match 可獲 304）\n取得分塊 metadata (si)"]
+    SectionIndex --> VirtualMode["虛擬化模式\nstate.virtual = {si, chunks, abortController, ...}"]
+    VirtualMode --> Viewport["scroll 事件 + requestAnimationFrame 節流\n以 px/line 估算可見行（不觸發同步 Layout）"]
+    Viewport -- "目標 chunk 未掛載" --> ChunkRender["GET /api/render-chunk?path=...&from&to\n→ render-worker.js 渲染（v.abortController 可取消）"]
+    ChunkRender --> MountChunk["再確認 state.virtual === v 後\n才掛載 chunk HTML（防競態寫入）"]
+    Viewport -- "chunk 遠離視窗" --> UnmountChunk["回收 chunk（保留 spacer 高度佔位）"]
+    VirtualMode -- "teardownVirtual()" --> Abort["v.abortController.abort()\n丟棄所有在途分塊"]
 ```
+
+**小型檔案重新驗證（`/api/render`）**：前端不再直接回傳 LRU 快取，而是先送出帶 `If-None-Match` 的條件式請求；伺服器回 `304` 才掛載快取 HTML，回 `200` 則以最新內容取代快取。若 ETag 仍在但快取本體已被淘汰，則清除該 ETag 後改以無條件請求重試。
 
 **section-index 格式**（由 `index-worker.js` 建立）：
 - 每個 "entry"（如辭典詞條）的起止行號與位元組偏移
@@ -333,7 +336,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    ServerEntry["server.js (主服務入口 4,884 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
+    ServerEntry["server.js (主服務入口 5,069 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
 
     ServerEntry --> ConstMod["lib/constants.js\n全域常數 / MIME / 安全標頭"]
     ServerEntry --> UtilMod["lib/utils.js\n時區 / PRNG / 爬蟲辨識 / 路徑安全"]
@@ -343,6 +346,7 @@ flowchart TD
     ServerEntry --> StatMod["lib/static-cache.js\n記憶體 LRU 快取 / ETag 304 / SSR 注入"]
     ServerEntry --> LogMod["lib/logger.js\n600筆環狀記憶體日誌緩衝"]
     ServerEntry --> AnaMod["lib/analytics.js\n90天持久日誌 / 7天修剪 / 報表導出"]
+    ServerEntry --> TextMod["lib/markdown.js & lib/text.js\nFrontmatter 剝離 / Bigram 透明文本處理"]
 ```
 
 | 模組檔案 | 核心職責 | 主要導出方法與物件 |
@@ -356,6 +360,7 @@ flowchart TD
 | `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝 | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`) |
 | `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入 | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
 | `lib/markdown.js` | Markdown 與 Frontmatter 文本處理：YAML 標頭剝離、metadata 解析與行號偏移 (lineOffset) 計算 | `stripFrontmatter` |
+| `lib/text.js` | 索引與搜尋共用的文本正規化層：CJK 判定、標點/換行透明集合判定、Bigram 抽取、寬鬆模式比對與文本掃描（Index/Render Worker 皆引用，確保索引抽取透明集 ⊇ 掃描透明集） | `isCJKIdeograph`, `isTransparent`, `extractBigramsFromText`, `normalizeLooseTerm`, `SNIPPET_RADIUS`, `localLineAt`, `findLoose`, `matchLooseSequence`, `scanText` |
 
 ### 8.2 server.js API 路由索引表
 
@@ -374,10 +379,8 @@ flowchart TD
 | `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型經論與辭典章節分塊 Metadata (.bin 磁碟快取) |
 | `/api/render-chunk` | GET | `handleRenderChunk()` | ❌ | 大型經論特定分塊動態渲染（Worker 調度） |
 | `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 s2t 簡繁轉換、mode=strict|loose 寬鬆模式與鄰近過濾） |
-| `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索 |
-| `/api/file-search` | GET | `handleFileSearch()` | ❌ | 檔案名稱快速模糊檢索 |
-| `/api/page-search` | GET | `handlePageSearch()` | ❌ | 頁內全文檢索輔助 |
-| `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料 |
+| `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索（虛擬化模式的頁內搜尋） |
+| `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料（支援 `If-None-Match` 304） |
 | `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文） |
 | `/api/dict-event` | POST | `handleDictEvent()` | ❌ | 辭典查閱行為日誌 Beacon |
 | `/api/dict-files` | GET | `handleDictFiles()` | ❌ | 辭典來源檔案清單 |
@@ -390,7 +393,7 @@ flowchart TD
 | `/api/admin/settings` | POST | 儲存設定 (`lib/config.js`) | ✅ | 更新系統設定、目錄路徑與 SEO 參數 |
 | `/api/admin/logs` | GET | 系統日誌 (`lib/logger.js`) | ✅ | 讀取 600 筆環狀記憶體日誌 |
 | `/api/admin/analytics` | GET | 報表查詢 (`lib/analytics.js`) | ✅ | 依時區聚合讀取訪問量、PV/UV、熱門排行 |
-| `/api/admin/analytics/export`| GET | 報表匯出 (`lib/analytics.js`)| ✅ | 匯出結構化 CSV 或 JSON 格式分析資料 |
+| `/api/admin/analytics/export`| GET | 報表匯出 (`lib/analytics.js`)| ✅ | 匯出結構化 CSV 或 JSON 格式分析資料（**僅接受 `X-Admin-Token` 標頭，不接受 `?token=`**） |
 | `/api/admin/hardware` | GET | `handleHardwareStats()` | ✅ | 取得伺服器硬體負載（CPU、RAM、Uptime） |
 | `/api/admin/rebuild-index` | POST | `handleRebuildIndex()` | ✅ | 手動觸發非同步重建 Bigram 搜尋索引 |
 | `/api/admin/rebuild-dict-index`| POST| `handleRebuildDictIndex()` | ✅ | 手動觸發非同步重建辭典倒排索引 |
@@ -403,7 +406,8 @@ flowchart TD
 
 > [!NOTE]
 > - 所有 `/api/*` 路由均受 Global Rate Limiter 保護（30 req/s per IP，滑動視窗）。
-> - 管理員 API 需通過 `verifySameOrigin` CSRF 同源驗證，並攜帶有效 session token（`Authorization: Bearer <token>` 或 `X-Admin-Token`）。
+> - 管理員 API 需通過 `verifySameOrigin` CSRF 同源驗證，並攜帶有效 session token（一律以 `X-Admin-Token` 標頭傳遞）。
+> - `/api/admin/analytics/export` 不再接受 `?token=` 查詢字串認證，僅認可 `X-Admin-Token` 標頭。
 
 ---
 
@@ -466,6 +470,7 @@ flowchart TD
 | `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
 | `fileSort` | `string` | 檔案排序：`name-asc`|`name-desc`|`modified-asc`|`modified-desc` |
 | `fileSizes` | `Map` | `filePath → bytes`，用於判斷是否需要虛擬化渲染 |
+| `dictFileSizePaths` | `Set` | 目前辭典清單中已知的 `dict:` 路徑集合；每次詞頭刷新時用以回收已移除辭典在 `fileSizes` 的殘留項 |
 | `recentFiles` | `string[]` | 最近開啟的檔案路徑（最多 20 筆，持久化於 localStorage） |
 | `bookmarks` | `Object[]` | 書籤列表 `{path, title, line, ts}`，持久化於 localStorage |
 | `sidebarTab` | `string` | 側邊欄分頁：`'files'`|`'search'`|`'toc'` |
@@ -482,7 +487,9 @@ flowchart TD
 | `scrollSpyResizeHandler` | `Function|null` | resize 事件 handler 參考 |
 | `scrollSpyRaf` | `number|null` | requestAnimationFrame ID |
 | `refreshScrollSpy` | `Function|null` | 重新初始化 ScrollSpy 的函數參考 |
-| `virtual` | `Object|null` | 大型檔案虛擬化狀態（`null` = 非虛擬化模式）。結構：`{si, chunks, currentChunk, totalEntries, visibleStart, visibleEnd}` |
+| `virtual` | `Object|null` | 大型檔案虛擬化狀態（`null` = 非虛擬化模式）。結構：`{filePath, abortController, entries, groups, totalLines, totalEntries, chunkRanges, chunks, inflight, errorChunks, chunkHeights, avgPxPerLine, spacerTop, spacerBottom, _tocItems, _tocWindow, ...}` |
+| `_openToken` | `number` | 開檔世代計數器；`goHome()` 與每次 `openFile()` 皆自增，用以判定非同步回應是否已過期 |
+| `_openFileAbort` | `AbortController|null` | 當前開檔請求的取消控制器；切換檔案或返回首頁時呼叫 `abort()` 並清空 |
 | `sectionIndexCache` | `Map` | `filePath → {etag, si}` 的 section index 快取 |
 | `dictionaryEnabled` | `boolean` | 後台是否啟用辭典功能 |
 | `dictHeadwords` | `Object|null` | 辭典詞條索引（由 `/api/dict/headwords` 載入） |
@@ -551,10 +558,10 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.7.4'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.7.5'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
-| `MAX_STATIC_CACHE_ENTRIES`| `lib/constants.js` | `500` | 靜態資源記憶體 LRU 快取上限筆數 |
-| `STATIC_CACHE_TTL_MS` | `lib/constants.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
+| `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
+| `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
 | `POOL_SIZE` | `lib/worker-pool.js` | `max(2, CPU-1)` | Markdown SSR 渲染 Worker Thread 池大小 |
 | `INDEX_POOL_SIZE` | `lib/worker-pool.js` | `max(2, min(4, CPU-1))` | Bigram 索引 Worker Thread 池大小 |
 | `RENDER_QUEUE_MAX` | `lib/worker-pool.js` | `POOL_SIZE * 8` | Markdown 渲染工作佇列上限（超限即時回 503 防 OOM） |
@@ -566,7 +573,11 @@ flowchart TD
 | `MAX_ATTEMPTS` | `lib/auth.js` | `5` | 管理員密碼錯誤次數上限（超限觸發鎖定） |
 | `LOCK_DURATION` | `lib/auth.js` | `900,000`（15m） | 登入失敗鎖定時間（15 分鐘） |
 | `SEARCH_CACHE_MAX` | `server.js` | `30` | 全文搜尋結果快取最大筆數 |
-| `SITEMAP_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | Sitemap 檔案變更沉降防抖延遲時間 |
+| `VAULT_INDEX_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | 檔案庫變更後觸發索引重建的沉降防抖延遲時間 |
+| `SITEMAP_CACHE_TTL_MS` | `server.js` | `7,200,000`（120 分鐘） | Sitemap 快取保護期（期滿強制重新掃描，確保磁碟異動及時反映） |
+| `MAX_RECENT_REQUEST_TIMES` | `server.js` | `5000` | HTTP 指標環狀緩衝保留的近期請求時間戳上限（防指標記憶體無限成長） |
+| `MAX_LOGIN_ENTRIES` | `lib/auth.js` | `10,000` | 登入失敗紀錄 Map 上限（超限逐出最舊項目） |
+| `MAX_RATE_LIMIT_ENTRIES` | `lib/auth.js` | `10,000` | API 限流紀錄 Map 上限（超限逐出最舊項目） |
 | `server.requestTimeout`| `server.js` | `30,000`（30s） | HTTP 請求整體處理逾時（防止 Socket 永久懸置） |
 | `server.headersTimeout`| `server.js` | `10,000`（10s） | HTTP 標頭接收逾時（防止 Slowloris 攻擊） |
 
@@ -577,7 +588,7 @@ flowchart TD
 | `LARGE_FILE_MIN_BYTES` | `1,048,576`（1MB） | 同後端；決定是否進入虛擬化切片模式 |
 | `SEARCH_RENDER_BATCH` | `300` | 搜尋結果分批渲染每批筆數（防 DOM 凍結） |
 | `CACHE_MAX` | `10` | 經文渲染 LRU 快取最大筆數 |
-| `STORAGE_KEYS` | 物件（16 組常數） | 全站統一 LocalStorage 鍵值常數池，消除散落字串 |
+| `STORAGE_KEYS` | 物件（17 組常數） | 全站統一 LocalStorage 鍵值常數池，消除散落字串 |
 
 ---
 
@@ -605,6 +616,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 - **兩個獨立索引**：
   - 主庫索引（`md/` 目錄）
   - 辭典索引（`dicts/` 目錄）—— 獨立、有獨立 LRU 快取，不受主庫驅逐
+- **辭典檔案大小對帳**：前端 `state.fileSizes` 同時承載主庫與辭典路徑。為避免辭典被移除後其 `dict:` 項目永久殘留（並使 `fileSizes.size` 隨時間單向成長），`fetchDictHeadwords()` 以 `state.dictFileSizePaths` 追蹤上一輪辭典路徑集合，逐項對帳後僅刪除已不存在或大小非有限的 `dict:` 項目，主庫路徑不受影響。
 
 ---
 
@@ -615,13 +627,15 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 | **Footnote XSS 雙重消毒 (P0-1)** | `render-worker.js` / `md-worker.js` | 註腳 id 採用 `escapeAttr()`、文字標籤 `escapeHtml()`；註腳內文與組裝後容器全面經 `sanitizeDangerousTags()` 過濾 `<script>`、`<style>`、`<iframe>`、`onerror` 等危險屬性 |
 | **畸形 Host 標頭與懸置防禦 (P0-2)** | `server.js` 路由入口 | `new URL` 全面包覆 try/catch（失敗即回 400 Bad Request）；全域 router 設有最終例外捕捉（500）；啟用 `server.requestTimeout = 30s`、`headersTimeout = 10s` 與 `clientError` 事件監聽立即銷毀異常 socket |
 | **嚴格 TRUST_PROXY 驗證 (P0-3)** | `server.js` `getClientIP()` | 僅在明確配置 `TRUST_PROXY=true` 或指定 IP 白名單時信任代理標頭，杜絕同 LAN / 內網橋接任意偽造來源 IP 繞過限流 |
-| **Analytics 匯出同源保護 (P0-4)** | `server.js` `handleAnalyticsExport` | 所有匯出路徑（包含帶有 `token` 的下載分支）強制執行 `verifySameOrigin(req)` 同源檢查，杜絕 CSRF 跨站竊取日誌 |
+| **Analytics 匯出同源保護 (P0-4)** | `server.js` `handleAnalyticsExport` | 所有匯出路徑強制執行 `verifySameOrigin(req)` 同源檢查，杜絕 CSRF 跨站竊取日誌 |
+| **Analytics 匯出標頭專用認證** | `server.js` `handleAnalyticsExport` | 匯出端點**只接受 `X-Admin-Token` 標頭**，明確拒絕 `?token=` 查詢字串認證；前端改以已驗證的 `fetch` 取得 Blob 後觸發下載，避免 session token 進入瀏覽器歷史、複製連結、反向代理與監控日誌 |
+| **設定檔靜態存取封鎖** | `lib/static-cache.js` `serveStatic()` | 除比對 `CONFIG_PATH` 解析路徑外，另以 `basename === 'config.json'`（不分大小寫）無條件拒絕，即使 `CONFIG_PATH` 指向他處（如 Docker `/data/config.json`）而 `APP_ROOT/config.json` 存在，亦不會外洩管理員帳號、PBKDF2 雜湊與 salt |
 | **90 天 Analytics 淘汰修剪 (P1-3)**| `server.js` `cleanOldLogsJob` | 每日 bucket 超過 90 天自動淘汰 (`pruneDailyBuckets`)；對 `ips`、`searches`、`dictSearches`、`dictLookups` 全面套用 `pruneAnalyticsMap`，避免長期運行記憶體洩漏 |
 | **非阻塞非同步磁碟 I/O (P1-6)** | `server.js` `scanDirAsync` / `getMdRoot` | `scanDirAsync` 改用非阻塞 `fs.promises.stat`；`getMdRoot()` 加入記憶化快取（變更時失效），避免巨量檔案庫阻塞主事件迴圈 |
 | **CSP（內容安全策略）** | `SECURITY_HEADERS` | `default-src 'self'`；per-request nonce 允許唯一的 inline config script |
 | **HSTS** | `SECURITY_HEADERS` | `max-age=31536000; includeSubDomains` |
 | **X-Frame-Options** | `SECURITY_HEADERS` | `SAMEORIGIN`，防 Clickjacking |
-| **Path Traversal 防護** | `serveStaticFile()` | 黑名單（`.git`、`server.js`、`config.json`）+ 白名單副檔名 + `path.relative` 逃逸偵測 |
+| **Path Traversal 防護** | `serveStaticFile()` | 黑名單（`.git`、`server.js`、`config.json` 檔名與解析路徑）+ 白名單副檔名 + `path.relative` 逃逸偵測 |
 | **Symlink 逃逸防護** | `isRealPathWithinMdRoot()` | `fs.realpath()` 解析後比較真實路徑是否在 `mdRoot` 內 |
 | **管理員密碼** | `api/admin/login` | PBKDF2（`sha256`，iterations=100,000，salt=hex random） |
 | **Session 管理** | `sessions Map` | 記憶體 Map；6 小時滾動更新；每 15 分鐘清理過期 token |
@@ -693,30 +707,35 @@ flowchart TD
 | 機制 | 實作位置 | 解決問題與架構細節 |
 |------|---------|-------------------|
 | **世代守衛 (Generation Guard, P1-9)** | `openFile` / `tryOpenVirtualFile` | 每次進入 `openFile` 自增 `state._openToken`。所有非同步 `await` 返回後及 DOM 置換前，檢驗 `token === state._openToken`。徹底防止點擊慢速未快取檔案 A 後立即點擊已快取檔案 B，造成 A 晚返回覆蓋 B 的競態破壞。 |
+| **返回首頁全面失效** | `goHome()` | 於切換畫面**之前**即自增 `state._openToken` 並 `abort()` + 清空 `_openFileAbort`，使所有在途開檔（含無法真正中止的回應本文解碼階段）在後續 token 檢查時一律被丟棄，不會回頭改寫已隱藏的閱讀器或排程閱讀進度儲存。 |
+| **虛擬分塊雙重識別檢查** | `ensureChunk()` / `teardownVirtual()` | 每個虛擬文件持有自己的 `abortController`；分塊請求帶上 `signal`，`teardownVirtual()` 時統一 `abort()`。且於 `await res.text()` **之後**再次檢驗 `state.virtual === v`，才允許建立/插入 DOM，徹底封堵「舊文件分塊插入新文件內容區」的競態窗口。 |
 | **請求取消與假錯誤消除 (P1-10)** | `openFile` / `fetch` Catch | 連續點擊時主動觸發前次 `_openFileAbort.abort()`；`catch` 區塊首行加入 `if (err.name === 'AbortError') return;`，避免中斷請求在畫面短暫彈出「載入失敗」假錯誤。 |
+| **快取內容重新驗證** | `openFile` / `cacheGet` | 不再直接回傳 LRU 快取；改以快取 ETag 發出條件式 `/api/render` 請求（`If-None-Match`），`304` 才掛載快取、`200` 以新內容取代，確保同一工作階段內檔案編輯即時反映；若快取本體已遭淘汰但 ETag 仍在，則清除 ETag 後重新無條件請求。 |
 | **安全 URI 解碼 (P1-11)** | `safeDecodeURIComponent` | 檔案名稱含 `%` 或特殊跳脫符號時，避免直接呼叫原生 `decodeURIComponent` 丟出 `URIError` 中斷流程。 |
 | **全域與頁內搜尋取消 (P1-15)** | `performGlobalSearch` / `doPageSearchVirtual` | 支援輸入清除或換詞時即時中止前次搜尋請求，釋放伺服器運算與網路頻寬。 |
 | **二分搜尋消除排版卡頓 (P1-16)** | `saveReadProgress` | 避免在萬行經文中對每一行呼叫 `getBoundingClientRect()` 引發嚴重的 Layout Thrashing，改用已快取行號錨點執行二分搜尋（只需 10~15 次量測）。 |
 | **大陣列展延堆疊防護 (P1-17)** | `buildVirtualTocItems` / `generateTOC` | 移除 `Math.min(...largeArr)`，改採單次迴圈遍歷，徹底防範大經文目錄深度觸發 RangeError: Maximum call stack size exceeded。 |
 | **Service Worker 離線回退 (P2-1)** | `sw.js` Fetch Handler | 當處於完全離線且快取未命中時，回傳明確的 HTTP 504 Gateway Timeout Response 而非丟出未處理的拒絕錯誤；安裝後發送 `SKIP_WAITING` 實現無縫即時生效。 |
+| **Service Worker 同源快取隔離** | `sw.js` `activate` | 版本升級時僅刪除前綴為 `mdwebview-shell-` 與 `mdwebview-content-` 的舊快取，不再無差別清空 `caches.keys()`；同一 origin 上其他應用程式（或其他部署路徑）的快取得以完整保留。 |
 
 ---
 
 ## 16. CSS 樣式系統與響應式斷點設計
 
-專案採用原生現代 CSS 變數（Custom Properties）與 Flexbox/CSS Grid 系統，樣式經過三階段重構進行了深度的語意化收斂，將原本散落各處的 16 個 `@media` 區塊合併整併為 **7 個語意明確的核心媒體查詢斷點**，並消除無效死規則，確保 CSS 語法階層與大括號嚴格平衡。
+專案採用原生現代 CSS 變數（Custom Properties）與 Flexbox/CSS Grid 系統，樣式經過三階段重構進行了深度的語意化收斂，將原本散落各處的媒體查詢區塊整併為 **8 個區塊、7 組語意明確的核心斷點條件**，並消除無效死規則，確保 CSS 語法階層與大括號嚴格平衡。
 
 ### 16.1 媒體查詢斷點分層矩陣
 
 | 斷點條件 | 定義區塊 | 核心職責與適用範圍 |
 |---------|---------|-------------------|
-| `@media (max-width: 768px)` | L2539 | **主要行動端佈局**：App Shell 轉為單欄、頁首緊湊化、左側目錄/搜尋/大綱抽屜化、全螢幕毛玻璃遮罩（Backdrop）、浮動查詞操作面板自適應、使用者偏好設定彈窗雙欄轉單欄流動佈局 |
-| `@media (max-width: 600px)` | L6634 | **公告訊息彈窗**：專屬緊湊視窗適配，縮小 modal padding 與字型大小，按鈕轉為垂直流動排列以防溢出 |
-| `@media (max-width: 520px)` | L2892 | **小型螢幕微調**：各類操作按鈕（font-size 調整、複製連結、查詞）縮減內距與邊框，避免在 5.5 吋以下手機出現橫向捲軸 |
-| `@media (max-width: 480px)` | L2908 | **極窄手機體驗**：頁首標題自動隱藏或省略（text-overflow）、彈窗關閉按鈕放大觸控熱區、各級標題字級動態縮減 |
-| `@media (max-width: 360px)` | L2959 | **超微型裝置自適應**：針對極小手持設備（如 Galaxy Fold 封面螢幕）進行最後一哩字級微調 |
-| `@media (max-width: 768px)` (Admin) | L3264 | **管理員後台專屬響應式**：後台面板轉為全螢幕覆蓋模式（100vw × 100vh）、流量分析與硬體圖表表格自動包裹水平滾動容器（`overflow-x: auto`）、系統設定表單轉為流動彈性網格 |
-| `@media print` | L2966 | **列印與輸出格式**：隱藏全站導覽列、抽屜、懸浮按鈕、彈窗與背景裝飾；正文轉為高對比黑白排版與自動分頁控制 |
+| `@media (max-width: 768px)` | L2569 | **主要行動端佈局**：App Shell 轉為單欄、頁首緊湊化、左側目錄/搜尋/大綱抽屜化、全螢幕毛玻璃遮罩（Backdrop）、浮動查詞操作面板自適應、使用者偏好設定彈窗雙欄轉單欄流動佈局 |
+| `@media (max-width: 600px)` | L6673 | **公告訊息彈窗**：專屬緊湊視窗適配，縮小 modal padding 與字型大小，按鈕轉為垂直流動排列以防溢出 |
+| `@media (max-width: 520px)` | L2931 | **小型螢幕微調**：各類操作按鈕（font-size 調整、複製連結、查詞）縮減內距與邊框，避免在 5.5 吋以下手機出現橫向捲軸 |
+| `@media (max-width: 480px)` | L2947 | **極窄手機體驗**：頁首標題自動隱藏或省略（text-overflow）、彈窗關閉按鈕放大觸控熱區、各級標題字級動態縮減 |
+| `@media (max-width: 360px)` | L2998 | **超微型裝置自適應**：針對極小手持設備（如 Galaxy Fold 封面螢幕）進行最後一哩字級微調 |
+| `@media (max-width: 768px)` (Admin) | L3303 | **管理員後台專屬響應式**：後台面板轉為全螢幕覆蓋模式（100vw × 100vh）、流量分析與硬體圖表表格自動包裹水平滾動容器（`overflow-x: auto`）、系統設定表單轉為流動彈性網格 |
+| `@media (max-width: 768px)` (Media) | L7259 | **媒體燈箱行動端工具列**：調整燈箱工具列與 `env(safe-area-inset-*)` 安全區域的相對位置，避開瀏海與虛擬 Home Indicator |
+| `@media print` | L3005 | **列印與輸出格式**：隱藏全站導覽列、抽屜、懸浮按鈕、彈窗與背景裝飾；正文轉為高對比黑白排版與自動分頁控制 |
 
 ### 16.2 行動端佈局優化與品質保證準則
 

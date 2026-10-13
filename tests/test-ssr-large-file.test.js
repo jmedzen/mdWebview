@@ -176,6 +176,21 @@ describe('SSR 與大型檔案動態分塊渲染 (SSR & Large File Chunked API)',
       // request 函式內部會自動解壓縮，驗證解壓縮後內容完整性
       assert.ok(res.body.includes('class="line-anchor"'));
     });
+
+    test('回應須帶 Vary: Accept-Encoding，避免共享快取把 gzip 內容給不支援的客戶端', async () => {
+      // 動態渲染的回應主體隨 Accept-Encoding 改變，因此必須宣告 Vary；
+      // 未壓縮與已壓縮兩條分支都要帶，協商才不會被中間快取破壞。
+      const gz = await request(`/api/render?path=${encodeURIComponent(SMALL_FILE_REL)}`, {
+        headers: { 'Accept-Encoding': 'gzip' }
+      });
+      assert.equal(gz.headers['vary'], 'Accept-Encoding', 'gzip 分支應帶 Vary');
+
+      const identity = await request(`/api/render?path=${encodeURIComponent(SMALL_FILE_REL)}`, {
+        headers: { 'Accept-Encoding': 'identity' }
+      });
+      assert.equal(identity.headers['vary'], 'Accept-Encoding', '未壓縮分支亦應帶 Vary');
+      assert.equal(identity.headers['content-encoding'], undefined, 'identity 不應被壓縮');
+    });
   });
 
   // ─────────────────────────────────────────────────────────────

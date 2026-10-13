@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.4
+ * @version 3.7.5
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -1165,6 +1165,8 @@ async function handleRender(req, res, query) {
       'ETag': etag,
       'Cache-Control': 'no-cache',
       'X-Document-Meta': metaHeader,
+      // Body varies with Accept-Encoding (gzip below); keep shared caches honest.
+      'Vary': 'Accept-Encoding',
     }, SECURITY_HEADERS);
 
     // Gzip compress if client supports it — reduces payload ~10x
@@ -1406,6 +1408,8 @@ async function handleRenderChunk(req, res, query) {
       'ETag': etag,
       'Cache-Control': 'no-cache',
       'X-Chunk-Meta': metaHeader,
+      // Body varies with Accept-Encoding (gzip below); keep shared caches honest.
+      'Vary': 'Accept-Encoding',
     }, SECURITY_HEADERS);
 
     const acceptEncoding = req.headers['accept-encoding'] || '';

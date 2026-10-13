@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.7.4
+   mdWebview — Application Logic (app.js) v3.7.5
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -32,6 +32,22 @@
 
 (function () {
   'use strict';
+
+  // ── Per-document scan gates (O(n²) defense) ──────────────────────────────
+  // Mirrors render-worker.js / md-worker.js: marked calls each extension's
+  // start(src) on every tokenization step, passing the ENTIRE remaining suffix,
+  // so an unconditional indexOf is O(n²) in document length. Gate per document
+  // so marker-free documents skip the scan entirely. See render-worker.js for
+  // the CPU-profile measurements.
+  let _scanEq = false;
+  let _scanDollar = false;
+  let _scanDollar2 = false;
+
+  function setScanGates(text) {
+    _scanEq = text.indexOf('==') !== -1;
+    _scanDollar = text.indexOf('$') !== -1;
+    _scanDollar2 = text.indexOf('$$') !== -1;
+  }
 
   // ═══════════════════════════════════════════════════════════
   // §0 GLOBALS & STATE (LRU cache, Web Worker, state{})
@@ -426,7 +442,7 @@
         {
           name: 'highlight',
           level: 'inline',
-          start(src) { return src.indexOf('=='); },
+          start(src) { return _scanEq ? src.indexOf('==') : -1; },
           tokenizer(src, tokens) {
             const rule = /^==(?=[^\s=])([\s\S]*?[^\s=])==/;
             const match = rule.exec(src);
@@ -446,7 +462,7 @@
         {
           name: 'mathBlock',
           level: 'block',
-          start(src) { return src.indexOf('$$'); },
+          start(src) { return _scanDollar2 ? src.indexOf('$$') : -1; },
           tokenizer(src, tokens) {
             const rule = /^\$\$[\r\n]*([\s\S]*?)[\r\n]*\$\$/;
             const match = rule.exec(src);
@@ -465,7 +481,7 @@
         {
           name: 'mathInline',
           level: 'inline',
-          start(src) { return src.indexOf('$'); },
+          start(src) { return _scanDollar ? src.indexOf('$') : -1; },
           tokenizer(src, tokens) {
             const rule = /^\$(?!\s)([^$\n]+?)(?<!\s)\$/;
             const match = rule.exec(src);
@@ -3507,7 +3523,9 @@
     }
 
     // ── 3. Parse main markdown body to HTML ─────────────────────
-    let html = marked.parse(annotatedLines.join('\n'));
+    const annotated = annotatedLines.join('\n');
+    setScanGates(annotated); // must gate on the exact string passed to marked.parse
+    let html = marked.parse(annotated);
     html = sanitizeDangerousTags(html);
 
     // ── 4. Convert Obsidian-style [[wikilinks]] on HTML output ────
@@ -3533,6 +3551,7 @@
       // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
       const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
       const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
+      setScanGates(combinedFnText); // same gates as the main body parse above
       let combinedFnHtml = marked.parse(combinedFnText).trim();
       combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
       if (combinedFnHtml.includes('[[')) {
@@ -5760,7 +5779,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.4';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.5';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -7532,7 +7551,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.4';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.5';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
