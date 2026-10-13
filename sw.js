@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.7.3';
+const CACHE_VERSION = 'v3.7.4';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -73,7 +73,10 @@ self.addEventListener('activate', event => {
     caches.keys().then(keys => {
       return Promise.all(
         keys.map(key => {
-          if (key !== SHELL_CACHE && key !== CONTENT_CACHE) {
+          // Only delete cache names owned by this app. Other applications on
+          // the same origin may use the origin-wide Cache Storage namespace.
+          const isMdWebviewCache = key.startsWith('mdwebview-shell-') || key.startsWith('mdwebview-content-');
+          if (isMdWebviewCache && key !== SHELL_CACHE && key !== CONTENT_CACHE) {
             console.log('[SW] Removing stale cache:', key);
             return caches.delete(key);
           }

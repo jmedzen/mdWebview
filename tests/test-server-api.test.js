@@ -114,6 +114,11 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
     const resPkg = await request('/package.json');
     assert.equal(resPkg.statusCode, 403, 'package.json 應被 403 禁止存取');
 
+    // Configuration files remain forbidden even when their contents are
+    // otherwise eligible for static serving.
+    const resConfig = await request('/config.json');
+    assert.equal(resConfig.statusCode, 403, 'config.json basename must never be statically served');
+
     // 不存在檔案回傳 404
     const res404 = await request('/no-such-file-12345.xyz');
     assert.equal(res404.statusCode, 404, '不存在的資源應回傳 404');
@@ -246,14 +251,26 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
     assert.ok(result.startsWith('HTTP/1.1 400 Bad Request'), '畸形 Host 應立即回傳 400 Bad Request');
   });
 
-  test('安全防禦：Analytics 匯出端點強制檢驗同源 (P0-4)', async () => {
-    // 跨源 Origin 嘗試存取 analytics export 應被 403 阻擋
-    const res = await request('/api/admin/analytics/export?type=daily&format=json&token=fake-token', {
-      headers: {
-        Origin: 'https://evil-hacker.com'
-      }
+  test('Analytics 匯出拒絕 query-string bearer token，並接受 header 認證', async () => {
+    const testToken = 'test-token-analytics-export';
+    sessions.set(testToken, { expiry: Date.now() + 60000 });
+    try {
+      const queryTokenRes = await request(`/api/admin/analytics/export?range=7d&format=json&token=${testToken}`);
+      assert.equal(queryTokenRes.statusCode, 401, 'query token must not authorize exports');
+
+      const headerTokenRes = await request('/api/admin/analytics/export?range=7d&format=json', {
+        headers: { 'X-Admin-Token': testToken }
+      });
+      assert.equal(headerTokenRes.statusCode, 200, 'header-authenticated export remains available');
+      assert.match(headerTokenRes.headers['content-disposition'], /analytics-report-7d\.json/);
+    } finally {
+      sessions.delete(testToken);
+    }
+
+    const crossOriginRes = await request('/api/admin/analytics/export?range=7d&format=json', {
+      headers: { Origin: 'https://evil-hacker.com', 'X-Admin-Token': 'test-token-analytics-export' }
     });
-    assert.equal(res.statusCode, 403, '非同源請求應被 403 拒絕');
+    assert.equal(crossOriginRes.statusCode, 403, 'cross-origin export remains forbidden');
   });
 
   test('安全防禦：API 滑動視窗限流觸發時立即回傳 429 Too Many Requests 且不懸置連線 (P0 Bug 修復驗證)', async () => {

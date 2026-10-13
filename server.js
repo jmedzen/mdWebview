@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.3
+ * @version 3.7.4
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -4349,15 +4349,9 @@ async function handleAnalyticsExport(req, res, query) {
     return sendJSON(res, 403, { error: 'Forbidden: Cross-origin request blocked' });
   }
 
-  const token = query.token || req.headers['x-admin-token'];
-  let authorized = isAuthenticated(req);
-  if (!authorized && token && sessions.has(token)) {
-    const session = sessions.get(token);
-    if (session && Date.now() < session.expiry) {
-      authorized = true;
-    }
-  }
-  if (!authorized) {
+  // Session tokens must only be supplied in request headers. Query strings are
+  // routinely persisted in browser history, access logs, and referrer data.
+  if (!isAuthenticated(req)) {
     return sendJSON(res, 401, { error: 'Unauthorized' });
   }
 

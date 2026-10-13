@@ -101,6 +101,12 @@ describe('PWA 與 Service Worker (sw.js) 離線快取測試', () => {
     }
   });
 
+  test('activate 僅刪除舊版 mdwebview 自有快取，不刪除同源其他應用快取', () => {
+    assert.ok(swContent.includes("key.startsWith('mdwebview-shell-')"), '應將清理範圍限制於 mdwebview shell cache');
+    assert.ok(swContent.includes("key.startsWith('mdwebview-content-')"), '應將清理範圍限制於 mdwebview content cache');
+    assert.ok(swContent.includes('isMdWebviewCache && key !== SHELL_CACHE && key !== CONTENT_CACHE'), '應保留目前版本快取及所有非 mdwebview 快取');
+  });
+
   test('caches.match 必須包含 ignoreSearch: true 避免 query parameter 導致離線白屏', () => {
     // 檢查 sw.js 是否在靜態資源與導覽快取比對中啟用 ignoreSearch: true
     const ignoreSearchMatches = swContent.match(/ignoreSearch:\s*true/g);
