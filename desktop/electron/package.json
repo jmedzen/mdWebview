@@ -1,0 +1,132 @@
+{
+  "name": "mdwebview-desktop",
+  "version": "3.8.0",
+  "description": "mdWebview — 佛典經論閱讀器桌面版",
+  "private": true,
+  "main": "main.js",
+  "author": {
+    "name": "mdWebview",
+    "email": "noreply@example.com"
+  },
+  "homepage": "https://github.com/jmedzen/mdWebview",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "org.mdwebview.reader",
+    "productName": "mdWebview",
+    "copyright": "Copyright © mdWebview",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../",
+        "to": "app",
+        "filter": [
+          "server.js",
+          "app.js",
+          "index.html",
+          "style.css",
+          "sw.js",
+          "manifest.json",
+          "md-worker.js",
+          "render-worker.js",
+          "index-worker.js",
+          "marked.min.js",
+          "s2t.js",
+          "package.json",
+          "lib/**/*",
+          "vendor/**/*",
+          "*.png",
+          "*.ico",
+          "*.svg",
+          "*.webmanifest",
+          "!**/node_modules/**",
+          "!**/config.json",
+          "!**/logs/**",
+          "!**/md/**",
+          "!**/dicts/**",
+          "!**/data/**",
+          "!**/tests/**",
+          "!**/desktop/**",
+          "!**/.git/**"
+        ]
+      },
+      {
+        "from": "../../node_modules",
+        "to": "app/node_modules",
+        "filter": [
+          "marked/**/*"
+        ]
+      }
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSHumanReadableCopyright": "mdWebview"
+      }
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "contents": [
+        { "x": 140, "y": 200, "type": "file" },
+        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "mdWebview",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
+    }
+  }
+}

@@ -62,7 +62,7 @@ try {
 
 // ── Core Native Modules (Refactored to lib/) ───────────────────────────────
 const {
-  APP_ROOT, PORT, CONFIG_PATH, APP_VERSION, MAX_LOG_BUFFER,
+  APP_ROOT, PORT, HOST, CONFIG_PATH, APP_VERSION, MAX_LOG_BUFFER,
   CRAWLER_UA_REGEX, LOG_DIR, ANALYTICS_STORE_PATH, ANALYTICS_STORE_VERSION,
   MIME_TYPES, SECURITY_HEADERS
 } = require('./lib/constants');
@@ -5376,13 +5376,18 @@ if (require.main === module) {
   // 只有真正的伺服器行程才註冊訊號處理常式；測試 require server.js 時不會註冊。
   setupGracefulShutdown();
 
-  server.listen(PORT, () => {
+  server.listen(PORT, HOST, () => {
+    // With PORT=0 the OS assigns a free port. A desktop launcher sets that and
+    // reads the machine-readable line below to learn where to point its window.
+    const actualPort = server.address().port;
     console.log('');
     console.log('  🪷  mdWebview is running');
     console.log('  ───────────────────────');
-    console.log(`  Local:   http://localhost:${PORT}`);
+    console.log(`  Local:   http://localhost:${actualPort}`);
     console.log(`  Vault:   ${getMdRoot()}`);
     console.log('');
+    // Emitted on stdout for launchers to parse. Keep this format stable.
+    console.log(`MDWEBVIEW_READY port=${actualPort}`);
 
     // Eagerly build Bigram Inverted Index & Sitemap in background on boot
     Logger.info('Boot', 'Pre-warming Bigram Index & Sitemap cache in background...');

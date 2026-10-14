@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Electron runs V8 with a JIT and spawns the Node server as a child process
+      from the same binary (ELECTRON_RUN_AS_NODE). Under the hardened runtime
+      these entitlements are required or the app is killed on launch.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <!-- Needed to read the user-selected Markdown vault outside the bundle. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <!-- Outbound connections for optional features (citation links, fonts). -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

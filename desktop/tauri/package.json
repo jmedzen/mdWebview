@@ -1,0 +1,14 @@
+{
+  "name": "mdwebview-tauri",
+  "version": "3.8.0",
+  "private": true,
+  "description": "mdWebview — Tauri v2 desktop shell",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "tauri build",
+    "dev": "tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

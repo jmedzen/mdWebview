@@ -571,3 +571,61 @@ describe('追加 — MAX_LOGIN_ENTRIES 由 lib/auth.js 匯出（不再鏡射）'
       'server.js 不應自行重新定義，應由 lib/auth.js 匯入');
   });
 });
+
+// ── F13：持久化日誌寫入失敗不得形成無限迴圈 (v3.8.0 迴歸) ────────────────────
+/**
+ * 修正前：appendToPersistentLog() 的失敗是透過 Logger.error() 回報，而 Logger.error
+ * 又會呼叫 appendToPersistentLog()，形成自我維持的無限迴圈。當 LOG_DIR 被刪除
+ * （測試收尾、日誌輪替）、磁碟滿或權限不足時，會產生 GB 級輸出並佔滿事件迴圈，
+ * 使行程永遠無法結束——在 CI 上表現為測試套件逾時並被取消。
+ */
+describe('F13 — 持久化日誌寫入失敗不得遞迴自我記錄', () => {
+  test('appendFile 持續失敗時不得遞迴呼叫（實測呼叫次數）', async () => {
+    const analytics = require('../lib/analytics.js');
+
+    const origAppend = fs.appendFile;
+    let appendCalls = 0;
+    const stderrWrites = [];
+    const origStderrWrite = process.stderr.write;
+
+    // 讓每一次 appendFile 都非同步失敗，模擬 LOG_DIR 被刪除／無權限。
+    fs.appendFile = (file, data, cb) => {
+      appendCalls++;
+      if (typeof cb === 'function') {
+        setImmediate(() => cb(Object.assign(new Error('ENOENT: simulated'), { code: 'ENOENT' })));
+      }
+      return undefined;
+    };
+    process.stderr.write = (chunk, ...rest) => { stderrWrites.push(String(chunk)); return true; };
+
+    try {
+      analytics.appendToPersistentLog({
+        timestamp: new Date().toISOString(),
+        level: 'ERROR',
+        tag: 'LogPruner',
+        message: 'regression probe',
+        ip: '127.0.0.1'
+      });
+      // 留給可能的遞迴足夠時間展開；若修正失效，這裡會暴增到成千上萬次。
+      await new Promise(resolve => setTimeout(resolve, 250));
+    } finally {
+      fs.appendFile = origAppend;
+      process.stderr.write = origStderrWrite;
+    }
+
+    assert.equal(appendCalls, 1,
+      `單次記錄只能觸發一次 appendFile，實際 ${appendCalls} 次；大於 1 代表失敗回報又走回記錄路徑（無限迴圈）`);
+    assert.ok(stderrWrites.length <= 1,
+      `同一種失敗最多回報一次 stderr，實際 ${stderrWrites.length} 次`);
+  });
+
+  test('原始碼不得在 appendToPersistentLog 內以 Logger 回報失敗', () => {
+    const src = fs.readFileSync(path.join(ROOT_DIR, 'lib', 'analytics.js'), 'utf8');
+    const start = src.indexOf('function appendToPersistentLog');
+    assert.ok(start !== -1, 'lib/analytics.js 應有 appendToPersistentLog');
+    const end = src.indexOf('\nfunction ', start + 10);
+    const body = src.slice(start, end === -1 ? undefined : end);
+    assert.doesNotMatch(body, /getLogger\(\)\s*\.\s*error/,
+      'appendToPersistentLog 內以 Logger 回報失敗會造成無限遞迴（Logger 會再呼叫 appendToPersistentLog）');
+  });
+});
