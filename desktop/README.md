@@ -139,7 +139,7 @@ npx @tauri-apps/cli@^2 build
 | 外殼 | 產品名稱 | macOS | Windows |
 | :--- | :--- | :--- | :--- |
 | Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.0_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.0_x64-setup.exe`<br>`mdWebview-Tauri_3.8.0_x64_en-US.msi` |
-| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.0-arm64.dmg`<br>`mdWebview-Electron-3.8.0-arm64-mac.zip` | `mdWebview-Electron-3.8.0-x64-setup.exe`<br>`mdWebview-Electron-3.8.0-x64-portable.exe` |
+| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.0-arm64.dmg`<br>`mdWebview-Electron-3.8.0-x64.dmg`<br>`mdWebview-Electron-3.8.0-arm64-mac.zip`<br>`mdWebview-Electron-3.8.0-mac.zip` | `mdWebview-Electron-3.8.0-x64-setup.exe`<br>`mdWebview-Electron-3.8.0-x64-portable.exe` |
 
 命名規則差異（來自各自的打包器，非本專案自訂）：
 
@@ -148,6 +148,8 @@ npx @tauri-apps/cli@^2 build
   因此檔名**只能**由 `productName` 決定。
 - **Electron**：`electron-builder` 的 `artifactName` 樣板（本專案明設
   `${productName}-${version}-${arch}...`），**以連字號分隔**。
+  `.zip` 用的是 electron-builder 內建預設樣板，會**省略預設架構**（x64）
+  的後綴，因此 x64 版是 `…-mac.zip`、arm64 版才是 `…-arm64-mac.zip`。
 
 > 因此「`_` vs `-`」不只是外觀差異，而是兩套打包器的固定行為。
 > 加上 `-Tauri` / `-Electron` 後綴，即使只看檔名也能立刻分辨。
