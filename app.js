@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.7.6
+   mdWebview — Application Logic (app.js) v3.7.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1703,6 +1703,7 @@
       renderTreeNodes(sorted, container, 0);
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
+      showToast('檔案目錄載入失敗，請重新整理', 'error');
     }
   }
 
@@ -2061,7 +2062,7 @@
           const placeholder = buildChunkErrorPlaceholder(ci, from, to);
           insertChunkSorted(ci, placeholder);
           v.errorChunks.set(ci, placeholder);
-          showToast('⚠️ 內容片段載入失敗，請重試', 'error');
+          showToast('內容片段載入失敗，請重試', 'error');
         }
         return null;
       }
@@ -3194,6 +3195,7 @@
       loading.style.display = 'none';
       wrapper.style.display = 'block';
       $('markdownBody').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
+      showToast('經文載入失敗：' + err.message, 'error');
     }
   }
 
@@ -4326,6 +4328,7 @@
     } catch (err) {
       if (err.name === 'AbortError') return;
       $('searchResults').innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
+      showToast('搜尋失敗：' + err.message, 'error');
     }
   }
 
@@ -5058,6 +5061,7 @@
         if (state.dictAbortController !== controller) return;
         state.dictAbortController = null;
         results.innerHTML = `<div class="dict-placeholder"><span>⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
+        showToast('辭典搜尋失敗', 'error');
       });
   }
 
@@ -5219,6 +5223,7 @@
         if (state.dictAbortController !== controller) return;
         state.dictAbortController = null;
         if (results) results.innerHTML = `<div class="dict-placeholder"><span>⚠️</span><span>搜尋失敗: ${escHtml(err.message)}</span></div>`;
+        showToast('辭典搜尋失敗', 'error');
       });
   }
 
@@ -5362,7 +5367,7 @@
       matches[0].classList.add('active');
       safeScrollToElement(matches[0], $('content'), 'center');
     } else {
-      showToast(`🔍 未找到符合「${q}」的內容`, 'warning');
+      showToast(`未找到符合「${q}」的內容`, 'warning');
     }
 
     $('pageSearchCount').textContent = matches.length > 0 ? `1/${matches.length}` : '0/0';
@@ -5395,7 +5400,7 @@
         if (signal.aborted) return;
         $('pageSearchCount').textContent = `1/${matches.length}`;
       } else {
-        showToast(`🔍 未找到符合「${query}」的內容`, 'warning');
+        showToast(`未找到符合「${query}」的內容`, 'warning');
         $('pageSearchCount').textContent = '0/0';
       }
     } catch (err) {
@@ -5805,6 +5810,10 @@
   const TOAST_ICONS = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌', loading: '⏳' };
   const TOAST_MAX_VISIBLE = 3;
   const TOAST_HIDE_MS = 300; // keep in sync with .toast-notification transition
+  // Error messages interpolate `${err.message}` (sometimes 38+ CJK chars), so the
+  // 2200 ms default is too short to actually read one. 4000 ms is the floor,
+  // not an override: callers passing a longer duration keep it.
+  const TOAST_ERROR_MIN_MS = 4000;
   // Emoji + the check/cross dingbats (✓ ✔ ✕ ✖ ✗ ✘) callers already prepend.
   const TOAST_HAS_ICON_RE = /^(?:\p{Extended_Pictographic}|[✓-✘])/u;
 
@@ -5821,6 +5830,10 @@
    * 顯示一個堆疊式 Toast 通知。
    * type 決定邊框顏色，若訊息未含 emoji 則自動在前方插入對應圖示。
    * duration 為 0 或 Infinity 時為持久型 Toast（需手動呼叫 dismiss()）。
+   * error 型別擁有 4000ms 的最短顯示時間（僅墊高，不縮短呼叫端指定的較長值）。
+   * 相同 type + 文字且仍在畫面上的 Toast 不會重複堆疊，只會重置其計時器。
+   * type === 'error' 的節點帶 role="alert" 以讓螢幕閱讀器即時朗讀（容器本身
+   * 為 role="status" aria-live="polite"）。
    *
    * @param {string}  msg             - 通知文字
    * @param {'info'|'success'|'warning'|'error'|'loading'} [type='info'] - 類型
@@ -5835,9 +5848,36 @@
     const text = TOAST_HAS_ICON_RE.test(String(msg).trim())
       ? msg : `${icon} ${msg}`;
 
+    // Error toasts interpolate server messages and are the highest-value ones to
+    // read, so enforce a floor without touching other types' duration semantics.
+    if (type === 'error' && duration !== 0 && duration !== Infinity) {
+      duration = Math.max(duration, TOAST_ERROR_MIN_MS);
+    }
+
+    // Message-level dedup: a mounted window can reject several chunks at once and
+    // emit the same failure N times. Reuse the live node (same type + resolved
+    // text) instead of stacking duplicates, refreshing its timer.
+    const existing = Array.from(container.querySelectorAll('.toast-notification'))
+      .find(n => !n.classList.contains('hide') && n._toastType === type && n._toastText === text);
+    if (existing) {
+      if (existing._toastTimer) { clearTimeout(existing._toastTimer); existing._toastTimer = null; }
+      const persistentExisting = type === 'loading' || duration === 0 || duration === Infinity;
+      if (!persistentExisting) {
+        existing._toastTimer = setTimeout(() => dismissToast(existing), duration);
+      }
+      return { el: existing, dismiss() { dismissToast(existing); } };
+    }
+
     const el = document.createElement('div');
-    el.className = 'toast-notification' + (type !== 'info' ? ' toast-' + type : '');
+    // Every type carries its own class (including info) so the CSS rules are the
+    // single source of truth for the border colour rather than the base default.
+    el.className = 'toast-notification toast-' + type;
     el.textContent = text;
+    el._toastType = type;
+    el._toastText = text;
+    // The container is role="status" (polite); errors must interrupt, so mark the
+    // individual node as an assertive alert.
+    if (type === 'error') el.setAttribute('role', 'alert');
     container.appendChild(el);
 
     // Stack cap: evict oldest toasts past the limit so a burst never fills the screen.
@@ -5861,7 +5901,7 @@
   // ═══════════════════════════════════════════════════════════
   function toggleBookmark(filePath, title) {
     if (!filePath) {
-      showToast('⚠️ 請先開啟一本經文檔案');
+      showToast('⚠️ 請先開啟一本經文檔案', 'warning');
       return false;
     }
     const fileName = title || filePath.split('/').pop().replace(/\.md$/, '');
@@ -5872,7 +5912,7 @@
     if (idx >= 0) {
       list.splice(idx, 1);
       isBookmarked = false;
-      showToast('🗑️ 已從書籤移除');
+      showToast('🗑️ 已從書籤移除', 'success');
     } else {
       list.unshift({
         filePath,
@@ -5880,7 +5920,7 @@
         time: new Date().toLocaleDateString('zh-TW')
       });
       isBookmarked = true;
-      showToast('🔖 已新增至書籤與最愛');
+      showToast('已新增至書籤', 'success');
     }
 
     state.bookmarks = list;
@@ -5943,7 +5983,7 @@
             storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
             renderBookmarksList();
             if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
-            showToast('🗑️ 已移除書籤');
+            showToast('🗑️ 已從書籤移除', 'success');
             return;
           }
           const file = row.getAttribute('data-file');
@@ -6068,7 +6108,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -6856,11 +6896,11 @@
           const fullLineUrl = window.location.origin + window.location.pathname + lineSearch;
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(fullLineUrl).then(
-              () => showToast(`✓ 已複製第 ${lineNum} 行分享連結`),
+              () => showToast(`✓ 已複製第 ${lineNum} 行分享連結`, 'success'),
               () => showToast('❌ 複製失敗（剪貼簿權限被拒）', 'error')
             );
           } else {
-            if (fallbackCopy(fullLineUrl)) showToast(`✓ 已複製第 ${lineNum} 行分享連結`);
+            if (fallbackCopy(fullLineUrl)) showToast(`✓ 已複製第 ${lineNum} 行分享連結`, 'success');
             else showToast('❌ 複製失敗', 'error');
           }
           scrollToLine(lineNum);
@@ -7499,7 +7539,7 @@
           state.recentFiles = [];
           storage.remove(STORAGE_KEYS.RECENT_FILES);
           renderRecentFilesList();
-          showToast('🗑️ 已成功清除所有閱讀紀錄', 'info');
+          showToast('🗑️ 已成功清除所有閱讀紀錄', 'success');
         }
       });
     }
@@ -7508,7 +7548,7 @@
       if (state.currentFile) {
         toggleBookmark(state.currentFile);
       } else {
-        showToast('⚠️ 請先點擊開啟一本經文');
+        showToast('⚠️ 請先點擊開啟一本經文', 'warning');
       }
     };
 
@@ -7526,7 +7566,7 @@
           storage.remove(STORAGE_KEYS.BOOKMARKS);
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
-          showToast('🗑️ 已清除所有書籤');
+          showToast('🗑️ 已清除所有書籤', 'success');
         }
       });
     }
@@ -7866,7 +7906,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.7.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7899,6 +7939,19 @@
   let hwAutoRefreshTimer = null;
   let indexRebuildPollingTimer = null;
   let dictIndexRebuildPollingTimer = null;
+  // Handles for the persistent 'loading' toasts shown while an index rebuild is in
+  // flight. They are pointer-events:none with no close button, so every exit path
+  // (completion, request error, polling failure, modal close) must dismiss them.
+  let indexRebuildToast = null;
+  let dictIndexRebuildToast = null;
+
+  // 關閉重建中的持久型 Toast（若存在）。所有結束路徑都必須呼叫，避免卡住無法關閉。
+  function dismissIndexRebuildToast() {
+    if (indexRebuildToast) { indexRebuildToast.dismiss(); indexRebuildToast = null; }
+  }
+  function dismissDictIndexRebuildToast() {
+    if (dictIndexRebuildToast) { dictIndexRebuildToast.dismiss(); dictIndexRebuildToast = null; }
+  }
 
   function closeUserSettingsModal() {
     const overlay = $('userSettingsOverlay');
@@ -7932,6 +7985,9 @@
       clearInterval(dictIndexRebuildPollingTimer);
       dictIndexRebuildPollingTimer = null;
     }
+    // 關閉後台面板時一併收掉「重建中」持久型 Toast，否則它永遠不會消失。
+    dismissIndexRebuildToast();
+    dismissDictIndexRebuildToast();
   }
 
   function setAdminDirty(isDirty) {
@@ -8128,13 +8184,13 @@
           msgEl.className = 'form-success-text';
           setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 4000);
         }
-        showToast('✅ 管理員密碼已成功更新，已登出其他裝置。', 'success');
+        showToast('✅ 管理員密碼已成功更新，已登出其他裝置', 'success');
       } catch (err) {
         if (msgEl) {
           msgEl.textContent = '❌ ' + err.message;
           msgEl.className = 'form-error-text';
         }
-        showToast('❌ 更新密碼失敗: ' + err.message, 'error');
+        showToast('❌ 更新密碼失敗：' + err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.textContent = '更新管理員密碼';
@@ -8174,7 +8230,7 @@
           URL.revokeObjectURL(url);
           showToast('📥 設定檔備份已成功下載', 'success');
         } catch (err) {
-          showToast('❌ 匯出備份失敗: ' + err.message, 'error');
+          showToast('❌ 匯出備份失敗：' + err.message, 'error');
         }
       });
     }
@@ -8221,7 +8277,7 @@
           fileInput.value = '';
           await openSettingsOverlay();
         } catch (err) {
-          showToast('❌ 還原失敗: ' + err.message, 'error');
+          showToast('❌ 還原失敗：' + err.message, 'error');
           fileInput.value = '';
         }
       });
@@ -8247,7 +8303,7 @@
         showToast(`🧹 ${data.message || '快取已成功清空'}`, 'success');
         await loadHardwareStats();
       } catch (err) {
-        showToast('❌ 清空快取失敗: ' + err.message, 'error');
+        showToast('❌ 清空快取失敗：' + err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.textContent = orig;
@@ -8677,13 +8733,15 @@
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          showToast(`❌ 重建索引失敗: ${errData.error || res.statusText}`, 'error', 3500);
+          showToast(`❌ 重建索引失敗：${errData.error || `HTTP ${res.status}`}`, 'error', 3500);
           rebuildBtn.disabled = false;
           rebuildBtn.textContent = '⚡ 手動重建索引';
           return;
         }
 
-        showToast('⏳ 已觸發全文索引重建，後台建置中…', 'info', 3000);
+        // 持久型進度 Toast：真正的完成時間由下方輪詢得知（非固定 3 秒），
+        // 因此不使用有限 duration 假裝進度。
+        indexRebuildToast = showToast('全文索引重建中…', 'loading', 0);
 
         await loadHardwareStats();
 
@@ -8693,7 +8751,16 @@
             const statsRes = await fetch('/api/admin/hardware', {
               headers: { 'X-Admin-Token': state.adminToken }
             });
-            if (!statsRes.ok) return;
+            if (!statsRes.ok) {
+              // 輪詢端點失敗：無法再得知完成時間，收掉 Toast 並停止輪詢。
+              clearInterval(indexRebuildPollingTimer);
+              indexRebuildPollingTimer = null;
+              dismissIndexRebuildToast();
+              rebuildBtn.disabled = false;
+              rebuildBtn.textContent = '⚡ 手動重建索引';
+              showToast('全文索引重建狀態查詢失敗', 'error');
+              return;
+            }
             const data = await statsRes.json();
             renderHardwareDashboard(data);
 
@@ -8702,16 +8769,24 @@
               indexRebuildPollingTimer = null;
               rebuildBtn.disabled = false;
               rebuildBtn.textContent = '⚡ 手動重建索引';
+              dismissIndexRebuildToast();
               showToast('✅ 全文索引重建完成！', 'success', 3000);
             }
           } catch (err) {
             console.error('Error polling hardware stats during rebuild:', err);
+            clearInterval(indexRebuildPollingTimer);
+            indexRebuildPollingTimer = null;
+            dismissIndexRebuildToast();
+            rebuildBtn.disabled = false;
+            rebuildBtn.textContent = '⚡ 手動重建索引';
+            showToast('全文索引重建狀態查詢失敗', 'error');
           }
         }, 1500);
 
       } catch (err) {
         console.error('Failed to rebuild search index:', err);
-        showToast(`❌ 重建索引失敗: ${err.message}`, 'error', 3500);
+        dismissIndexRebuildToast();
+        showToast(`❌ 重建索引失敗：${err.message}`, 'error', 3500);
         rebuildBtn.disabled = false;
         rebuildBtn.textContent = '⚡ 手動重建索引';
       }
@@ -8741,13 +8816,14 @@
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          showToast(`❌ 重建辭典索引失敗: ${errData.error || res.statusText}`, 'error', 3500);
+          showToast(`❌ 重建辭典索引失敗：${errData.error || `HTTP ${res.status}`}`, 'error', 3500);
           rebuildBtn.disabled = false;
           rebuildBtn.textContent = '📖 重建辭典索引';
           return;
         }
 
-        showToast('⏳ 已觸發辭典索引重建，後台建置中…', 'info', 3000);
+        // 同全文索引：以持久型 Toast 呈現真正的非同步建置狀態。
+        dictIndexRebuildToast = showToast('辭典索引重建中…', 'loading', 0);
 
         await loadHardwareStats();
 
@@ -8757,7 +8833,15 @@
             const statsRes = await fetch('/api/admin/hardware', {
               headers: { 'X-Admin-Token': state.adminToken }
             });
-            if (!statsRes.ok) return;
+            if (!statsRes.ok) {
+              clearInterval(dictIndexRebuildPollingTimer);
+              dictIndexRebuildPollingTimer = null;
+              dismissDictIndexRebuildToast();
+              rebuildBtn.disabled = false;
+              rebuildBtn.textContent = '📖 重建辭典索引';
+              showToast('辭典索引重建狀態查詢失敗', 'error');
+              return;
+            }
             const data = await statsRes.json();
             renderHardwareDashboard(data);
 
@@ -8766,16 +8850,24 @@
               dictIndexRebuildPollingTimer = null;
               rebuildBtn.disabled = false;
               rebuildBtn.textContent = '📖 重建辭典索引';
+              dismissDictIndexRebuildToast();
               showToast('✅ 辭典索引重建完成！', 'success', 3000);
             }
           } catch (err) {
             console.error('Error polling hardware stats during dict index rebuild:', err);
+            clearInterval(dictIndexRebuildPollingTimer);
+            dictIndexRebuildPollingTimer = null;
+            dismissDictIndexRebuildToast();
+            rebuildBtn.disabled = false;
+            rebuildBtn.textContent = '📖 重建辭典索引';
+            showToast('辭典索引重建狀態查詢失敗', 'error');
           }
         }, 1500);
 
       } catch (err) {
         console.error('Failed to rebuild dictionary index:', err);
-        showToast(`❌ 重建辭典索引失敗: ${err.message}`, 'error', 3500);
+        dismissDictIndexRebuildToast();
+        showToast(`❌ 重建辭典索引失敗：${err.message}`, 'error', 3500);
         rebuildBtn.disabled = false;
         rebuildBtn.textContent = '📖 重建辭典索引';
       }
@@ -8888,8 +8980,13 @@
         const lvl = (item.level || '').toUpperCase();
 
         if (category === 'error') {
-          const isErr = lvl === 'ERROR' || lvl === 'WARN' || tag.includes('ERR') || msg.includes('error') || msg.includes('fail');
+          // AUTH is kept in the error/security bucket (login failure/lockout) so the
+          // new server-side Auth tag stays reachable from an existing category.
+          const isErr = lvl === 'ERROR' || lvl === 'WARN' || tag.includes('ERR') || msg.includes('error') || msg.includes('fail') || tag.includes('AUTH');
           if (!isErr) return false;
+        } else if (category === 'security') {
+          // 認證與設定變更事件（伺服器新增的 Auth / Config 標籤）。
+          if (!tag.includes('AUTH') && !tag.includes('CONFIG')) return false;
         } else if (category === 'http') {
           if (tag !== 'HTTP') return false;
         } else if (category === 'search') {
@@ -9026,7 +9123,7 @@
       downloadBtn._hasDownloadHandler = true;
       downloadBtn.addEventListener('click', () => {
         if (!stateAdminLogs || stateAdminLogs.length === 0) {
-          showToast('⚠️ 目前無可下載的日誌', 'info');
+          showToast('⚠️ 目前無可下載的日誌', 'warning');
           return;
         }
         const tz = getEffectiveTimezone();
@@ -9471,7 +9568,7 @@
             setAdminDirty(true);
             showToast(`➕ 已加入「${filePath}」至推薦清單`, 'info');
           } else {
-            showToast(`ℹ️「${filePath}」已在推薦清單中`, 'info');
+            showToast(`「${filePath}」已在推薦清單中`, 'info');
           }
           searchInput.value = '';
           if (clearBtn) clearBtn.style.display = 'none';
@@ -9563,7 +9660,7 @@
             resultMsg.className = 'form-error-text';
             resultMsg.textContent = '❌ ' + err.message;
           }
-          showToast('❌ Sitemap 重建失敗: ' + err.message, 'error');
+          showToast('❌ Sitemap 重建失敗：' + err.message, 'error');
         } finally {
           btnRebuild.disabled = false;
           btnRebuild.textContent = origText;
@@ -9710,6 +9807,7 @@
           errorEl.textContent = err.message;
           errorEl.style.display = 'block';
         }
+        showToast('推薦閱讀設定儲存失敗：' + err.message, 'error');
       }
     });
 
@@ -9982,7 +10080,7 @@
           }
           await fetchSeoStats();
         } catch (err) {
-          showToast('❌ 儲存失敗: ' + err.message, 'error');
+          showToast('❌ 儲存失敗：' + err.message, 'error');
           if (errorMsg) {
             errorMsg.textContent = '❌ ' + err.message;
             errorMsg.style.display = 'inline';
@@ -10196,6 +10294,9 @@
     shareBtn.addEventListener('click', () => {
       if (!currentShareUrl) return;
       const rawUrl = decodeURIComponent(currentShareUrl);
+      // Capture now: the async clipboard path below runs after the user may have
+      // selected another line, and the toast must name the line actually copied.
+      const shareLineNum = currentLineNum;
 
       // Update address bar to unencoded Chinese URL with line number
       if (state.currentFile && currentLineNum) {
@@ -10208,6 +10309,7 @@
       const doCopySuccess = () => {
         shareLabel.textContent = '✓ 已複製';
         shareBtn.classList.add('copied');
+        showToast(`✓ 已複製第 ${shareLineNum} 行分享連結`, 'success');
         setTimeout(() => {
           popup.classList.remove('visible');
         }, 1500);
