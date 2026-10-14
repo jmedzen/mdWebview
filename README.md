@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.7.6) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.7.7) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -31,7 +31,7 @@
   - **精確跳轉定位**：點擊後段搜尋結果時，以「目標行號」而非「首個高亮標記」為滾動依據，並於渲染後自我校正至 ±2px，且對 12–32px 全字級範圍有效。
   - **已耗盡檔案不再重掃**：走訪過程中已翻完的辭典檔會記錄於游標狀態並自後續掃描中移除，避免重複掃描拖慢翻頁。
 - 📑 **自動大綱導航 (TOC)**：開啟經論檔案後，自動解析 Markdown 標題（H1~H6）並動態生成側邊欄大綱，支援點擊滾動與閱讀進度追蹤（ScrollSpy）。
-- 🔔 **全系統 Toast 提示訊息**：全站操作（複製連結、書籤、歷史記錄、主題切換、搜尋、管理員登入/儲存/數據導出）配備毛玻璃動畫 Toast 提示與 `success` / `warning` / `error` / `info` 狀態燈號。
+- 🔔 **全系統 Toast 提示訊息**：全站操作（複製連結、書籤、歷史記錄、主題切換、搜尋、管理員登入/儲存/數據導出）配備毛玻璃動畫 Toast 提示與 `success` / `warning` / `error` / `info` / `loading` 狀態燈號。錯誤提示具 4000ms 最短顯示時間；相同訊息的提示會自動去重；索引重建採用持久型 `loading` 提示，實際完成時才收起。容器具 `role="status" aria-live="polite"`，錯誤提示另帶 `role="alert"`，確保螢幕閱讀器可朗讀。
 - 🎨 **五種精緻閱讀主題**：
   - 🌙 **暗色 Dark** (深色科技)
   - ☀️ **亮色 Light** (明亮清新)
@@ -53,8 +53,10 @@
   - **嚴格安全防禦**：Footnote 註腳 XSS 雙重消毒與屬性跳脫、畸形 Host 標頭 400 防禦與連線逾時銷毀（防 DoS）、嚴格信任代理白名單（防 IP 偽造）、Analytics 匯出同源驗證。
   - **匯出端點標頭專用認證**：Analytics CSV/JSON 匯出僅接受 `X-Admin-Token` 標頭，明確拒絕 URL 查詢字串中的 session token；前端以已驗證的 `fetch` 取得 Blob 後再觸發下載，避免權杖進入瀏覽器歷史、複製連結或代理伺服器日誌。
   - **設定檔靜態存取封鎖**：靜態路由以檔名 `config.json`（不分大小寫）無條件拒絕，即使 `CONFIG_PATH` 指向其他位置（如 Docker `/data/config.json`）而專案根目錄仍留有 `config.json`，亦不會外洩管理員帳號、密碼雜湊與 salt。
-  - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。
+  - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。日誌分類含 `全部` / `錯誤` / `認證／設定` / `HTTP` / `搜尋` / `渲染` / `機器人`。
+  - **認證稽核軌跡**：登入成功、每一次失敗嘗試（含次數與 IP）、15 分鐘鎖定與登出皆寫入結構化日誌（tag `Auth`），可從日誌檢視器追溯；**僅記錄使用者名稱與 IP，絕不記錄密碼、雜湊、salt 或 session token**，存取日誌中的 `?token=` 亦自動遮蔽。
   - **90 天 Analytics 淘汰與 7 天 Log 修剪**：Analytics store 每日 bucket 90 天自動修剪；7 天以上歷史日誌自動精簡瘦身（節省 85% ~ 95% 空間），同時保留全時段關鍵計數。
+  - **可觀測性完整性**：Worker 執行緒重生、靜態資產／SSR I/O 失敗、設定載入失敗與日誌修剪結果皆走統一日誌管線（不再有 `console.*` 旁路）；`SIGTERM`/`SIGINT` 具優雅關機處理常式，會記錄訊號原因、停止接受新連線並終止 worker pool。
 - 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險；Service Worker 離線提供明確 504 回退並支援無縫即時更新（`SKIP_WAITING`），且版本升級時僅清除自身 `mdwebview-shell-*` / `mdwebview-content-*` 前綴的舊快取，不影響同一網域下的其他應用。
 - 🐳 **Docker 與 GitHub Actions 自動化 CI/CD**：
   - **多平台映像檔構建**：內建 Dockerfile、`docker-compose.yml` 與 GitHub Actions，自動發布 `linux/amd64` 與 `linux/arm64` 雙架構 Docker Image 至 GHCR (`ghcr.io`)。
@@ -90,7 +92,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.7.6）
+├── package.json        # Node.js 套件設定（v3.7.7）
 └── README.md           # 本說明文件
 ```
 
@@ -185,7 +187,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.7.6) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.7.7) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -209,7 +211,7 @@ docker-compose up -d
   - **Accurate Deep-Jump Landing**: Clicking a result deep in a large file scrolls to the requested line (not the first highlight of a matched window) and self-corrects to within ±2px after render, across the full 12–32px font range.
   - **Exhausted Files Are Never Rescanned**: Dictionaries fully paged through are recorded in the cursor state and dropped from later scans, so paging stays fast.
 - 📑 **Auto Outline Navigation (TOC)**: Dynamically parses Markdown headings (H1–H6) into a sidebar table of contents with click-to-scroll and ScrollSpy progress tracking.
-- 🔔 **Systemwide Toast Notifications**: Glassmorphism toast alerts with `success`, `warning`, `error`, and `info` status badges across all user actions.
+- 🔔 **Systemwide Toast Notifications**: Glassmorphism toast alerts with `success`, `warning`, `error`, `info`, and `loading` status badges across all user actions. Errors get a 4000 ms minimum display time; identical messages are de-duplicated; index rebuilds use a persistent `loading` toast that is dismissed only on real completion. The container carries `role="status" aria-live="polite"`, and error toasts additionally carry `role="alert"` so screen readers announce them.
 - 🎨 **Five Curated Reading Themes**:
   - 🌙 **Obsidian Dark**
   - ☀️ **Obsidian Light**
@@ -231,8 +233,10 @@ docker-compose up -d
   - **Strict Security Hardening**: Double sanitization and attribute escaping on footnote elements (XSS defense), malformed Host header 400 rejection and socket timeout destruction (DoS prevention), strict trusted proxy CIDR whitelist, and mandatory Same-Origin verification on analytics exports.
   - **Header-Only Export Authentication**: Analytics CSV/JSON exports accept the admin session token **only** via the `X-Admin-Token` header; query-string tokens are explicitly rejected. The UI downloads through an authenticated `fetch` + Blob, keeping tokens out of browser history, copied links, and proxy logs.
   - **Config File Static-Serve Block**: The static route unconditionally rejects any request whose basename is `config.json` (case-insensitive), so an `APP_ROOT/config.json` left in place while `CONFIG_PATH` points elsewhere (e.g. Docker `/data/config.json`) can never leak the admin username, password hash, or salt.
-  - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export.
+  - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export. Log categories include `All` / `Error` / `Auth & Config` / `HTTP` / `Search` / `Render` / `Bot`.
+  - **Auth Audit Trail**: Successful logins, every failed attempt (with count and IP), 15-minute lockouts, and logouts are all written to the structured log under the `Auth` tag and are traceable from the log viewer. Only the username and IP are recorded — never the password, hash, salt, or session token — and `?token=` in access logs is redacted.
   - **90-Day Analytics & 7-Day Log Pruning**: Automatic 90-day retention on daily analytics buckets with map pruning; raw log files older than 7 days are automatically pruned while permanently preserving key all-time aggregates.
+  - **Observability Completeness**: Worker-thread respawns, static-asset / SSR I/O failures, config load failures, and log-pruner results all flow through the unified log pipeline (no more `console.*` bypasses); `SIGTERM`/`SIGINT` have a graceful shutdown handler that logs the signal, stops accepting connections, and terminates the worker pools.
 - 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies; Service Worker provides clean 504 offline fallback and seamless immediate updates (`SKIP_WAITING`), and on version upgrades purges only its own `mdwebview-shell-*` / `mdwebview-content-*` caches so other applications on the same origin are untouched.
 - 🐳 **Docker & GitHub Actions Automated CI/CD**:
   - **Multi-Architecture Builds**: Automatically builds and publishes multi-platform (`linux/amd64`, `linux/arm64`) container images to GitHub Container Registry (`ghcr.io`).
@@ -268,7 +272,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.7.6)
+├── package.json        # Node.js package manifest (v3.7.7)
 └── README.md           # Project documentation
 ```
 

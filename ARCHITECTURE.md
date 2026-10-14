@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.7.6 | 最後更新：2026-10
+> 版本：v3.7.7 | 最後更新：2026-10
 
 ---
 
@@ -419,11 +419,11 @@ flowchart TD
 | `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
-| `lib/auth.js` | 身分安全與存取控制：PBKDF2 密碼雜湊、時序安全比對、6h Session 管理、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `sessions`, `SESSION_DURATION`, `loginAttempts`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`, `generateSessionToken`, `verifySameOrigin`, `isAuthenticated`, `readJSONBody` |
+| `lib/auth.js` | 身分安全與存取控制：PBKDF2 密碼雜湊、時序安全比對、6h Session 管理、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `sessions`, `SESSION_DURATION`, `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`, `generateSessionToken`, `verifySameOrigin`, `isAuthenticated`, `readJSONBody` |
 | `lib/worker-pool.js` | 背景 Worker Thread 池生命週期調度：Render Pool 與 Index Pool 管理、Backpressure 佇列上限、逾時熔斷重生、指數退避防 Crash Loop | `workerPool`, `indexWorkerPool`, `initWorkerPool`, `initIndexWorkerPool`, `renderWithWorker`, `executeIndexJob`, `runIndexWorkerPool`, `terminateWorkerPools` |
-| `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`, `getLogFilePath`, `appendToPersistentLog`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
-| `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝 | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`) |
-| `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入 | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
+| `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`（**getter**，見 §13.1）, `getLogFilePath`, `appendToPersistentLog`, `getAnalyticsEventId`, `assignAnalyticsEventSeq`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `queueAnalyticsStoreEntry`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `pruneAnalyticsLogEntry`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
+| `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝、**唯一 URL 解碼點** | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`, `debug`) |
+| `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入、**I/O 失敗記錄** | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
 | `lib/markdown.js` | Markdown 與 Frontmatter 文本處理：YAML 標頭剝離、metadata 解析與行號偏移 (lineOffset) 計算 | `stripFrontmatter` |
 | `lib/text.js` | 索引與搜尋共用的文本正規化層：CJK 判定、標點/換行透明集合判定、Bigram 抽取、寬鬆模式比對與文本掃描（Index/Render Worker 皆引用，確保索引抽取透明集 ⊇ 掃描透明集） | `isCJKIdeograph`, `isTransparent`, `extractBigramsFromText`, `normalizeLooseTerm`, `SNIPPET_RADIUS`, `localLineAt`, `findLoose`, `matchLooseSequence`, `scanText` |
 
@@ -623,7 +623,7 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.7.6'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.7.7'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -707,7 +707,28 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 | **Session 管理** | `sessions Map` | 記憶體 Map；6 小時滾動更新；每 15 分鐘清理過期 token |
 | **IP Rate Limiting** | `checkApiRateLimit()` | 每 IP 30 req/s 滑動視窗；超限 HTTP 429 |
 | **XSS 防護** | `escapeHtmlString()` | 所有 SSR 注入的設定值均 HTML 轉義 |
-| **Bot token 遮蔽** | 存取日誌中介 | URL 中的 `?token=...` 在記錄前自動遮蔽 |
+| **Bot token 遮蔽** | 存取日誌中介 | URL 中的 `?token=...` 在記錄前自動遮蔽（`server.js` `parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]')`） |
+| **認證稽核軌跡** | `Logger` tag `Auth` | 登入成功／每次失敗（含次數）／15 分鐘鎖定／登出皆記錄；**僅記錄使用者名稱與 IP，絕不記錄密碼、雜湊、salt 或 session token** |
+
+### 13.1 日誌子系統設計決策
+
+以下為日誌／提示（Toast）子系統的關鍵設計決策，多數源自一次全站稽核，且皆有對應回歸測試
+（`tests/test-logging.test.js`、`tests/test-toast.test.js`）：
+
+| 決策 | 內容 | 理由 |
+| --- | --- | --- |
+| **單一 URL 解碼點** | `Logger.info/warn/debug/error` 一律將**原始**訊息交給 `pushToLogBuffer()`，由後者單次 `safeDecodeURI()`。console 顯示才使用解碼版本 | 過去兩處各解碼一次，`%2520` 會被解碼兩次；`extractAnalyticsQuery` 的 `q=([^&\s]+)` 遇到解碼後的空白即截斷，分析資料失真 |
+| **存取記錄尾綴先剝除** | `extractAnalyticsQuery` / `extractAnalyticsPath` 先以 `/ -> \d{3}(?: \(\d+ms\))?$/` 移除 `" -> 200 (12ms)"` 尾綴，再用 `/q=([^&]*)/`、`/path=([^&]*)/` 取值 | 值本身可能含空白（如 `q=一切 法`、`path=NLM/金剛經論釋記 /x.md`）；舊寫法 `[^&\s]+` 會把值截斷成第一個詞 |
+| **`Logger.error` 簽章防呆** | `error(tag, msg, err, reqOrIp, extra)` 的 `err` 為第 3 參數。若傳入 request 形狀物件（具 `headers`/`socket` 且非 `Error`），自動平移至 `reqOrIp` | 統一簽章降低誤用；誤放時若不平移，訊息會變成 `"[object Object]"` 且 IP 遺失 |
+| **`analyticsStore` 以 getter 匯出** | `module.exports` 使用 `get analyticsStore()` 而非直接匯出值 | 該變數於模組載入時為 `null`，稍後才由 `initializeAnalyticsStore()` 賦值；以值匯出會讓取用端永遠拿到 `null` |
+| **啟動視窗條目緩衝** | store 尚未就緒時，`queueAnalyticsStoreEntry()` 將條目推入 `pendingAnalyticsEntries`（上限 2000，超出丟棄最舊），初始化完成後由 `flushPendingAnalyticsEntries()` 補送 | 過去啟動期間的條目僅寫入 jsonl、不進聚合；backfill 只在版本升級時觸發，不能倚賴它回收 |
+| **事件序號 `seq`** | `assignAnalyticsEventSeq()` 於寫入緩衝前指派單調序號，並隨 jsonl 持久化；`getAnalyticsEventId()` 僅在 `seq` 存在時納入 identity | 相同 `(timestamp, level, tag, ip, message, path, query, durationMs)` 會產生相同 sha256，被 `processedIds` 去重而漏計（實測 0.24%~0.64%）。序號持久化確保「重讀同一行得到相同 id」，backfill 不會重複計數；舊資料不含 `seq` 者維持原雜湊，向後相容 |
+| **lazy logger accessor** | `lib/analytics.js`、`lib/config.js`、`lib/static-cache.js` 以 `getLogger()` 於實際記錄時才 `require('./logger')`，失敗則退回 `console` | `logger.js` 反過來 require `analytics`，且這些模組在 `server.js` 中先於 logger 載入；頂層 require 會導致 `setInMemoryLogBufferRef is not a function` 而崩潰 |
+| **優雅關機** | `setupGracefulShutdown()` 僅在 `require.main === module` 時註冊 `SIGTERM`/`SIGINT`；具冪等守衛、5 秒強制結束計時器（`unref`），並於結束時呼叫 `terminateWorkerPools()` | 過去無任何關機處理常式，`terminateWorkerPools` 從未被呼叫；進行中的寫入與未儲存的聚合會靜默遺失 |
+| **Toast 時長下限** | `showToast()` 對 `type === 'error'` 套用 `TOAST_ERROR_MIN_MS = 4000` 下限（僅墊高，不縮短呼叫端指定的更長值；`0`/`Infinity` 持久型不受影響） | 錯誤訊息常內插 `err.message`，2200ms 預設值不足以閱讀 |
+| **Toast 訊息層級去重** | `showToast()` 比對畫面上同 `type` + 同解析後文字的節點，存在則重用並重置計時器 | 一個 mounted window 可能同時拒絕多個 chunk，產生多則完全相同訊息 |
+| **Toast 無障礙** | `#toastContainer` 具 `role="status" aria-live="polite" aria-atomic="true"`；`type==='error'` 的節點另加 `role="alert"` | 過去全站無任何 live region，螢幕閱讀器不會朗讀任何提示。`textContent` 寫入已結構性阻絕 HTML 注入，故不影響 XSS 防護 |
+| **日誌分類** | 前端 `filterLogEntries()` 的分類包含 `all`/`error`/`security`/`http`/`search`/`render`/`bot`；`Auth` 同時歸入 `error` 與 `security`，`Config` 歸入 `security` | 新增伺服器 tag 需在用戶端分類中可達；`security` 以子字串比對，可涵蓋 `AuthDB`、`ConfigSave` 等衍生 tag |
 
 ---
 

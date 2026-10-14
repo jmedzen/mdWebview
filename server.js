@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.6
+ * @version 3.7.7
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -79,6 +79,7 @@ const {
 
 const {
   sessions, SESSION_DURATION, loginAttempts, MAX_ATTEMPTS, LOCK_DURATION,
+  MAX_LOGIN_ENTRIES,
   apiRateLimits, checkApiRateLimit, timingSafeCompare, hashPassword,
   generateSessionToken, verifySameOrigin, isAuthenticated, readJSONBody
 } = require('./lib/auth');
@@ -1938,7 +1939,8 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
     if (global.gc) global.gc();
     return true;
   } catch (err) {
-    Logger.error('Index', 'Failed to read binary search index cache', err);
+    // 冷快取讀取失敗屬設計路徑（將改由重建處理），降為 WARN 以免掩蓋真正的錯誤。
+    Logger.warn('Index', 'Failed to read binary search index cache', err);
     return false;
   }
 }
@@ -2214,7 +2216,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       setupTreeWatcher();
     }
     if (buildId !== activeIndexBuildId) {
-      Logger.info('Index', `[Build #${buildId}] Aborted during initial directory scan.`);
+      Logger.warn('Index', `[Build #${buildId}] Aborted during initial directory scan.`);
       return;
     }
 
@@ -2253,7 +2255,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
 
     for (let fIdx = 0; fIdx < files.length; fIdx++) {
       if (buildId !== activeIndexBuildId) {
-        Logger.info('Index', `[Build #${buildId}] Aborted during unit construction.`);
+        Logger.warn('Index', `[Build #${buildId}] Aborted during unit construction.`);
         return;
       }
       const file = files[fIdx];
@@ -2312,7 +2314,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       concurrency);
 
     if (buildId !== activeIndexBuildId) {
-      Logger.info('Index', `[Build #${buildId}] Aborted: Vault files modified during indexing.`);
+      Logger.warn('Index', `[Build #${buildId}] Aborted: Vault files modified during indexing.`);
       return;
     }
 
@@ -2540,7 +2542,7 @@ async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
     if (global.gc) global.gc();
     return true;
   } catch (err) {
-    Logger.error('DictIndex', 'Failed to read dictionary index cache', err);
+    Logger.warn('DictIndex', 'Failed to read dictionary index cache', err);
     return false;
   }
 }
@@ -4074,7 +4076,7 @@ async function getSystemHardwareStats() {
       indexFileMtime = stat.mtime ? stat.mtime.toISOString() : (stat.birthtime ? stat.birthtime.toISOString() : indexFileMtime);
     }
   } catch (err) {
-    Logger.error('Hardware', 'Failed to stat search index cache file', err);
+    Logger.warn('Hardware', 'Failed to stat search index cache file', err);
   }
 
   if (indexFileMtime) {
@@ -4090,7 +4092,7 @@ async function getSystemHardwareStats() {
       dictIndexFileMtime = stat.mtime ? stat.mtime.toISOString() : (stat.birthtime ? stat.birthtime.toISOString() : dictIndexFileMtime);
     }
   } catch (err) {
-    Logger.error('Hardware', 'Failed to stat dictionary index cache file', err);
+    Logger.warn('Hardware', 'Failed to stat dictionary index cache file', err);
   }
   if (dictIndexFileMtime) {
     dictIndex.createdAt = dictIndexFileMtime;
@@ -4290,7 +4292,7 @@ async function handleAdminPassword(req, res) {
       }
     }
 
-    Logger.info('Admin', `Admin password changed successfully from ${getClientIP(req)}`, null, req);
+    Logger.info('Admin', `Admin password changed successfully from ${getClientIP(req)}`, req);
     return sendJSON(res, 200, { success: true, message: '管理員密碼已成功更新，已登出其他裝置。' });
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
@@ -4405,7 +4407,7 @@ async function handleAdminRebuildSitemap(req, res) {
     sitemapDirty = false;
 
     const durationMs = Date.now() - t0;
-    Logger.info('SEO', `Sitemap rebuilt: ${totalUrls} URLs generated in ${durationMs}ms`, null, req);
+    Logger.info('SEO', `Sitemap rebuilt: ${totalUrls} URLs generated in ${durationMs}ms`, req);
 
     return sendJSON(res, 200, {
       success: true,
@@ -4432,7 +4434,7 @@ function handleAdminClearCache(req, res) {
   cachedTree = null;
   sitemapDirty = true;
 
-  Logger.info('Admin', `In-memory caches cleared: ${staticCount} static entries, ${searchCount} search entries`, null, req);
+  Logger.info('Admin', `In-memory caches cleared: ${staticCount} static entries, ${searchCount} search entries`, req);
   return sendJSON(res, 200, {
     success: true,
     staticCount,
@@ -4752,7 +4754,7 @@ const server = http.createServer((req, res) => {
         sitemapDirty = true;
         saveConfig();
         autoRebuildSitemapAsync().catch(() => {});
-        Logger.info('Admin', `Admin account "${username.trim()}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, null, req);
+        Logger.info('Admin', `Admin account "${username.trim()}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, req);
         return sendJSON(res, 200, { success: true });
       });
     }).catch(err => {
@@ -4795,12 +4797,16 @@ const server = http.createServer((req, res) => {
           loginAttempts.delete(ip); // Clear attempts on success
           const token = generateSessionToken();
           sessions.set(token, { expiry: Date.now() + SESSION_DURATION });
+          // 僅記錄使用者名稱與 IP；絕不記錄密碼、雜湊、salt 或 session token (F10)。
+          Logger.info('Auth', `Admin login succeeded for user "${String(username).slice(0, 100)}"`, req);
           return sendJSON(res, 200, { success: true, token });
         } else {
           attempt.attempts += 1;
+          // 每次失敗皆記錄，使第 1~4 次嘗試可見、可觀測憑證填充 (credential stuffing)。
+          Logger.warn('Auth', `Failed admin login attempt #${attempt.attempts} for user "${String(username).slice(0, 100)}"`, req);
           if (attempt.attempts >= MAX_ATTEMPTS) {
             attempt.lockUntil = Date.now() + LOCK_DURATION;
-            console.warn(`[Security Alert] IP ${ip} locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`);
+            Logger.warn('Auth', `IP locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`, req);
           }
           loginAttempts.set(ip, attempt); // Correctly save the attempt block in all paths
           // Evict oldest entries if over limit
@@ -4812,7 +4818,9 @@ const server = http.createServer((req, res) => {
         }
       });
     }).catch(err => {
-      return sendJSON(res, 500, { error: err.message });
+      // 內部錯誤僅進日誌，回應客戶端通用訊息，避免洩漏內部細節。
+      Logger.error('Auth', 'Admin login processing failed', err, req);
+      return sendJSON(res, 500, { error: 'Internal Server Error' });
     });
   }
   if (pathname === '/api/admin/logout' && req.method === 'POST') {
@@ -4820,6 +4828,7 @@ const server = http.createServer((req, res) => {
     if (token) {
       sessions.delete(token);
     }
+    Logger.info('Auth', 'Admin logout', req);
     return sendJSON(res, 200, { success: true });
   }
   if (pathname === '/api/admin/settings' && req.method === 'GET') {
@@ -4965,7 +4974,7 @@ const server = http.createServer((req, res) => {
         if (seoHomepageSummary !== undefined) config.settings.seoHomepageSummary = String(seoHomepageSummary).trim();
         cachedSitemapXml = null;
         sitemapDirty = true;
-        Logger.info('SEO', 'SEO configuration modified: Triggering sitemap background rebuild', null, req);
+        Logger.info('SEO', 'SEO configuration modified: Triggering sitemap background rebuild', req);
         autoRebuildSitemapAsync().catch(() => {});
 
         if (config.settings.dictionaryEnabled !== nextDictEnabled || config.settings.dictionaryPath !== nextDictPath) {
@@ -5107,7 +5116,49 @@ server.on('clientError', (err, socket) => {
 initWorkerPool();
 initIndexWorkerPool();
 
+/**
+ * 註冊優雅關機處理常式（僅於真正啟動伺服器時呼叫，模組被 require 時不會註冊）。
+ * 收到 SIGTERM/SIGINT 時：記錄訊號原因、停止接受新連線、終止 worker pool 後結束。
+ * 具冪等守衛避免雙重訊號重複執行，並設有上限計時器避免卡住的 worker 阻擋結束。
+ * @returns {void}
+ */
+function setupGracefulShutdown() {
+  let shuttingDown = false;
+  const signals = ['SIGTERM', 'SIGINT'];
+  const forceExitMs = 5000;
+
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    Logger.info('Boot', `Received ${signal}, starting graceful shutdown (in-flight requests will be abandoned).`);
+
+    // 上限計時器：worker 卡住時仍能結束。unref 避免它本身阻止行程自然退出。
+    const forceTimer = setTimeout(() => {
+      Logger.warn('Boot', `Graceful shutdown timed out after ${forceExitMs}ms; forcing exit.`);
+      process.exit(1);
+    }, forceExitMs);
+    if (forceTimer && forceTimer.unref) forceTimer.unref();
+
+    server.close(() => {
+      terminateWorkerPools()
+        .catch(err => Logger.error('Boot', 'Error terminating worker pools during shutdown', err))
+        .finally(() => {
+          Logger.info('Boot', `Shutdown complete (${signal}).`);
+          process.exit(0);
+        });
+    });
+  };
+
+  for (const signal of signals) {
+    process.on(signal, () => shutdown(signal));
+  }
+}
+
 if (require.main === module) {
+  // 只有真正的伺服器行程才註冊訊號處理常式；測試 require server.js 時不會註冊。
+  setupGracefulShutdown();
+
   server.listen(PORT, () => {
     console.log('');
     console.log('  🪷  mdWebview is running');
