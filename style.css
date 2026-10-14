@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.7.7
+   mdWebview — Style System (style.css) v3.7.8
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1337,7 +1337,7 @@ section.chunk.chunk-error {
 
 /* ── §10 Resize Handle ──────────────────────────────────────── */
 .resize-handle {
-  width: 5px;
+  width: 6px;
   cursor: col-resize;
   background: transparent;
   transition: background 0.2s ease;
@@ -1351,17 +1351,18 @@ section.chunk.chunk-error {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 3px;
-  height: 32px;
+  width: 4px;
+  height: 96px;
   background: var(--border-subtle);
-  border-radius: 3px;
+  border-radius: 4px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease;
 }
 .resize-handle:hover::after,
 .resize-handle.active::after {
   opacity: 1;
   background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-dim);
 }
 
 /* ── §11 Content Area ───────────────────────────────────────── */
@@ -5726,7 +5727,7 @@ details.callout[open] > summary .callout-fold-icon {
 
 /* ── Dictionary Resize Handle (left edge of the right panel) ── */
 .dict-resize-handle {
-  width: 5px;
+  width: 6px;
   cursor: col-resize;
   background: transparent;
   transition: background 0.2s ease;
@@ -5740,17 +5741,18 @@ details.callout[open] > summary .callout-fold-icon {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 3px;
-  height: 32px;
+  width: 4px;
+  height: 96px;
   background: var(--border-subtle);
-  border-radius: 3px;
+  border-radius: 4px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease;
 }
 .dict-resize-handle:hover::after,
 .dict-resize-handle.active::after {
   opacity: 1;
   background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-dim);
 }
 
 .dict-sidebar-header {

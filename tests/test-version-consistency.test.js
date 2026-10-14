@@ -67,15 +67,22 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
   });
 
   /**
-   * 反向斷言：升版後不得殘留「上一版的現行版本標記」。
+   * 反向斷言：不得殘留「上一版的現行版本標記」。
    *
    * 注意 ARCHITECTURE.md 會刻意累積**歷史註記**（例如「深度跳轉定位對齊（v3.7.6）」
    * 記錄該版做了什麼），這些是準確的歷史敘述，不應被後續升版改寫。因此這裡只針對
-   * 「現行版本標記」（標頭版本列與 APP_VERSION 表格列）斷言，並另外以歷史註記數量
-   * 守住誤用全域取代（sed 全檔替換）把歷史一併改寫的情況。
+   * 「現行版本標記」（標頭版本列與 APP_VERSION 表格列）斷言，並另外守住歷史註記
+   * 不被誤刪（避免誤用全域 sed 取代把歷史一併改寫）。
+   *
+   * 版本資訊由 package.json 的 patch 號推算「上一版」，升版後不需手動修改本測試。
    */
-  test('反向斷言：不得殘留舊版本的現行版本標記（v3.7.6）', () => {
-    const oldVersion = '3.7.6';
+  const prevVersion = (() => {
+    const [maj, min, pat] = version.split('.').map(Number);
+    return pat > 0 ? `${maj}.${min}.${pat - 1}` : null;
+  })();
+
+  test('反向斷言：不得殘留舊版本的現行版本標記', { skip: !prevVersion ? '無上一版可推導' : false }, () => {
+    const oldVersion = prevVersion;
     const oldTag = `v${oldVersion}`;
 
     // 這三個檔案中的版本引用全部都是「現行標記」，可直接全面禁止。
@@ -100,11 +107,41 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
       !appVerRow.includes(`'${oldVersion}'`),
       `ARCHITECTURE.md 的 APP_VERSION 表格列不得仍為 '${oldVersion}'`
     );
+  });
 
-    // 歷史註記不得被升版的全域取代誤刪：v3.7.6 的功能註記應維持存在。
+  test('ARCHITECTURE.md 應保留歷史功能註記（避免升版全域取代誤刪）', () => {
+    const arch = fs.readFileSync(path.join(ROOT_DIR, 'ARCHITECTURE.md'), 'utf8');
     assert.ok(
-      arch.includes(`（${oldTag}）`),
-      `ARCHITECTURE.md 應保留 v3.7.6 的歷史功能註記（不得被升版的全域取代改寫）`
+      arch.includes('（v3.7.6）'),
+      'ARCHITECTURE.md 應保留 v3.7.6 的歷史功能註記（不得被升版的全域取代改寫）'
     );
+  });
+
+  /**
+   * 版本 fallback 守衛：app.js 內所有「取不到 __APP_CONFIG__ 時的字面值版本」
+   * 必須等於當前版本。歷史上此處曾殘留 '3.7.0' 長達數個版本，導致匯出的
+   * 設定備份標記為錯誤的版本號（見 app.js 設定匯出）。
+   */
+  test('app.js 內所有版本 fallback 字面值皆應等於當前版本', () => {
+    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
+    const fallbackLines = appContent
+      .split('\n')
+      .map((line, i) => ({ line, no: i + 1 }))
+      .filter(({ line }) => line.includes('__APP_CONFIG__') && line.includes('.appVersion'));
+
+    assert.ok(
+      fallbackLines.length >= 3,
+      `app.js 內應至少 3 處 appVersion fallback，實際 ${fallbackLines.length} 處`
+    );
+
+    for (const { line, no } of fallbackLines) {
+      const m = line.match(/:\s*'([0-9]+\.[0-9]+\.[0-9]+)'/);
+      assert.ok(m, `app.js:${no} 的 appVersion fallback 應為純版本字面值`);
+      assert.equal(
+        m[1],
+        version,
+        `app.js:${no} 的 appVersion fallback 為 '${m[1]}'，應為當前版本 '${version}'`
+      );
+    }
   });
 });
