@@ -194,7 +194,7 @@ fn open_window(app: &tauri::AppHandle, port: u16) -> Result<(), Box<dyn std::err
     let url = tauri::Url::parse(&format!("http://127.0.0.1:{port}/"))?;
 
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-        .title("mdWebview")
+        .title("mdWebview (Tauri)")
         .inner_size(1440.0, 960.0)
         .min_inner_size(480.0, 480.0)
         .build()?;

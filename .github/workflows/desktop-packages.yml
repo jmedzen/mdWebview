@@ -41,14 +41,14 @@ jobs:
     name: Verify (tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # test-version-consistency.test.js derives the previous release version by
           # scanning `chore(release): vX.Y.Z` subjects in git history, and fails
           # loudly when it cannot (a silent skip would disable the guard). The
           # default depth-1 clone contains no such commit, so fetch full history.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_MAJOR }}
       - name: Install dependencies
@@ -94,9 +94,9 @@ jobs:
             artifact: tauri-windows
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_MAJOR }}
 
@@ -140,7 +140,7 @@ jobs:
         shell: bash
 
       - name: Upload installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -171,9 +171,9 @@ jobs:
             artifact: electron-windows
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_MAJOR }}
 
@@ -202,7 +202,7 @@ jobs:
           electron_config_cache: ${{ runner.temp }}/electron-cache
 
       - name: Upload installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -222,7 +222,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
@@ -231,7 +231,7 @@ jobs:
         run: ls -laR dist | head -50
 
       - name: Attach installers to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/**/*.dmg

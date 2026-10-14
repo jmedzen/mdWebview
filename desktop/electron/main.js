@@ -211,7 +211,7 @@ function createWindow(port) {
     minWidth: 480,
     minHeight: 480,
     backgroundColor: '#1e1e1e',
-    title: 'mdWebview',
+    title: 'mdWebview (Electron)',
     show: false,
     webPreferences: {
       // The reader is an ordinary web app served over loopback; it needs no
@@ -251,7 +251,7 @@ function buildMenu() {
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        { role: 'about', label: '關於 mdWebview' },
+        { role: 'about', label: '關於 mdWebview (Electron)' },
         { type: 'separator' },
         { role: 'hide', label: '隱藏' },
         { role: 'hideOthers', label: '隱藏其他' },
@@ -321,7 +321,7 @@ async function boot() {
     createWindow(port);
   } catch (err) {
     dialog.showErrorBox(
-      'mdWebview 啟動失敗',
+      'mdWebview (Electron) 啟動失敗',
       `${err && err.message ? err.message : err}\n\n` +
       `資料目錄：${userDataDir()}`
     );
