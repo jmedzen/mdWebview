@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.7.7) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.7.8) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
 
 ### ✨ 核心特色
 
@@ -31,6 +31,7 @@
   - **精確跳轉定位**：點擊後段搜尋結果時，以「目標行號」而非「首個高亮標記」為滾動依據，並於渲染後自我校正至 ±2px，且對 12–32px 全字級範圍有效。
   - **已耗盡檔案不再重掃**：走訪過程中已翻完的辭典檔會記錄於游標狀態並自後續掃描中移除，避免重複掃描拖慢翻頁。
 - 📑 **自動大綱導航 (TOC)**：開啟經論檔案後，自動解析 Markdown 標題（H1~H6）並動態生成側邊欄大綱，支援點擊滾動與閱讀進度追蹤（ScrollSpy）。
+- ↔️ **拖曳調整側邊欄寬度**：左右兩側面板（左側檔案樹／大綱、右側辭典）皆可拖曳邊緣調整寬度，左側 220–500px、右側 240–560px。把手平時隱藏不干擾閱讀，滑鼠移入或拖曳時顯示為 96px 高的強調色指示條並帶光暈，五套主題各自套用自身強調色；行動端（≤768px）與列印時自動隱藏。
 - 🔔 **全系統 Toast 提示訊息**：全站操作（複製連結、書籤、歷史記錄、主題切換、搜尋、管理員登入/儲存/數據導出）配備毛玻璃動畫 Toast 提示與 `success` / `warning` / `error` / `info` / `loading` 狀態燈號。錯誤提示具 4000ms 最短顯示時間；相同訊息的提示會自動去重；索引重建採用持久型 `loading` 提示，實際完成時才收起。容器具 `role="status" aria-live="polite"`，錯誤提示另帶 `role="alert"`，確保螢幕閱讀器可朗讀。
 - 🎨 **五種精緻閱讀主題**：
   - 🌙 **暗色 Dark** (深色科技)
@@ -92,7 +93,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
 ├── Dockerfile          # Docker 容器構建設定
 ├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.7.7）
+├── package.json        # Node.js 套件設定（v3.7.8）
 └── README.md           # 本說明文件
 ```
 
@@ -187,7 +188,7 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.7.7) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.7.8) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
 
 ### ✨ Key Features
 
@@ -211,6 +212,7 @@ docker-compose up -d
   - **Accurate Deep-Jump Landing**: Clicking a result deep in a large file scrolls to the requested line (not the first highlight of a matched window) and self-corrects to within ±2px after render, across the full 12–32px font range.
   - **Exhausted Files Are Never Rescanned**: Dictionaries fully paged through are recorded in the cursor state and dropped from later scans, so paging stays fast.
 - 📑 **Auto Outline Navigation (TOC)**: Dynamically parses Markdown headings (H1–H6) into a sidebar table of contents with click-to-scroll and ScrollSpy progress tracking.
+- ↔️ **Drag to Resize Sidebars**: Both side panels (left file tree/outline, right dictionary) can be resized by dragging their edge — 220–500px on the left, 240–560px on the right. The handle stays hidden while reading and appears on hover or drag as a 96px-tall accent bar with a soft glow, picking up each theme's own accent color. Hidden entirely on mobile (≤768px) and in print.
 - 🔔 **Systemwide Toast Notifications**: Glassmorphism toast alerts with `success`, `warning`, `error`, `info`, and `loading` status badges across all user actions. Errors get a 4000 ms minimum display time; identical messages are de-duplicated; index rebuilds use a persistent `loading` toast that is dismissed only on real completion. The container carries `role="status" aria-live="polite"`, and error toasts additionally carry `role="alert"` so screen readers announce them.
 - 🎨 **Five Curated Reading Themes**:
   - 🌙 **Obsidian Dark**
@@ -272,7 +274,7 @@ mdWebview/
 ├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
 ├── Dockerfile          # Docker image build configuration
 ├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.7.7)
+├── package.json        # Node.js package manifest (v3.7.8)
 └── README.md           # Project documentation
 ```
 

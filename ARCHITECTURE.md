@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.7.7 | 最後更新：2026-10
+> 版本：v3.7.8 | 最後更新：2026-10
 
 ---
 
@@ -623,7 +623,7 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.7.7'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.7.8'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -835,6 +835,30 @@ flowchart TD
    偏好設定彈窗與後台管理彈窗在桌機端維持居中卡片式呈現（最大寬度 720px~960px）；在 768px 以下自動擴展為全螢幕或自適應 95% 寬度，按鈕群使用 `flex-wrap: wrap` 與 `gap` 排列，杜絕固定寬度破版。
 3. **消除無效樣式與嚴格括號平衡**：
    重構過程中全面消除了歷史遺留的重複規則（如重複宣告的 `.seo-stats-box` 與 `.logo-text` 衝突），並由單元測試 `tests/test-css-theme.test.js` 與 `tests/test-mobile-layout-audit.test.js` 嚴格監控 CSS 語法閉合度與行動斷點完整性。
+
+### 16.3 側邊欄拖曳調整寬度把手（v3.7.8）
+
+桌機端左右兩側面板皆可拖曳邊緣調整寬度，各由一條獨立的 CSS 規則定義：
+
+| 把手 | 規則 | 所在面板 | 拖曳範圍 |
+|------|------|---------|---------|
+| `#resizeHandle` | `.resize-handle`（§10） | 左側 `#sidebar`（檔案樹／搜尋／大綱） | 220–500px |
+| `#dictResizeHandle` | `.dict-resize-handle` | 右側 `#dictSidebar`（辭典） | 240–560px |
+
+兩者刻意維持**實作獨立**而非合併為單一規則，因為響應式行為互異：辭典把手在 768px 以下以
+`display: none !important` 強制隱藏（行動端改走抽屜模式），左側把手則隨側邊欄一同隱藏。
+
+視覺規格（v3.7.8 起，兩側一致）：
+
+- 熱區寬度 **6px**；視覺指示條 **4px × 96px**、圓角 4px。
+- 指示條平時 `opacity: 0`（不干擾閱讀），`:hover` 與拖曳中的 `.active` 才顯現。
+- 顯示時套用 `background: var(--accent)` 與 `box-shadow: 0 0 10px var(--accent-dim)` 形成光暈，
+  使把手在深／淺色主題下皆清楚可辨；五套主題各自帶入自身強調色。
+- 高度由 32px 提升至 96px（3 倍），解決過往指示條過短、難以察覺此處可拖曳的可用性問題。
+- 加大熱區**不影響**面板寬度運算：`setupResizeHandle()` / `setupDictResizeHandle()`
+  以 `sidebar.offsetWidth` 為基準，未對把手寬度做任何硬編碼假設。
+
+行動端（≤768px）與列印（`@media print`）皆完全隱藏把手，不提供拖曳調整（見 §16.1）。
 
 
 
