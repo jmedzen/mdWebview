@@ -33,6 +33,7 @@ const {
   server,
   getSectionIndex,
   flushAllSectionIndexSaves,
+  sectionIndexMetrics,
   terminateWorkerPools,
   resetTreeWatcher,
   resetDictWatcher,
@@ -156,4 +157,81 @@ test('Section Index Cache: 連續建置合併為單次寫入（去抖）', async
   } finally {
     fs.promises.writeFile = realWriteFile;
   }
+});
+
+/**
+ * 可觀測性：v3.8.0 之前，章節索引快取完全不輸出任何命中／未命中證據，
+ * 導致「快取到底有沒有在運作？」只能靠猜。以下測試鎖定三層快取的計數器
+ * 會依實際路徑分別累加：LRU 命中、鏡像命中、worker 重建。
+ */
+test('Section Index Cache: 三層快取計數器可區分 LRU 命中／鏡像命中／重建', async (t) => {
+  const mdRoot = path.join(process.cwd(), 'md');
+  if (!fs.existsSync(mdRoot)) {
+    t.skip('vault (md/) 不存在，略過');
+    return;
+  }
+  const largeFiles = collectLargeFiles(mdRoot);
+  if (largeFiles.length < 2) {
+    t.skip('大檔不足，略過');
+    return;
+  }
+
+  assert.ok(sectionIndexMetrics, 'server.js 應匯出 sectionIndexMetrics');
+  for (const k of ['lruHit', 'mirrorHit', 'build', 'evictions']) {
+    assert.equal(typeof sectionIndexMetrics[k], 'number', `sectionIndexMetrics.${k} 應為數字`);
+  }
+
+  // 挑一個足以被 LRU（20 筆）淘汰的檔案：索引 >20 個檔案後回頭讀第一個。
+  const target = largeFiles[0];
+  const st0 = fs.statSync(target.fullPath);
+
+  // 第一次必定是重建（除非前面測試已快取，兩種情況都合法，故只記錄差值）。
+  const before = { ...sectionIndexMetrics };
+  await getSectionIndex(target.fullPath, st0, target.relPath);
+  const afterFirst = { ...sectionIndexMetrics };
+
+  const builtThisCall = afterFirst.build - before.build;
+  const hitThisCall = (afterFirst.lruHit - before.lruHit) + (afterFirst.mirrorHit - before.mirrorHit);
+  assert.equal(builtThisCall + hitThisCall, 1,
+    `一次 getSectionIndex 應恰好落在一個快取層級（build=${builtThisCall}, hit=${hitThisCall}）`);
+
+  // 緊接著再讀同一檔案：LRU 剛被 setSectionIndex 提升，必定是 LRU 命中。
+  await getSectionIndex(target.fullPath, st0, target.relPath);
+  const afterSecond = { ...sectionIndexMetrics };
+  assert.equal(afterSecond.lruHit - afterFirst.lruHit, 1,
+    '剛讀取過的檔案應立即由 LRU 命中（連續兩次讀取不得再重建）');
+  assert.equal(afterSecond.build - afterFirst.build, 0,
+    '第二次讀取不應觸發 worker 重建');
+});
+
+test('Section Index Cache: 讀滿超過 20 筆後，被淘汰的檔案由鏡像命中而非重建', async (t) => {
+  const mdRoot = path.join(process.cwd(), 'md');
+  if (!fs.existsSync(mdRoot)) {
+    t.skip('vault (md/) 不存在，略過');
+    return;
+  }
+  const largeFiles = collectLargeFiles(mdRoot);
+  if (largeFiles.length <= 20) {
+    t.skip(`大檔僅 ${largeFiles.length} 個，不足以觸發 LRU 淘汰`);
+    return;
+  }
+
+  // 讀 25 個檔案（> LRU 上限 20），最早讀的那個必定已被淘汰出 LRU。
+  const sample = largeFiles.slice(0, 25);
+  for (const f of sample) {
+    const st = fs.statSync(f.fullPath);
+    await getSectionIndex(f.fullPath, st, f.relPath);
+  }
+
+  // 回頭讀第一個：LRU 已淘汰、但磁碟鏡像仍保有 → 應為 mirrorHit 且不重建。
+  const first = sample[0];
+  const st = fs.statSync(first.fullPath);
+  const before = { ...sectionIndexMetrics };
+  await getSectionIndex(first.fullPath, st, first.relPath);
+  const after = { ...sectionIndexMetrics };
+
+  assert.equal(after.build - before.build, 0,
+    '已持久化到鏡像的索引被 LRU 淘汰後應由鏡像命中，不得重新掃描檔案（否則磁碟快取形同無效）');
+  assert.equal(after.mirrorHit - before.mirrorHit, 1,
+    '被 LRU 淘汰的檔案回頭讀取時應計入 mirrorHit');
 });
