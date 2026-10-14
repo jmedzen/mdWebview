@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.7.8 | 最後更新：2026-10
+> 版本：v3.7.9 | 最後更新：2026-10
 
 ---
 
@@ -221,6 +221,62 @@ flowchart TD
 **虛擬化判定（`isVirtualizedFile(filePath)`，~L1968）**：一律以 `String(filePath).startsWith('dict:')` 為真，否則再比較 `(state.fileSizes.get(filePath) || 0) >= LARGE_FILE_MIN_BYTES`。此 Helper 存在的理由是：**辭典檔（`dict:`）永遠走虛擬分塊路徑，但它們並不在主樹的 `state.fileSizes` 對照表中**（`/api/tree` 不含任何 `dict:` 節點——實測 7,598 個檔案節點、0 個 dict 節點）。因此單憑檔案大小判斷會把辭典檔誤判為一般檔案，讓 `restoreReadProgress()` 補送延遲的絕對 `content.scrollTo`，覆蓋掉 `openFile` 剛完成的逐行定位。凡需判斷「這是不是虛擬檔案」處都應走此 Helper。
 
 **深度跳轉定位對齊（v3.7.6）**：`scrollToLine`（~L995）與 `scrollToLineVirtual`（~L2338）過去以 `hlRes.firstMark`（寬鬆模式多區塊高亮視窗中的**第一個** highlight）作為 `scrollTarget`，可能距要求行甚遠，導致跳轉落在錯誤偏移（實測切換檔案後最大偏差 +371,784 px；非虛擬路徑亦曾偏差 +528 px）。現行兩者皆以 `target`（即要求行號對應的 anchor 元素）為 `scrollTarget`。`scrollToLineVirtual` 另加一段**有界自我修正對齊迴圈**（最多 4 次嘗試）：量測 `target.getBoundingClientRect().top - #content.getBoundingClientRect().top - 12` 並重新捲動，直到誤差 ≤ 2 px，若無進展即中止。該迴圈受 `state.virtual !== v`、`jumpToken = state._openToken` 快照與 `target.isConnected` 三方守衛，且**迴圈內絕不重新解析 anchor 或重查 DOM**（曾因重新解析而在切檔後取到最後一個 anchor，把畫面甩到文末）。迴圈使用專屬的 `v._lineJumpRaf` RAF 控制代碼（**不可**重用 `v._scrollRaf`，後者是 `setupVirtualScroll` 的節流閘門），並由 `teardownVirtual()`（~L2707）取消。
+
+---
+
+### 4.1 章節索引快取的持久化與寫入去抖（v3.7.9）
+
+大型檔案（≥1MB）的章節索引（科判／目錄）可避免每次開啟都重掃全文。此子系統有**兩個獨立容器**，
+過去兩者共用同一份 20 筆上限，導致開機與批次改檔時大量重複建置與寫盤。
+
+**問題根因（v3.7.9 前）**
+
+| 觀察 | 數值 |
+|------|------|
+| vault 中 ≥1MB 的大檔 | **321** 個 |
+| 記憶體 LRU 上限 | `20` |
+| **磁碟 bin 實際也只存** | **20**（`doSaveSectionIndexBin` 寫的是 LRU 本身） |
+| 單次全量掃描的寫盤次數 | 324–429 次 |
+| 單次開機累計寫入量 | 最高 **148 MB**（最終檔案僅 0.33 MB） |
+| 最慢單次寫入 | **38.6 秒**（僅寫 0.06 MB） |
+| 連續兩次寫入內容相同比例 | **49.3%** |
+
+關鍵在於磁碟快取是「上次那 20 筆的殘影」而非完整持久化：命中率上限僅 20/321 ≈ 6%，且與實際掃描
+順序無關，因此**每次開機都必然重建約 300 個索引**，每建好一個又整份覆寫一次。
+
+**修正設計**
+
+1. **讀寫分離**：新增 `sectionIndexDiskCache`（上限 `SECTION_INDEX_DISK_MAX` = 5000）作為持久化鏡像，
+   與 20 筆的讀取 LRU `sectionIndexCache` 解耦。兩者共用同一批索引物件參照，額外記憶體僅為物件本身
+   （全 vault 估算序列化約 16MB、駐留約 57MB，相對 1.16GB 的 bigram 索引可忽略）。
+   寫盤改為寫入 `sectionIndexDiskCache`，因此可持久化整個 vault。
+2. **查詢順序**：`getSectionIndex()` 在檢查 LRU 後**必須再查鏡像**，並將命中項提升回 LRU。
+   此查詢不可只做於首次呼叫，否則從磁碟載入的索引會被 LRU 淘汰後又重建，等於白做。
+3. **寫入去抖**：`scheduleSectionIndexSave(kind)` 以 `SECTION_INDEX_SAVE_DEBOUNCE_MS`（20s）合併連續
+   建置；`flushSectionIndexSave()` 真正執行寫入，沿用 `sectionIndexSaveChain` 維持嚴格序列化，
+   避免同一個 `.tmp` 被兩個寫入者競爭（`rename` 觸發 ENOENT）。
+4. **關機沖刷**：`setupGracefulShutdown()` 於 `server.close()` 後、**終止 worker 之前**先呼叫
+   `flushAllSectionIndexSaves()`，確保去抖視窗內的索引不因行程結束而遺失；順序刻意置於 worker 終止前，
+   因為 worker 收尾可能超過 5 秒強制退出計時器。
+5. **檔案異動**：watcher 偵測變更時同時自 LRU 與鏡像移除，並排程一次（去抖）寫入，避免 bin 反覆
+   復活已刪除／已修改檔案的過期索引。
+6. **日誌降級**：成功寫入訊息由 `INFO` 降為 `DEBUG`；單次全量掃描曾產生數百行 INFO，佔用 600 筆
+   記憶體日誌緩衝達 95%。失敗仍維持 `ERROR`。
+
+**實測結果（v3.7.9）**
+
+| 情境 | 修正前 | 修正後 |
+|------|--------|--------|
+| 全量掃描 289 檔的寫入次數 | ~300+ 次 | **1 次** |
+| 全量掃描寫入量 | ~148 MB | **6.32 MB** |
+| 21 次索引請求的寫盤次數 | 21 次 | **1 次** |
+| 重啟後 289 筆快取命中 | 僅 20 筆 | **289 筆全命中、0 次寫入** |
+| 重啟後讀取最舊條目 | 需重建 | **1.7–77ms**（磁碟命中） |
+| SIGTERM 時待寫入的去抖資料 | 遺失 | **立即沖刷**（24→25 筆，關機耗時 39ms） |
+
+**驗證方式**：以 `PORT=8401` 啟動測試實例，請求 25 個大檔後確認 bin 由 3 筆成長至 24 筆（突破原
+20 筆上限）；全量掃描後達 289 筆；重啟後逐一請求 289 筆全部 `200` 且 bin 位元組不變、寫入日誌為 0。
+**注意**：正式 `8330` 埠的既有行程不會熱重載，驗證一律使用其他埠並於結束後清除。
 
 ---
 
@@ -623,7 +679,7 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.7.8'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.7.9'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -633,6 +689,9 @@ flowchart TD
 | `INDEX_QUEUE_MAX` | `lib/worker-pool.js` | `INDEX_POOL_SIZE * 8` | 索引工作佇列上限（超限即時回 503 防 OOM） |
 | `WORKER_TIMEOUT_MS` | `lib/worker-pool.js` | `30,000`（30s） | Worker 單工逾時（入列即計時，逾時抽離並重啟 Worker） |
 | `LARGE_FILE_MIN_BYTES` | `server.js` | `1,048,576`（1MB） | 觸發虛擬化章節分塊渲染的檔案大小門檻 |
+| `SECTION_INDEX_MAX_CACHE` | `server.js` | `20` | 章節索引**記憶體讀取 LRU** 上限（維持熱資料快速命中） |
+| `SECTION_INDEX_DISK_MAX` | `server.js` | `5,000` | 章節索引**磁碟鏡像**上限；須遠大於 vault 大檔數（目前 ~321），否則全量掃描無法持久化 |
+| `SECTION_INDEX_SAVE_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | 章節索引寫盤去抖時間；把連續建置合併為單次寫入 |
 | `MAX_ANALYTICS_KEYS` | `lib/analytics.js` | `10,000` | Analytics 記憶體 Map 最大 key 數（防記憶體爆炸） |
 | `SESSION_DURATION` | `lib/auth.js` | `21,600,000`（6h） | 管理員 session 有效存活時間 |
 | `MAX_ATTEMPTS` | `lib/auth.js` | `5` | 管理員密碼錯誤次數上限（超限觸發鎖定） |
@@ -859,6 +918,3 @@ flowchart TD
   以 `sidebar.offsetWidth` 為基準，未對把手寬度做任何硬編碼假設。
 
 行動端（≤768px）與列印（`@media print`）皆完全隱藏把手，不提供拖曳調整（見 §16.1）。
-
-
-

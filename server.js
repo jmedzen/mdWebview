@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.8
+ * @version 3.7.9
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -24,6 +24,8 @@
  *   §9  File & Media Servers     handleFile (/api/file), handleMedia (/api/media)
  *   §10 Large-File Chunked API   handleSectionIndex, handleRender
  *   §11 Section Index Engine     getSectionIndex, binary disk cache (.bin)
+ *                                (read LRU decoupled from persisted disk mirror;
+ *                                 debounced writes — see ARCHITECTURE.md §4.1)
  *   §12 Bigram Search Engine     buildSearchIndexAsync, binary cache, worker jobs
  *   §13 Dictionary Index & API   buildDictIndexAsync, handleDictHeadwords, handleDictSearch
  *                                (full-text search pages via after/done cursor params)
@@ -255,15 +257,24 @@ function setupTreeWatcher() {
         searchCache.clear();
         sitemapDirty = true;
         if (filename) {
-          if (sectionIndexCache.has(filename)) {
-            sectionIndexCache.delete(filename);
+          // Evict from BOTH the read LRU and the persistent mirror, so a deleted
+          // or edited file's index is not written back into the bin file.
+          let evicted = false;
+          if (sectionIndexDiskCache.has(filename)) {
+            deleteSectionIndex(filename);
+            evicted = true;
           } else {
-            for (const k of sectionIndexCache.keys()) {
+            for (const k of sectionIndexDiskCache.keys()) {
               if (k === filename || k.endsWith('/' + filename)) {
-                sectionIndexCache.delete(k);
+                deleteSectionIndex(k);
+                evicted = true;
               }
             }
           }
+          // Persist the removal so the bin file does not keep resurrecting a
+          // stale entry on the next boot. Debounced, so a bulk upload storm
+          // still collapses into a single write.
+          if (evicted) scheduleSectionIndexSave('vault');
         } else {
           invalidateSectionIndexes();
         }
@@ -1510,16 +1521,50 @@ const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
 const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
 const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
 const SECTION_INDEX_MAGIC = 0x53455832; // "SEX2"
-const SECTION_INDEX_MAX_CACHE = 20;
+const SECTION_INDEX_MAX_CACHE = 20;     // hot in-memory LRU size (keeps reads cheap)
+// Upper bound for the on-disk mirror. Must comfortably exceed the number of
+// large files in the vault (currently ~321) so a full scan can persist every
+// index it builds instead of only the 20 that happen to be in the LRU.
+const SECTION_INDEX_DISK_MAX = 5000;
+// Coalesces bursts of index builds into a single write. Without this, every
+// rebuilt index rewrote the entire cache file (hundreds of writes / 100+ MB per
+// full scan). Also absorbs bulk upload/edit storms. Overridable so tests do not
+// have to wait 20s per assertion.
+const SECTION_INDEX_SAVE_DEBOUNCE_MS = Number(process.env.SECTION_INDEX_SAVE_DEBOUNCE_MS) || 20000;
 
 const sectionIndexCache = new Map();    // relPath -> section index object (LRU, insertion order)
 const dictSectionIndexCache = new Map(); // dict: relPath -> section index (unbounded; only a few dict files)
+// Mirror of every index ever built (bounded by SECTION_INDEX_DISK_MAX), decoupled
+// from the 20-entry read LRU so the bin file can persist the whole vault rather
+// than a snapshot of the least-recently-used hot set. Entries share object
+// references with the LRU, so the extra memory is just the index objects.
+const sectionIndexDiskCache = new Map();
 const sectionIndexPromises = new Map(); // relPath -> Promise (dedupe concurrent builds)
 let sectionIndexBinLoaded = false;
 let dictSectionIndexBinLoaded = false;
 let sectionJobSeq = 0;
 
+/**
+ * Stores a freshly built/loaded section index in BOTH the persistent disk mirror
+ * and the small read LRU.
+ *
+ * The mirror is written first so that a full vault scan can persist every index
+ * it builds (bounded by SECTION_INDEX_DISK_MAX). The read LRU is then refreshed
+ * so the hottest 20 stay instantly available. Both maps hold the SAME object
+ * reference, so the extra cost is only the index objects themselves.
+ *
+ * @param {string} relPath - vault-relative path (dict entries use a `dict:` prefix)
+ * @param {Object} idx     - section index object (entries, groups, size, mtimeMs, ...)
+ */
 function setSectionIndex(relPath, idx) {
+  // Mirror to the persistent store first (unbounded-ish; trimmed by disk max).
+  if (sectionIndexDiskCache.has(relPath)) sectionIndexDiskCache.delete(relPath);
+  sectionIndexDiskCache.set(relPath, idx);
+  while (sectionIndexDiskCache.size > SECTION_INDEX_DISK_MAX) {
+    const oldest = sectionIndexDiskCache.keys().next().value;
+    sectionIndexDiskCache.delete(oldest);
+  }
+
   if (sectionIndexCache.has(relPath)) sectionIndexCache.delete(relPath);
   sectionIndexCache.set(relPath, idx);
   while (sectionIndexCache.size > SECTION_INDEX_MAX_CACHE) {
@@ -1528,8 +1573,21 @@ function setSectionIndex(relPath, idx) {
   }
 }
 
+/**
+ * Evicts one section index from both the read LRU and the persistent mirror.
+ * Used when a watched file changes or is deleted, so a stale index is neither
+ * served nor written back into the bin file. Callers should then schedule a save.
+ *
+ * @param {string} relPath - vault-relative path
+ */
+function deleteSectionIndex(relPath) {
+  sectionIndexCache.delete(relPath);
+  sectionIndexDiskCache.delete(relPath);
+}
+
 function invalidateSectionIndexes() {
   sectionIndexCache.clear();
+  sectionIndexDiskCache.clear();
   sectionIndexBinLoaded = false;
 }
 
@@ -1579,7 +1637,7 @@ async function getSectionIndex(fullPath, stat, relPath) {
     return cached;
   }
 
-  // 2. Binary disk cache (load all once; small — only large files are indexed)
+  // 2. Binary disk cache (load all once)
   const binPath = isDict ? DICT_SECTION_INDEX_CACHE_BIN : SECTION_INDEX_CACHE_BIN;
   const binLoaded = isDict ? dictSectionIndexBinLoaded : sectionIndexBinLoaded;
   if (!binLoaded) {
@@ -1592,8 +1650,20 @@ async function getSectionIndex(fullPath, stat, relPath) {
       if (isDict) dictSectionIndexBinLoaded = true;
       else sectionIndexBinLoaded = true;
     } catch (_) {}
-    const binHit = cache.get(relPath);
-    if (binHit && binHit.size === stat.size && binHit.mtimeMs === stat.mtimeMs) return binHit;
+  }
+
+  // 2b. Consult the persistent mirror. For the vault the bin file holds every
+  // persisted index while the read LRU retains only the hottest 20, so this
+  // lookup must NOT be limited to the first call — otherwise indexes loaded from
+  // disk would be evicted from the LRU and rebuilt, defeating the cache.
+  // (Dictionary files use one unbounded map for both roles, already checked in
+  // step 1, so only the vault needs the extra lookup.)
+  if (!isDict) {
+    const mirrored = sectionIndexDiskCache.get(relPath);
+    if (mirrored && mirrored.size === stat.size && mirrored.mtimeMs === stat.mtimeMs) {
+      setSectionIndex(relPath, mirrored); // promote into the read LRU
+      return mirrored;
+    }
   }
 
   // 3. Build (dedupe concurrent builds for the same file)
@@ -1711,13 +1781,71 @@ async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_B
 // failing with ENOENT. Chaining them makes writes strictly sequential.
 let sectionIndexSaveChain = Promise.resolve();
 
+// Pending debounce timers per cache kind ('vault' | 'dict').
+const sectionIndexSaveTimers = new Map();
+const sectionIndexSavePending = new Map();
+
+/**
+ * Schedules a debounced persist of a section-index cache.
+ *
+ * Rebuilding 300+ indexes used to trigger 300+ whole-file rewrites (each
+ * serializing the entire cache), totalling 100+ MB of redundant I/O per full
+ * scan. Coalescing into a single write after a quiet period turns that into one
+ * write, and also absorbs bulk upload/edit storms.
+ *
+ * @param {string} kind - 'vault' or 'dict'
+ */
+function scheduleSectionIndexSave(kind) {
+  sectionIndexSavePending.set(kind, true);
+  if (sectionIndexSaveTimers.has(kind)) clearTimeout(sectionIndexSaveTimers.get(kind));
+  const timer = setTimeout(() => {
+    sectionIndexSaveTimers.delete(kind);
+    flushSectionIndexSave(kind).catch(() => {});
+  }, SECTION_INDEX_SAVE_DEBOUNCE_MS);
+  if (typeof timer.unref === 'function') timer.unref();
+  sectionIndexSaveTimers.set(kind, timer);
+}
+
+/**
+ * Performs the actual (serialized) write for one cache kind, if one is pending.
+ * @param {string} kind - 'vault' or 'dict'
+ */
+async function flushSectionIndexSave(kind) {
+  if (!sectionIndexSavePending.get(kind)) return sectionIndexSaveChain;
+  sectionIndexSavePending.set(kind, false);
+  if (sectionIndexSaveTimers.has(kind)) {
+    clearTimeout(sectionIndexSaveTimers.get(kind));
+    sectionIndexSaveTimers.delete(kind);
+  }
+
+  if (kind === 'dict') {
+    sectionIndexSaveChain = sectionIndexSaveChain.then(
+      () => doSaveSectionIndexBin(dictSectionIndexCache, DICT_SECTION_INDEX_CACHE_BIN, 'dict-section-index')
+    );
+  } else {
+    sectionIndexSaveChain = sectionIndexSaveChain.then(
+      () => doSaveSectionIndexBin(sectionIndexDiskCache, SECTION_INDEX_CACHE_BIN, 'section-index')
+    );
+  }
+  return sectionIndexSaveChain;
+}
+
+/**
+ * Writes out any pending section-index caches immediately (used on shutdown so
+ * a debounced save is never lost when the process exits).
+ */
+async function flushAllSectionIndexSaves() {
+  await flushSectionIndexSave('vault');
+  await flushSectionIndexSave('dict');
+}
+
 async function saveSectionIndexBinAsync() {
-  sectionIndexSaveChain = sectionIndexSaveChain.then(() => doSaveSectionIndexBin(sectionIndexCache, SECTION_INDEX_CACHE_BIN, 'section-index'));
+  scheduleSectionIndexSave('vault');
   return sectionIndexSaveChain;
 }
 
 async function saveDictSectionIndexBinAsync() {
-  sectionIndexSaveChain = sectionIndexSaveChain.then(() => doSaveSectionIndexBin(dictSectionIndexCache, DICT_SECTION_INDEX_CACHE_BIN, 'dict-section-index'));
+  scheduleSectionIndexSave('dict');
   return sectionIndexSaveChain;
 }
 
@@ -1789,7 +1917,11 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
         throw err;
       }
     }
-    Logger.info('Index', `Saved ${label} cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
+    // DEBUG, not INFO: this fires once per debounced save, and a single full
+    // scan used to emit hundreds of INFO lines that crowded the 600-entry log
+    // buffer (and the admin log viewer) with no diagnostic value. Failures
+    // below stay at ERROR.
+    Logger.debug('Index', `Saved ${label} cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
   } catch (err) {
     Logger.error('Index', `Failed to save ${label} cache`, err);
   }
@@ -5141,7 +5273,13 @@ function setupGracefulShutdown() {
     if (forceTimer && forceTimer.unref) forceTimer.unref();
 
     server.close(() => {
-      terminateWorkerPools()
+      // Flush any debounced section-index save FIRST: otherwise up to
+      // SECTION_INDEX_SAVE_DEBOUNCE_MS of freshly built indexes would be lost, and
+      // worker teardown below can be slow enough that the force-exit timer fires
+      // before a later flush would have run.
+      flushAllSectionIndexSaves()
+        .catch(err => Logger.error('Boot', 'Error flushing section-index caches during shutdown', err))
+        .then(() => terminateWorkerPools())
         .catch(err => Logger.error('Boot', 'Error terminating worker pools during shutdown', err))
         .finally(() => {
           Logger.info('Boot', `Shutdown complete (${signal}).`);
@@ -5223,6 +5361,7 @@ if (typeof module !== "undefined" && module.exports) {
     SITEMAP_CACHE_TTL_MS,
     terminateWorkerPools,
     saveSearchIndexBinCacheAsync,
+    flushAllSectionIndexSaves,
     loadSearchIndexFromBinCacheAsync,
     saveDictIndexBinCacheAsync,
     loadDictIndexFromBinCacheAsync,
