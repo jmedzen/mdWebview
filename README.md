@@ -6,116 +6,66 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.7.8) 是一款專為**佛典經論譯注與釋記**設計的網頁端 Obsidian 風格 Markdown 閱讀器。它提供輕量、流暢、排版精美的單頁應用（SPA）介面，支援數千篇大型經論檔案的極速閱讀、全文檢索與研習。
+`mdWebview` (v3.7.8) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
-### ✨ 核心特色
+### ✨ 可以做什麼
 
-- 📂 **Obsidian 風格檔案瀏覽器**：自動掃描 `md/` 資料夾下的多層級 Markdown 檔案，以樹狀目錄直觀呈現，支援名稱與修改時間動態排序、檔案數量標示與目錄全展/全折疊（配備自訂向量雙箭頭圖示）。
-- 🔗 **Obsidian 雙向連結 ([[Wikilink]])**：支援 `[[頁面名稱]]`、`[[頁面名稱|顯示文字]]` 及 `[[頁面名稱#章節標題]]` 語法，點擊即可流暢切換並自動滾動高亮對應標題。
-- ⚡ **多執行緒與高效能架構**：
-  - **Worker Thread SSR 與背壓防護**：將重度 CPU 運算的 Markdown 解析與註腳錨點生成移至背景工作執行緒池（Worker Threads）。配備佇列上限防爆（503 Backpressure）、任務入列即時計時（30s 逾時隔離）、連線中斷即刻取消 (`req.on('close')`) 與 15 秒 8 次崩潰退避重生機制。
-  - **全非同步非阻塞 I/O**：伺服器端全數採用 Promise-based 非同步檔案存取，目錄樹掃描與設定記憶化快取杜絕 Event Loop 凍結。
-  - **智慧快取與 Gzip 壓縮**：結合記憶體 Tree 快取、弱 ETag（304 Not Modified）、200 筆 LRU 靜態資源快取與動態 Gzip 壓縮，顯著降低網路傳輸與載入時間。
-  - **前端 LRU 快取與前端並發守衛**：前端配備最近使用（LRU）渲染快取、世代守衛標記（`_openToken`，徹底杜絕快速切換檔案時舊請求覆蓋新畫面）、`AbortController` 請求取消、二分搜尋閱讀進度儲存（杜絕 Layout Thrashing）與 `O(1)` 大綱標籤映射。
-  - **快取內容重新驗證 (ETag Revalidation)**：重新開啟檔案時不再直接回傳舊快取，改以 `If-None-Match` 條件式請求向後端確認；`304` 才掛載快取、`200` 以最新內容取代快取，確保同一個瀏覽器工作階段內檔案編輯即時反映。
-  - **虛擬分塊競態雙重防護**：大型檔案的每個分塊請求皆綁定所屬虛擬文件的 `AbortController` 並附帶 `signal`；返回首頁或切換檔案時統一中止所有在途分塊，且於讀取回應本文後再次確認文件身分才允許寫入 DOM，徹底封堵舊文件分塊插入新文件內容區的競態窗口。
-- 🔍 **倒排索引與空白 AND 鄰近搜尋 (Proximity Search)**：
-  - **Bigram 雙字元倒排索引**：後端建立標點/換行透明全庫 2-gram 記憶體與二進位檔快取（`.bin`），支援 6,000+ 經文檔案毫秒級檢索。
-  - **寬鬆模式（忽略標點與換行）**：支援一鍵切換寬鬆比對模式，自動忽略標點符號與換行（例如搜尋「佛法僧」可精準命中「佛法，僧」、「佛、法、僧」或跨行「佛法\n僧」）；空白仍為多詞分隔（走 AND 與鄰近距離比對）。全站預設為寬鬆模式，使用者偏好儲存於 localStorage，管理員可於後台調整。
-  - **單飛重建互斥 (Single-Flight)**：索引防抖與管理員重建共用單飛旗標，杜絕並行重複計算與暫存檔寫入衝突。
-  - **空白多關鍵詞 AND 搜尋**：支援輸入 `阿賴耶識 唯識` 或 `解深密經 圓測` 空白分隔關鍵詞進行交集比對。
-  - **鄰近詞距上限限制 (Proximity Filtering)**：自動過濾字詞相隔過遠的非相關結果。可在管理員後台面板自訂「搜尋鄰近詞距上限」（預設 150 字元）。
-- 📖 **佛學辭典查詢（前綴 / 模糊 / 全文）**：
-  - **游標分頁 (Cursor Pagination)**：辭典全文搜尋改採每檔 1,500 筆一頁的游標分頁。舊版對每檔硬性截斷於 1,500 筆，常見字詞（如「一切」）僅能觸及檔案前 ~11% 便無法再往下；現在可逐頁翻至檔案末尾（實測「法」於四部辭典可完整走訪全部 116,634 筆命中，與整檔掃描結果完全一致、零重複零遺漏）。
-  - **取代式渲染與有界 DOM**：翻頁時整批取代結果清單（非累積附加），並快取已抓取頁面，往回翻不重發請求，長篇辭典瀏覽時 DOM 節點數維持恆定。
-  - **精確跳轉定位**：點擊後段搜尋結果時，以「目標行號」而非「首個高亮標記」為滾動依據，並於渲染後自我校正至 ±2px，且對 12–32px 全字級範圍有效。
-  - **已耗盡檔案不再重掃**：走訪過程中已翻完的辭典檔會記錄於游標狀態並自後續掃描中移除，避免重複掃描拖慢翻頁。
-- 📑 **自動大綱導航 (TOC)**：開啟經論檔案後，自動解析 Markdown 標題（H1~H6）並動態生成側邊欄大綱，支援點擊滾動與閱讀進度追蹤（ScrollSpy）。
-- ↔️ **拖曳調整側邊欄寬度**：左右兩側面板（左側檔案樹／大綱、右側辭典）皆可拖曳邊緣調整寬度，左側 220–500px、右側 240–560px。把手平時隱藏不干擾閱讀，滑鼠移入或拖曳時顯示為 96px 高的強調色指示條並帶光暈，五套主題各自套用自身強調色；行動端（≤768px）與列印時自動隱藏。
-- 🔔 **全系統 Toast 提示訊息**：全站操作（複製連結、書籤、歷史記錄、主題切換、搜尋、管理員登入/儲存/數據導出）配備毛玻璃動畫 Toast 提示與 `success` / `warning` / `error` / `info` / `loading` 狀態燈號。錯誤提示具 4000ms 最短顯示時間；相同訊息的提示會自動去重；索引重建採用持久型 `loading` 提示，實際完成時才收起。容器具 `role="status" aria-live="polite"`，錯誤提示另帶 `role="alert"`，確保螢幕閱讀器可朗讀。
-- 🎨 **五種精緻閱讀主題**：
-  - 🌙 **暗色 Dark** (深色科技)
-  - ☀️ **亮色 Light** (明亮清新)
-  - 🔆 **Solarized** (經典護眼)
-  - 🍵 **禪風 Zen** (平和淡雅)
-  - 🍂 **Gruvbox** (暖色復古)
-- 📱 **使用者設定與視覺排版自訂**：
-  - **視覺排版面板**：自由調整字型大小、行高（1.6 / 1.8 / 2.0）、文字對齊方式與閱讀版寬（800px / 1000px / 100%）。
-  - **簡體中文自動轉繁體 (autoS2T)**：整合至視覺排版 Tab，UI 深度匹配 5 種主題風格；全站預設為關閉 (`false`)，使用者偏好保存於 `localStorage`，搜尋請求自動同步轉換。
-  - **閱讀進度記憶**：支援自動記錄與還原個別篇章滾動位置。
-- 🔎 **浮動本頁搜尋**：支援透過快速鍵喚出頁面內搜尋框（`Ctrl + F`），具備相符項目計數、高亮與前後切換功能。
-- 🔗 **分享與精確跳轉**：支援 URL 參數分享（`?file=...&line=...`），能直接定位並亮顯目標行號；支援 `?frontpage=1` 或 `?home=1` 參數強制開啟首頁。
-- 🌐 **全方位 SEO、Sitemap 防抖與社群卡片**：
-  - **Sitemap 20 秒智慧防抖**：檔案變更時啟動 20 秒延遲沉降防抖，避免大量檔案寫入時頻繁掃描磁碟造成 CPU / I/O 尖峰。
-  - **Stale-While-Revalidate 機制**：防抖期間或更新時瞬時回傳現存快取（0ms 阻塞），沉降後背景非同步自動更新。
-  - **SEO 與社群標籤**：內建爬蟲專用 SSR 預渲染、Schema.org JSON-LD 結構化資料、開機背景預熱快取，並提供後台 OpenGraph 即時預覽。
-- 🔒 **安全性、後台管理與日誌修剪**：
-  - 內建 PBKDF2 密碼雜湊防護、IP Rate-Limiting 防暴力破解與 Session 管理。
-  - **嚴格安全防禦**：Footnote 註腳 XSS 雙重消毒與屬性跳脫、畸形 Host 標頭 400 防禦與連線逾時銷毀（防 DoS）、嚴格信任代理白名單（防 IP 偽造）、Analytics 匯出同源驗證。
-  - **匯出端點標頭專用認證**：Analytics CSV/JSON 匯出僅接受 `X-Admin-Token` 標頭，明確拒絕 URL 查詢字串中的 session token；前端以已驗證的 `fetch` 取得 Blob 後再觸發下載，避免權杖進入瀏覽器歷史、複製連結或代理伺服器日誌。
-  - **設定檔靜態存取封鎖**：靜態路由以檔名 `config.json`（不分大小寫）無條件拒絕，即使 `CONFIG_PATH` 指向其他位置（如 Docker `/data/config.json`）而專案根目錄仍留有 `config.json`，亦不會外洩管理員帳號、密碼雜湊與 salt。
-  - **後台控制台**： Segmented Control Pills 分頁、iOS 風格開關切換器、硬體系統監控、日誌檢視器與數據匯出 (CSV/JSON)。日誌分類含 `全部` / `錯誤` / `認證／設定` / `HTTP` / `搜尋` / `渲染` / `機器人`。
-  - **認證稽核軌跡**：登入成功、每一次失敗嘗試（含次數與 IP）、15 分鐘鎖定與登出皆寫入結構化日誌（tag `Auth`），可從日誌檢視器追溯；**僅記錄使用者名稱與 IP，絕不記錄密碼、雜湊、salt 或 session token**，存取日誌中的 `?token=` 亦自動遮蔽。
-  - **90 天 Analytics 淘汰與 7 天 Log 修剪**：Analytics store 每日 bucket 90 天自動修剪；7 天以上歷史日誌自動精簡瘦身（節省 85% ~ 95% 空間），同時保留全時段關鍵計數。
-  - **可觀測性完整性**：Worker 執行緒重生、靜態資產／SSR I/O 失敗、設定載入失敗與日誌修剪結果皆走統一日誌管線（不再有 `console.*` 旁路）；`SIGTERM`/`SIGINT` 具優雅關機處理常式，會記錄訊號原因、停止接受新連線並終止 worker pool。
-- 📦 **離線與自託管友善**：所有核心前端庫（如 Marked.js）皆改為本地託管，無外網 CDN 單點故障風險；Service Worker 離線提供明確 504 回退並支援無縫即時更新（`SKIP_WAITING`），且版本升級時僅清除自身 `mdwebview-shell-*` / `mdwebview-content-*` 前綴的舊快取，不影響同一網域下的其他應用。
-- 🐳 **Docker 與 GitHub Actions 自動化 CI/CD**：
-  - **多平台映像檔構建**：內建 Dockerfile、`docker-compose.yml` 與 GitHub Actions，自動發布 `linux/amd64` 與 `linux/arm64` 雙架構 Docker Image 至 GHCR (`ghcr.io`)。
-  - **GHCR 自動清理工作流程**：配備自動映像檔修剪維護機制（`cleanup-ghcr.yml`），構建完成後全自動執行或每週定時排程，自動保留最新 5 個版本、保護 `latest`/`main`/`dev` 分支標籤，並徹底清除未標記（untagged）與孤立 multi-arch 子層。
+**閱讀**
+
+- 📂 **左側目錄**：所有經論依資料夾排列，點一下就能打開。可依檔名或修改時間排序，也能一次全部展開或收起。
+- 📑 **自動目錄**：文章裡的標題會自動整理成目錄，點標題就能跳到那一段；往下捲動時，也會顯示目前讀到哪個標題。
+- 🕮 **記得讀到哪裡**：下次打開同一篇，會自動回到上次閱讀的位置。
+- ↔️ **左右欄寬度可調整**：把滑鼠移到左右兩側的邊緣，會出現一條亮色的把手，按住往左右拖曳就能調整寬度。手機上會自動隱藏，避免佔用空間。
+- 🎨 **五種閱讀配色**：暗色、亮色、Solarized、禪風、Gruvbox，挑自己看得順眼的。
+- 📱 **排版自己調**：字的大小、行距、文字靠左或靠中、每行多寬，都能自己設定。
+- 🔤 **簡體自動轉繁體**：讀簡體資料時可以開啟自動轉換；搜尋時也會一併轉換，不怕漏找。
+- 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
+
+**搜尋**
+
+- 🔍 **全站找字**：一次搜尋所有經論，結果很快就出來。
+  - 用空白分開幾個詞，會找出同時包含這些詞的段落（例如輸入「阿賴耶識 唯識」）。
+  - 不怕標點與換行：搜尋「佛法僧」也能找到「佛法，僧」、「佛、法、僧」。
+  - 相隔太遠、明顯不相關的結果會自動省略。
+- 📖 **佛學辭典**：可依詞條開頭查、模糊查，或全文查。結果可以一直往下翻，直到把整部辭典查完，不會中途停住。
+- 🔗 **文章互相連結**：文章之間可以用 `[[檔名]]` 互相連結，點一下就能跳過去。
+- 🔗 **分享特定段落**：可以把某一句的網址複製給別人，對方一打開就直接跳到那一行。
+
+**其它**
+
+- 🔔 **操作提示**：複製、加書籤、換配色等操作都會跳出小提示；如果操作失敗，提示會停留久一點，讓你看清楚發生什麼事。
+- 🌐 **分享到社群**：把網址貼到 Facebook、Line 等地方時，會自動顯示標題、簡介與預覽圖。
+- 🔒 **後台管理**：管理員可設定站名、公告與推薦清單，查看使用情況與系統狀態，並匯出報表。密碼以加密方式保存，有人反覆嘗試登入會被暫時擋下；登入與登出也都有記錄，方便日後追查。
+- 📦 **離線也能看**：核心程式都放在自己的網站上，不依賴外部服務。看過的內容在斷網後仍可重看；若點開還沒下載過的經文，會清楚顯示「目前處於離線狀態，此經文尚未快取」，而不是空白畫面。
+- 🐳 **可安裝在自己的電腦或伺服器**：支援 Docker，一個指令就能啟動。
 
 ---
 
-### 📂 專案結構
+### 🚀 怎麼開始
 
-> 📐 **深入架構說明**：請參閱 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，含系統架構圖、API 路由索引、State 物件說明、config 欄位一覽。
+#### 我只是想閱讀
 
-```text
-mdWebview/
-├── .github/workflows/  # GitHub Actions 自動化工作流程
-│   ├── docker-image.yml# 多平台 Docker 映像檔構建與發布 (GHCR)
-│   └── cleanup-ghcr.yml# GHCR 映像檔自動清理維護（保留最新 5 版本）
-├── md/                 # 存放 Markdown 文件庫（支援多層資料夾）
-├── dicts/              # 辭典檔案目錄（.txt 格式，每條目 === 分隔）
-├── tests/              # Node.js 原生測試套件（單元測試與 API 整合測試）
-├── index.html          # 前端 SPA Shell（含 PWA manifest 引用、SSR 注入點）
-├── app.js              # 前端邏輯（狀態管理、樹狀圖、大綱、搜尋、辭典、主題、管理員面板）
-├── style.css           # 樣式系統（5 主題、響應式、Glassmorphism、Markdown 增強）
-├── sw.js               # Service Worker（PWA 離線快取）
-├── md-worker.js        # 前端 Web Worker：Markdown 解析（在瀏覽器背景執行緒執行）
-├── render-worker.js    # Node.js Worker Thread：SSR Markdown 渲染（伺服器端）
-├── index-worker.js     # Node.js Worker Thread：Bigram 倒排索引建立與搜尋
-├── marked.min.js       # 本地託管 Marked.js 引擎（無外部 CDN 依賴）
-├── s2t.js              # 簡繁轉換模組（搜尋時自動處理簡體輸入）
-├── manifest.json       # PWA Manifest 靜態預設（執行期由 server.js 動態覆寫）
-├── lib/                # 核心原生 CommonJS 模組（constants, utils, config, auth, worker-pool, analytics, logger, static-cache, markdown, text）
-├── server.js           # Node.js 後端主服務（HTTP 路由入口、API 分發、定時維護）
-├── config.json         # 系統設定（站名、主題、辭典、公告、推薦清單等，後台儲存後持久化）
-├── ARCHITECTURE.md     # 📐 架構說明文件（API 索引、State 說明、資料流圖）
-├── Dockerfile          # Docker 容器構建設定
-├── docker-compose.yml  # Docker Compose 部署設定
-├── package.json        # Node.js 套件設定（v3.7.8）
-└── README.md           # 本說明文件
-```
+打開網站首頁就可以了，不需要安裝任何東西。
 
----
+1. 從左邊目錄選一篇經論。
+2. 開始閱讀。標題會自動變成目錄，方便跳段。
+3. 想在這一篇找字，按 <kbd>Ctrl</kbd> + <kbd>F</kbd>。
+4. 想找遍全部經論，用上方的搜尋框。
 
-### 🚀 快速開始
+#### 我想自己架設（給管理者）
 
-#### 1. 使用 Node.js 本地執行
-- 系統需求：需安裝 **Node.js** v24 或以上版本。
+需要先安裝 **Node.js 24 以上版本**。
 
 ```bash
-# 啟動伺服器
+# 啟動網站
 npm start
-# 或
-npm run dev
-# 或直接執行
-node server.js
 ```
-預設伺服器埠號為 `http://localhost:8330`。
 
-#### 2. 使用 Docker Compose 部署
-> 💡 **提示**：管理員於後台（`/admin`）調整並儲存的所有設定皆會自動持久化儲存於 `./data/config.json`，在 Docker Image 升級或容器重啟後皆會持續保留。
+啟動後打開 `http://localhost:8330`。
+
+**用 Docker 啟動（推薦）**
+
+把下面的內容存成 `docker-compose.yml`，然後執行 `docker-compose up -d` 即可：
 
 ```yaml
 version: '3.8'
@@ -130,8 +80,8 @@ services:
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
       - DICTIONARY_PATH=/data/dicts
-      # Bigram 索引 .bin 快取約 650MB，建置峰值記憶體需 ≥ 索引大小之 2 倍。
-      # 建議容器主機至少提供 4GB（建議 8GB）RAM。可透過 NODE_MAX_OLD_SPACE_MB 彈性調校 V8 heap 上限。
+      # 經論數量多時，搜尋索引會佔用較多記憶體。
+      # 建議主機至少準備 4GB（8GB 更充裕）。如記憶體不足，可調整下方數字。
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144}
     volumes:
       - ./data:/data
@@ -140,43 +90,78 @@ services:
     restart: unless-stopped
 ```
 
-##### 部署記憶體需求與 NODE_MAX_OLD_SPACE_MB 調校
-- **記憶體需求**：全庫 Bigram 倒排索引二進位快取（`.bin`）約 650MB（450 萬以上雙字元詞條），在首次啟動或重新建立索引期間，峰值記憶體需求 ≥ 索引大小之 2 倍。
-- **建議配置**：建議宿主機或容器環境提供至少 **4GB**（推薦 **8GB**）實體記憶體。
-- **調校方式**：Dockerfile 預設配置 `NODE_OPTIONS="--max-old-space-size=6144"`（6GB）。在 `docker-compose.yml` 中可透過環境變數 `NODE_MAX_OLD_SPACE_MB` 自訂調控，例如：
-  ```bash
-  NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
-  ```
-
 ```bash
 docker-compose up -d
 ```
 
+**關於記憶體**
+
+經論檔案很多時，搜尋索引會佔用約 650MB，首次建立索引時的尖峰用量約為兩倍。建議主機至少 **4GB**（**8GB** 更充裕）。若記憶體不足，可在啟動時調整：
+
+```bash
+NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
+```
+
+> 💡 **小提醒**：後台的設定會存到 `./data/config.json`，更新版本或重開容器都不會不見。
+
+**怎麼進入後台**
+
+在網站右上角點「偏好設定與系統管理」（齒輪圖示），登入後即可管理。第一次使用時，會請你先設定管理員帳號與密碼。所有設定都存在 `config.json`。
+
 ---
 
-### ⌨️ 快捷鍵與 URL 參數指南
+### 📂 專案裡有什麼
 
-| 快捷鍵 / URL 參數 | 功能說明 |
+> 📐 **想深入了解運作原理**：請參閱 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。
+
+```text
+mdWebview/
+├── md/                 # 你的經論檔案放這裡（可再分資料夾）
+├── dicts/              # 佛學辭典檔案（.txt）
+├── tests/              # 自動測試
+├── lib/                # 網站主程式會用到的模組
+├── index.html          # 網站主頁
+├── app.js              # 網頁的互動邏輯（目錄、搜尋、辭典、配色、後台）
+├── style.css           # 外觀與五種配色
+├── sw.js               # 離線瀏覽支援
+├── server.js           # 網站主程式
+├── marked.min.js       # 把 Markdown 變成網頁的程式（自帶，不需連外網）
+├── s2t.js              # 簡體轉繁體
+├── manifest.json       # 加到手機主畫面的設定
+├── config.json         # 網站設定（站名、公告、推薦清單等）
+├── package.json        # 專案資訊（v3.7.8）
+├── Dockerfile          # 打包成 Docker 的設定
+├── docker-compose.yml  # Docker 啟動設定
+├── ARCHITECTURE.md     # 給開發者的深入說明
+└── README.md           # 本文件
+```
+
+---
+
+### ⌨️ 快速鍵與網址參數
+
+| 快速鍵 / 網址 | 功能 |
 | :--- | :--- |
-| <kbd>Ctrl</kbd> + <kbd>F</kbd> 或 <kbd>Cmd</kbd> + <kbd>F</kbd> | 開啟本頁搜尋框 |
-| <kbd>Esc</kbd> | 關閉本頁搜尋框 / 退出使用者與後台設定彈窗 Modal |
-| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | 搜尋框開啟時，跳轉至下一個 / 上一個符合項 |
-| <kbd>Ctrl</kbd> + <kbd>+</kbd> 或 <kbd>Cmd</kbd> + <kbd>+</kbd> | 放大閱讀區域字型 |
-| <kbd>Ctrl</kbd> + <kbd>-</kbd> 或 <kbd>Cmd</kbd> + <kbd>-</kbd> | 縮小閱讀區域字型 |
-| `?file=路徑&line=行號` | 分享特定經論與精確跳轉至指定行號 |
-| `?frontpage=1` 或 `?home=1` | 強制開啟首頁 (Frontpage) 歡迎畫面 |
+| <kbd>Ctrl</kbd> + <kbd>F</kbd> 或 <kbd>Cmd</kbd> + <kbd>F</kbd> | 在這一篇裡找字 |
+| <kbd>Esc</kbd> | 關閉搜尋框或設定視窗 |
+| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | 跳到下一個 / 上一個找到的字 |
+| <kbd>Ctrl</kbd> + <kbd>+</kbd> 或 <kbd>Cmd</kbd> + <kbd>+</kbd> | 字放大 |
+| <kbd>Ctrl</kbd> + <kbd>-</kbd> 或 <kbd>Cmd</kbd> + <kbd>-</kbd> | 字縮小 |
+| `?file=路徑&line=行號` | 分享某篇經論的某一行，對方打開就直接跳到那裡 |
+| `?frontpage=1` 或 `?home=1` | 直接回到首頁 |
 
 ---
 
-### 📝 經論 Markdown 撰寫規範建議
+### 📝 寫經論檔案的小建議
 
-1. **標題階層**：使用 `#`、`##`、`###` 標示章節目錄，將自動解析為側邊欄大綱。
-2. **Obsidian 雙向連結**：可使用 `[[目標檔案名]]` 或 `[[目標檔案名#章節標題]]` 建立內部關聯與快速跳轉。
-3. **單波浪號與刪除線**：單個波浪號 `P11~P12` 或 `10~20` 維持原樣呈現；僅雙波浪號 `~~刪除文字~~` 會解析為刪除線。
-4. **註腳支援**：標準 Markdown 註腳格式，例如：
+1. **標題**：用 `#`、`##`、`###` 標示章節，會自動變成側邊目錄。
+2. **互相連結**：用 `[[檔名]]` 或 `[[檔名#章節標題]]` 連結到其他文章。
+3. **波浪號**：單一個 `~`（例如 `P11~P12`、`10~20`）會照原樣顯示；只有 `~~文字~~` 才會變成刪除線。
+4. **註腳**：寫法如下。
+
    ```markdown
    論文 餘九皆通見、修所斷。[^1]
-   
+
    [^1]: 指其餘九支皆通於見道與修道所斷。
    ```
 
@@ -188,115 +173,66 @@ docker-compose up -d
 
 ## English
 
-`mdWebview` (v3.7.8) is a web-based Obsidian-style Markdown reader specially designed for **Buddhist Sutra Commentaries and Scholastic Translations**. It provides a lightweight, fluent, and aesthetically pleasing Single Page Application (SPA) interface, capable of high-speed reading, full-text search, and study across thousands of large Markdown documents.
+`mdWebview` (v3.7.8) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
-### ✨ Key Features
+### ✨ What You Can Do
 
-- 📂 **Obsidian-Style File Explorer**: Automatically scans multi-level Markdown files under the `md/` directory with auto-sorting, file count indicators, and custom vector dual-chevron Collapse/Expand icons.
-- 🔗 **Obsidian Wikilinks ([[Wikilink]])**: Fully supports `[[page]]`, `[[page|display]]`, and `[[page#heading]]` syntaxes for seamless navigation and smooth scrolling to target headings.
-- ⚡ **Multi-Threaded & High Performance Architecture**:
-  - **Worker Thread SSR with Backpressure**: Offloads heavy CPU-bound Markdown parsing and footnote processing to background worker thread pools. Protected by queue bounds (`503 Service Unavailable` backpressure), entry-level 30s timers, client disconnect cancellation (`req.on('close')`), and crash-loop backoff retry (up to 8 times within 15 seconds).
-  - **Asynchronous Non-Blocking I/O**: Promise-based asynchronous file operations throughout the server. Directory tree scanning and settings memoization prevent Event Loop stalls.
-  - **Smart Caching & Gzip Compression**: Combines memory tree caching, weak ETags (304 Not Modified), 200-entry LRU static asset caching, and dynamic Gzip compression.
-  - **Frontend LRU Cache & Concurrency Guard**: Equipped with an LRU rendering cache, generation guard tokens (`_openToken` to prevent out-of-order document rendering races), `AbortController` cancellation, binary search reading progress saving (eliminating layout thrashing), and `O(1)` outline tag mapping.
-  - **ETag Revalidation on Reopen**: Cached HTML is no longer served blindly; a conditional `If-None-Match` request confirms freshness, mounting the cached body only on `304` and replacing it on `200`, so in-session file edits are reflected immediately.
-  - **Dual-Layer Virtual Chunk Race Protection**: Every chunk request is bound to its owning virtual document's `AbortController`; returning home or switching files aborts all in-flight chunks, and document identity is re-checked after the response body is read before any DOM mutation, closing the window where a stale chunk could be injected into a newly opened document.
-- 🔍 **Bigram Inverted Index & Space-Separated AND Search with Proximity Filtering**:
-  - **Bigram Inverted Index**: Server-side 2-gram in-memory and binary disk cache (`.bin`) for sub-millisecond search across 6,000+ commentary files.
-  - **Single-Flight Rebuild**: Serializes concurrent index build requests between file watcher debounce and admin triggers to prevent memory doubling.
-  - **Multi-Term AND Search**: Supports space-separated queries (e.g., `阿賴耶識 唯識`).
-  - **Proximity Distance Filtering**: Filters out matches where terms are too far apart. Maximum character distance (`MAX_PROXIMITY_DISTANCE`) is configurable in the Admin Panel (default 150 chars).
-- 📖 **Buddhist Dictionary Lookup (Prefix / Fuzzy / Full-Text)**:
-  - **Cursor Pagination**: Full-text dictionary search now paginates at 1,500 results per file per page. The previous per-file hard cap silently truncated at 1,500, so a common term such as `一切` could only ever reach the first ~11% of a file; you can now page through to the end (measured: `法` walks all 116,634 matches across four dictionaries, exactly matching a whole-file scan with zero duplicates and zero omissions).
-  - **Replace-Not-Append Rendering**: Each page repaints the whole result list rather than appending, and fetched pages are cached so paging back never refetches — DOM node count stays flat while browsing long dictionaries.
-  - **Accurate Deep-Jump Landing**: Clicking a result deep in a large file scrolls to the requested line (not the first highlight of a matched window) and self-corrects to within ±2px after render, across the full 12–32px font range.
-  - **Exhausted Files Are Never Rescanned**: Dictionaries fully paged through are recorded in the cursor state and dropped from later scans, so paging stays fast.
-- 📑 **Auto Outline Navigation (TOC)**: Dynamically parses Markdown headings (H1–H6) into a sidebar table of contents with click-to-scroll and ScrollSpy progress tracking.
-- ↔️ **Drag to Resize Sidebars**: Both side panels (left file tree/outline, right dictionary) can be resized by dragging their edge — 220–500px on the left, 240–560px on the right. The handle stays hidden while reading and appears on hover or drag as a 96px-tall accent bar with a soft glow, picking up each theme's own accent color. Hidden entirely on mobile (≤768px) and in print.
-- 🔔 **Systemwide Toast Notifications**: Glassmorphism toast alerts with `success`, `warning`, `error`, `info`, and `loading` status badges across all user actions. Errors get a 4000 ms minimum display time; identical messages are de-duplicated; index rebuilds use a persistent `loading` toast that is dismissed only on real completion. The container carries `role="status" aria-live="polite"`, and error toasts additionally carry `role="alert"` so screen readers announce them.
-- 🎨 **Five Curated Reading Themes**:
-  - 🌙 **Obsidian Dark**
-  - ☀️ **Obsidian Light**
-  - 🔆 **Solarized**
-  - 🍵 **Zen**
-  - 🍂 **Gruvbox**
-- 📱 **User Preferences & Visual Typography**:
-  - **Typography Settings**: Adjust font size, line height (1.6 / 1.8 / 2.0), text alignment, and reading max width (800px / 1000px / 100%).
-  - **Auto Simplified-to-Traditional Chinese (autoS2T)**: Integrated into the Appearance & Typography tab with full theme palette match; defaults to `false` systemwide, persisted per user in `localStorage`, and automatically passes `s2t` parameters to search queries.
-  - **Reading Progress Tracking**: Automatically records and restores scroll positions across documents.
-- 🔎 **In-Page Search**: Floating in-page search bar (`Ctrl + F`) with match counts and previous/next navigation.
-- 🔗 **URL Sharing & Deep Linking**: Share exact reading positions using `?file=...&line=...`, or force frontpage display with `?frontpage=1`.
-- 🌐 **Comprehensive SEO, Debounced Sitemap & Social Cards**:
-  - **20-Second Sitemap Debounce**: Automatically debounces file changes over a 20-second quiet period, preventing disk scanning CPU spikes during bulk uploads.
-  - **Stale-While-Revalidate**: Immediately serves cached sitemap instances (0ms latency) during debounce windows or rebuilds.
-  - **Crawler SSR & Metadata**: Pre-renders crawler-specific HTML with Schema.org JSON-LD structured data and live OpenGraph social card previews.
-- 🔒 **Security, Admin Panel & 90-Day Analytics Pruning**:
-  - Built-in PBKDF2 password hashing, IP rate limiting, and session management.
-  - **Strict Security Hardening**: Double sanitization and attribute escaping on footnote elements (XSS defense), malformed Host header 400 rejection and socket timeout destruction (DoS prevention), strict trusted proxy CIDR whitelist, and mandatory Same-Origin verification on analytics exports.
-  - **Header-Only Export Authentication**: Analytics CSV/JSON exports accept the admin session token **only** via the `X-Admin-Token` header; query-string tokens are explicitly rejected. The UI downloads through an authenticated `fetch` + Blob, keeping tokens out of browser history, copied links, and proxy logs.
-  - **Config File Static-Serve Block**: The static route unconditionally rejects any request whose basename is `config.json` (case-insensitive), so an `APP_ROOT/config.json` left in place while `CONFIG_PATH` points elsewhere (e.g. Docker `/data/config.json`) can never leak the admin username, password hash, or salt.
-  - Admin Panel with Segmented Control Pills, iOS-style toggle switches, hardware system monitor, log viewer, and CSV/JSON analytics export. Log categories include `All` / `Error` / `Auth & Config` / `HTTP` / `Search` / `Render` / `Bot`.
-  - **Auth Audit Trail**: Successful logins, every failed attempt (with count and IP), 15-minute lockouts, and logouts are all written to the structured log under the `Auth` tag and are traceable from the log viewer. Only the username and IP are recorded — never the password, hash, salt, or session token — and `?token=` in access logs is redacted.
-  - **90-Day Analytics & 7-Day Log Pruning**: Automatic 90-day retention on daily analytics buckets with map pruning; raw log files older than 7 days are automatically pruned while permanently preserving key all-time aggregates.
-  - **Observability Completeness**: Worker-thread respawns, static-asset / SSR I/O failures, config load failures, and log-pruner results all flow through the unified log pipeline (no more `console.*` bypasses); `SIGTERM`/`SIGINT` have a graceful shutdown handler that logs the signal, stops accepting connections, and terminates the worker pools.
-- 📦 **Offline & Self-Hosting Friendly**: Fully self-hosted core frontend libraries with zero external CDN dependencies; Service Worker provides clean 504 offline fallback and seamless immediate updates (`SKIP_WAITING`), and on version upgrades purges only its own `mdwebview-shell-*` / `mdwebview-content-*` caches so other applications on the same origin are untouched.
-- 🐳 **Docker & GitHub Actions Automated CI/CD**:
-  - **Multi-Architecture Builds**: Automatically builds and publishes multi-platform (`linux/amd64`, `linux/arm64`) container images to GitHub Container Registry (`ghcr.io`).
-  - **GHCR Automated Image Cleanup**: Built-in retention workflow (`cleanup-ghcr.yml`) triggered automatically after image builds or via weekly schedule, retaining the latest 5 versions, protecting `latest`/`main`/`dev` pointer tags, and safely purging untagged/orphaned manifests.
+**Reading**
+
+- 📂 **Directory on the left**: All texts are arranged by folder — click one to open it. Sort by name or by date modified, and expand or collapse everything at once.
+- 📑 **Automatic contents**: Headings in an article automatically become a table of contents. Click a heading to jump to that section, and as you scroll it shows which section you are in.
+- 🕮 **Remembers where you stopped**: Reopen the same article and it takes you back to where you left off.
+- ↔️ **Adjustable side columns**: Move your mouse to either edge of the page and a bright handle appears — drag it left or right to change the width. Hidden automatically on phones.
+- 🎨 **Five reading color schemes**: Dark, Light, Solarized, Zen, and Gruvbox. Pick whichever is easiest on your eyes.
+- 📱 **Adjust the layout**: Set the text size, line spacing, whether text is left-aligned or centered, and how wide each line is.
+- 🔤 **Simplified to Traditional Chinese**: Turn on automatic conversion when reading Simplified Chinese texts. Searches are converted the same way, so nothing is missed.
+- 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
+
+**Searching**
+
+- 🔍 **Search everything**: Search across all texts at once, with results appearing quickly.
+  - Separate words with spaces to find passages containing all of them (for example, `阿賴耶識 唯識`).
+  - Punctuation and line breaks do not get in the way: searching `佛法僧` also finds `佛法，僧` and `佛、法、僧`.
+  - Results where the words are far apart and clearly unrelated are left out automatically.
+- 📖 **Buddhist dictionary**: Look up entries by their beginning, by approximate spelling, or by full text. You can keep paging through results all the way to the end of the dictionary instead of stopping partway.
+- 🔗 **Link articles together**: Use `[[filename]]` to link between articles — click and it jumps straight there.
+- 🔗 **Share a specific passage**: Copy the link for a particular sentence and whoever opens it lands right on that line.
+
+**Other**
+
+- 🔔 **Helpful messages**: Copying, bookmarking, and switching color schemes each show a small message. If something fails, the message stays up longer so you can see what happened.
+- 🌐 **Sharing on social media**: Paste a link into Facebook, Line, or similar and it shows a title, description, and preview image.
+- 🔒 **Admin area**: Administrators can set the site name, announcements, and recommended reading, view usage and system status, and export reports. Passwords are stored encrypted, repeated failed sign-in attempts are temporarily blocked, and sign-ins and sign-outs are logged for later review.
+- 📦 **Works offline**: The core files are all hosted on your own site with no outside services. Anything you have already viewed stays readable without a network; if you open a text that was never downloaded, you get a clear "you are offline and this text is not cached yet" message rather than a blank page.
+- 🐳 **Install on your own computer or server**: Docker is supported — one command gets it running.
 
 ---
 
-### 📂 Project Structure
+### 🚀 Getting Started
 
-> 📐 **Deep-dive architecture**: See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for system diagrams, API route index, State field reference, and config field reference.
+#### I just want to read
 
-```text
-mdWebview/
-├── .github/workflows/  # GitHub Actions automated workflows
-│   ├── docker-image.yml# Multi-arch Docker image build & publish to GHCR
-│   └── cleanup-ghcr.yml# Automated GHCR image pruning (retains latest 5 versions)
-├── md/                 # Markdown document vault (supports nested directories)
-├── dicts/              # Dictionary files directory (.txt, entries separated by ===)
-├── tests/              # Native Node.js test suite (unit and API integration tests)
-├── index.html          # Frontend SPA shell (SSR injection point, PWA manifest link)
-├── app.js              # Frontend logic (state, tree, TOC, search, dict, themes, admin panel)
-├── style.css           # Style system (5 themes, responsive, Glassmorphism, Markdown enhancements)
-├── sw.js               # Service Worker (PWA offline caching)
-├── md-worker.js        # Frontend Web Worker: Markdown parsing (browser background thread)
-├── render-worker.js    # Node.js Worker Thread: SSR Markdown rendering (server-side)
-├── index-worker.js     # Node.js Worker Thread: Bigram inverted index build & search
-├── marked.min.js       # Self-hosted Marked.js engine (zero external CDN dependency)
-├── s2t.js              # Simplified-to-Traditional Chinese converter (for search input)
-├── manifest.json       # PWA Manifest static defaults (overridden at runtime by server.js)
-├── lib/                # Core native CommonJS modules (constants, utils, config, auth, worker-pool, analytics, logger, static-cache, markdown, text)
-├── server.js           # Node.js backend server (HTTP router, API dispatch, background maintenance)
-├── config.json         # System config (site name, theme, dict, announcements, suggest list)
-├── ARCHITECTURE.md     # 📐 Architecture reference (API index, State fields, data flow diagrams)
-├── Dockerfile          # Docker image build configuration
-├── docker-compose.yml  # Docker Compose deployment setup
-├── package.json        # Node.js package manifest (v3.7.8)
-└── README.md           # Project documentation
-```
+Open the site's home page. Nothing to install.
 
----
+1. Pick a text from the directory on the left.
+2. Start reading. Headings automatically become a table of contents for jumping between sections.
+3. To find text in the current article, press <kbd>Ctrl</kbd> + <kbd>F</kbd>.
+4. To search all texts, use the search box at the top.
 
-### 🚀 Quick Start
+#### I want to host it myself (for administrators)
 
-#### 1. Local Run with Node.js
-- Prerequisites: **Node.js** v24 or above recommended.
+You will need **Node.js 24 or newer**.
 
 ```bash
-# Start server
+# Start the site
 npm start
-# or
-npm run dev
-# or direct run
-node server.js
 ```
-The default server URL is `http://localhost:8330`.
 
-#### 2. Deploy with Docker Compose
-> 💡 **Note**: All settings configured and saved via the Admin Panel (`/admin`) are automatically persisted in `./data/config.json` and will be strictly preserved across Docker image updates and container restarts.
+Then open `http://localhost:8330`.
+
+**Run with Docker (recommended)**
+
+Save the following as `docker-compose.yml`, then run `docker-compose up -d`:
 
 ```yaml
 version: '3.8'
@@ -311,8 +247,8 @@ services:
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
       - DICTIONARY_PATH=/data/dicts
-      # Bigram index cache (.bin) is ~650MB. Rebuild peak memory is >= 2x index size.
-      # Host container is recommended to have >= 4GB (recommended 8GB) RAM.
+      # With many texts, the search index uses a fair amount of memory.
+      # At least 4GB (8GB is more comfortable) is recommended. Adjust the number below if needed.
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144}
     volumes:
       - ./data:/data
@@ -321,41 +257,77 @@ services:
     restart: unless-stopped
 ```
 
-##### Deployment Memory Requirements & NODE_MAX_OLD_SPACE_MB Tuning
-- **Memory Requirements**: Bigram inverted index `.bin` cache is ~650MB (over 4.5M unique 2-grams). During initial cold-start rebuild or manual reindex, peak memory usage requires ≥ 2x the index cache size.
-- **Recommended Host RAM**: At least **4GB** (recommended **8GB**) physical RAM.
-- **Tuning**: Configured by default in Dockerfile with `NODE_OPTIONS="--max-old-space-size=6144"` (6GB). In `docker-compose.yml`, customize via `NODE_MAX_OLD_SPACE_MB`:
-  ```bash
-  NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
-  ```
-
 ```bash
 docker-compose up -d
 ```
 
+**About memory**
+
+With a large collection of texts, the search index takes up roughly 650MB, and building it for the first time needs about twice that at its peak. At least **4GB** (**8GB** is more comfortable) is recommended. If memory is tight, adjust it at startup:
+
+```bash
+NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
+```
+
+> 💡 **Tip**: Admin settings are saved to `./data/config.json`, so they survive version updates and container restarts.
+
+**How to reach the admin area**
+
+Click the gear icon in the top right of the site ("Preferences & System Administration") and sign in. The first time you use it, you will be asked to set an administrator account and password. All settings are stored in `config.json`.
+
 ---
 
-### 3. Keyboard Shortcuts & URL Parameters
+### 📂 What Is in the Project
 
-| Shortcut / URL Parameter | Description |
+> 📐 **Want the technical details?** See [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+```text
+mdWebview/
+├── md/                 # Put your texts here (subfolders allowed)
+├── dicts/              # Buddhist dictionary files (.txt)
+├── tests/              # Automated tests
+├── lib/                # Modules used by the main server program
+├── index.html          # The main page
+├── app.js              # Page behavior (contents, search, dictionary, themes, admin)
+├── style.css           # Appearance and the five color schemes
+├── sw.js               # Offline support
+├── server.js           # The main server program
+├── marked.min.js       # Turns Markdown into web pages (bundled, no internet needed)
+├── s2t.js              # Simplified to Traditional Chinese conversion
+├── manifest.json       # Settings for adding the site to your phone's home screen
+├── config.json         # Site settings (name, announcements, recommended reading, etc.)
+├── package.json        # Project information (v3.7.8)
+├── Dockerfile          # Settings for packaging with Docker
+├── docker-compose.yml  # Docker startup settings
+├── ARCHITECTURE.md     # In-depth notes for developers
+└── README.md           # This document
+```
+
+---
+
+### ⌨️ Shortcuts and URL Parameters
+
+| Shortcut / URL | What it does |
 | :--- | :--- |
-| <kbd>Ctrl</kbd> + <kbd>F</kbd> or <kbd>Cmd</kbd> + <kbd>F</kbd> | Open in-page search bar |
-| <kbd>Esc</kbd> | Close in-page search bar / Exit settings modals |
-| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Jump to next / previous match when search bar is open |
-| <kbd>Ctrl</kbd> + <kbd>+</kbd> or <kbd>Cmd</kbd> + <kbd>+</kbd> | Increase font size |
-| <kbd>Ctrl</kbd> + <kbd>-</kbd> or <kbd>Cmd</kbd> + <kbd>-</kbd> | Decrease font size |
-| `?file=PATH&line=NUM` | Deep link to specific commentary and line number |
-| `?frontpage=1` or `?home=1` | Force display of the frontpage (Welcome Screen) |
+| <kbd>Ctrl</kbd> + <kbd>F</kbd> or <kbd>Cmd</kbd> + <kbd>F</kbd> | Find text in the current article |
+| <kbd>Esc</kbd> | Close the search box or a settings window |
+| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Jump to the next / previous match |
+| <kbd>Ctrl</kbd> + <kbd>+</kbd> or <kbd>Cmd</kbd> + <kbd>+</kbd> | Make text larger |
+| <kbd>Ctrl</kbd> + <kbd>-</kbd> or <kbd>Cmd</kbd> + <kbd>-</kbd> | Make text smaller |
+| `?file=PATH&line=NUM` | Share a specific line of a text; it opens right at that line |
+| `?frontpage=1` or `?home=1` | Go straight back to the home page |
 
 ---
 
-### 📝 Markdown Formatting Tips
+### 📝 Tips for Writing Your Texts
 
-1. **Heading Structure**: Use `#`, `##`, `###` headings to automatically build the sidebar Table of Contents.
-2. **Obsidian Wikilinks**: Use `[[filename]]` or `[[filename#heading]]` for internal cross-references and deep jumping.
-3. **Footnote Support**: Standard Markdown footnote syntax:
+1. **Headings**: Use `#`, `##`, and `###` for sections — they become the sidebar contents automatically.
+2. **Linking**: Use `[[filename]]` or `[[filename#heading]]` to link to another article.
+3. **Tildes**: A single `~` (such as `P11~P12` or `10~20`) is shown as-is; only `~~text~~` becomes strikethrough.
+4. **Footnotes**: Written like this.
+
    ```markdown
    Sutra passage text.[^1]
-   
+
    [^1]: Scholastic commentary or translation note.
    ```
