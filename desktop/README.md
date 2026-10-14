@@ -59,8 +59,22 @@ sidecar 方案：體積與 SEA 幾乎相同（116 MB vs 115.8 MB），但**零�
 
 實際落地位置：
 
-- **macOS**：`~/Library/Application Support/mdWebview/`
-- **Windows**：`%APPDATA%\mdWebview\`
+| 外殼 | 決定目錄的欄位 | macOS | Windows |
+| :--- | :--- | :--- | :--- |
+| Tauri | `identifier` = `org.mdwebview.tauri` | `~/Library/Application Support/org.mdwebview.tauri/` | `%APPDATA%\org.mdwebview.tauri\` |
+| Electron | `productName` = `mdWebview-Electron` | `~/Library/Application Support/mdWebview-Electron/` | `%APPDATA%\mdWebview-Electron\` |
+
+> **為何 Tauri 用 `identifier` 而 Electron 用 `productName`？**
+> Tauri 的 `app_data_dir()` 定義為 `data_dir()/<bundle identifier>`；
+> Electron 的 `app.getPath('userData')` 則預設為 `appData/<app.name>`，
+> 而 macOS 上 `app.name` 來自 `CFBundleName`、Windows 上來自執行檔的
+> `ProductName` 資源——兩者都由 electron-builder 的 `productName` 寫入。
+>
+> 兩者也使用**不同的 bundle id／appId**（`org.mdwebview.tauri` 與
+> `org.mdwebview.electron`）。macOS 上兩個 bundle id 相同的 App 會互相衝突，
+> 因此這不只是命名偏好，而是必要區隔。
+>
+> ⚠️ 兩種外殼的索引快取**不共用**：切換外殼後首次啟動會各自重建索引。
 
 > 為了支援上述行為，`lib/constants.js` 與 `lib/config.js` 做了相應調整：
 > 新增 `USER_DATA`；當 `USER_DATA !== APP_ROOT`（桌面模式）時，
@@ -111,16 +125,36 @@ npx @tauri-apps/cli@^2 build
 
 `.github/workflows/desktop-packages.yml` 會產生全部四個封裝：
 
-| 產物 | Runner | 內容 |
+| Artifact 名稱 | Runner | 內容 |
 | :--- | :--- | :--- |
 | `tauri-macos` | `macos-latest` | `.dmg`、`.app`（arm64） |
 | `tauri-windows` | `windows-latest` | NSIS `.exe`、`.msi` |
 | `electron-macos` | `macos-latest` | `.dmg`、`.zip`（arm64 + x64） |
 | `electron-windows` | `windows-latest` | NSIS installer、portable `.exe` |
 
+### 安裝檔命名（兩種外殼必須可分辨）
+
+兩種外殼都叫 mdWebview，但**安裝檔名刻意不同**，以免在 Release 頁面混淆：
+
+| 外殼 | 產品名稱 | macOS | Windows |
+| :--- | :--- | :--- | :--- |
+| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.0_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.0_x64-setup.exe`<br>`mdWebview-Tauri_3.8.0_x64_en-US.msi` |
+| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.0-arm64.dmg`<br>`mdWebview-Electron-3.8.0-arm64-mac.zip` | `mdWebview-Electron-3.8.0-x64-setup.exe`<br>`mdWebview-Electron-3.8.0-x64-portable.exe` |
+
+命名規則差異（來自各自的打包器，非本專案自訂）：
+
+- **Tauri**：`tauri-bundler` 固定以 `{productName}_{version}_{arch}` 組檔名，
+  **以底線分隔**。Tauri 的設定 schema **沒有** `artifactName` 這種欄位，
+  因此檔名**只能**由 `productName` 決定。
+- **Electron**：`electron-builder` 的 `artifactName` 樣板（本專案明設
+  `${productName}-${version}-${arch}...`），**以連字號分隔**。
+
+> 因此「`_` vs `-`」不只是外觀差異，而是兩套打包器的固定行為。
+> 加上 `-Tauri` / `-Electron` 後綴，即使只看檔名也能立刻分辨。
+
 流程設計重點：
 
-- **`verify` job 先跑 `npm test`**，四個打包 job 全部 `needs: verify`——測試紅燈時**不可能**產出安裝檔（現有 264 項測試）。
+- **`verify` job 先跑 `npm test`**，四個打包 job 全部 `needs: verify`——測試紅燈時**不可能**產出安裝檔（現有 268 項測試）。
 - 推 `v*` tag 或手動 `workflow_dispatch` 觸發。
 - 推 tag 時，`release` job 會把所有安裝檔附加到 GitHub Release。
 
@@ -144,11 +178,11 @@ npx @tauri-apps/cli@^2 build
 
 | 項目 | 結果 |
 | :--- | :--- |
-| 現有測試套件 | ✅ **264 / 264 通過**（重構後仍全綠） |
+| 現有測試套件 | ✅ **268 項測試**（263 通過、5 略過，全綠） |
 | 伺服器模式回歸 | ✅ `GET /` 與 `/api/tree` 皆 200；維持 `0.0.0.0` 綁定與 CWD 資料目錄 |
 | Tauri `.app` 打包 | ✅ 成功產出 125.23 MiB bundle |
 | Tauri 打包後執行 | ✅ sidecar 啟動、`GET /` 200、資料只寫入使用者目錄 |
-| Electron 打包 | ✅ 產出 `mdWebview-3.8.0-arm64-mac.zip`（126 MB） |
+| Electron 打包 | ✅ 產出 `mdWebview-Electron-3.8.0-arm64-mac.zip`（126 MB） |
 | Electron 打包後執行 | ✅ 內嵌伺服器啟動並寫入 `logs/`、`md/`、`dicts/` |
 | 封裝內容檢查 | ✅ 含 `server.js`/worker/`marked`；**不含** `config.json`、`logs`、`md`、`dicts`、`tests` |
 | 設定檔語法 | ✅ 3 個 workflow YAML、4 個 JSON 全部有效 |

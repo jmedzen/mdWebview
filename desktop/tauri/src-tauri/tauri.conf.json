@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mdWebview",
+  "productName": "mdWebview-Tauri",
   "version": "3.8.0",
-  "identifier": "org.mdwebview.reader",
+  "identifier": "org.mdwebview.tauri",
   "build": {
     "frontendDist": "../ui"
   },
