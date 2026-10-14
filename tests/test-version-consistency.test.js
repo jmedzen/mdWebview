@@ -74,14 +74,36 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
    * 「現行版本標記」（標頭版本列與 APP_VERSION 表格列）斷言，並另外守住歷史註記
    * 不被誤刪（避免誤用全域 sed 取代把歷史一併改寫）。
    *
-   * 版本資訊由 package.json 的 patch 號推算「上一版」，升版後不需手動修改本測試。
+   * 版本資訊優先由 git 最近的 release commit 推導「上一版」，升版後不需手動修改本測試。
+   *
+   * 注意：不可只用 patch 減一推算。升到 X.Y.0 時 patch 為 0，減一會得到 X.(Y-1).-1
+   * 這種無效版本，導致本反向斷言被 skip 而完全失去守衛作用（v3.8.0 升版時實際發生）。
+   * 因此改為讀取 git 歷史中最近一個「與現行版本不同」的 release 版本；git 不可用時
+   * 才退回 patch 減一，且此時若無法推導則明確失敗而非靜默略過。
    */
   const prevVersion = (() => {
+    try {
+      const { execSync } = require('node:child_process');
+      const log = execSync('git log --format=%s -n 200', {
+        cwd: ROOT_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+      });
+      const found = [...log.matchAll(/chore\(release\):\s*v(\d+\.\d+\.\d+)/g)]
+        .map(m => m[1])
+        .find(v => v !== version);
+      if (found) return found;
+    } catch (_) { /* git 不可用時退回算術推算 */ }
+
     const [maj, min, pat] = version.split('.').map(Number);
     return pat > 0 ? `${maj}.${min}.${pat - 1}` : null;
   })();
 
-  test('反向斷言：不得殘留舊版本的現行版本標記', { skip: !prevVersion ? '無上一版可推導' : false }, () => {
+  test('反向斷言：不得殘留舊版本的現行版本標記', () => {
+    // 無法推導上一版時必須明確失敗，不可 skip ——
+    // 靜默略過會讓整個守衛形同不存在（v3.8.0 升版時曾因此失去保護）。
+    assert.ok(
+      prevVersion,
+      '無法從 git 歷史或 package.json 推導上一版版本號，反向斷言無法執行'
+    );
     const oldVersion = prevVersion;
     const oldTag = `v${oldVersion}`;
 

@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.7.9 | 最後更新：2026-10
+> 版本：v3.8.0 | 最後更新：2026-10
 
 ---
 
@@ -260,8 +260,9 @@ flowchart TD
    因為 worker 收尾可能超過 5 秒強制退出計時器。
 5. **檔案異動**：watcher 偵測變更時同時自 LRU 與鏡像移除，並排程一次（去抖）寫入，避免 bin 反覆
    復活已刪除／已修改檔案的過期索引。
-6. **日誌降級**：成功寫入訊息由 `INFO` 降為 `DEBUG`；單次全量掃描曾產生數百行 INFO，佔用 600 筆
-   記憶體日誌緩衝達 95%。失敗仍維持 `ERROR`。
+6. **日誌等級**：成功寫入訊息維持 `INFO`。因為寫入已去抖，單次全量掃描由數百行收斂為每次靜默期
+   一行，不再佔滿 600 筆記憶體日誌緩衝；保留 `INFO` 是為了在一般日誌中仍能看到索引持久化的證據。
+   失敗維持 `ERROR`。
 
 **實測結果（v3.7.9）**
 
@@ -277,6 +278,47 @@ flowchart TD
 **驗證方式**：以 `PORT=8401` 啟動測試實例，請求 25 個大檔後確認 bin 由 3 筆成長至 24 筆（突破原
 20 筆上限）；全量掃描後達 289 筆；重啟後逐一請求 289 筆全部 `200` 且 bin 位元組不變、寫入日誌為 0。
 **注意**：正式 `8330` 埠的既有行程不會熱重載，驗證一律使用其他埠並於結束後清除。
+
+> **v3.8.0 補充（日誌等級與可觀測性）**
+>
+> 上述第 6 點的日誌等級曾於 v3.7.9 降為 `DEBUG`，導致一般日誌完全看不到索引持久化痕跡
+> （實測 `logs/section-index-cache.bin` 有更新、但日誌無對應行）。v3.8.0 改回 `INFO`：去抖已把
+> 單次全量掃描由數百行收斂為每次靜默期一行，因此不再有洗版問題。
+>
+> 更根本的問題是**三層快取原本完全沒有可觀測性**：`getSectionIndex()` 走 LRU、走磁碟鏡像、或
+> 落到 worker 重建，三者對日誌而言完全一樣，因此「快取到底有沒有在運作」無法回答，只能靠推論。
+> v3.8.0 加入 `sectionIndexMetrics`（`lruHit` / `mirrorHit` / `build` / `evictions`），並以兩種方式呈現：
+>
+> 1. **累計統計**：每次寫盤的 `Saved section-index cache` INFO 行尾附上完整計數，一次 grep 即可判讀：
+>    `... in 236ms | cache: LRU 4 hit (20/20 entries), mirror 46 hit (280 entries), build 280, evict 282`
+> 2. **API**：`/api/admin/status` 的 `sectionIndexCache` 區塊提供 `lruHit`、`mirrorHit`、`build`、
+>    `evictions`、`hitRatePct`（避開 worker 重建的比率）、`lruSize`/`lruMax`、`mirrorSize`/`mirrorMax`。
+>
+> 另新增開機載入訊息 `Section-index vault bin loaded: N entries`，讓 bin 檔實際載入筆數可直接從
+> 一般日誌確認（過去只能看 bin 有更新、無從得知載入多少筆）。
+>
+> 逐檔追蹤（`Section-index LRU hit / MIRROR hit / MISS`）**預設關閉**，需 `SECTION_INDEX_TRACE=1`
+> 才會輸出。原因：vault 有 280 個可見大檔，逐檔輸出一輪就會灌滿 600 筆環狀緩衝並擠掉其他診斷
+> 訊息——正是 v3.7.9 修掉的洗版問題。
+>
+> 實測（25 個大檔各讀兩輪）：`build=280`、`mirrorHit=46`、`lruHit=4`。首次全量掃描的 280 次重建
+> 來自搜尋索引建置流程本身走訪所有大檔（`server.js` §12 對每個 >=1MB 檔案呼叫 `getSectionIndex`，
+> 非快取失效）；第二輪同 25 檔全數命中快取、0 次重建，證實讀寫分離與鏡像提升皆正常運作。
+>
+> **筆數對帳（避免誤判為漏快取）**：`md/` 下 >=1MB 的 `.md` 檔案 `find` 會數到 312 個，但 bin 只有
+> 283 筆，差額來源有二，皆為正常：
+> - **−32**：位於隱藏目錄（如 `.backup_QA_*`）的備份副本，掃描器依規則略過任何含 `/.` 的路徑。
+> - **+3**：伺服器關機期間被刪除的檔案殘留。寫盤不比對檔案是否仍存在，關機時刪檔不會有 watcher
+>   事件可觸發淘汰。此殘留**無害**——讀取前必先 `stat`，檔案不存在即 404，過期條目永遠不會被回傳，
+>   僅佔用少量位元組；伺服器下次啟動後若該路徑再次變動即會被清掉。
+> 因此可見大檔實為 **280** 個，與 bin 載入的 283 筆（280 + 3 筆殘留）一致。
+
+**升版至 X.Y.0 的測試守衛修正**
+
+`tests/test-version-consistency.test.js` 的反向斷言原本以「patch 減一」推算上一版。升到 `3.8.0`
+時 patch 為 `0`，減一得到無效版本，該斷言因此被 `skip` 而**完全失去守衛作用**（表面上測試仍
+「通過」，實際未檢查任何殘留標記）。現改為優先讀取 git 歷史中最近一個與現行版本不同的
+`chore(release): vX.Y.Z` 版本號；推導失敗時**明確失敗而非略過**，避免同類靜默失效再次發生。
 
 ---
 
@@ -509,7 +551,7 @@ flowchart TD
 | `/api/admin/setup` | POST | 伺服器首次管理員初始化 | ❌ | 首次部署管理員帳號與 siteUrl 設定 |
 | `/api/admin/login` | POST | PBKDF2 驗證 (`lib/auth.js`) | ❌ | 管理員登入（防暴力破解鎖定 15m） |
 | `/api/admin/logout` | POST | Session 註銷 (`lib/auth.js`) | ✅ | 登出並使 Token 失效 |
-| `/api/admin/status` | GET | 狀態偵測 | ❌ | 檢查系統是否已初始化及管理員認證狀態 |
+| `/api/admin/status` | GET | 狀態偵測 | ❌ | 檢查系統是否已初始化及管理員認證狀態；已認證時另含 `sectionIndexCache`（章節索引三層快取的 `lruHit`/`mirrorHit`/`build`/`evictions`/`hitRatePct` 統計） |
 | `/api/admin/settings` | GET | 讀取設定 (`lib/config.js`) | ✅ | 取得當前伺服器 config.settings |
 | `/api/admin/settings` | POST | 儲存設定 (`lib/config.js`) | ✅ | 更新系統設定、目錄路徑與 SEO 參數 |
 | `/api/admin/logs` | GET | 系統日誌 (`lib/logger.js`) | ✅ | 讀取 600 筆環狀記憶體日誌 |
@@ -679,7 +721,7 @@ flowchart TD
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
 | `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號 |
-| `APP_VERSION` | `lib/constants.js` | `'3.7.9'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.8.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -692,6 +734,7 @@ flowchart TD
 | `SECTION_INDEX_MAX_CACHE` | `server.js` | `20` | 章節索引**記憶體讀取 LRU** 上限（維持熱資料快速命中） |
 | `SECTION_INDEX_DISK_MAX` | `server.js` | `5,000` | 章節索引**磁碟鏡像**上限；須遠大於 vault 大檔數（目前 ~321），否則全量掃描無法持久化 |
 | `SECTION_INDEX_SAVE_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | 章節索引寫盤去抖時間；把連續建置合併為單次寫入 |
+| `SECTION_INDEX_TRACE` | 環境變數 | 未設定（關閉） | 設為 `1` 時逐檔輸出 `DEBUG` 快取命中追蹤；預設關閉以免 289 筆逐檔訊息灌滿 600 筆環狀緩衝 |
 | `MAX_ANALYTICS_KEYS` | `lib/analytics.js` | `10,000` | Analytics 記憶體 Map 最大 key 數（防記憶體爆炸） |
 | `SESSION_DURATION` | `lib/auth.js` | `21,600,000`（6h） | 管理員 session 有效存活時間 |
 | `MAX_ATTEMPTS` | `lib/auth.js` | `5` | 管理員密碼錯誤次數上限（超限觸發鎖定） |

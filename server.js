@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.7.9
+ * @version 3.8.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -25,7 +25,9 @@
  *   §10 Large-File Chunked API   handleSectionIndex, handleRender
  *   §11 Section Index Engine     getSectionIndex, binary disk cache (.bin)
  *                                (read LRU decoupled from persisted disk mirror;
- *                                 debounced writes — see ARCHITECTURE.md §4.1)
+ *                                 debounced writes; tier hit/miss counters
+ *                                 exported as sectionIndexMetrics — see
+ *                                 ARCHITECTURE.md §4.1)
  *   §12 Bigram Search Engine     buildSearchIndexAsync, binary cache, worker jobs
  *   §13 Dictionary Index & API   buildDictIndexAsync, handleDictHeadwords, handleDictSearch
  *                                (full-text search pages via after/done cursor params)
@@ -1545,6 +1547,47 @@ let dictSectionIndexBinLoaded = false;
 let sectionJobSeq = 0;
 
 /**
+ * Observability counters for the three-tier section-index cache.
+ *
+ * Historically the cache emitted no evidence at all: a vault-wide read storm
+ * looked identical to a cold rebuild in the logs, so "is the cache working?"
+ * was unanswerable without instrumentation. These counters make each tier
+ * explicit and are surfaced on the "Saved section-index cache" INFO line and
+ * via /api/admin/status.
+ *
+ * `lruHit`     - served from the 20-entry hot read LRU.
+ * `mirrorHit`  - served from the persistent disk mirror (bin already loaded).
+ * `build`      - had to run the worker scan (the slow path).
+ * `evictions`  - entries dropped from the read LRU because it exceeded its cap.
+ */
+const sectionIndexMetrics = {
+  lruHit: 0,
+  mirrorHit: 0,
+  build: 0,
+  evictions: 0,
+};
+
+/**
+ * Per-file cache tracing, OFF by default.
+ *
+ * A full vault scan reads ~280 large files, so logging every tier decision
+ * would flood the 600-entry ring buffer and evict unrelated diagnostics — the
+ * exact flooding problem v3.7.9 fixed. The totals are always reported on the
+ * "Saved section-index cache" INFO line and via /api/admin/status; set
+ * SECTION_INDEX_TRACE=1 only when per-file detail is genuinely needed.
+ */
+const SECTION_INDEX_TRACE = process.env.SECTION_INDEX_TRACE === '1';
+
+/**
+ * Emits a per-file cache trace line when SECTION_INDEX_TRACE=1.
+ * @param {string} msg
+ * @returns {void}
+ */
+function traceSectionIndex(msg) {
+  if (SECTION_INDEX_TRACE) Logger.debug('Index', msg);
+}
+
+/**
  * Stores a freshly built/loaded section index in BOTH the persistent disk mirror
  * and the small read LRU.
  *
@@ -1570,6 +1613,7 @@ function setSectionIndex(relPath, idx) {
   while (sectionIndexCache.size > SECTION_INDEX_MAX_CACHE) {
     const oldest = sectionIndexCache.keys().next().value;
     sectionIndexCache.delete(oldest);
+    sectionIndexMetrics.evictions++;
   }
 }
 
@@ -1634,6 +1678,10 @@ async function getSectionIndex(fullPath, stat, relPath) {
   const cached = cache.get(relPath);
   if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
     if (!isDict) setSectionIndex(relPath, cached); // refresh LRU order
+    if (!isDict) {
+      sectionIndexMetrics.lruHit++;
+      traceSectionIndex(`Section-index LRU hit: "${relPath}" (LRU ${sectionIndexCache.size}/${SECTION_INDEX_MAX_CACHE}, mirror ${sectionIndexDiskCache.size})`);
+    }
     return cached;
   }
 
@@ -1649,6 +1697,7 @@ async function getSectionIndex(fullPath, stat, relPath) {
       }
       if (isDict) dictSectionIndexBinLoaded = true;
       else sectionIndexBinLoaded = true;
+      Logger.info('Index', `Section-index ${isDict ? 'dictionary' : 'vault'} bin loaded: ${all.length} entr${all.length === 1 ? 'y' : 'ies'} (LRU ${isDict ? dictSectionIndexCache.size : sectionIndexCache.size}/${isDict ? '∞' : SECTION_INDEX_MAX_CACHE}, mirror ${isDict ? dictSectionIndexCache.size : sectionIndexDiskCache.size})`);
     } catch (_) {}
   }
 
@@ -1662,6 +1711,8 @@ async function getSectionIndex(fullPath, stat, relPath) {
     const mirrored = sectionIndexDiskCache.get(relPath);
     if (mirrored && mirrored.size === stat.size && mirrored.mtimeMs === stat.mtimeMs) {
       setSectionIndex(relPath, mirrored); // promote into the read LRU
+      sectionIndexMetrics.mirrorHit++;
+      traceSectionIndex(`Section-index MIRROR hit (LRU evicted): "${relPath}" (LRU ${sectionIndexCache.size}/${SECTION_INDEX_MAX_CACHE}, mirror ${sectionIndexDiskCache.size})`);
       return mirrored;
     }
   }
@@ -1671,6 +1722,7 @@ async function getSectionIndex(fullPath, stat, relPath) {
   if (existing) return existing;
 
   const promise = (async () => {
+    const buildStart = Date.now();
     const result = await buildSectionIndex(relPath, fullPath);
     const idx = {
       relPath,
@@ -1687,6 +1739,11 @@ async function getSectionIndex(fullPath, stat, relPath) {
     if (isDict) dictSectionIndexCache.set(relPath, idx);
     else setSectionIndex(relPath, idx);
     sectionIndexPromises.delete(relPath);
+
+    if (!isDict) {
+      sectionIndexMetrics.build++;
+      traceSectionIndex(`Section-index MISS, built via worker: "${relPath}" in ${Date.now() - buildStart}ms (LRU ${sectionIndexCache.size}/${SECTION_INDEX_MAX_CACHE}, mirror ${sectionIndexDiskCache.size})`);
+    }
 
     // Persist to disk asynchronously in the background
     if (isDict) saveDictSectionIndexBinAsync();
@@ -1917,11 +1974,16 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
         throw err;
       }
     }
-    // DEBUG, not INFO: this fires once per debounced save, and a single full
-    // scan used to emit hundreds of INFO lines that crowded the 600-entry log
-    // buffer (and the admin log viewer) with no diagnostic value. Failures
-    // below stay at ERROR.
-    Logger.debug('Index', `Saved ${label} cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms`);
+    // INFO is safe here because writes are debounced: a full scan that used to
+    // emit hundreds of lines now collapses into a single one per quiet period,
+    // so this stays visible for diagnostics without flooding the 600-entry
+    // log buffer. Failures below stay at ERROR.
+    // The vault line also carries the cumulative three-tier cache counters, so a
+    // single grep answers "is the LRU working?" without polling the admin API.
+    const stats = label === 'section-index'
+      ? ` | cache: LRU ${sectionIndexMetrics.lruHit} hit (${sectionIndexCache.size}/${SECTION_INDEX_MAX_CACHE} entries), mirror ${sectionIndexMetrics.mirrorHit} hit (${sectionIndexDiskCache.size} entries), build ${sectionIndexMetrics.build}, evict ${sectionIndexMetrics.evictions}`
+      : '';
+    Logger.info('Index', `Saved ${label} cache (${(buf.length / 1024 / 1024).toFixed(2)} MB, ${files.length} file(s)) in ${Date.now() - saveStart}ms${stats}`);
   } catch (err) {
     Logger.error('Index', `Failed to save ${label} cache`, err);
   }
@@ -4321,6 +4383,23 @@ async function getSystemHardwareStats() {
       cacheEntries: searchCache.size,
       vaultTotalSizeBytes: vaultTotalSizeBytes
     },
+    sectionIndexCache: {
+      lruHit: sectionIndexMetrics.lruHit,
+      mirrorHit: sectionIndexMetrics.mirrorHit,
+      build: sectionIndexMetrics.build,
+      evictions: sectionIndexMetrics.evictions,
+      // Share of large-file reads that avoided the worker scan entirely.
+      hitRatePct: (() => {
+        const total = sectionIndexMetrics.lruHit + sectionIndexMetrics.mirrorHit + sectionIndexMetrics.build;
+        return total > 0 ? parseFloat((((sectionIndexMetrics.lruHit + sectionIndexMetrics.mirrorHit) / total) * 100).toFixed(1)) : 0;
+      })(),
+      lruSize: sectionIndexCache.size,
+      lruMax: SECTION_INDEX_MAX_CACHE,
+      mirrorSize: sectionIndexDiskCache.size,
+      mirrorMax: SECTION_INDEX_DISK_MAX,
+      binLoaded: sectionIndexBinLoaded,
+      dictEntries: dictSectionIndexCache.size
+    },
     network: {
       totalRequests: httpMetrics.totalRequests,
       requestsPerMin: requestsPerMin,
@@ -5362,6 +5441,7 @@ if (typeof module !== "undefined" && module.exports) {
     terminateWorkerPools,
     saveSearchIndexBinCacheAsync,
     flushAllSectionIndexSaves,
+    sectionIndexMetrics,
     loadSearchIndexFromBinCacheAsync,
     saveDictIndexBinCacheAsync,
     loadDictIndexFromBinCacheAsync,
