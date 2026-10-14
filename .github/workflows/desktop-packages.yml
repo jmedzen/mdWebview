@@ -24,8 +24,13 @@ permissions:
   contents: write
 
 env:
-  # Must match the Node major used by the Docker image (engines: >=24).
-  NODE_VERSION: '24'
+  # Node major for actions/setup-node; must satisfy engines (>=24), matching the
+  # Docker image. Deliberately NOT named NODE_VERSION: prepare-sidecar.sh reads
+  # NODE_VERSION as the exact upstream release to download (e.g. 24.17.0), and a
+  # bare major would produce https://nodejs.org/dist/v24/ — which 404s.
+  NODE_MAJOR: '24'
+  # Exact official Node release used for the Tauri sidecar binaries.
+  NODE_SIDECAR_VERSION: '24.17.0'
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────
@@ -45,7 +50,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ env.NODE_MAJOR }}
       - name: Install dependencies
         run: npm ci --omit=dev
 
@@ -93,7 +98,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ env.NODE_MAJOR }}
 
       - name: Install app dependencies
         run: npm ci --omit=dev
@@ -114,6 +119,9 @@ jobs:
       - name: Prepare Node sidecar
         run: bash desktop/scripts/prepare-sidecar.sh "${{ matrix.triple }}" "${{ matrix.node_platform }}" "${{ matrix.node_arch }}"
         shell: bash
+        env:
+          # Exact release to download; nodejs.org has no /dist/v<major>/ index.
+          NODE_VERSION: ${{ env.NODE_SIDECAR_VERSION }}
 
       - name: Stage application payload
         run: bash desktop/scripts/stage-payload.sh . desktop/tauri/src-tauri/payload
@@ -167,7 +175,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ env.NODE_MAJOR }}
 
       - name: Install app dependencies
         run: npm ci --omit=dev
@@ -183,9 +191,14 @@ jobs:
         working-directory: desktop/electron
         # electron-builder sources the read-only payload via extraResources,
         # which resolves ../../ relative to desktop/electron.
+        #
+        # Do NOT export GH_TOKEN/GITHUB_TOKEN here. electron-builder auto-detects
+        # a GitHub publish provider from those variables; because this package
+        # declares "publish": null it would otherwise crash while generating
+        # update-info metadata ("Cannot read properties of null (reading
+        # 'channel')"). The release job below uploads the artifacts instead.
         run: npx electron-builder ${{ matrix.args }} --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           electron_config_cache: ${{ runner.temp }}/electron-cache
 
       - name: Upload installers

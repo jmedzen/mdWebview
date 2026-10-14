@@ -23,6 +23,7 @@
     "appId": "org.mdwebview.reader",
     "productName": "mdWebview",
     "copyright": "Copyright © mdWebview",
+    "publish": null,
     "directories": {
       "output": "release",
       "buildResources": "build"
