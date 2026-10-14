@@ -37,6 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # test-version-consistency.test.js derives the previous release version by
+          # scanning `chore(release): vX.Y.Z` subjects in git history, and fails
+          # loudly when it cannot (a silent skip would disable the guard). The
+          # default depth-1 clone contains no such commit, so fetch full history.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
