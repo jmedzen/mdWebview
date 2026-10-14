@@ -1,0 +1,223 @@
+name: Desktop Packages
+
+# Builds four desktop installers:
+#   1. Tauri v2   — Windows (NSIS + MSI)
+#   2. Tauri v2   — macOS (dmg + app, arm64 + x64)
+#   3. Electron   — Windows (NSIS installer + portable)
+#   4. Electron   — macOS (dmg + zip, arm64 + x64)
+#
+# Both shells launch the *unmodified* server.js as a real Node.js process, so the
+# runtime behaviour is identical to the Docker/server deployment.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label for artifacts (defaults to package.json)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  # Must match the Node major used by the Docker image (engines: >=24).
+  NODE_VERSION: '24'
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  # Run the existing test suite once; every packaging job depends on it so a
+  # red test can never produce a release artifact.
+  # ───────────────────────────────────────────────────────────────────────
+  verify:
+    name: Verify (tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      # The real vault and config.json are developer-local and git-ignored, so a
+      # clean checkout has an empty md/ and no dictionary. Generate the synthetic
+      # corpus the integration tests assert against rather than letting those
+      # tests fail (or silently skipping).
+      - name: Generate test corpus
+        run: node tests/fixtures/make-test-corpus.js
+
+      - name: Run test suite
+        run: npm test
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 1 & 2. Tauri v2
+  # ───────────────────────────────────────────────────────────────────────
+  tauri:
+    name: Tauri ${{ matrix.label }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS
+            os: macos-latest
+            triple: aarch64-apple-darwin
+            node_platform: darwin
+            node_arch: arm64
+            bundles: dmg,app
+            target_flag: '--target aarch64-apple-darwin'
+            artifact: tauri-macos
+          # Intel Macs: the same job can emit x64 by adding a second matrix row
+          # with node_arch x64 and --target x86_64-apple-darwin.
+          - label: Windows
+            os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            node_platform: win
+            node_arch: x64
+            bundles: nsis,msi
+            target_flag: ''
+            artifact: tauri-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install app dependencies
+        run: npm ci --omit=dev
+        shell: bash
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/tauri/src-tauri -> target
+
+      # Tauri's externalBin needs a self-contained Node whose filename carries
+      # the target triple. Distro/Homebrew builds are shims and cannot ship.
+      - name: Prepare Node sidecar
+        run: bash desktop/scripts/prepare-sidecar.sh "${{ matrix.triple }}" "${{ matrix.node_platform }}" "${{ matrix.node_arch }}"
+        shell: bash
+
+      - name: Stage application payload
+        run: bash desktop/scripts/stage-payload.sh . desktop/tauri/src-tauri/payload
+        shell: bash
+
+      # Invoke the CLI directly (rather than via tauri-action) so the exact
+      # command is pinned and reproducible: the same one verified locally.
+      - name: Install Tauri CLI
+        working-directory: desktop/tauri
+        run: npm ci
+        shell: bash
+
+      - name: Build Tauri bundle
+        working-directory: desktop/tauri
+        run: npx tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target_flag }}
+        shell: bash
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            desktop/tauri/src-tauri/target/**/release/bundle/dmg/*.dmg
+            desktop/tauri/src-tauri/target/**/release/bundle/macos/*.app
+            desktop/tauri/src-tauri/target/**/release/bundle/nsis/*.exe
+            desktop/tauri/src-tauri/target/**/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 3 & 4. Electron
+  # ───────────────────────────────────────────────────────────────────────
+  electron:
+    name: Electron ${{ matrix.label }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS
+            os: macos-latest
+            args: '--mac'
+            artifact: electron-macos
+          - label: Windows
+            os: windows-latest
+            args: '--win'
+            artifact: electron-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install app dependencies
+        run: npm ci --omit=dev
+
+      - name: Install Electron build dependencies
+        working-directory: desktop/electron
+        # Cache the Electron binary download so repeat runs are fast.
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+        run: npm ci
+
+      - name: Build Electron installers
+        working-directory: desktop/electron
+        # electron-builder sources the read-only payload via extraResources,
+        # which resolves ../../ relative to desktop/electron.
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            desktop/electron/release/*.dmg
+            desktop/electron/release/*.zip
+            desktop/electron/release/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Attach every installer to the GitHub Release when a tag is pushed.
+  # ───────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tauri, electron]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List collected files
+        run: ls -laR dist | head -50
+
+      - name: Attach installers to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/*.dmg
+            dist/**/*.zip
+            dist/**/*.exe
+            dist/**/*.msi
+          fail_on_unmatched_files: false
+          generate_release_notes: true

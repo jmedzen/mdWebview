@@ -172,3 +172,43 @@ test('Index Binary Cache: In-place Compaction does not leak or duplicate Maps', 
     await terminateWorkerPools();
   }
 });
+
+// ── v3.8.0 迴歸：關機後不得再重生 worker（否則行程無法結束） ────────────────────
+/**
+ * 修正前：terminateWorkerPools() 只終止既有執行緒，並未清除每個未完成工作的 30 秒
+ * 逾時計時器，也未阻止重生。逾時計時器隨後觸發 respawnIndexWorker()，重新建立
+ * 執行緒，使事件迴圈永遠不空——node --test 因此永不退出，在 CI 上以逾時收場。
+ */
+test('Worker Pool: 關機後 index pool 保持空且不得被重新初始化', async () => {
+  const pool = require('../lib/worker-pool.js');
+  await pool.terminateWorkerPools();
+
+  assert.equal(pool.indexWorkerPool.length, 0, '關機後 index pool 應為空');
+
+  // getIndexWorkerPool() 過去會在 pool 為空時自動重新初始化，讓關機失效。
+  assert.equal(pool.getIndexWorkerPool().length, 0,
+    'getIndexWorkerPool() 於關機後不得重新建立 worker（否則事件迴圈永遠不空）');
+
+  // 明確的重新初始化呼叫同樣必須被拒絕。
+  pool.initIndexWorkerPool();
+  assert.equal(pool.indexWorkerPool.length, 0, '關機後 initIndexWorkerPool() 不得建立 worker');
+  pool.initWorkerPool();
+  assert.equal(pool.workerPool.length, 0, '關機後 initWorkerPool() 不得建立 worker');
+});
+
+test('Worker Pool: 關機後提交工作須立即被拒絕，而非排入佇列等待已終止的 worker', async () => {
+  const pool = require('../lib/worker-pool.js');
+  await pool.terminateWorkerPools();
+
+  await assert.rejects(
+    () => pool.executeIndexJob('search-scan', { jobId: 1, fullPath: '/nonexistent', units: [], terms: [] }),
+    (err) => err && err.code === 'POOL_TERMINATED',
+    '關機後的 index 工作應以 POOL_TERMINATED 立即拒絕'
+  );
+
+  await assert.rejects(
+    () => pool.renderWithWorker('# hello', 'x.md', 0),
+    (err) => err && err.code === 'POOL_TERMINATED',
+    '關機後的 render 工作應以 POOL_TERMINATED 立即拒絕'
+  );
+});
