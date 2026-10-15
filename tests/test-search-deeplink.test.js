@@ -261,6 +261,11 @@ describe('全庫搜尋深層連結 2：parseUrlParams 網址解析', () => {
     assert.equal(r.search, 'hello', '明確的搜尋意圖應優先於開檔');
   });
 
+  test('?search= 應與 ?home=1 並存時優先，優先序才一致', () => {
+    const r = parse('?home=1&search=hello', '');
+    assert.equal(r.search, 'hello', 'search 應一致地優先於 home');
+  });
+
   test('?q= 應仍隨 ?file= 一同回傳（修復被丟棄的閃示關鍵字）', () => {
     assert.deepEqual(plain(parse('?file=a.md&line=12&q=%E6%B3%95', '')), {
       file: 'a.md', line: 12, query: '法'

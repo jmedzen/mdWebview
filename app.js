@@ -655,6 +655,21 @@
       searchParams = new URLSearchParams('');
     }
 
+    // 全庫搜尋入口，優先於其他所有參數（含 file 與 home）。空字串／純空白
+    // 視為「沒有參數」，否則 ?search= 會清空結果面板並讓使用者以為功能壞掉。
+    //
+    // 之所以能安全地擺在最前面：search= 是本次新增的參數，既有網址不可能
+    // 帶有它，因此不會改變任何現存書籤的行為；而將它統一置頂可避免
+    // ?file=x&search=y 與 ?home=1&search=y 出現不一致的優先順序。
+    //
+    // 500 字元上限是防禦性邊界（/api/search 本身不截斷，只受 Node 約 16KB 的
+    // 請求行上限保護）：避免精心構造的超長網址驅動一次極昂貴的搜尋。真實的
+    // 搜尋詞遠短於此，故正常使用不會察覺。
+    const rawSearch = searchParams.get('search');
+    if (rawSearch !== null && rawSearch.trim()) {
+      return { search: rawSearch.trim().slice(0, 500) };
+    }
+
     // Check for explicit frontpage / home URL parameters (e.g. ?home=1, ?frontpage=1, ?home, ?frontpage, ?page=home)
     const pageVal = (searchParams.get('page') || '').toLowerCase();
     const hasHomeParam = searchParams.has('home') || searchParams.has('frontpage') || pageVal === 'home' || pageVal === 'frontpage';
@@ -663,17 +678,6 @@
       if (homeVal !== 'false' && homeVal !== '0') {
         return { isHome: true };
       }
-    }
-
-    // 全庫搜尋入口。空字串／純空白視為「沒有參數」，否則 ?search= 會清空結果
-    // 面板並讓使用者以為功能壞掉。
-    //
-    // 500 字元上限是防禦性邊界（/api/search 本身不截斷，只受 Node 約 16KB 的
-    // 請求行上限保護）：避免精心構造的超長網址驅動一次極昂貴的搜尋。真實的
-    // 搜尋詞遠短於此，故正常使用不會察覺。
-    const rawSearch = searchParams.get('search');
-    if (rawSearch !== null && rawSearch.trim()) {
-      return { search: rawSearch.trim().slice(0, 500) };
     }
 
     // 1. Try query parameters first (server readable)
