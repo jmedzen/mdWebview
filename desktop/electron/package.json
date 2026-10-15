@@ -1,6 +1,6 @@
 {
   "name": "mdwebview-desktop",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "description": "mdWebview — 佛典經論閱讀器桌面版",
   "private": true,
   "main": "main.js",
@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "electron": "^44.7.2",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.17.0"
   },
   "build": {
     "appId": "org.mdwebview.electron",
@@ -90,6 +90,7 @@
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
+      "identity": "-",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {

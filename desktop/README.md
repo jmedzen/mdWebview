@@ -43,6 +43,47 @@ sidecar 方案：體積與 SEA 幾乎相同（116 MB vs 115.8 MB），但**零�
 > ⚠️ **sidecar 必須使用 nodejs.org 官方發行版。**
 > Homebrew／發行版／部分 nvm 的 Node 是約 50 KB 的 **shim**，連結到 `libnode.dylib`／`libnode.so`，單獨複製無法執行。`prepare-sidecar.sh` 已強制從 nodejs.org 下載。
 
+### macOS 簽章（ad-hoc）與 Gatekeeper
+
+本專案**沒有** Apple Developer ID 憑證（GitHub secrets 為空），因此 macOS 產物無法做真正的
+Developer ID 簽章與公證。但**未簽章**會導致 macOS 15 之後出現 **「應用程式已損毀，無法打開」**
+（`code has no resources but signature indicates they must be present`）——因為 bundle 只剩下連結器
+自動加上的 ad-hoc 簽章，**缺少 `Contents/_CodeSignature/CodeResources`**，`codesign --verify --strict`
+會直接失敗，Gatekeeper 便判定為損毀，而不是「未識別開發者」。
+
+兩種外殼都改為**明確 ad-hoc 簽章**（`codesign --force -s -`）來修正：
+
+| 外殼 | 設定 | 說明 |
+| :--- | :--- | :--- |
+| Tauri | `bundle.macOS.signingIdentity: "-"` | tauri-bundler 認得 `"-"` 這個哨兵值，會**逐字**傳給 `codesign -s -`，不做鑰匙圈查詢 |
+| Electron | `mac.identity: "-"` | 需 electron-builder **≥ 26.0.13**（`MacTargetHelper` 支援 `"-"`；25.1.8 只會靜默跳過簽章） |
+
+ad-hoc 簽章會一路簽進 bundle 內的巢狀執行檔（Tauri 的 sidecar、Electron 的 Frameworks），
+因此**沒有** `_CodeSignature` 的問題與「損毀」判定都會消失。
+
+> ⚠️ **Electron 必須保留 `com.apple.security.cs.disable-library-validation`**
+> （已寫入 `build/entitlements.mac.plist`）。
+> Electron 的 `Electron Framework` 帶有上游的 Team ID，而宿主是 ad-hoc 簽章（無 Team ID）。
+> 一旦開啟 hardened runtime（本專案為 `true`）就會啟用 library validation，啟動時直接中止：
+> `mapping process and mapped file (non-platform) have different Team IDs`。
+> 移除這個 entitlement**或**把 `hardenedRuntime` 設為 `false`，都會讓 App 打不開。
+>
+> Tauri 不需要這個 entitlement：它只連結 Apple 系統 framework（以 `otool -L` 確認），
+> bundle 內沒有其他帶 Team ID 的巢狀程式庫。
+
+**使用者端繞行方式**（ad-hoc 簽章仍非 Apple 認可，首次開啟會顯示「未識別開發者」）：
+
+```bash
+# 方法一：右鍵 →「打開」→ 再點「打開」（只需一次）
+# 方法二：命令列移除隔離屬性
+xattr -dr com.apple.quarantine /Applications/mdWebview-Tauri.app
+xattr -dr com.apple.quarantine /Applications/mdWebview-Electron.app
+```
+
+> 若要消除所有警告，唯一正解是加入 Apple Developer Program（USD 99/年）：
+> 設定 `APPLE_CERTIFICATE`、`APPLE_ID`／`APPLE_PASSWORD`／`APPLE_TEAM_ID` 等 secrets 後，
+> Tauri 與 electron-builder 都會自動改用 Developer ID 簽章並公證，**不需修改本專案的設定**。
+
 ### 資料目錄分離（app 唯讀、資料可寫）
 
 安裝目錄必須保持唯讀且可被更新器覆寫，因此所有可寫資料都導向使用者資料目錄：
@@ -138,8 +179,8 @@ npx @tauri-apps/cli@^2 build
 
 | 外殼 | 產品名稱 | macOS | Windows |
 | :--- | :--- | :--- | :--- |
-| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.0_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.0_x64-setup.exe`<br>`mdWebview-Tauri_3.8.0_x64_en-US.msi` |
-| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.0-arm64.dmg`<br>`mdWebview-Electron-3.8.0-x64.dmg`<br>`mdWebview-Electron-3.8.0-arm64-mac.zip`<br>`mdWebview-Electron-3.8.0-mac.zip` | `mdWebview-Electron-3.8.0-x64-setup.exe`<br>`mdWebview-Electron-3.8.0-x64-portable.exe` |
+| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.1_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.1_x64-setup.exe`<br>`mdWebview-Tauri_3.8.1_x64_en-US.msi` |
+| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.1-arm64.dmg`<br>`mdWebview-Electron-3.8.1-x64.dmg`<br>`mdWebview-Electron-3.8.1-arm64-mac.zip`<br>`mdWebview-Electron-3.8.1-mac.zip` | `mdWebview-Electron-3.8.1-x64-setup.exe`<br>`mdWebview-Electron-3.8.1-x64-portable.exe` |
 
 命名規則差異（來自各自的打包器，非本專案自訂）：
 
@@ -182,10 +223,13 @@ npx @tauri-apps/cli@^2 build
 | :--- | :--- |
 | 現有測試套件 | ✅ **268 項測試**（263 通過、5 略過，全綠） |
 | 伺服器模式回歸 | ✅ `GET /` 與 `/api/tree` 皆 200；維持 `0.0.0.0` 綁定與 CWD 資料目錄 |
-| Tauri `.app` 打包 | ✅ 成功產出 125.23 MiB bundle |
+| Tauri `.app` 打包 | ✅ 成功產出 124.56 MiB bundle |
 | Tauri 打包後執行 | ✅ sidecar 啟動、`GET /` 200、資料只寫入使用者目錄 |
-| Electron 打包 | ✅ 產出 `mdWebview-Electron-3.8.0-arm64-mac.zip`（126 MB） |
-| Electron 打包後執行 | ✅ 內嵌伺服器啟動並寫入 `logs/`、`md/`、`dicts/` |
+| Tauri ad-hoc 簽章 | ✅ `codesign --verify --strict` rc=0、`--deep --strict` rc=0；含 `_CodeSignature/CodeResources` |
+| Electron 打包 | ✅ 產出 `mdWebview-Electron-3.8.1-arm64-mac.zip`（126 MB） |
+| Electron 打包後執行 | ✅ 內嵌伺服器啟動（port 8330）、`GET /` 與 `/app.js` 皆 200、0 個 worker 錯誤 |
+| Electron ad-hoc 簽章 | ✅ `codesign --verify --strict` rc=0、`--deep --strict` rc=0；`flags=0x10002(adhoc,runtime)` |
+| Gatekeeper 判定 | ✅ 隔離屬性下不再回報「損毀」，僅為可繞行的「未識別開發者」 |
 | 封裝內容檢查 | ✅ 含 `server.js`/worker/`marked`；**不含** `config.json`、`logs`、`md`、`dicts`、`tests` |
 | 設定檔語法 | ✅ 3 個 workflow YAML、4 個 JSON 全部有效 |
 
@@ -203,6 +247,8 @@ npx @tauri-apps/cli@^2 build
 ## 已知限制
 
 1. **首次啟動較慢**：大型藏經 vault（1.8 GB）首次會建立約 700 MB 的 bigram 索引。外殼的啟動逾時設為 120 秒並附說明訊息。
-2. **未簽章版本會有警告**：macOS 需右鍵→打開；Windows 會有 SmartScreen 提示。正式散布需 Developer ID（USD 99/年）與 Windows 程式碼簽章憑證。
+2. **ad-hoc 簽章版本仍會有警告**：macOS 顯示「未識別開發者」，需右鍵→打開（或見上方 §macOS 簽章）。
+   ad-hoc 簽章已解決「應用程式已損毀」的誤判，但**無法**取代 Developer ID 公證；Windows 仍會有 SmartScreen 提示。
+   正式散布需 Developer ID（USD 99/年）與 Windows 程式碼簽章憑證。
 3. **未包含 Markdown 語料**：`md/`、`dicts/` 不進安裝檔，使用者首次啟動後將自己的藏經放入 `<USER_DATA>/md`。
 4. **僅支援 x64 Windows**：為避免 arm64 Windows 使用者安裝失敗，未產出 win-arm64（可於矩陣中自行加入）。

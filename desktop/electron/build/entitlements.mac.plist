@@ -13,6 +13,17 @@
     <true/>
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+    <!--
+      Required because this project is ad-hoc signed (mac.identity = "-"): there is
+      no Apple Developer ID certificate. The hardened runtime enables library
+      validation, which rejects loading a nested binary signed by a different team.
+      Electron's own pre-signed "Electron Framework" carries a Team ID that the
+      ad-hoc-signed host does not, so without this entitlement the app aborts at
+      launch with "mapping process and mapped file (non-platform) have different
+      Team IDs". Removing it (or setting hardenedRuntime: false) breaks startup.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
     <!-- Needed to read the user-selected Markdown vault outside the bundle. -->
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>

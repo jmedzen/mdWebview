@@ -183,6 +183,9 @@ jobs:
       - name: Install Electron build dependencies
         working-directory: desktop/electron
         # Cache the Electron binary download so repeat runs are fast.
+        # The `electron` npm package's own install.js reads electron_config_cache,
+        # while electron-builder (below) reads ELECTRON_BUILDER_CACHE — two separate
+        # downloads, two separate variables.
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
         run: npm ci
@@ -199,7 +202,7 @@ jobs:
         # 'channel')"). The release job below uploads the artifacts instead.
         run: npx electron-builder ${{ matrix.args }} --publish never
         env:
-          electron_config_cache: ${{ runner.temp }}/electron-cache
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-cache
 
       - name: Upload installers
         uses: actions/upload-artifact@v6
