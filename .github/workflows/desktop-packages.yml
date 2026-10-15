@@ -92,6 +92,17 @@ jobs:
             bundles: nsis,msi
             target_flag: ''
             artifact: tauri-windows
+          # Native Windows on ARM, so ARM devices do not have to run the x64
+          # build under emulation. Compiled on the x64 runner using the ARM64
+          # MSVC toolchain that the windows-latest image already provides.
+          - label: Windows ARM64
+            os: windows-latest
+            triple: aarch64-pc-windows-msvc
+            node_platform: win
+            node_arch: arm64
+            bundles: nsis,msi
+            target_flag: '--target aarch64-pc-windows-msvc'
+            artifact: tauri-windows-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -165,10 +176,19 @@ jobs:
             os: macos-latest
             args: '--mac'
             artifact: electron-macos
-          - label: Windows
+          # One row per Windows architecture. Passing a single arch keeps the
+          # artifact names arch-specific (…-x64-setup.exe / …-arm64-setup.exe);
+          # asking for both at once also emits a redundant combined installer
+          # with no arch suffix. x64 is for Intel/AMD machines, arm64 gives
+          # Windows on ARM a native build instead of x64 emulation.
+          - label: Windows x64
             os: windows-latest
-            args: '--win'
+            args: '--win --x64'
             artifact: electron-windows
+          - label: Windows ARM64
+            os: windows-latest
+            args: '--win --arm64'
+            artifact: electron-windows-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

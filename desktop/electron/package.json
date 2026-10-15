@@ -1,5 +1,6 @@
 {
   "name": "mdwebview-desktop",
+  "productName": "mdWebview-Electron",
   "version": "3.8.1",
   "description": "mdWebview — 佛典經論閱讀器桌面版",
   "private": true,
@@ -99,6 +100,7 @@
     },
     "dmg": {
       "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "filesystem": "HFS+",
       "contents": [
         { "x": 140, "y": 200, "type": "file" },
         { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
@@ -107,12 +109,10 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": ["x64"]
+          "target": "nsis"
         },
         {
-          "target": "portable",
-          "arch": ["x64"]
+          "target": "portable"
         }
       ],
       "icon": "build/icon.ico"
