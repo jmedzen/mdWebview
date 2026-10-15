@@ -62,6 +62,37 @@ function Write-Section([string]$Text) {
     Write-Host "── $Text" -ForegroundColor Cyan
 }
 
+<#
+    Convert a path produced by Git Bash (MSYS2) into a Windows path.
+
+    The CI workflow extracts the installer payload with `shell: bash`, so `$PWD`
+    there is a POSIX path such as `/d/a/mdWebview/mdWebview/payload`. It is
+    exported to $GITHUB_ENV and read back by a later PowerShell step, which
+    cannot resolve it: Test-Path on `/d/a/...` fails, and the smoke test would
+    abort with "executable not found" even though the file is right there.
+
+    The mapping is the standard MSYS2 one: a leading `/<drive>/` becomes
+    `<DRIVE>:\`. `/c/...` -> `C:\...`, `/d/...` -> `D:\...`. Paths that are
+    already Windows paths (or UNC paths) are returned unchanged.
+#>
+function ConvertFrom-BashPath([string]$Path) {
+    if ([string]::IsNullOrEmpty($Path)) { return $Path }
+    # Only single-letter drive mounts are rewritten; anything else (a native
+    # Windows path, a UNC path, or a real POSIX-rooted path that happens to be
+    # longer) must be left alone.
+    if ($Path -match '^/([A-Za-z])/(.*)$') {
+        $drive = $Matches[1].ToUpperInvariant()
+        $rest = $Matches[2] -replace '/', '\'
+        return "${drive}:\$rest"
+    }
+    return $Path
+}
+
+$Exe = ConvertFrom-BashPath $Exe
+$WorkDir = ConvertFrom-BashPath $WorkDir
+$ServerArgs = @($ServerArgs | ForEach-Object { ConvertFrom-BashPath $_ })
+$AssertUserDataPath = ConvertFrom-BashPath $AssertUserDataPath
+
 if (-not (Test-Path -LiteralPath $Exe)) {
     throw "smoke-test: executable not found: $Exe"
 }

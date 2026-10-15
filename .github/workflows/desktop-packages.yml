@@ -352,6 +352,20 @@ jobs:
           set -euo pipefail
           mkdir -p payload
 
+          # This step runs under Git Bash, where $PWD is a POSIX path such as
+          # /d/a/mdWebview/mdWebview/payload. The paths are consumed by later
+          # PowerShell steps, which cannot resolve /d/... at all — so convert to
+          # native Windows paths before exporting them. (desktop/scripts/
+          # smoke-test-windows.ps1 also converts defensively, but emitting the
+          # right form here keeps $GITHUB_ENV honest for any consumer.)
+          winpath() {
+            if command -v cygpath >/dev/null 2>&1; then
+              cygpath -w "$1"
+            else
+              printf '%s' "$1"
+            fi
+          }
+
           if [ "${{ matrix.kind }}" = "tauri" ]; then
             setup="$(find dist -name '*setup.exe' | head -1)"
             echo "Extracting $setup"
@@ -359,9 +373,9 @@ jobs:
             # The sidecar is the bundled Node runtime; app/ is the payload.
             test -f payload/mdwebview-server.exe
             test -f payload/app/server.js
-            echo "EXE=$PWD/payload/mdwebview-server.exe" >> "$GITHUB_ENV"
-            echo "ARGS=$PWD/payload/app/server.js" >> "$GITHUB_ENV"
-            echo "WORKDIR=$PWD/payload/app" >> "$GITHUB_ENV"
+            echo "EXE=$(winpath "$PWD/payload/mdwebview-server.exe")" >> "$GITHUB_ENV"
+            echo "ARGS=$(winpath "$PWD/payload/app/server.js")" >> "$GITHUB_ENV"
+            echo "WORKDIR=$(winpath "$PWD/payload/app")" >> "$GITHUB_ENV"
           else
             setup="$(find dist -name '*setup.exe' | head -1)"
             echo "Extracting $setup"
@@ -371,8 +385,8 @@ jobs:
             7z x -y -opayload/app "$inner" > /dev/null
             test -f payload/app/mdWebview-Electron.exe
             test -f payload/app/resources/app/server.js
-            echo "EXE=$PWD/payload/app/mdWebview-Electron.exe" >> "$GITHUB_ENV"
-            echo "WORKDIR=$PWD/payload/app" >> "$GITHUB_ENV"
+            echo "EXE=$(winpath "$PWD/payload/app/mdWebview-Electron.exe")" >> "$GITHUB_ENV"
+            echo "WORKDIR=$(winpath "$PWD/payload/app")" >> "$GITHUB_ENV"
           fi
 
       - name: Show payload layout
