@@ -548,10 +548,15 @@
 
     // Open file from URL query or hash on first load; if home/frontpage specified, show welcome screen; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
-    if (urlInfo && urlInfo.isHome) {
+    if (urlInfo && urlInfo.search) {
+      // ?search= 為明確的入口意圖，優先於其他參數（此時不會有 file）。
+      activateSearchPanel(urlInfo.search);
+    } else if (urlInfo && urlInfo.isHome) {
       goHome(false);
     } else if (urlInfo && urlInfo.file) {
-      await openFile(urlInfo.file, urlInfo.line);
+      // query 一併傳入，否則 ?file=...&q=... 的關鍵字會被靜默丟棄
+      // （highlightQuery 一直是 openFile 的既有參數，只是沒有來源）。
+      await openFile(urlInfo.file, urlInfo.line, urlInfo.query);
     } else {
       restoreReadProgress();
     }
@@ -559,10 +564,15 @@
     // Handle browser back / forward
     const handleUrlChange = async () => {
       const info = getFileFromURL();
-      if (info && info.isHome) {
+      if (info && info.search) {
+        // 上一頁／下一頁回到 ?search= 時必須重建面板：期間可能已開啟別的
+        // 經文、側欄被收合或分頁被切走。popstate 只在真實的歷史移動時
+        // 觸發，故不需去重。
+        activateSearchPanel(info.search);
+      } else if (info && info.isHome) {
         goHome(false);
       } else if (info && info.file && info.file !== state.currentFile) {
-        await openFile(info.file, info.line);
+        await openFile(info.file, info.line, info.query);
       } else if (info && info.line) {
         // Same file, different line
         scrollToLine(info.line);
@@ -619,9 +629,32 @@
     });
   }
 
-  function getFileFromURL() {
-    const searchParams = new URLSearchParams(window.location.search);
-    
+  /**
+   * 解析網址列參數為應用可用的路由資訊（純函式，可獨立測試）。
+   *
+   * 支援的入口：
+   *   ?file=<path>&line=<n>&q=<kw>  — 開啟指定經文（q 會在文內閃示關鍵字）
+   *   ?search=<kw>                  — 直接執行全庫搜尋（可分享／加書籤／設為
+   *                                   瀏覽器搜尋引擎）
+   *   ?home=1 / ?frontpage=1        — 回首頁
+   *   #file=... / #home             — 舊版雜湊格式，保留回溯相容
+   *
+   * ?search= 獨立於 ?file= 之外：它是「搜尋」而非「跳行」，因此即使在沒有
+   * file 參數的情況下也必須成立。這也是原本 ?q= 失效的原因——它被掛在 file
+   * 分支底下，而呼叫端又沒把 query 傳進 openFile，等於整條路徑都沒接上。
+   *
+   * @param {string} search - location.search（含開頭的 ?）
+   * @param {string} hash   - location.hash（含開頭的 #）
+   * @returns {{isHome?:boolean,file?:string,line?:number|null,query?:string|null,search?:string}|null}
+   */
+  function parseUrlParams(search, hash) {
+    let searchParams;
+    try {
+      searchParams = new URLSearchParams(search || '');
+    } catch (e) {
+      searchParams = new URLSearchParams('');
+    }
+
     // Check for explicit frontpage / home URL parameters (e.g. ?home=1, ?frontpage=1, ?home, ?frontpage, ?page=home)
     const pageVal = (searchParams.get('page') || '').toLowerCase();
     const hasHomeParam = searchParams.has('home') || searchParams.has('frontpage') || pageVal === 'home' || pageVal === 'frontpage';
@@ -632,10 +665,21 @@
       }
     }
 
+    // 全庫搜尋入口。空字串／純空白視為「沒有參數」，否則 ?search= 會清空結果
+    // 面板並讓使用者以為功能壞掉。
+    //
+    // 500 字元上限是防禦性邊界（/api/search 本身不截斷，只受 Node 約 16KB 的
+    // 請求行上限保護）：避免精心構造的超長網址驅動一次極昂貴的搜尋。真實的
+    // 搜尋詞遠短於此，故正常使用不會察覺。
+    const rawSearch = searchParams.get('search');
+    if (rawSearch !== null && rawSearch.trim()) {
+      return { search: rawSearch.trim().slice(0, 500) };
+    }
+
     // 1. Try query parameters first (server readable)
     let searchFile = searchParams.get('file');
     if (!searchFile) {
-      const match = window.location.search.match(/[?&]file=([^&]+)/);
+      const match = (search || '').match(/[?&]file=([^&]+)/);
       if (match) searchFile = match[1];
     }
     if (searchFile) {
@@ -646,8 +690,7 @@
     }
 
     // 2. Fallback to hash (backwards compatibility)
-    const hash = window.location.hash;
-    if (hash.startsWith('#file=')) {
+    if (hash && hash.startsWith('#file=')) {
       try {
         const params = new URLSearchParams(hash.slice(1));
         const file = params.get('file');
@@ -662,6 +705,10 @@
     }
 
     return null;
+  }
+
+  function getFileFromURL() {
+    return parseUrlParams(window.location.search, window.location.hash);
   }
 
   /**
@@ -4361,6 +4408,56 @@
   }
 
   let searchAbortController = null;
+
+  /**
+   * 打開側邊欄的「全文搜尋」分頁、帶入關鍵字並執行搜尋。
+   *
+   * 抽成函式是因為這個流程有三個入口：網址列的 ?search=、右鍵選單的
+   * 「全文庫搜尋」，以及瀏覽器上一頁／下一頁。原本只有右鍵選單那條路徑
+   * 手寫了這一整段（展開側邊欄 → 切分頁 → 填入 → 搜尋），重複實作必然
+   * 走鐘，故集中於此。
+   *
+   * @param {string} query 要搜尋的關鍵字
+   */
+  function activateSearchPanel(query) {
+    const q = (query || '').trim();
+    if (!q) return;
+
+    // 展開側邊欄（行動版另需處理辭典側欄與遮罩）
+    const sidebar = $('sidebar');
+    if (sidebar && sidebar.classList.contains('collapsed')) {
+      sidebar.classList.remove('collapsed');
+      state.sidebarCollapsed = false;
+    }
+    if (isMobileBrowser() || window.innerWidth <= 768) {
+      if (state.dictSidebarOpen) toggleDictSidebar(false);
+    }
+    updateSidebarBackdrop();
+
+    // 切到搜尋分頁
+    $$('.sidebar-tab').forEach((t) => t.classList.remove('active'));
+    const searchTab = document.querySelector('.sidebar-tab[data-tab="search"]');
+    if (searchTab) searchTab.classList.add('active');
+
+    $$('.sidebar-panel').forEach((p) => p.classList.remove('active'));
+    const searchPanel = document.querySelector('.sidebar-panel[data-panel="search"]');
+    if (searchPanel) searchPanel.classList.add('active');
+    state.sidebarTab = 'search';
+
+    // 填入並執行。performGlobalSearch 內部在開啟 autoS2T 時會自行轉換並回寫
+    // 輸入框，故這裡直接填入原文即可。
+    const searchInput = $('globalSearchInput');
+    if (searchInput) searchInput.value = q;
+    performGlobalSearch(q);
+
+    // 同步網址，讓右鍵搜尋的結果也能直接分享或加書籤；已是同一組參數時
+    // 不重複推入歷史，避免返回鍵要按兩次才離開。
+    // 注意：window.location.search 不含 pathname，故比對時不可混入 "/"。
+    const desired = `?search=${encodeURIComponent(q)}`;
+    if (safeDecodeURIComponent(window.location.search) !== safeDecodeURIComponent(desired)) {
+      history.pushState(null, '', window.location.pathname + desired);
+    }
+  }
 
   async function performGlobalSearch(query) {
     if (state.autoS2T && typeof toTraditional === 'function') {
@@ -10410,36 +10507,12 @@
       if (!currentSelectedText) return;
       popup.classList.remove('visible');
 
-      // Open left sidebar if collapsed
-      const sidebar = $('sidebar');
-      if (sidebar && sidebar.classList.contains('collapsed')) {
-        sidebar.classList.remove('collapsed');
-        state.sidebarCollapsed = false;
-      }
-      if (isMobileBrowser() || window.innerWidth <= 768) {
-        if (state.dictSidebarOpen) toggleDictSidebar(false);
-      }
-      updateSidebarBackdrop();
-
-      // Switch tab to search
-      $$('.sidebar-tab').forEach((t) => t.classList.remove('active'));
-      const searchTab = document.querySelector('.sidebar-tab[data-tab="search"]');
-      if (searchTab) searchTab.classList.add('active');
-
-      $$('.sidebar-panel').forEach((p) => p.classList.remove('active'));
-      const searchPanel = document.querySelector('.sidebar-panel[data-panel="search"]');
-      if (searchPanel) searchPanel.classList.add('active');
-      state.sidebarTab = 'search';
-
       let rawSelected = (currentSelectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
       const queryText = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const searchInput = $('globalSearchInput');
-      if (searchInput) {
-        searchInput.value = queryText;
-        searchInput.focus();
-      }
-      performGlobalSearch(queryText);
+      if (searchInput) searchInput.focus();
+      activateSearchPanel(queryText);
     });
 
     // 2. 辭典查詢按鈕

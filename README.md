@@ -172,6 +172,8 @@ mdWebview/
 | <kbd>Ctrl</kbd> + <kbd>+</kbd> 或 <kbd>Cmd</kbd> + <kbd>+</kbd> | 字放大 |
 | <kbd>Ctrl</kbd> + <kbd>-</kbd> 或 <kbd>Cmd</kbd> + <kbd>-</kbd> | 字縮小 |
 | `?file=路徑&line=行號` | 分享某篇經論的某一行，對方打開就直接跳到那裡 |
+| `?file=路徑&q=關鍵字` | 開啟該篇並在文內標示該關鍵字 |
+| `?search=關鍵字` | 直接執行全庫搜尋，可分享、加書籤，或設為瀏覽器的自訂搜尋引擎 |
 | `?frontpage=1` 或 `?home=1` | 直接回到首頁 |
 
 ---
@@ -359,6 +361,8 @@ mdWebview/
 | <kbd>Ctrl</kbd> + <kbd>+</kbd> or <kbd>Cmd</kbd> + <kbd>+</kbd> | Make text larger |
 | <kbd>Ctrl</kbd> + <kbd>-</kbd> or <kbd>Cmd</kbd> + <kbd>-</kbd> | Make text smaller |
 | `?file=PATH&line=NUM` | Share a specific line of a text; it opens right at that line |
+| `?file=PATH&q=KEYWORD` | Open that text and mark the keyword inside it |
+| `?search=KEYWORD` | Run a whole-library search immediately — shareable, bookmarkable, and usable as a browser custom search engine |
 | `?frontpage=1` or `?home=1` | Go straight back to the home page |
 
 ---

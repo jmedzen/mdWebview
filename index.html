@@ -1046,13 +1046,13 @@
               <div class="config-card-body">
                 <div class="form-group toggle-group">
                   <div class="toggle-row">
-                    <label for="seoEnableSearchBox">Google 搜尋框結構化標記 (Sitelinks Searchbox)</label>
+                    <label for="seoEnableSearchBox">首頁搜尋端點結構化標記 (WebSite + SearchAction)</label>
                     <label class="toggle-switch">
                       <input type="checkbox" id="seoEnableSearchBox">
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
-                  <span class="form-hint">注入 Schema.org <code>WebSite + SearchAction</code>，提供搜尋結果站內檢索框。</span>
+                  <span class="form-hint">於首頁注入 Schema.org <code>WebSite</code> 與 <code>SearchAction</code>，宣告本站的 <code>?search={search_term_string}</code> 深層連結。Google 已於 2024-11-21 下線 Sitelinks Search Box，故不會在 Google 結果產生檢索框；此標記供 schema.org 消費者與 AI 檢索器辨識站內搜尋用。單機模式不輸出。</span>
                 </div>
                 <div class="form-group">
                   <label for="seoHomepageSummary">首頁爬蟲導言文章 (Crawler Landing Summary)</label>
