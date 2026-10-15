@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.8.1
+ * @version 3.8.2
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -64,7 +64,9 @@ try {
 const {
   APP_ROOT, PORT, HOST, CONFIG_PATH, APP_VERSION, MAX_LOG_BUFFER,
   CRAWLER_UA_REGEX, LOG_DIR, ANALYTICS_STORE_PATH, ANALYTICS_STORE_VERSION,
-  MIME_TYPES, SECURITY_HEADERS
+  MIME_TYPES, SECURITY_HEADERS,
+  DEPLOY_TARGET, DEPLOY_TARGET_LABEL, IS_SINGLE_USER, IS_LOOPBACK_ONLY,
+  PORT_SCAN, PORT_SCAN_RANGE, isUnknownDeployTarget
 } = require('./lib/constants');
 
 const {
@@ -85,7 +87,8 @@ const {
   sessions, SESSION_DURATION, loginAttempts, MAX_ATTEMPTS, LOCK_DURATION,
   MAX_LOGIN_ENTRIES,
   apiRateLimits, checkApiRateLimit, timingSafeCompare, hashPassword,
-  generateSessionToken, verifySameOrigin, isAuthenticated, readJSONBody
+  generateSessionToken, verifySameOrigin, isAuthenticated, readJSONBody,
+  isLoopbackRequest, isAuthorizedAdmin, requireAdmin
 } = require('./lib/auth');
 
 const {
@@ -567,6 +570,11 @@ async function generateSitemapXml(baseUrl, optionalTree = null) {
  * 在大量檔案上傳完畢且靜止後自動執行，防止爬蟲即時請求時承受 CPU 負載。
  */
 async function autoRebuildSitemapAsync() {
+  // A single-user library has no public address to publish and is never
+  // crawled; rebuilding the sitemap would only walk the whole vault on every
+  // quiet period for an output nothing can request. Returning early here keeps
+  // every caller correct without having to guard each one.
+  if (IS_SINGLE_USER) return;
   if (sitemapBuilding) {
     Logger.debug('SEO', 'Background sitemap rebuild already in progress, skipping duplicate trigger');
     return;
@@ -4418,9 +4426,7 @@ async function getSystemHardwareStats() {
 }
 
 async function handleHardwareStats(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
   try {
     const stats = await getSystemHardwareStats();
     return sendJSON(res, 200, stats);
@@ -4430,9 +4436,7 @@ async function handleHardwareStats(req, res) {
 }
 
 async function handleRebuildIndex(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
   try {
     searchCache.clear();
     invalidateSectionIndexes();
@@ -4446,9 +4450,7 @@ async function handleRebuildIndex(req, res) {
 }
 
 async function handleRebuildDictIndex(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
   try {
     buildDictIndexAsync(true).catch(err => {
       Logger.error('DictIndex', 'Manual dictionary index rebuild error', err);
@@ -4460,9 +4462,17 @@ async function handleRebuildDictIndex(req, res) {
 }
 
 async function handleAdminPassword(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
+  // A single-user bundle has no administrator account by design: access is
+  // decided by the transport (loopback), not by a password. Accepting a
+  // password change here would create an account that nothing ever checks and
+  // that silently locks the owner out of their own maintenance panel.
+  if (IS_SINGLE_USER) {
+    return sendJSON(res, 409, {
+      error: '單機模式不使用管理員密碼',
+      authMode: 'single-user'
+    });
   }
+  if (!requireAdmin(req, res, sendJSON)) return;
   if (!config.admin) {
     return sendJSON(res, 400, { error: 'Admin is not configured yet' });
   }
@@ -4511,9 +4521,7 @@ async function handleAdminPassword(req, res) {
 }
 
 async function handleAdminDiagnosePath(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
 
   try {
     const data = await readJSONBody(req);
@@ -4604,9 +4612,7 @@ async function handleAdminDiagnosePath(req, res) {
 }
 
 async function handleAdminRebuildSitemap(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
 
   try {
     const t0 = Date.now();
@@ -4633,9 +4639,7 @@ async function handleAdminRebuildSitemap(req, res) {
 }
 
 function handleAdminClearCache(req, res) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
 
   const staticCount = staticCache.size;
   const searchCount = searchCache.size;
@@ -4663,9 +4667,7 @@ function handleAdminClearCache(req, res) {
  * @param {Object}               query - 查詢參數：range（7d/30d/90d，預設 30d）、tz（時區）
  */
 async function handleAnalytics(req, res, query) {
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
 
   try {
     const data = await getAnalyticsData(parseAnalyticsRange(query.range), query.tz || 'auto');
@@ -4682,9 +4684,7 @@ async function handleAnalyticsExport(req, res, query) {
 
   // Session tokens must only be supplied in request headers. Query strings are
   // routinely persisted in browser history, access logs, and referrer data.
-  if (!isAuthenticated(req)) {
-    return sendJSON(res, 401, { error: 'Unauthorized' });
-  }
+  if (!requireAdmin(req, res, sendJSON)) return;
 
   const format = query.format === 'csv' ? 'csv' : 'json';
   let rangeKey;
@@ -4860,9 +4860,26 @@ const server = http.createServer((req, res) => {
 
   // SEO & PWA routes
   if (pathname === '/robots.txt' && (req.method === 'GET' || req.method === 'HEAD')) {
+    // A single-user library is private by definition and is never reachable by
+    // a crawler, so answer with an explicit blanket disallow rather than
+    // advertising the sitemap location as the web handler does.
+    if (IS_SINGLE_USER) {
+      const body = 'User-agent: *\nDisallow: /\n';
+      res.writeHead(200, Object.assign({
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+        'Cache-Control': 'no-store'
+      }, SECURITY_HEADERS));
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    }
     return handleRobotsTxt(req, res);
   }
   if (pathname === '/sitemap.xml' && (req.method === 'GET' || req.method === 'HEAD')) {
+    // There is no canonical public address to put in a sitemap, and building
+    // one costs a full vault walk that nothing will ever consume.
+    if (IS_SINGLE_USER) {
+      return sendJSON(res, 404, { error: 'Not available in single-user mode', authMode: 'single-user' });
+    }
     return handleSitemapXml(req, res);
   }
   if (pathname === '/manifest.json' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -4914,25 +4931,54 @@ const server = http.createServer((req, res) => {
     const safeSettings = Object.assign({}, config.settings);
     delete safeSettings.mdRoot;
     delete safeSettings.dictionaryPath;
+    // `authMode` tells the client which kind of deployment it is talking to:
+    //   'single-user' — no login exists; a loopback caller is already the owner
+    //   'admin'       — the historical web behaviour, administrator login required
+    // `isSetup` is reported as true in single-user mode because the client uses
+    // it to decide whether to raise the first-run setup modal. There is no
+    // administrator to create, and forcing one would demand a public canonical
+    // URL that a local installation does not have — so the modal must stay shut.
+    const authMode = IS_SINGLE_USER ? 'single-user' : 'admin';
+    const authorized = isAuthorizedAdmin(req);
     return sendJSON(res, 200, {
-      isSetup: !!config.admin,
-      isAuthenticated: isAuthenticated(req),
+      isSetup: IS_SINGLE_USER ? true : !!config.admin,
+      isAuthenticated: authorized,
+      authMode,
+      deployTarget: DEPLOY_TARGET,
+      isSingleUser: IS_SINGLE_USER,
+      requiresPassword: !IS_SINGLE_USER,
       settings: safeSettings
     });
   }
   if (pathname === '/api/admin/analytics' && req.method === 'GET') {
+    // Visit analytics measure readers arriving from search engines and social
+    // media. A single-user bundle has exactly one reader, so the aggregates are
+    // meaningless — hide the endpoint rather than serve an empty report.
+    if (IS_SINGLE_USER) {
+      return sendJSON(res, 404, { error: 'Not available in single-user mode', authMode: 'single-user' });
+    }
     return handleAnalytics(req, res, query);
   }
   if (pathname === '/api/admin/analytics/export' && req.method === 'GET') {
+    if (IS_SINGLE_USER) {
+      return sendJSON(res, 404, { error: 'Not available in single-user mode', authMode: 'single-user' });
+    }
     return handleAnalyticsExport(req, res, query);
   }
   if (pathname === '/api/admin/logs' && req.method === 'GET') {
-    if (!isAuthenticated(req)) {
-      return sendJSON(res, 401, { error: 'Unauthorized' });
-    }
+    if (!requireAdmin(req, res, sendJSON)) return;
     return sendJSON(res, 200, { logs: systemLogBuffer });
   }
   if (pathname === '/api/admin/setup' && req.method === 'POST') {
+    // Single-user bundles never create an administrator (see /api/admin/status).
+    // Refuse explicitly so a stray client cannot plant credentials in the
+    // user's config file and then be surprised by them later.
+    if (IS_SINGLE_USER) {
+      return sendJSON(res, 403, {
+        error: '單機模式不需要管理員帳號',
+        authMode: 'single-user'
+      });
+    }
     if (config.admin) {
       return sendJSON(res, 400, { error: 'Admin already configured' });
     }
@@ -5043,15 +5089,16 @@ const server = http.createServer((req, res) => {
     return sendJSON(res, 200, { success: true });
   }
   if (pathname === '/api/admin/settings' && req.method === 'GET') {
-    if (!isAuthenticated(req)) {
-      return sendJSON(res, 401, { error: 'Unauthorized' });
-    }
+    if (!requireAdmin(req, res, sendJSON)) return;
     return sendJSON(res, 200, { settings: config.settings });
   }
   if (pathname === '/api/admin/seo-stats' && req.method === 'GET') {
-    if (!isAuthenticated(req)) {
-      return sendJSON(res, 401, { error: 'Unauthorized' });
+    // SEO reporting describes how a *public* site is being indexed. A local
+    // single-user library is never crawled, so there is nothing to report.
+    if (IS_SINGLE_USER) {
+      return sendJSON(res, 404, { error: 'Not available in single-user mode', authMode: 'single-user' });
     }
+    if (!requireAdmin(req, res, sendJSON)) return;
     const baseUrl = getBaseUrl(req, config.settings.siteUrl);
     const files = cachedTree ? flattenMarkdownFiles(cachedTree) : [];
     return sendJSON(res, 200, {
@@ -5067,9 +5114,7 @@ const server = http.createServer((req, res) => {
     });
   }
   if (pathname === '/api/admin/settings' && req.method === 'POST') {
-    if (!isAuthenticated(req)) {
-      return sendJSON(res, 401, { error: 'Unauthorized' });
-    }
+    if (!requireAdmin(req, res, sendJSON)) return;
     return readJSONBody(req).then(data => {
       const {
         mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists,
@@ -5372,27 +5417,115 @@ function setupGracefulShutdown() {
   }
 }
 
+/**
+ * Bind the HTTP server, walking upward through a small port range when the
+ * preferred port is taken.
+ *
+ * Desktop shells pin a stable port on purpose: the page origin is
+ * `http://127.0.0.1:<port>`, and localStorage (theme, font size, bookmarks,
+ * recent files, reading progress) is scoped to that origin. A random port per
+ * launch would silently orphan every user preference, so the port must stay
+ * put. The scan exists only so a busy port degrades gracefully — to a nearby
+ * port, and only as a last resort to an OS-assigned one — instead of crashing
+ * with an unhandled 'error' event.
+ *
+ * @param {import('http').Server} srv
+ * @param {number|string} basePort requested port; 0 means "OS-assigned"
+ * @param {string} host
+ * @param {(err: Error|null, port: number)=>void} done
+ */
+function listenWithFallback(srv, basePort, host, done) {
+  const base = parseInt(basePort, 10);
+  // PORT=0 (or a non-numeric value) is an explicit request for any free port.
+  if (!Number.isInteger(base) || base <= 0) {
+    srv.listen(0, host, () => done(null, srv.address().port));
+    return;
+  }
+
+  const lastPort = PORT_SCAN ? base + PORT_SCAN_RANGE : base;
+  let candidate = base;
+
+  const onError = (err) => {
+    const isBusy = err && err.code === 'EADDRINUSE';
+
+    // Walk to the next port while the scan range still has room.
+    if (isBusy && candidate < lastPort) {
+      candidate += 1;
+      Logger.warn('Boot', `Port ${candidate - 1} is in use; trying ${candidate}…`);
+      // A failed listen leaves the server usable for another attempt.
+      setImmediate(() => srv.listen(candidate, host, onListening));
+      return;
+    }
+
+    // Scanning is enabled and the whole range is taken: an OS-assigned port is
+    // better than not starting at all, even though the origin — and therefore
+    // the user's stored preferences — will differ for this session.
+    if (isBusy && PORT_SCAN) {
+      Logger.warn('Boot',
+        `Ports ${base}-${lastPort} are all in use; falling back to an OS-assigned port. ` +
+        'User preferences stored under the usual local address will not be visible in this session.');
+      srv.removeListener('error', onError);
+      srv.listen(0, host, () => done(null, srv.address().port));
+      return;
+    }
+
+    // Either the port is busy and scanning is disabled (a deliberate, hard
+    // requirement — e.g. the web deployment that must own its port), or the
+    // failure is something else entirely. Report it instead of starting on a
+    // port nobody is expecting.
+    srv.removeListener('error', onError);
+    done(err, 0);
+  };
+
+  const onListening = () => {
+    srv.removeListener('error', onError);
+    done(null, srv.address().port);
+  };
+
+  srv.on('error', onError);
+  srv.listen(candidate, host, onListening);
+}
+
 if (require.main === module) {
   // 只有真正的伺服器行程才註冊訊號處理常式；測試 require server.js 時不會註冊。
   setupGracefulShutdown();
 
-  server.listen(PORT, HOST, () => {
-    // With PORT=0 the OS assigns a free port. A desktop launcher sets that and
-    // reads the machine-readable line below to learn where to point its window.
-    const actualPort = server.address().port;
+  if (isUnknownDeployTarget(process.env.MDW_DEPLOY_TARGET)) {
+    Logger.warn('Boot',
+      `Unknown MDW_DEPLOY_TARGET "${String(process.env.MDW_DEPLOY_TARGET).slice(0, 40)}"; ` +
+      `falling back to "${DEPLOY_TARGET}". Valid values: web, mac-app, win-app, linux-app, ios-app, android-app.`);
+  }
+  Logger.info('Boot', `Deployment target: ${DEPLOY_TARGET_LABEL}`);
+
+  listenWithFallback(server, PORT, HOST, (err, actualPort) => {
+    if (err) {
+      console.error('');
+      console.error(`  ✗  mdWebview failed to start: ${err.message}`);
+      console.error('');
+      Logger.error('Boot', `Failed to bind ${HOST}:${PORT}`, err);
+      process.exit(1);
+      return;
+    }
+
     console.log('');
     console.log('  🪷  mdWebview is running');
     console.log('  ───────────────────────');
     console.log(`  Local:   http://localhost:${actualPort}`);
     console.log(`  Vault:   ${getMdRoot()}`);
+    console.log(`  Mode:    ${DEPLOY_TARGET_LABEL}`);
     console.log('');
     // Emitted on stdout for launchers to parse. Keep this format stable.
     console.log(`MDWEBVIEW_READY port=${actualPort}`);
 
-    // Eagerly build Bigram Inverted Index & Sitemap in background on boot
-    Logger.info('Boot', 'Pre-warming Bigram Index & Sitemap cache in background...');
+    // Eagerly build Bigram Inverted Index & Sitemap in background on boot.
+    // The search index is required in every mode; the sitemap only exists to be
+    // crawled, so a single-user bundle skips it entirely.
+    Logger.info('Boot', 'Pre-warming Bigram Index in background...');
     buildSearchIndexAsync().catch(() => {});
-    autoRebuildSitemapAsync().catch(() => {});
+    if (!IS_SINGLE_USER) {
+      Logger.info('Boot', 'Pre-warming Sitemap cache in background...');
+      autoRebuildSitemapAsync().catch(() => {});
+    }
 
     // Set up the dictionary directory watcher (and index) at boot so the index
     // rebuilds automatically when dictionary files change — not only on fulltext.

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.8.1
+   mdWebview — Style System (style.css) v3.9.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -4602,6 +4602,55 @@ mark.search-keyword-highlight {
 .backup-action-buttons {
   display: flex;
   gap: 8px;
+}
+
+/* ── Deployment-mode visibility ──────────────────────────────
+   Two deployments share one bundle: a public multi-user site and a
+   single-user desktop/mobile app. Elements declare which mode they
+   belong to and CSS enforces it, so the two modes cannot drift apart
+   through scattered imperative style changes in app.js.
+
+   `data-deploy-target` is stamped on <html> by the inline script in
+   lib/static-cache.js before first paint, which is what prevents the
+   administrator setup modal from flashing on a single-user launch. */
+/* Hide web-only UI as soon as we know we are single-user. Matching the raw app
+   target as well (win-app, mac-app, …) covers the attribute being set before
+   app.js normalises it to the generic "single-user" value. */
+html[data-deploy-target="single-user"] [data-web-only],
+html[data-deploy-target="win-app"] [data-web-only],
+html[data-deploy-target="mac-app"] [data-web-only],
+html[data-deploy-target="linux-app"] [data-web-only],
+html[data-deploy-target="ios-app"] [data-web-only],
+html[data-deploy-target="android-app"] [data-web-only] {
+  display: none !important;
+}
+
+/* Hide single-user-only UI everywhere else. This must cover three cases —
+   attribute absent (script blocked, older cached page), explicitly "web", and
+   any unrecognised value — so it is written as "not one of the single-user
+   values" rather than "attribute missing", which would let web mode through. */
+html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"]):not([data-deploy-target="mac-app"]):not([data-deploy-target="linux-app"]):not([data-deploy-target="ios-app"]):not([data-deploy-target="android-app"]) [data-single-user-only] {
+  display: none !important;
+}
+
+.local-maintenance-status {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.local-maintenance-status.is-busy {
+  color: var(--accent-color, #8b6b43);
+}
+
+.local-maintenance-status.is-error {
+  color: #dc2626;
 }
 
 .admin-status-box {

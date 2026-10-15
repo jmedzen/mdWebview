@@ -1,7 +1,7 @@
 {
   "name": "mdwebview-desktop",
   "productName": "mdWebview-Electron",
-  "version": "3.8.1",
+  "version": "3.9.0",
   "description": "mdWebview — 佛典經論閱讀器桌面版",
   "private": true,
   "main": "main.js",

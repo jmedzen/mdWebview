@@ -95,8 +95,10 @@ xattr -dr com.apple.quarantine /Applications/mdWebview-Electron.app
 | `LOG_DIR` | `<USER_DATA>/logs`（**含數百 MB 的索引 `.bin`**） |
 | `MD_ROOT` | `<USER_DATA>/md` |
 | `DICTIONARY_PATH` | `<USER_DATA>/dicts` |
+| `MDW_DEPLOY_TARGET` | `mac-app`／`win-app`／`linux-app`（單機模式，見下節） |
 | `HOST` | `127.0.0.1`（僅監聽本機） |
-| `PORT` | `0`（由 OS 配發空閒埠） |
+| `PORT` | **固定埠**：Tauri `8330`／Electron `8331`（見下節） |
+| `MDW_PORT_SCAN` | `1`（固定埠被占用時依序往上找，而非崩潰） |
 
 實際落地位置：
 
@@ -136,6 +138,68 @@ xattr -dr com.apple.quarantine /Applications/mdWebview-Electron.app
 > **不再載入 app 目錄內的 `config.json`**。
 > 因為該檔案在開發機上常含開發者的絕對路徑，會覆蓋啟動器設定的環境變數，
 > 導致使用者安裝後被綁死到不存在的路徑。
+
+---
+
+### 單機模式：為什麼桌面版不需要 admin／SEO／數據分析
+
+同一份 `server.js` 同時服務兩種部署型態，由 `MDW_DEPLOY_TARGET` 切換：
+
+| 值 | 用途 | 管理員帳號 | SEO | 數據分析 |
+| :--- | :--- | :--- | :--- | :--- |
+| `web`（預設） | 公開多人的網站 | 需要 | 需要 | 需要 |
+| `mac-app`／`win-app`／`linux-app` | 單人桌面版 | **不需要** | 停用 | 停用 |
+
+桌面外殼一律傳入單機值。這解決了一個會讓桌面版**完全無法使用**的問題：
+
+`desktop/scripts/stage-payload.sh` 會刻意刪除打包進去的 `config.json`，
+因此 `config.admin` 永遠是 `null`。前端 `checkAdminStatus()` 一看到
+`isSetup === false` 就會強制彈出首次設定視窗，而該視窗的
+「首頁權威 URL」是**必填**、且伺服器端要求必須符合 `^https?://`
+—— 本機使用者根本沒有這種公開網址，於是永遠卡在設定畫面無法閱讀。
+
+單機模式的具體差異：
+
+- `/api/admin/status` 回報 `authMode: "single-user"`、`isSetup: true`，
+  前端因此永不彈出設定視窗。
+- 維護操作（重建索引、清除快取、硬體資訊…）**免密碼**，但**僅限迴環來源**。
+  判定採 TCP 對端位址（`req.socket.remoteAddress`），
+  **不採** `getClientIP()` —— 後者在 `TRUST_PROXY` 下會信任
+  `X-Forwarded-For`，遠端即可偽造 `127.0.0.1` 取得管理權限。
+  `MDW_ALLOW_LAN` 只放寬「用別台裝置閱讀」，**不放寬**維護端點。
+- `POST /api/admin/setup` 回 403、`POST /api/admin/password` 回 409，
+  `robots.txt` 全面 `Disallow: /`，`sitemap.xml` 回 404，
+  `/api/admin/analytics*` 與 `/api/admin/seo-stats` 回 404。
+- 訪客紀錄不再落地為 jsonl、也不進入分析聚合（記憶體日誌緩衝保留，
+  供「系統日誌」面板除錯）。單一使用者的逐次點擊沒有分析價值，
+  也不該在磁碟留下瀏覽軌跡。
+
+> 未知或拼錯的 `MDW_DEPLOY_TARGET` 一律**回退 `web`**（fail-closed）：
+> 任何可能被網路觸及的部署，要求管理員帳號才是安全的預設值。
+
+### 為什麼是固定連接埠（localStorage 的關鍵）
+
+`localStorage` 以 **origin** 為界，而桌面版視窗載入的是
+`http://127.0.0.1:<port>`。兩個外殼原本都傳 `PORT=0`，
+讓 OS 每次配發不同埠 —— 等同每次啟動都換一個全新 origin，
+於是**主題、字級、書籤、最近開啟、閱讀進度全部默默失效**
+（`lib/` 內的 `storage` 存取本身是正確的，問題純粹出在 origin 一直改變）。
+
+因此改為固定埠，並以 `MDW_PORT_SCAN=1` 處理埠被占用的情況：
+
+| 情境 | 行為 |
+| :--- | :--- |
+| 固定埠可用 | 直接使用（origin 穩定，偏好設定得以延續） |
+| 固定埠被占用 | 依序嘗試 `+1 … +10`，取第一個可用埠 |
+| 掃描範圍全滿 | 退回 OS 配發的埠並在日誌警告（該次無法讀到既有偏好設定） |
+
+Tauri 用 `8330`、Electron 用 `8331`，**刻意不同**：
+否則兩個外殼同時開啟時，其中之一會被擠到別的 origin 而讀不到自己的設定。
+
+> ⚠️ **既有使用者請注意**：3.8.2 以前每次啟動都是隨機埠，
+> 那些存在隨機 origin 下的偏好設定**無法自動找回**（瀏覽器不會交出
+> 其他 origin 的資料）。升級後請先開啟「偏好設定 → 備份與管理 →
+> 下載個人備份」匯出舊資料，再於新版本匯入；或直接重新設定一次。
 
 ---
 
@@ -183,10 +247,100 @@ npx @tauri-apps/cli@^2 build
 | Artifact 名稱 | Runner | 內容 |
 | :--- | :--- | :--- |
 | `tauri-macos` | `macos-latest` | `.dmg`、`.app`（arm64） |
-| `tauri-windows` | `windows-latest` | NSIS `.exe`、`.msi`（x64） |
-| `tauri-windows-arm64` | `windows-latest` | NSIS `.exe`、`.msi`（原生 arm64） |
+| `tauri-windows` | `windows-2025` | NSIS `.exe`、`.msi`（x64） |
+| `tauri-windows-arm64` | `windows-2025` | NSIS `.exe`、`.msi`（原生 arm64） |
 | `electron-macos` | `macos-latest` | `.dmg`、`.zip`（arm64 + x64） |
-| `electron-windows` | `windows-latest` | NSIS installer、portable `.exe`（x64 + 原生 arm64） |
+| `electron-windows` | `windows-2025` | NSIS installer、portable `.exe`（x64） |
+| `electron-windows-arm64` | `windows-2025` | NSIS installer、portable `.exe`（原生 arm64） |
+
+> **Runner 一律明確釘住版本**：不使用會隨時間遷移的 `windows-latest`
+> （它目前指向 Windows Server 2025），避免「同一個 commit 在不同時間
+> 建出不同結果」。
+
+### 產物架構驗證（`verify-pe-arch.sh`）
+
+Windows ARM64 產物是在 **x64 runner 上交叉編譯**的。若下載、快取或矩陣旗標
+出了差錯，產物可能是錯的架構，且要到使用者端才會炸開。
+`desktop/scripts/verify-pe-arch.sh` 直接讀取 PE 標頭的 `Machine` 欄位
+（`0x8664` = x64、`0xaa64` = ARM64），**不會被檔名或矩陣設定騙過**。
+兩個 Windows 打包 job 都會在 build 後、upload 前呼叫它，架構不符即讓建置失敗。
+
+### Windows 執行期煙霧測試
+
+`windows-smoke` job 會**真的執行**已封裝的產物 —— 而且是從 **CI 即將發佈的
+安裝檔中解壓出來跑**（不是跑建置目錄），因此連「只有打包階段才會出錯」的
+問題也能抓到。它確認：
+
+1. `server.js` 啟動並印出 `MDWEBVIEW_READY port=<port>`
+2. `http://127.0.0.1:<port>/` 回 HTTP 200，且內容是完整的 App shell（非空殼）
+3. 可寫資料確實落在使用者資料目錄
+
+矩陣涵蓋 `windows-2025`（x64）與 **`windows-11-arm`**（原生 ARM64）。後者是
+GitHub 唯一的 Windows ARM runner，也是唯一能證明 ARM64 產物**原生執行**、
+而非倚賴 x64 模擬的方式。`release` job 依賴此 job，壞掉的產物不會被發佈。
+
+> **Tauri 的煙霧測試刻意跳過 Rust 外殼、直接跑 Node sidecar**：GitHub 的
+> Windows runner **沒有 WebView2 runtime**，GUI 外殼會在提供服務前就結束，
+> 那樣的失敗屬於環境因素而非產品缺陷。sidecar 正是外殼會啟動的同一個執行檔。
+> Electron 則以完整應用程式端到端測試。
+
+---
+
+## Windows 支援矩陣
+
+下表為各產物的**目標**平台。CI 僅涵蓋 Server 2025 與 Windows 11 ARM64；
+Windows 10 需人工驗收（見下方限制）。
+
+| 外殼 × 架構 | Windows 11 x64 | Windows 11 ARM64 | Windows 10 x64 | Windows 10 ARM64 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Electron x64** | ✅ 主要目標 | ✅（x64 模擬） | ✅ | — |
+| **Electron arm64** | ❌ 請用 x64 版 | ✅ **原生** | — | ✅ 原生¹ |
+| **Tauri x64** | ✅ 主要目標 | ✅（x64 模擬） | ✅ | — |
+| **Tauri arm64** | ❌ 請用 x64 版 | ✅ **原生** | — | ✅ 原生¹ |
+
+¹ Windows 10 消費版已於 **2025-10-14 終止支援（EOL）**。Node.js 官方明言
+「不支援執行於 EOL 平台」，故 Windows 10 屬**盡力支援**、非保證。
+
+### 平台事實（已查證官方文件）
+
+| 項目 | 事實 | 來源 |
+| :--- | :--- | :--- |
+| Node.js 24 x64 | Tier 1，`>= Windows 10 / Server 2016` | [BUILDING.md](https://raw.githubusercontent.com/nodejs/node/v24.17.0/BUILDING.md) |
+| Node.js 24 arm64 | Tier 2，`>= Windows 10`（**非** Windows 11 限定） | 同上 |
+| Electron 44 | 「Windows 10 and up」提供 `x64` 與 `arm64` | [README](https://raw.githubusercontent.com/electron/electron/v44.7.2/README.md) |
+| WebView2 runtime | 支援 Windows 10 SAC 1709+ 與 Windows 11 | [支援的 OS](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-supported-operating-systems) |
+| WebView2 在 Win10 的未來 | Win10 22H2 將持續更新**至少到 2028 年 10 月** | 同上 |
+| Windows 11 x86 | **不存在** 32 位元版本（需 64-bit 處理器） | [系統需求](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements) |
+| 32 位元 Windows | Electron 44 起**已移除** `ia32`；Node 24 亦無 `win-x86` | 見上方 Electron README |
+
+### CI 覆蓋限制（重要）
+
+- **GitHub Actions 沒有 Windows 10 hosted runner**（僅 Server 2022/2025 與
+  Windows 11 ARM64），因此 **Windows 10 無法在 CI 中自動驗證**，
+  必須人工在實機上驗收。
+- Server 2025 **沒有 WebView2 runtime**，故 Tauri GUI 外殼無法在 CI 中實跑
+  （詳見上方煙霧測試說明）。
+- 所有 Windows 產物**未做程式碼簽章**：使用者會看到 SmartScreen 提示，
+  且可能遭防毒軟體誤判（見下方 §Windows 疑難排解）。
+
+### 為什麼沒有 32 位元（x86）版本
+
+本專案需求為 x64 + ARM64。若日後需要 32 位元支援，**目前的技術堆疊已無法提供**：
+Electron 自 44 起不再發佈 `win32-ia32`，Node.js 24 也沒有 `win-x86` 官方二進位
+（最後提供者為 Node 22）。這是架構層級的變更，而非調整打包設定即可達成。
+
+### WebView2 與離線安裝
+
+Tauri 依賴系統的 WebView2 runtime。Tauri 的**預設**安裝模式是
+`downloadBootstrapper`，官方文件明載「**需要網際網路連線**」，這與本專案
+「離線閱讀」的核心目標衝突。本專案因此**顯式改用 `offlineInstaller`**
+（`tauri.conf.json` → `bundle.windows.webviewInstallMode`），將 WebView2
+離線安裝程式內嵌進安裝檔，代價是安裝檔增約 127MB。
+
+> Electron **不需要** WebView2（自帶 Chromium）。若目標機器皆有 WebView2
+> 且在意安裝檔體積，可把 `webviewInstallMode` 改回 `downloadBootstrapper`，
+> 換取約 127MB 的體積縮減。
+
 
 ### 安裝檔命名（兩種外殼必須可分辨）
 
@@ -194,8 +348,8 @@ npx @tauri-apps/cli@^2 build
 
 | 外殼 | 產品名稱 | macOS | Windows |
 | :--- | :--- | :--- | :--- |
-| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.1_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.1_x64-setup.exe`<br>`mdWebview-Tauri_3.8.1_x64_en-US.msi`<br>`mdWebview-Tauri_3.8.1_arm64-setup.exe`<br>`mdWebview-Tauri_3.8.1_arm64_en-US.msi` |
-| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.1-arm64.dmg`<br>`mdWebview-Electron-3.8.1-x64.dmg`<br>`mdWebview-Electron-3.8.1-arm64-mac.zip`<br>`mdWebview-Electron-3.8.1-mac.zip` | `mdWebview-Electron-3.8.1-x64-setup.exe`<br>`mdWebview-Electron-3.8.1-x64-portable.exe`<br>`mdWebview-Electron-3.8.1-arm64-setup.exe`<br>`mdWebview-Electron-3.8.1-arm64-portable.exe` |
+| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.9.0_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.9.0_x64-setup.exe`<br>`mdWebview-Tauri_3.9.0_x64_en-US.msi`<br>`mdWebview-Tauri_3.9.0_arm64-setup.exe`<br>`mdWebview-Tauri_3.9.0_arm64_en-US.msi` |
+| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.9.0-arm64.dmg`<br>`mdWebview-Electron-3.9.0-x64.dmg`<br>`mdWebview-Electron-3.9.0-arm64-mac.zip`<br>`mdWebview-Electron-3.9.0-mac.zip` | `mdWebview-Electron-3.9.0-x64-setup.exe`<br>`mdWebview-Electron-3.9.0-x64-portable.exe`<br>`mdWebview-Electron-3.9.0-arm64-setup.exe`<br>`mdWebview-Electron-3.9.0-arm64-portable.exe` |
 
 > **x64 與 arm64 並存**：Intel／AMD 機器需要 x64 版；Windows on ARM
 > （Snapdragon X 等）另有原生 arm64 版，不必倚賴 x64 模擬。
@@ -244,7 +398,7 @@ npx @tauri-apps/cli@^2 build
 | Tauri `.app` 打包 | ✅ 成功產出 124.56 MiB bundle |
 | Tauri 打包後執行 | ✅ sidecar 啟動、`GET /` 200、資料只寫入使用者目錄 |
 | Tauri ad-hoc 簽章 | ✅ `codesign --verify --strict` rc=0、`--deep --strict` rc=0；含 `_CodeSignature/CodeResources` |
-| Electron 打包 | ✅ 產出 `mdWebview-Electron-3.8.1-arm64-mac.zip`（126 MB） |
+| Electron 打包 | ✅ 產出 `mdWebview-Electron-3.9.0-arm64-mac.zip`（126 MB） |
 | Electron 打包後執行 | ✅ 內嵌伺服器啟動（port 8330）、`GET /` 與 `/app.js` 皆 200、0 個 worker 錯誤 |
 | Electron ad-hoc 簽章 | ✅ `codesign --verify --strict` rc=0、`--deep --strict` rc=0；`flags=0x10002(adhoc,runtime)` |
 | Gatekeeper 判定 | ✅ 隔離屬性下不再回報「損毀」，僅為可繞行的「未識別開發者」 |

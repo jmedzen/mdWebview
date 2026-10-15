@@ -82,27 +82,30 @@ jobs:
             bundles: dmg,app
             target_flag: '--target aarch64-apple-darwin'
             artifact: tauri-macos
+            win_arch: ''
           # Intel Macs: the same job can emit x64 by adding a second matrix row
           # with node_arch x64 and --target x86_64-apple-darwin.
           - label: Windows
-            os: windows-latest
+            os: windows-2025
             triple: x86_64-pc-windows-msvc
             node_platform: win
             node_arch: x64
             bundles: nsis,msi
             target_flag: ''
             artifact: tauri-windows
+            win_arch: x64
           # Native Windows on ARM, so ARM devices do not have to run the x64
           # build under emulation. Compiled on the x64 runner using the ARM64
-          # MSVC toolchain that the windows-latest image already provides.
+          # MSVC toolchain that the windows image already provides.
           - label: Windows ARM64
-            os: windows-latest
+            os: windows-2025
             triple: aarch64-pc-windows-msvc
             node_platform: win
             node_arch: arm64
             bundles: nsis,msi
             target_flag: '--target aarch64-pc-windows-msvc'
             artifact: tauri-windows-arm64
+            win_arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -150,6 +153,31 @@ jobs:
         run: npx tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target_flag }}
         shell: bash
 
+      # Cross-compiled ARM64 output is produced on an x64 runner, so a wrong
+      # architecture would otherwise ship silently. Assert the real PE headers
+      # of the two binaries that ship and execute:
+      #
+      #   * the sidecar — this *is* the Node runtime, downloaded per-arch
+      #   * the app binary — the Rust shell
+      #
+      # Named explicitly rather than globbed: the NSIS/MSI stubs are always
+      # 32-bit and a broad find would pick them up, turning a real check into a
+      # false failure.
+      - name: Verify binary architecture
+        if: matrix.win_arch != ''
+        run: |
+          set -euo pipefail
+          sidecar="desktop/tauri/src-tauri/binaries/mdwebview-server-${{ matrix.triple }}.exe"
+          app="$(find desktop/tauri/src-tauri/target -type f -name 'mdwebview.exe' \
+            -path '*release*' ! -path '*/deps/*' ! -path '*/build/*' | head -1)"
+          if [ -z "$app" ]; then
+            echo "Could not locate the built mdwebview.exe" >&2
+            exit 1
+          fi
+          bash desktop/scripts/verify-pe-arch.sh \
+            "${{ matrix.win_arch }}" "$sidecar" "$app"
+        shell: bash
+
       - name: Upload installers
         uses: actions/upload-artifact@v6
         with:
@@ -176,19 +204,25 @@ jobs:
             os: macos-latest
             args: '--mac'
             artifact: electron-macos
+            win_arch: ''
+            unpacked: ''
           # One row per Windows architecture. Passing a single arch keeps the
           # artifact names arch-specific (…-x64-setup.exe / …-arm64-setup.exe);
           # asking for both at once also emits a redundant combined installer
           # with no arch suffix. x64 is for Intel/AMD machines, arm64 gives
           # Windows on ARM a native build instead of x64 emulation.
           - label: Windows x64
-            os: windows-latest
+            os: windows-2025
             args: '--win --x64'
             artifact: electron-windows
+            win_arch: x64
+            unpacked: release/win-unpacked/mdWebview-Electron.exe
           - label: Windows ARM64
-            os: windows-latest
+            os: windows-2025
             args: '--win --arm64'
             artifact: electron-windows-arm64
+            win_arch: arm64
+            unpacked: release/win-arm64-unpacked/mdWebview-Electron.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -224,6 +258,17 @@ jobs:
         env:
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-cache
 
+      # The unpacked app directory is the authoritative artifact: Electron
+      # itself was downloaded for the requested arch, so checking its PE header
+      # proves the whole payload is native rather than emulated or mislabelled.
+      - name: Verify binary architecture
+        if: matrix.win_arch != ''
+        run: |
+          bash desktop/scripts/verify-pe-arch.sh \
+            "${{ matrix.win_arch }}" \
+            "desktop/electron/${{ matrix.unpacked }}"
+        shell: bash
+
       - name: Upload installers
         uses: actions/upload-artifact@v6
         with:
@@ -236,12 +281,175 @@ jobs:
           retention-days: 30
 
   # ───────────────────────────────────────────────────────────────────────
+  # Actually RUN the packaged Windows artifacts.
+  #
+  # The build jobs above only prove a bundle *compiles*. Nothing executed a
+  # Windows binary, so the whole Windows-only runtime surface was unverified:
+  # whether the payload really landed in the installer, whether the bundled
+  # Node/Electron runtime starts from a read-only install directory, whether the
+  # server binds loopback and serves the SPA, and whether the per-user data
+  # directory resolves instead of dying with ENOENT.
+  #
+  # Extraction is deliberate: the smoke test runs the payload out of the
+  # *installer we ship*, not the build directory, so a staging mistake that only
+  # affects packaging is caught here.
+  #
+  # GitHub has no Windows 10 hosted runner, so Windows 10 cannot be covered in
+  # CI; Server 2025 + Windows 11 ARM64 are the closest available proxies. See
+  # desktop/README.md "Windows 支援矩陣".
+  # ───────────────────────────────────────────────────────────────────────
+  windows-smoke:
+    name: Smoke ${{ matrix.label }}
+    needs: [tauri, electron]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native ARM64 execution on a real Windows 11 ARM machine — the only
+          # way to prove the ARM64 builds are genuinely native rather than
+          # relying on x64 emulation.
+          - label: Tauri x64
+            os: windows-2025
+            artifact: tauri-windows
+            kind: tauri
+            port: 8330
+          - label: Tauri ARM64
+            os: windows-11-arm
+            artifact: tauri-windows-arm64
+            kind: tauri
+            port: 8330
+          - label: Electron x64
+            os: windows-2025
+            artifact: electron-windows
+            kind: electron
+            port: 8331
+          - label: Electron ARM64
+            os: windows-11-arm
+            artifact: electron-windows-arm64
+            kind: electron
+            port: 8331
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download the installers that will be published
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+
+      - name: Show what was downloaded
+        shell: bash
+        run: ls -la dist
+
+      # NSIS self-extracting installers unpack with 7-Zip (present on both
+      # runner images). Electron nests its payload one level deeper, inside
+      # $PLUGINSDIR/app-<arch>.7z.
+      - name: Extract installer payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p payload
+
+          if [ "${{ matrix.kind }}" = "tauri" ]; then
+            setup="$(find dist -name '*setup.exe' | head -1)"
+            echo "Extracting $setup"
+            7z x -y -opayload "$setup" > /dev/null
+            # The sidecar is the bundled Node runtime; app/ is the payload.
+            test -f payload/mdwebview-server.exe
+            test -f payload/app/server.js
+            echo "EXE=$PWD/payload/mdwebview-server.exe" >> "$GITHUB_ENV"
+            echo "ARGS=$PWD/payload/app/server.js" >> "$GITHUB_ENV"
+            echo "WORKDIR=$PWD/payload/app" >> "$GITHUB_ENV"
+          else
+            setup="$(find dist -name '*setup.exe' | head -1)"
+            echo "Extracting $setup"
+            7z x -y -opayload "$setup" > /dev/null
+            inner="$(find payload -name 'app-*.7z' | head -1)"
+            echo "Extracting inner payload $inner"
+            7z x -y -opayload/app "$inner" > /dev/null
+            test -f payload/app/mdWebview-Electron.exe
+            test -f payload/app/resources/app/server.js
+            echo "EXE=$PWD/payload/app/mdWebview-Electron.exe" >> "$GITHUB_ENV"
+            echo "WORKDIR=$PWD/payload/app" >> "$GITHUB_ENV"
+          fi
+
+      - name: Show payload layout
+        shell: bash
+        run: |
+          ls -la payload | head -20
+          ls -la payload/app | head -20
+
+      # First-run conditions on purpose: no vault and no config, exactly what a
+      # new user gets.
+      #
+      # The directory is deliberately NOT pre-created and its subdirectories are
+      # NOT pre-created: the application must create its own writable tree. If
+      # this step were to make them, the smoke test's data-directory assertion
+      # would pass even when the app writes nothing at all.
+      - name: Prepare user data location
+        shell: pwsh
+        run: |
+          # Start from a clean slate so a warm runner cannot mask a regression.
+          $root = Join-Path $env:RUNNER_TEMP 'mdw-userdata'
+          if (Test-Path -LiteralPath $root) { Remove-Item -Recurse -Force $root }
+          # AppendAllText writes UTF-8 with no BOM. Out-File -Encoding utf8 emits
+          # a BOM on Windows PowerShell, and a stray BOM mid-file corrupts the
+          # variable name that follows it.
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "MDW_USER_DATA=$root`n")
+          Write-Host "user data root (to be created by the app): $root"
+
+      # Electron runs as the real packaged app (end-to-end, it starts its own
+      # server). Tauri's Rust shell is skipped in favour of its Node sidecar:
+      # Server 2025 has no WebView2 runtime, so the GUI shell would exit before
+      # serving and the test would fail for an environmental reason rather than
+      # a product defect. The sidecar is the same runtime the shell spawns.
+      - name: Run smoke test
+        shell: pwsh
+        run: |
+          $common = @{
+            Exe        = $env:EXE
+            Port       = ${{ matrix.port }}
+            WorkDir    = $env:WORKDIR
+            TimeoutSec = 300
+          }
+
+          if ('${{ matrix.kind }}' -eq 'tauri') {
+            # The sidecar is a plain Node runtime, so point it at the staged
+            # server.js and hand it the same environment the Rust shell would.
+            $root = $env:MDW_USER_DATA
+            $common.ServerArgs = @($env:ARGS)
+            $common.AssertUserDataPath = $root
+            $common.Env = @{
+              HOST              = '127.0.0.1'
+              PORT              = '${{ matrix.port }}'
+              MDW_PORT_SCAN     = '1'
+              MDW_DEPLOY_TARGET = 'win-app'
+              MDW_USER_DATA     = $root
+              CONFIG_PATH       = (Join-Path $root 'config.json')
+              LOG_DIR           = (Join-Path $root 'logs')
+              MD_ROOT           = (Join-Path $root 'md')
+              DICTIONARY_PATH   = (Join-Path $root 'dicts')
+              NODE_ENV          = 'production'
+            }
+          }
+          else {
+            # The packaged Electron app picks its own per-user directory
+            # (%APPDATA%\mdWebview-Electron); asserting that path is what proves
+            # the documented location still resolves on Windows.
+            $common.AssertUserDataPath = Join-Path $env:APPDATA 'mdWebview-Electron'
+          }
+
+          ./desktop/scripts/smoke-test-windows.ps1 @common
+
+  # ───────────────────────────────────────────────────────────────────────
   # Attach every installer to the GitHub Release when a tag is pushed.
   # ───────────────────────────────────────────────────────────────────────
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [tauri, electron]
+    needs: [tauri, electron, windows-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

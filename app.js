@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.8.1
+   mdWebview — Application Logic (app.js) v3.9.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -266,6 +266,11 @@
     scrollSpyRaf: null,
     refreshScrollSpy: null,
     adminToken: storage.get(STORAGE_KEYS.ADMIN_TOKEN),
+    // Deployment mode, confirmed by /api/admin/status. The injected config gives
+    // an initial hint so the very first paint is already correct.
+    isSingleUser: appConfig.isSingleUser === true || appConfig.authMode === 'single-user',
+    authMode: appConfig.authMode || 'admin',
+    deployTarget: appConfig.deployTarget || 'web',
     siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
     searchSort: 'relevance',
@@ -571,7 +576,13 @@
 
   function initPwaServiceWorker() {
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+      // `init()` 由 DOMContentLoaded 觸發，且在抵達這裡之前已有多個 await
+      // （checkAdminStatus、loadTree、可能還有 openFile）。在 localhost 或
+      // 快取命中的情況下，這些 await 會讓 window 的 `load` 事件在監聽器掛上
+      // 之前就發生，於是 `addEventListener('load', …)` 永遠不會被呼叫——
+      // Service Worker 從未註冊，離線閱讀形同無效（實測：load 於 2468ms 觸發，
+      // 監聽器 2575ms 才掛上）。因此若文件已載入完成就直接註冊，否則才等 load。
+      const registerSw = () => {
         navigator.serviceWorker.register('/sw.js')
           .then(reg => {
             try { reg.update(); } catch (_) {}
@@ -590,7 +601,13 @@
           .catch(err => {
             console.warn('[PWA] Service Worker registration failed:', err);
           });
-      });
+      };
+
+      if (document.readyState === 'complete') {
+        registerSw();
+      } else {
+        window.addEventListener('load', registerSw, { once: true });
+      }
     }
 
     // Network status monitoring
@@ -1051,6 +1068,53 @@
     }
   }
 
+  /**
+   * Apply deployment-mode differences to the UI.
+   *
+   * Single-user bundles hide everything that only makes sense for a public,
+   * multi-user, crawlable site — the administrator login, the SEO and analytics
+   * tabs — and reveal the local maintenance controls that would otherwise sit
+   * behind an admin login that does not exist.
+   *
+   * DOM visibility is driven by `data-single-user-only` / `data-web-only`
+   * attributes (styled in style.css) rather than ad-hoc inline styles, so the
+   * markup states its own intent and CSS keeps the two modes consistent.
+   */
+  function applyDeployModeUI() {
+    const single = state.isSingleUser === true;
+    document.documentElement.setAttribute('data-deploy-target', single ? 'single-user' : 'web');
+
+    const adminLoginBtn = $('menuOpenAdminLoginBtn');
+    if (adminLoginBtn) adminLoginBtn.style.display = single ? 'none' : '';
+
+    // The status line explains how this install is authorised.
+    const statusText = $('adminStatusText');
+    if (statusText) {
+      if (single) {
+        statusText.textContent = '單機模式：本機免登入，可直接使用系統維護功能';
+      } else if (!statusText.textContent || statusText.textContent.indexOf('檢查中') !== -1) {
+        statusText.textContent = '管理員登入狀態：未登入';
+      }
+    }
+
+    // Tabs that exist only for a public deployment.
+    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn'];
+    for (const id of webOnlyTabs) {
+      const btn = $(id);
+      if (btn) btn.style.display = single ? 'none' : '';
+    }
+
+    // If the SEO/analytics pane happens to be the active one, fall back to the
+    // configuration tab so the panel is never left showing an empty section.
+    if (single) {
+      const activePane = document.querySelector('.admin-tab-pane.active');
+      if (activePane && (activePane.id === 'adminPaneSeo' || activePane.id === 'adminPaneAnalytics')) {
+        const configBtn = $('adminTabConfigBtn');
+        if (configBtn) configBtn.click();
+      }
+    }
+  }
+
   // ── Admin Status Checker ──
   async function checkAdminStatus() {
     try {
@@ -1063,18 +1127,38 @@
       const data = await res.json();
       
       // If admin is not set, force show setup overlay
-      if (!data.isSetup) {
-        $('adminSetupOverlay').style.display = 'flex';
-        const setupSiteUrlEl = $('setupSiteUrl');
-        if (setupSiteUrlEl && !setupSiteUrlEl.value) {
-          setupSiteUrlEl.value = (data.settings && data.settings.siteUrl) ? data.settings.siteUrl : (window.location.origin || '');
+      // Deployment mode decides whether an administrator account exists at all.
+      // Single-user bundles (desktop/mobile) never create one, so the first-run
+      // setup modal must never appear: it would demand a public canonical URL
+      // that a local installation does not have, blocking the reader entirely.
+      state.isSingleUser = data.isSingleUser === true || data.authMode === 'single-user';
+      state.authMode = data.authMode || (state.isSingleUser ? 'single-user' : 'admin');
+      applyDeployModeUI();
+
+      if (!state.isSingleUser) {
+        if (!data.isSetup) {
+          $('adminSetupOverlay').style.display = 'flex';
+          const setupSiteUrlEl = $('setupSiteUrl');
+          if (setupSiteUrlEl && !setupSiteUrlEl.value) {
+            setupSiteUrlEl.value = (data.settings && data.settings.siteUrl) ? data.settings.siteUrl : (window.location.origin || '');
+          }
+        } else {
+          $('adminSetupOverlay').style.display = 'none';
         }
       } else {
-        $('adminSetupOverlay').style.display = 'none';
+        // Defensive: a stale stylesheet or an older cached page could still
+        // leave the overlay visible, which would lock the user out of the app.
+        const setupOverlay = $('adminSetupOverlay');
+        if (setupOverlay) setupOverlay.style.display = 'none';
       }
 
-      // If token is invalid according to server, clear it
-      if (!data.isAuthenticated) {
+      // If token is invalid according to server, clear it. In single-user mode
+      // the server authorises loopback callers directly, so there is no token to
+      // hold and nothing to clear.
+      if (state.isSingleUser) {
+        state.adminToken = null;
+        storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
+      } else if (!data.isAuthenticated) {
         state.adminToken = null;
         storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
       }
@@ -6108,7 +6192,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.8.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -7637,6 +7721,83 @@
       });
     }
 
+    // ── Single-User Local Maintenance ──
+    // A desktop/mobile bundle has no administrator account, so these actions are
+    // authorised by the loopback origin instead of a password (lib/auth.js).
+    // They send no token: there is none to send.
+    const localStatus = $('localMaintenanceStatus');
+
+    function setLocalStatus(message, kind) {
+      if (!localStatus) return;
+      if (!message) {
+        localStatus.style.display = 'none';
+        localStatus.textContent = '';
+        return;
+      }
+      localStatus.style.display = 'block';
+      localStatus.textContent = message;
+      localStatus.classList.toggle('is-busy', kind === 'busy');
+      localStatus.classList.toggle('is-error', kind === 'error');
+    }
+
+    /**
+     * Run one local maintenance action with consistent busy/error reporting.
+     * @param {string} label   human-readable action name for messages
+     * @param {string} path    /api/admin/... endpoint
+     * @param {string} doneMsg message shown on success
+     */
+    async function runLocalMaintenance(label, path, doneMsg) {
+      setLocalStatus(`⏳ ${label}中，請稍候…（大型經論庫可能需要數分鐘）`, 'busy');
+      try {
+        const res = await fetch(path, { method: 'POST' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setLocalStatus(`❌ ${label}失敗：${data.error || `HTTP ${res.status}`}`, 'error');
+          showToast(`❌ ${label}失敗`, 'error', 3500);
+          return false;
+        }
+        setLocalStatus(`✅ ${doneMsg}`, 'ok');
+        showToast(`✅ ${doneMsg}`, 'success', 3000);
+        return true;
+      } catch (err) {
+        setLocalStatus(`❌ ${label}失敗：${err.message || '網路錯誤'}`, 'error');
+        showToast(`❌ ${label}失敗`, 'error', 3500);
+        return false;
+      }
+    }
+
+    const localRebuildBtn = $('btnLocalRebuildIndex');
+    if (localRebuildBtn) {
+      localRebuildBtn.addEventListener('click', async () => {
+        if (!confirm('確定要重建全文索引嗎？\n這將重新掃描經論檔庫並重建 Bigram 倒排索引。')) return;
+        await runLocalMaintenance('重建全文索引', '/api/admin/rebuild-index', '全文索引已開始重建，可繼續閱讀');
+      });
+    }
+
+    const localRebuildDictBtn = $('btnLocalRebuildDictIndex');
+    if (localRebuildDictBtn) {
+      localRebuildDictBtn.addEventListener('click', async () => {
+        if (!confirm('確定要重建辭典索引嗎？')) return;
+        await runLocalMaintenance('重建辭典索引', '/api/admin/rebuild-dict-index', '辭典索引已開始重建');
+      });
+    }
+
+    const localClearCacheBtn = $('btnLocalClearCache');
+    if (localClearCacheBtn) {
+      localClearCacheBtn.addEventListener('click', async () => {
+        if (!confirm('確定要清除快取嗎？\n下次開啟經文時會重新建立快取。')) return;
+        await runLocalMaintenance('清除快取', '/api/admin/clear-cache', '快取已清除');
+      });
+    }
+
+    const localOpenSettingsBtn = $('btnLocalOpenVaultSettings');
+    if (localOpenSettingsBtn) {
+      localOpenSettingsBtn.addEventListener('click', async () => {
+        $('userSettingsOverlay').style.display = 'none';
+        await openSettingsOverlay();
+      });
+    }
+
     // ── Setup Form Submission ──
     $('adminSetupForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -7906,7 +8067,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.8.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -7919,7 +8080,14 @@
     const loginBtn = $('menuOpenAdminLoginBtn');
     const vaultBtn = $('menuOpenVaultSettingsBtn');
 
-    if (state.adminToken) {
+    if (state.isSingleUser) {
+      // No account exists to log into; the local user is already authorised.
+      if (statusText) statusText.textContent = '單機模式：本機免登入，可直接使用系統維護功能';
+      if (loginBtn) loginBtn.style.display = 'none';
+      // In single-user mode the maintenance panel lives in this very tab, so the
+      // "open admin settings" shortcut is redundant and stays hidden.
+      if (vaultBtn) vaultBtn.style.display = 'none';
+    } else if (state.adminToken) {
       if (statusText) statusText.textContent = '管理員登入狀態：已登入 ✅';
       if (loginBtn) loginBtn.style.display = 'none';
       if (vaultBtn) vaultBtn.style.display = 'inline-block';
@@ -8212,7 +8380,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.8.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -8921,7 +9089,12 @@
         headers: { 'X-Admin-Token': state.adminToken }
       });
       if (!res.ok) {
-        // Token invalid/expired
+        // Token invalid/expired. Single-user mode has no login to fall back to,
+        // so never send the user to a login overlay that cannot authorise them.
+        if (state.isSingleUser) {
+          showToast('❌ 系統設定載入失敗', 'error');
+          return;
+        }
         state.adminToken = null;
         storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
         closeAdminModal();
@@ -8956,13 +9129,18 @@
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');
 
-      // Preload data for all admin tabs (Suggest, Analytics, Logs) so that
-      // all 4 tabs and data analytics tables are populated immediately upon login/open
-      Promise.all([
+      // Preload data for the other admin tabs so they are populated the moment
+      // the panel opens. Analytics and SEO reporting only exist for a public
+      // site, so a single-user bundle skips those two requests entirely rather
+      // than firing fetches that are answered with 404.
+      const preloads = [
         loadSuggestSettings(data.settings).catch(() => {}),
-        loadAdminAnalytics().catch(() => {}),
         fetchAdminLogs().catch(() => {})
-      ]);
+      ];
+      if (!state.isSingleUser) {
+        preloads.push(loadAdminAnalytics().catch(() => {}));
+      }
+      Promise.all(preloads);
     } catch (err) {
       console.error('Error fetching settings:', err);
       showToast('❌ 系統設定載入失敗', 'error');

@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.8.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v3.9.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -108,6 +108,30 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 在網站右上角點「偏好設定與系統管理」（齒輪圖示），登入後即可管理。第一次使用時，會請你先設定管理員帳號與密碼。所有設定都存在 `config.json`。
 
+**線上部署與單機離線部署**
+
+同一份程式碼同時支援「公開網站」與「單機桌面版」，由環境變數 `MDW_DEPLOY_TARGET` 決定：
+
+| 值 | 用途 | 管理員帳號 | SEO | 數據分析 |
+| :--- | :--- | :---: | :---: | :---: |
+| `web`（預設） | 公開多人網站／Docker | ✅ 需要 | ✅ 啟用 | ✅ 啟用 |
+| `mac-app`／`win-app`／`linux-app` | 單機桌面版 | ❌ 不需要 | ❌ 停用 | ❌ 停用 |
+
+桌面版（Tauri／Electron）會自動帶入對應的單機值。單機模式的特點：
+
+- **免登入**：只有你一個人使用，開啟即可閱讀，不再要求填寫公開網址。
+- **維護免密碼但僅限本機**：重建索引、清除快取等操作不需要密碼，
+  且只接受來自這台電腦的請求（判定 TCP 連線來源，無法用偽造標頭繞過）。
+- **不蒐集足跡**：不寫入訪客紀錄、不做流量分析、不產生 sitemap。
+- 若想用區網其他裝置閱讀，可設 `MDW_ALLOW_LAN=true`（但維護功能仍限本機）。
+
+> ⚠️ 拼錯的 `MDW_DEPLOY_TARGET` 會**回退 `web`**（安全預設），
+> 避免本該受保護的部署意外變成免登入。
+
+> 💡 桌面版使用**固定連接埠**（Tauri `8330`／Electron `8331`）而非隨機埠。
+> 瀏覽器的偏好設定（主題、字級、書籤、閱讀進度）以網址來源為界，
+> 隨機埠會讓這些設定每次啟動都失效。若該埠被占用，會自動往後找（`MDW_PORT_SCAN=1`）。
+
 ---
 
 ### 📂 專案裡有什麼
@@ -129,7 +153,7 @@ mdWebview/
 ├── s2t.js              # 簡體轉繁體
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.8.1）
+├── package.json        # 專案資訊（v3.9.0）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -173,7 +197,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.8.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v3.9.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -275,6 +299,26 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 Click the gear icon in the top right of the site ("Preferences & System Administration") and sign in. The first time you use it, you will be asked to set an administrator account and password. All settings are stored in `config.json`.
 
+**Online vs. single-user offline deployment**
+
+One codebase serves both a public website and a single-user desktop app. The `MDW_DEPLOY_TARGET` environment variable selects which:
+
+| Value | Purpose | Admin account | SEO | Analytics |
+| :--- | :--- | :---: | :---: | :---: |
+| `web` (default) | Public site / Docker | ✅ required | ✅ enabled | ✅ enabled |
+| `mac-app` / `win-app` / `linux-app` | Single-user desktop app | ❌ not needed | ❌ disabled | ❌ disabled |
+
+The desktop shells pass the matching single-user value automatically. In single-user mode:
+
+- **No sign-in** — one reader, one machine: the app opens straight into reading and never asks for a public canonical URL.
+- **Password-free maintenance, local only** — rebuilding indexes and clearing caches needs no password, but is accepted only from this machine, decided by the TCP peer address so forged headers cannot bypass it.
+- **No tracking** — no visit logs, no analytics, no sitemap.
+- Set `MDW_ALLOW_LAN=true` to read from another device on your network (maintenance stays local-only).
+
+> ⚠️ A misspelled `MDW_DEPLOY_TARGET` falls back to `web`, the safe default, so a deployment that should be protected never silently becomes login-free.
+
+> 💡 The desktop apps use a **fixed port** (Tauri `8330` / Electron `8331`) rather than a random one. Browser preferences — theme, font size, bookmarks, reading progress — are scoped to the page origin, so a random port would discard them on every launch. If the port is taken, the server walks forward (`MDW_PORT_SCAN=1`).
+
 ---
 
 ### 📂 What Is in the Project
@@ -296,7 +340,7 @@ mdWebview/
 ├── s2t.js              # Simplified to Traditional Chinese conversion
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.8.1)
+├── package.json        # Project information (v3.9.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

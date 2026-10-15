@@ -166,24 +166,89 @@ describe('SSR 掃描閘門 (Per-document Scan Gates)', () => {
   });
 
   test('無標記大型文件不得再走 O(n²) 掃描（效能守門）', () => {
-    // 合成約 2.5M 字元且完全不含 $ / == 的文件。掃描成本取決於字串長度（UTF-16
-    // 碼元），與位元組數無關，故此處以 .length 為準。修正前約需 6–8 秒（O(n²)），
-    // 修正後約 0.2 秒。門檻刻意放寬到 3000ms，避免 CI 抖動造成偽失敗。
+    // marked calls every extension's start(src) on each tokenization step, where
+    // src is the entire *remaining suffix*. An unconditional src.indexOf(...)
+    // therefore rescans the whole tail every step -> O(n²). setScanGates() closes
+    // the gates per document so that a text containing no $ or == performs no
+    // scans at all.
+    //
+    // Guarding this by wall-clock time proved unreliable: the same code measured
+    // 0.4s idle and >3s while the rest of the suite ran, so a timing threshold
+    // produced false failures. This asserts the *work performed* instead —
+    // counting real indexOf calls inside the three gated hooks, which is
+    // completely independent of machine load and of how fast the host is.
+    //
+    // Measured behaviour: unmarked documents perform 0 scans; documents that do
+    // contain a marker perform >0 (the gates still open).
+    const workerSrc = fs.readFileSync(path.join(__dirname, '../render-worker.js'), 'utf8');
+
+    const hookTargets = [
+      "return _scanEq ? src.indexOf('==') : -1;",
+      "return _scanDollar2 ? src.indexOf('$$') : -1;",
+      "return _scanDollar ? src.indexOf('$') : -1;"
+    ];
+
+    let instrumented = workerSrc
+      .replace("const { parentPort } = require('worker_threads');",
+               'const parentPort = { on: () => {}, postMessage: () => {} };');
+
+    let hooksFound = 0;
+    for (const needle of hookTargets) {
+      if (!instrumented.includes(needle)) continue;
+      // Count only when the hook's own gate is open; a closed gate must cost nothing.
+      const gate = needle.slice(needle.indexOf('_scan'), needle.indexOf(' ? '));
+      const inner = needle.replace('return ', '').replace(/;$/, '');
+      instrumented = instrumented.replace(
+        needle,
+        () => `if (${gate}) { global.__scanCount++; } return ${inner};`
+      );
+      hooksFound++;
+    }
+
+    // If the hooks are ever renamed, fail loudly rather than silently stopping
+    // to guard anything.
+    assert.equal(hooksFound, 3,
+      '應找到三個受閘門控制的 start() 掃描點；找不到表示 render-worker.js 結構已變更，此守門測試必須同步更新');
+
+    instrumented += '\n;global.renderMarkdownSSR = renderMarkdownSSR;';
+    const probe = { global: {}, require, escapeHtml: (s) => s, escapeAttr: (s) => s, console };
+    vm.createContext(probe);
+    vm.runInContext('global.__scanCount = 0;', probe);
+    vm.runInContext(instrumented, probe);
+
+    const scanCountFor = (md) => {
+      probe.global.__scanCount = 0;
+      const html = probe.global.renderMarkdownSSR(md, 'perf.md', 0);
+      return { scans: probe.global.__scanCount, html };
+    };
+
     const para = '這是一段用於效能守門的測試文字，內容不含任何數學或高亮標記，僅作為大量段落填充。\n\n';
     const big = '# 效能守門文件\n\n' + para.repeat(60000);
     assert.ok(
       big.length > 2 * 1024 * 1024,
-      `合成文件應大於 2M 字元，實際 ${(big.length / 1048576).toFixed(2)}M 字元（${(Buffer.byteLength(big) / 1048576).toFixed(2)}MB）`
+      `合成文件應大於 2M 字元，實際 ${(big.length / 1048576).toFixed(2)}M 字元`
     );
 
-    const start = Date.now();
-    const html = renderMarkdownSSR(big, 'perf.md', 0);
-    const elapsed = Date.now() - start;
-
-    assert.ok(html.includes('效能守門文件'), '內容應正確渲染');
-    assert.ok(
-      elapsed < 3000,
-      `無標記的 ${(big.length / 1048576).toFixed(2)}M 字元文件應在 3000ms 內完成，實際 ${elapsed}ms`
+    const unmarked = scanCountFor(big);
+    assert.ok(unmarked.html.includes('效能守門文件'), '內容應正確渲染');
+    assert.equal(
+      unmarked.scans,
+      0,
+      `無標記文件不應執行任何掃描，實際 ${unmarked.scans} 次；` +
+      '非 0 表示掃描閘門失效，已退回 O(n²) 全檔重複掃描'
     );
+
+    // Guards must still OPEN when the markers are present, otherwise "0 scans"
+    // could be satisfied by disabling the features outright.
+    for (const [label, text] of [
+      ['$ 行內數學', '# t\n\n$x$ ' + para.repeat(200)],
+      ['== 高亮', '# t\n\n==x== ' + para.repeat(200)],
+      ['$$ 區塊數學', '# t\n\n$$\nz\n$$\n' + para.repeat(200)]
+    ]) {
+      assert.ok(
+        scanCountFor(text).scans > 0,
+        `含 ${label} 的文件仍必須實際掃描（閘門不得恆關）`
+      );
+    }
   });
 });

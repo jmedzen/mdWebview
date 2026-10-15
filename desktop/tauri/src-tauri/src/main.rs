@@ -32,6 +32,22 @@ const SIDECAR: &str = "mdwebview-server";
 /// Marker printed by server.js on stdout once it is listening.
 const READY_MARKER: &str = "MDWEBVIEW_READY port=";
 
+/// Preferred local HTTP port. Deliberately fixed rather than OS-assigned: the
+/// window's origin (`http://127.0.0.1:<port>`) is what localStorage is keyed by,
+/// so a changing port would discard the user's preferences on every restart.
+/// Chosen to differ from the Electron shell's port so both apps can run at once
+/// without either one having to move to a different origin.
+const LOCAL_PORT: &str = "8330";
+
+/// Deployment mode handed to server.js. Selects single-user behaviour: no admin
+/// account, no SEO, no analytics, loopback-authorised maintenance.
+#[cfg(target_os = "macos")]
+const DEPLOY_TARGET: &str = "mac-app";
+#[cfg(target_os = "windows")]
+const DEPLOY_TARGET: &str = "win-app";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const DEPLOY_TARGET: &str = "linux-app";
+
 /// Holds the running server so it can be terminated when the app exits.
 #[derive(Default)]
 struct ServerState(Mutex<Option<CommandChild>>);
@@ -115,8 +131,17 @@ async fn start_server(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::E
         // server.js resolves assets and worker scripts from the working dir.
         .current_dir(payload.clone())
         .env("HOST", "127.0.0.1")
-        // Ask the OS for a free port; the chosen one is reported on stdout.
-        .env("PORT", "0")
+        // A FIXED port, not 0. The window loads http://127.0.0.1:<port>, and the
+        // browser scopes localStorage to that origin — so an OS-assigned port
+        // would change the origin on every launch and silently orphan the user's
+        // theme, font size, bookmarks, recent files and reading progress.
+        // MDW_PORT_SCAN lets the server walk to the next free port if this one is
+        // taken, and only fall back to a random port as a last resort.
+        .env("PORT", LOCAL_PORT)
+        .env("MDW_PORT_SCAN", "1")
+        // Tells server.js this is a single-user bundle: no administrator account,
+        // no SEO, no analytics, and maintenance actions authorised by loopback.
+        .env("MDW_DEPLOY_TARGET", DEPLOY_TARGET)
         .env("MDW_USER_DATA", user_data.to_string_lossy().to_string())
         .env(
             "CONFIG_PATH",

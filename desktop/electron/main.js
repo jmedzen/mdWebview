@@ -135,6 +135,24 @@ function migrateLegacyUserData(target) {
 const userDataSelection = selectUserDataDir();
 app.setPath('userData', userDataSelection.dir);
 
+// ── Deployment mode ───────────────────────────────────────────────────────
+// mdWebview serves a public multi-user site and a single-user desktop app from
+// one codebase. This shell is always the latter: one person, loopback only, so
+// server.js should skip the administrator account, SEO and visit analytics, and
+// authorise maintenance actions by their loopback origin rather than a password.
+const DEPLOY_TARGET = process.platform === 'darwin'
+  ? 'mac-app'
+  : (process.platform === 'win32' ? 'win-app' : 'linux-app');
+
+// A FIXED port, not 0. The window loads http://127.0.0.1:<port>, and the browser
+// scopes localStorage to that origin — an OS-assigned port would change the
+// origin on every launch and silently orphan the user's theme, font size,
+// bookmarks, recent files and reading progress. Deliberately different from the
+// Tauri shell's port so both apps can run side by side, and stable so
+// preferences survive restarts. MDW_PORT_SCAN lets the server step to the next
+// free port if this one is taken.
+const LOCAL_PORT = '8331';
+
 // ── Single instance ───────────────────────────────────────────────────────
 // Two copies would race for the same user-data directory and index caches.
 if (!app.requestSingleInstanceLock()) {
@@ -276,9 +294,14 @@ function startServer() {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1', // run as plain Node, no Electron window
         NODE_ENV: isDev ? 'development' : 'production',
-        // Desktop defaults: loopback only, ephemeral port, separate data dir.
+        // Deployment mode: single-user, so no admin account / SEO / analytics.
+        MDW_DEPLOY_TARGET: DEPLOY_TARGET,
+        // Desktop defaults: loopback only, stable port (see LOCAL_PORT), separate
+        // data dir. MDW_PORT_SCAN walks to the next free port when it is taken
+        // instead of crashing with EADDRINUSE.
         HOST: '127.0.0.1',
-        PORT: '0',
+        PORT: LOCAL_PORT,
+        MDW_PORT_SCAN: '1',
         MDW_USER_DATA: userData,
         CONFIG_PATH: path.join(userData, 'config.json'),
         LOG_DIR: logsDir,

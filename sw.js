@@ -1,11 +1,11 @@
 /* ================================================================
    sw.js — mdWebview Service Worker (Tiered Hybrid Offline Caching)
    - App Shell: Cache-First / Stale-While-Revalidate
-   - Sutra Content: Network-First with Cache Fallback
+   - Sutra Content (/api/render & friends): Network-First with Cache Fallback
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.8.1';
+const CACHE_VERSION = 'v3.9.0';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -37,6 +37,50 @@ const SHELL_ASSETS = [
 ];
 
 const MAX_CONTENT_CACHE_ITEMS = 150;
+
+// Which /api/ endpoints may be stored for offline reading. Everything else
+// (search, dictionary, admin…) stays network-only: its answers are
+// request-specific and would only bloat the quota.
+//
+// `/api/render` is the endpoint the reader actually calls for a document's
+// HTML, so without it "already-read texts stay readable offline" was not true.
+// `/api/section-index` and `/api/render-chunk` are what large (>=1MB) texts use
+// instead, so they must be cacheable too or those texts break offline.
+const CONTENT_PATHS = [
+  '/api/tree',
+  '/api/render',
+  '/api/section-index',
+  '/api/render-chunk'
+];
+
+// Query parameters the server ignores when producing a response. Two requests
+// differing only in these must share one cache entry: `/api/render` accepts a
+// `line` hint that only the client uses for scrolling (the server never reads
+// it), so keying on it would store the same document once per scroll position.
+const IGNORED_QUERY_PARAMS = ['line'];
+
+/**
+ * Build the Cache Storage key for a request, dropping parameters the server
+ * ignores. Keeps every meaningful parameter (notably `path`, `from`, `to`), so
+ * distinct documents and chunks never collide.
+ *
+ * The original request is reused as the init so its headers survive: responses
+ * carry `Vary: Accept-Encoding`, and Cache Storage matches on the stored
+ * request's headers, so a bare `{ method: 'GET' }` key could fail to match the
+ * entry it just wrote.
+ */
+function contentCacheKey(req) {
+  const url = new URL(req.url);
+  let changed = false;
+  for (const name of IGNORED_QUERY_PARAMS) {
+    if (url.searchParams.has(name)) {
+      url.searchParams.delete(name);
+      changed = true;
+    }
+  }
+  return changed ? new Request(url.toString(), req) : req;
+}
+
 
 async function trimCache(cacheName, maxItems) {
   try {
@@ -99,9 +143,9 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
 
   // A. Dynamic APIs -> Network-Only (never stale, avoid quota bloat)
-  // All /api/ routes except /api/file and /api/tree are strictly network-only
+  // Everything under /api/ is network-only unless it can be read offline.
   if (url.pathname.startsWith('/api/')) {
-    if (url.pathname !== '/api/file' && url.pathname !== '/api/tree') {
+    if (!CONTENT_PATHS.includes(url.pathname)) {
       return;
     }
   }
@@ -128,17 +172,22 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // C. Content API (/api/file & /api/tree) -> Network-First with Cache Fallback
-  if (url.pathname === '/api/file' || url.pathname === '/api/tree') {
+  // C. Content API (/api/render, /api/tree, /api/section-index,
+  //    /api/render-chunk) -> Network-First with Cache Fallback, so texts the
+  //    user has already opened stay readable without a network.
+  if (CONTENT_PATHS.includes(url.pathname)) {
+    const cacheKey = contentCacheKey(req);
     event.respondWith(
       fetch(req)
         .then(networkRes => {
-          if (networkRes && networkRes.status === 200) {
+          // Only store plain, fully-successful GET responses. A 206 (range) or
+          // an error body must never be replayed as if it were the document.
+          if (networkRes && networkRes.status === 200 && req.method === 'GET') {
             const copy = networkRes.clone();
             event.waitUntil(
               caches.open(CONTENT_CACHE)
                 .then(async cache => {
-                  await cache.put(req, copy);
+                  await cache.put(cacheKey, copy);
                   await trimCache(CONTENT_CACHE, MAX_CONTENT_CACHE_ITEMS);
                 })
                 .catch(() => {})
@@ -147,7 +196,7 @@ self.addEventListener('fetch', event => {
           return networkRes;
         })
         .catch(() => {
-          return caches.match(req).then(cached => {
+          return caches.match(cacheKey).then(cached => {
             if (cached) return cached;
             return new Response(JSON.stringify({
               error: '目前處於離線狀態，此經文尚未快取',

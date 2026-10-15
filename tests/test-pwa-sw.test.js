@@ -5,6 +5,13 @@ const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 
+/** 取出 sw.js 內 CONTENT_PATHS 陣列的字串項目。 */
+function parseContentPaths(swContent) {
+  const m = swContent.match(/const\s+CONTENT_PATHS\s*=\s*\[([\s\S]*?)\];/);
+  if (!m) return [];
+  return [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]);
+}
+
 describe('PWA 與 Service Worker (sw.js) 離線快取測試', () => {
   const swContent = fs.readFileSync(path.join(ROOT_DIR, 'sw.js'), 'utf8');
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
@@ -141,8 +148,8 @@ describe('PWA 與 Service Worker (sw.js) 離線快取測試', () => {
       '應檢查 /api/ 動態請求'
     );
     assert.ok(
-      swContent.includes("url.pathname !== '/api/file' && url.pathname !== '/api/tree'"),
-      '除 /api/file 與 /api/tree 以外的 API 應走 Network-Only'
+      swContent.includes('CONTENT_PATHS.includes(url.pathname)'),
+      '僅 CONTENT_PATHS 列出的 API 可快取，其餘應走 Network-Only'
     );
 
     // 2. 導覽請求回退至離線 App Shell
@@ -155,6 +162,86 @@ describe('PWA 與 Service Worker (sw.js) 離線快取測試', () => {
     assert.ok(
       swContent.includes('目前處於離線狀態，此經文尚未快取'),
       '未快取經文離線時應回傳清楚的 503 提示訊息'
+    );
+  });
+
+  /**
+   * 這裡曾有一個真實的離線功能缺失：可快取清單寫的是 `/api/file`，
+   * 但前端從來不呼叫它（實際讀取經文走 `/api/render`）。
+   * 結果「看過的經文斷網後仍可重看」實際上從未成立。
+   * 因此改為逐一驗證 CONTENT_PATHS 的每個項目都真的是 server.js 的路由。
+   */
+  test('CONTENT_PATHS 每個端點都必須是 server.js 真實存在的路由', () => {
+    const serverSrc = fs.readFileSync(path.join(ROOT_DIR, 'server.js'), 'utf8');
+    const paths = parseContentPaths(swContent);
+
+    assert.ok(paths.length >= 2, `CONTENT_PATHS 應至少列出 2 個端點，實際 ${paths.length}`);
+
+    for (const p of paths) {
+      assert.ok(
+        serverSrc.includes(`pathname === '${p}'`),
+        `CONTENT_PATHS 的 "${p}" 在 server.js 中找不到對應路由（應為 pathname === '${p}'）`
+      );
+    }
+
+    // 前端真正用來讀取經文的端點必須在清單內，否則離線閱讀形同無效。
+    const appSrc = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
+    const readerEndpoints = ['/api/render'];
+    for (const ep of readerEndpoints) {
+      assert.ok(
+        appSrc.includes(ep),
+        `app.js 應使用 ${ep} 讀取內容（本測試的前提）`
+      );
+      assert.ok(
+        paths.includes(ep),
+        `${ep} 是前端讀取經文用的端點，必須列入 CONTENT_PATHS 才能離線閱讀`
+      );
+    }
+  });
+
+  test('快取鍵必須忽略 line 參數但保留 path/from/to', () => {
+    // `/api/render` 的 line 只是前端捲動提示，伺服器完全不讀取
+    // （handleRender 只使用 query.path）；若納入快取鍵，
+    // 同一份經文會依捲動位置重複佔用快取。
+    assert.ok(
+      /IGNORED_QUERY_PARAMS\s*=\s*\[[^\]]*'line'/.test(swContent),
+      'IGNORED_QUERY_PARAMS 應包含 line'
+    );
+    assert.ok(
+      swContent.includes("url.searchParams.delete(name)"),
+      'contentCacheKey 應實際刪除被忽略的參數'
+    );
+
+    // 必須保留具識別性的參數，否則不同經文／分段會互相覆蓋。
+    for (const keep of ['path', 'from', 'to']) {
+      assert.ok(
+        !new RegExp(`IGNORED_QUERY_PARAMS\\s*=\\s*\\[[^\\]]*'${keep}'`).test(swContent),
+        `不得忽略 "${keep}"，否則不同內容會共用同一筆快取`
+      );
+    }
+  });
+
+  test('contentCacheKey 必須保留原請求標頭（回應帶 Vary: Accept-Encoding）', () => {
+    // server.js 的 /api/render 回應帶 `Vary: Accept-Encoding`，
+    // Cache Storage 會依儲存請求的標頭比對；若用
+    // `new Request(url, { method: 'GET' })` 之類的作法丟掉標頭，
+    // 可能寫得進去卻比對不到。
+    assert.ok(
+      swContent.includes('new Request(url.toString(), req)'),
+      'contentCacheKey 應以原請求作為 init 以保留標頭'
+    );
+
+    const serverSrc = fs.readFileSync(path.join(ROOT_DIR, 'server.js'), 'utf8');
+    assert.ok(
+      serverSrc.includes("'Vary': 'Accept-Encoding'") || serverSrc.includes('Vary'),
+      '前提：/api/render 回應帶 Vary，故快取鍵必須保留標頭'
+    );
+  });
+
+  test('僅快取 200 且為 GET 的回應', () => {
+    assert.ok(
+      /networkRes\.status === 200 && req\.method === 'GET'/.test(swContent),
+      '內容快取應同時檢查 status 200 與 GET，避免存入 206/錯誤回應'
     );
   });
 

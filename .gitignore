@@ -12,3 +12,8 @@ dicts/*
 !dicts/.gitkeep
 
 
+
+# Windows PowerShell startup profile artifact (created by pwsh on some hosts,
+# not part of the project). Without this it shows up as an untracked binary and
+# would be swept into `git add .`.
+StartupProfileData-NonInteractive
