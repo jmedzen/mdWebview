@@ -103,13 +103,27 @@ xattr -dr com.apple.quarantine /Applications/mdWebview-Electron.app
 | 外殼 | 決定目錄的欄位 | macOS | Windows |
 | :--- | :--- | :--- | :--- |
 | Tauri | `identifier` = `org.mdwebview.tauri` | `~/Library/Application Support/org.mdwebview.tauri/` | `%APPDATA%\org.mdwebview.tauri\` |
-| Electron | `productName` = `mdWebview-Electron` | `~/Library/Application Support/mdWebview-Electron/` | `%APPDATA%\mdWebview-Electron\` |
+| Electron | `main.js` 內**顯式** `app.setPath('userData', …)` | `~/Library/Application Support/mdWebview-Electron/` | `%APPDATA%\mdWebview-Electron\` |
 
-> **為何 Tauri 用 `identifier` 而 Electron 用 `productName`？**
-> Tauri 的 `app_data_dir()` 定義為 `data_dir()/<bundle identifier>`；
-> Electron 的 `app.getPath('userData')` 則預設為 `appData/<app.name>`，
-> 而 macOS 上 `app.name` 來自 `CFBundleName`、Windows 上來自執行檔的
-> `ProductName` 資源——兩者都由 electron-builder 的 `productName` 寫入。
+> **為何 Tauri 用 `identifier` 而 Electron 顯式指定？**
+> Tauri 的 `app_data_dir()` 定義為 `data_dir()/<bundle identifier>`，是固定且可預期的。
+>
+> Electron 的 `app.getPath('userData')` 預設為 `appData/<app.name>`，
+> 但 `app.name` 的來源**在各平台並不一致**，不能依賴：
+> 打包後的 `app.asar` 內只有 `package.json` 的 `name`
+> （`mdwebview-desktop`，且**不含** `productName`），
+> 因此 Electron 實際解析出的 `app.name` 是 `mdwebview-desktop`，
+> **macOS 與 Windows 皆然** —— 並非 `CFBundleName`／`ProductName`。
+>
+> 這會造成兩個問題：
+> 1. 目錄名稱與文件、安裝捷徑顯示的名稱（`mdWebview-Electron`）不一致；
+> 2. 使用者若使用受管控或已被重導向的設定檔，該目錄可能根本無法建立，
+>    啟動時便以 `ENOENT: mkdir '…\mdwebview-desktop'` 失敗。
+>
+> 因此 `desktop/electron/main.js` 在**任何路徑被讀取之前**
+> 顯式 `app.setName()` + `app.setPath('userData', …)`，
+> 讓開發模式與打包後、macOS 與 Windows 的資料目錄完全一致。
+> 這同時決定了單一實例鎖（single-instance lock）的鍵值，必須最先設定。
 >
 > 兩者也使用**不同的 bundle id／appId**（`org.mdwebview.tauri` 與
 > `org.mdwebview.electron`）。macOS 上兩個 bundle id 相同的 App 會互相衝突，
@@ -169,9 +183,10 @@ npx @tauri-apps/cli@^2 build
 | Artifact 名稱 | Runner | 內容 |
 | :--- | :--- | :--- |
 | `tauri-macos` | `macos-latest` | `.dmg`、`.app`（arm64） |
-| `tauri-windows` | `windows-latest` | NSIS `.exe`、`.msi` |
+| `tauri-windows` | `windows-latest` | NSIS `.exe`、`.msi`（x64） |
+| `tauri-windows-arm64` | `windows-latest` | NSIS `.exe`、`.msi`（原生 arm64） |
 | `electron-macos` | `macos-latest` | `.dmg`、`.zip`（arm64 + x64） |
-| `electron-windows` | `windows-latest` | NSIS installer、portable `.exe` |
+| `electron-windows` | `windows-latest` | NSIS installer、portable `.exe`（x64 + 原生 arm64） |
 
 ### 安裝檔命名（兩種外殼必須可分辨）
 
@@ -179,8 +194,11 @@ npx @tauri-apps/cli@^2 build
 
 | 外殼 | 產品名稱 | macOS | Windows |
 | :--- | :--- | :--- | :--- |
-| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.1_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.1_x64-setup.exe`<br>`mdWebview-Tauri_3.8.1_x64_en-US.msi` |
-| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.1-arm64.dmg`<br>`mdWebview-Electron-3.8.1-x64.dmg`<br>`mdWebview-Electron-3.8.1-arm64-mac.zip`<br>`mdWebview-Electron-3.8.1-mac.zip` | `mdWebview-Electron-3.8.1-x64-setup.exe`<br>`mdWebview-Electron-3.8.1-x64-portable.exe` |
+| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.8.1_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.8.1_x64-setup.exe`<br>`mdWebview-Tauri_3.8.1_x64_en-US.msi`<br>`mdWebview-Tauri_3.8.1_arm64-setup.exe`<br>`mdWebview-Tauri_3.8.1_arm64_en-US.msi` |
+| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.8.1-arm64.dmg`<br>`mdWebview-Electron-3.8.1-x64.dmg`<br>`mdWebview-Electron-3.8.1-arm64-mac.zip`<br>`mdWebview-Electron-3.8.1-mac.zip` | `mdWebview-Electron-3.8.1-x64-setup.exe`<br>`mdWebview-Electron-3.8.1-x64-portable.exe`<br>`mdWebview-Electron-3.8.1-arm64-setup.exe`<br>`mdWebview-Electron-3.8.1-arm64-portable.exe` |
+
+> **x64 與 arm64 並存**：Intel／AMD 機器需要 x64 版；Windows on ARM
+> （Snapdragon X 等）另有原生 arm64 版，不必倚賴 x64 模擬。
 
 命名規則差異（來自各自的打包器，非本專案自訂）：
 
@@ -197,7 +215,7 @@ npx @tauri-apps/cli@^2 build
 
 流程設計重點：
 
-- **`verify` job 先跑 `npm test`**，四個打包 job 全部 `needs: verify`——測試紅燈時**不可能**產出安裝檔（現有 268 項測試）。
+- **`verify` job 先跑 `npm test`**，所有打包 job 全部 `needs: verify`——測試紅燈時**不可能**產出安裝檔（現有 279 項測試）。
 - 推 `v*` tag 或手動 `workflow_dispatch` 觸發。
 - 推 tag 時，`release` job 會把所有安裝檔附加到 GitHub Release。
 
@@ -221,7 +239,7 @@ npx @tauri-apps/cli@^2 build
 
 | 項目 | 結果 |
 | :--- | :--- |
-| 現有測試套件 | ✅ **268 項測試**（263 通過、5 略過，全綠） |
+| 現有測試套件 | ✅ **279 項測試，全數通過**（0 失敗、0 略過） |
 | 伺服器模式回歸 | ✅ `GET /` 與 `/api/tree` 皆 200；維持 `0.0.0.0` 綁定與 CWD 資料目錄 |
 | Tauri `.app` 打包 | ✅ 成功產出 124.56 MiB bundle |
 | Tauri 打包後執行 | ✅ sidecar 啟動、`GET /` 200、資料只寫入使用者目錄 |
@@ -231,6 +249,8 @@ npx @tauri-apps/cli@^2 build
 | Electron ad-hoc 簽章 | ✅ `codesign --verify --strict` rc=0、`--deep --strict` rc=0；`flags=0x10002(adhoc,runtime)` |
 | Gatekeeper 判定 | ✅ 隔離屬性下不再回報「損毀」，僅為可繞行的「未識別開發者」 |
 | 封裝內容檢查 | ✅ 含 `server.js`/worker/`marked`；**不含** `config.json`、`logs`、`md`、`dicts`、`tests` |
+| 資料目錄選擇邏輯 | ✅ 以真實 `main.js` 搭配替身 Electron 驗證 3 種情境：正常、`%APPDATA%` 不可建立（正確退回）、舊目錄自動移轉 |
+| Windows 雙架構打包 | ✅ 本機以 electron-builder 26.17.0 產出 `win-unpacked`（x64）與 `win-arm64-unpacked`（ARM64），asar 內確認含修正後 `main.js` |
 | 設定檔語法 | ✅ 3 個 workflow YAML、4 個 JSON 全部有效 |
 
 > ⚠️ **本機無法驗證 DMG**：DSH 沙箱封鎖了 raw disk 存取
@@ -251,4 +271,24 @@ npx @tauri-apps/cli@^2 build
    ad-hoc 簽章已解決「應用程式已損毀」的誤判，但**無法**取代 Developer ID 公證；Windows 仍會有 SmartScreen 提示。
    正式散布需 Developer ID（USD 99/年）與 Windows 程式碼簽章憑證。
 3. **未包含 Markdown 語料**：`md/`、`dicts/` 不進安裝檔，使用者首次啟動後將自己的藏經放入 `<USER_DATA>/md`。
-4. **僅支援 x64 Windows**：為避免 arm64 Windows 使用者安裝失敗，未產出 win-arm64（可於矩陣中自行加入）。
+4. **Windows 未簽章，可能被防毒或 Smart App Control 攔阻**：安裝檔本身未做程式碼簽章，
+   可能出現 SmartScreen 警告，或被防毒軟體誤判隔離。詳見下方 §Windows 疑難排解。
+
+### Windows 疑難排解
+
+| 症狀 | 可能原因 | 處理方式 |
+| :--- | :--- | :--- |
+| 雙擊 portable `.exe` 出現「**Windows 無法存取指定的裝置、路徑或檔案**」 | 檔案被防毒軟體隔離／刪除，或下載不完整；此對話框由 Windows 殼層發出，表示程式**還沒開始執行** | 確認檔案仍在磁碟上（若已消失即為防毒所刪）；右鍵→內容→**解除封鎖**，或 `Unblock-File`；重新下載並比對檔案大小；改用具名安裝版 `.exe`（比 portable 少一層自解壓，較不易被誤判） |
+| 安裝時出現 SmartScreen「Windows 已保護您的電腦」 | 未簽章的執行檔帶有 Mark-of-the-Web | 「更多資訊」→「仍要執行」；或先解除封鎖 |
+| 程式完全無法啟動、沒有 Windows 殼層對話框 | 解壓縮階段失敗（`%TEMP%` 不可寫、空間不足） | 清出磁碟空間；確認 `%TEMP%` 可寫入 |
+
+> **portable 版的運作方式**：每次啟動都會解壓到 `%TEMP%\<隨機名稱>`，
+> 結束後刪除該目錄。因此 **portable 版不適合存放正式資料**——
+> 啟動器結束時會連同該目錄一起刪除。需要長期保存請使用具名安裝版。
+>
+> **資料目錄**：Electron 版由 `desktop/electron/main.js` 顯式指定為
+> `%APPDATA%\mdWebview-Electron`；若該位置無法建立（重導向／損毀的設定檔），
+> 會依序退回 `%LOCALAPPDATA%\mdWebview-Electron`、再退回暫存目錄，
+> 退回暫存目錄時會**明確警告**使用者，不會靜默搬移資料。
+> 舊版曾使用的 `mdwebview-desktop` 目錄會在啟動時自動移轉過來。
+

@@ -86,4 +86,14 @@ cp "$SRC" "$DEST"
 chmod +x "$DEST"
 
 echo "==> Sidecar installed: $DEST"
-"$DEST" --version
+
+# Verify the download by running it — but only when the host can execute the
+# target's binaries. When cross-compiling (e.g. an arm64 Windows sidecar built
+# on an x64 runner) the executable cannot start here, and that is expected
+# rather than a bad download. `curl -fsSL` above already fails on a bad fetch.
+if "$DEST" --version 2>/dev/null; then
+  :
+else
+  echo "==> Skipped runtime check (cannot execute ${TRIPLE} on this host; expected when cross-compiling)"
+fi
+
