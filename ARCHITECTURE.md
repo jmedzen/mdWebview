@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.9.0 | 最後更新：2026-10
+> 版本：v3.9.1 | 最後更新：2026-10
 
 ---
 
@@ -584,7 +584,7 @@ flowchart TD
 | 段落編號 | 核心模組 | 職責與功能概述 |
 |---------|---------|---------------|
 | `§0` | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
-| `§1` | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析 |
+| `§1` | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
 | `§2` | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
 | `§3` | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
 | `§4` | Announcement Modal | 公告訊息彈窗顯示與今日已讀簽章驗證 |
@@ -671,10 +671,46 @@ flowchart TD
 | `_announcementModalContext` | `Object|null` | 公告彈窗最後開啟時的資料快照（用於判斷是否重複顯示） |
 | `_cachedSuggestItems` | `Object[]|null` | 最後一次 `/api/suggest-list` 的推薦項目快取 |
 
+### 9.3 URL 路由參數與全庫搜尋深層連結（v3.9.1）
+
+`parseUrlParams(search, hash)`（~L650）是**純函式**，把網址列參數轉為路由資訊，`getFileFromURL()` 僅是它的 `window` 包裝。抽成純函式是為了可測試：`tests/test-search-deeplink.test.js` 以 `vm` 直接求值驗證，不需真實瀏覽器。
+
+| 參數 | 語意 |
+| :--- | :--- |
+| `?file=PATH&line=N` | 開啟經文並跳至指定行 |
+| `?file=PATH&q=KW` | 開啟經文並在文內標示 `KW`（傳入 `openFile()` 的 `highlightQuery`） |
+| `?search=KW` | 開啟側邊欄搜尋分頁、帶入 `KW` 並執行全庫搜尋 |
+| `?home=1` / `?frontpage=1` / `?page=home` | 回首頁 |
+| `#file=…` / `#home` | 舊版雜湊格式（保留回溯相容） |
+
+**優先序**：`search` 一律最優先，其次 `home`，再其次 `file`。將 `search` 置頂是安全的——它於 v3.9.1 才新增，既有書籤不可能帶有它。
+
+**`activateSearchPanel(query)`**（~L4422）是「展開側欄 → 切至搜尋分頁 → 填入 → 執行 → 同步網址」的唯一實作。三個入口共用：`?search=`、右鍵選單的「全文庫搜尋」、`popstate`（上一頁／下一頁）。歷史上只有右鍵那條路徑手寫整段流程，重複實作必然走鐘，故集中於此。
+
+**`?q=` 曾被靜默丟棄（v3.9.1 修正）**：`getFileFromURL()` 一直有解析 `q`／`query`，但開機流程只傳 `urlInfo.file` 與 `urlInfo.line` 給 `openFile()`，`highlightQuery` 參數雖存在卻永遠沒有來源。現在已接上。
+
+### 9.4 WebSite + SearchAction 結構化資料（v3.9.1）
+
+`seoEnableSearchBox` 曾是**空轉開關**：值會寫入 `config.json` 且開關畫在設定頁，但全庫沒有任何程式碼讀取它，因此設定頁「提供搜尋結果站內檢索框」的說明從未成立。現在由 `lib/static-cache.js` 的 `getIndexHtml()`（~L190）依 toggle 產出帶 CSP nonce 的 JSON-LD：
+
+```json
+{"@context":"https://schema.org","@type":"WebSite","url":"<base>/",
+ "potentialAction":{"@type":"SearchAction",
+   "target":{"@type":"EntryPoint","urlTemplate":"<base>/?search={search_term_string}"},
+   "query-input":"required name=search_term_string"}}
+```
+
+三個邊界條件：
+
+1. **僅首頁**。`WebSite` 描述整個站台，散落子頁面只會製造重複節點。經文 SSR 的路徑同為 `/`（`/?file=…&ssr=1`），故額外以 `file` 參數排除。
+2. **僅非單機模式**。單機模式下 `robots.txt` 已全面 `Disallow`，不應再主動邀請檢索。
+3. **無絕對網址時只留 `WebSite` 節點**，不送出相對路徑的 `urlTemplate`。
+
+> ⚠️ **預期管理**：Google 已於 **2024-11-21** 全面下線 Sitelinks Search Box，故此標記**不會**在 Google 搜尋結果產生站內檢索框。保留是為了語意完整（對 schema.org 消費者、AI 檢索器與第三方工具有價值），且 Google 明確表示殘留不受支援的標記不會造成錯誤。
+
 ---
 
 ## 10. config.json 設定欄位一覽
-
 儲存路徑（優先順序高 → 低）：
 1. `CONFIG_PATH` 環境變數（預設 `APP_ROOT/config.json`，Docker 中為 `/data/config.json`）
 2. `APP_ROOT/config.json`（本地開發）
@@ -707,6 +743,8 @@ flowchart TD
 | `settings.suggestList.dailyWordCount` | `number` | `3` | — | 每日法語詞條顯示數量 |
 | `settings.suggestList.dailyWordDicts` | `string[]` | `[]` | — | 每日法語來源辭典清單 |
 | `settings.suggestList.dailyWordRotateHour` | `number` | `12` | — | 每日法語輪換時間（小時，0-23） |
+| `settings.seoEnableSearchBox` | `boolean` | `false` | `SEO_ENABLE_SEARCH_BOX` | 是否於**首頁**注入 `WebSite` + `SearchAction` JSON-LD（詳見 §9.4）。單機模式一律不輸出 |
+| `settings.seoHomepageSummary` | `string` | `''` | `SEO_HOMEPAGE_SUMMARY` | 首頁爬蟲導言（爬蟲 SSR 用；空 = 退回 `seoSiteDescription`） |
 | `admin.username` | `string` | — | — | 管理員帳號 |
 | `admin.passwordHash` | `string` | — | — | PBKDF2 密碼雜湊 |
 | `admin.salt` | `string` | — | — | PBKDF2 salt（hex） |
@@ -727,7 +765,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.9.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.9.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
