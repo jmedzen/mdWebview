@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.9.1
+   mdWebview — Style System (style.css) v3.9.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -7145,7 +7145,16 @@ body.modal-open {
 .chart-floating-tooltip {
   position: absolute;
   pointer-events: none;
-  background: rgba(22, 27, 34, 0.92);
+  /* 底色必須跟著主題走：先前寫死深色 rgba(22,27,34,.92)，在 obsidian-light
+     與 zen 這類淺色主題下，深色文字（--text-primary）會疊在深色底上，
+     對比只剩 1.4～2.2，等於看不見。
+     實測各主題 text-primary 對候選底色的最低對比：
+       --bg-elevated  → 2.89（solarized 太亮）
+       --bg-secondary → 5.61
+       --bg-tertiary  → 6.04（最差情況仍達 AA）
+     因此選 --bg-tertiary。第一行是舊引擎退回不透明底色的退路。 */
+  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--bg-tertiary) 95%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border-color);
@@ -7157,7 +7166,14 @@ body.modal-open {
   z-index: 50;
   white-space: nowrap;
   transition: opacity 0.15s ease, transform 0.15s ease;
-  transform: translate(-50%, -120%);
+  /* 位置完全由 JS 以像素算出（放在游標線側邊以免蓋住資料點），
+     因此不做任何位移，left/top 即為實際左上角 */
+  transform: none;
+}
+
+/* 顯示在左側時（右邊空間不足）不需要額外位移，僅保留語意標記 */
+.chart-floating-tooltip.is-left {
+  transform: none;
 }
 
 .chart-cursor-line {
@@ -7165,6 +7181,166 @@ body.modal-open {
   stroke-width: 1px;
   stroke-dasharray: 2, 2;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* ── Analytics Trend Chart ─────────────────────────────────────────────────
+   顏色全部走主題變數，讓五種主題與明暗模式都能維持可讀對比。
+   兩條線刻意分開色相：點閱數用 accent（該主題的主色），
+   獨立訪客用固定的青藍色，才能在每個主題下都分辨得出來。 */
+.analytics-trend-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+  touch-action: none; /* 讓 pointermove 在觸控裝置上也能連續回報 */
+}
+
+.trend-grid-line {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 3, 4;
+  opacity: 0.7;
+}
+
+.trend-axis-label {
+  font-size: 10px;
+  fill: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-grad-0 { stop-color: var(--accent); stop-opacity: 0.34; }
+.trend-grad-1 { stop-color: var(--accent); stop-opacity: 0.12; }
+.trend-grad-2 { stop-color: var(--accent); stop-opacity: 0; }
+
+.trend-area {
+  pointer-events: none;
+}
+
+/* 主線下方的一層柔光，讓曲線有立體感而不必依賴陰影濾鏡 */
+.trend-glow {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.16;
+  filter: blur(3px);
+  pointer-events: none;
+}
+
+.trend-line {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.trend-line-views {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
+.trend-line-ips {
+  stroke: #2ac3de;
+  stroke-width: 1.9;
+  stroke-dasharray: 5, 4;
+  opacity: 0.95;
+}
+
+.trend-dot {
+  pointer-events: none;
+}
+
+.trend-dot-view { fill: var(--accent); }
+.trend-dot-ip { fill: #2ac3de; }
+
+.trend-focus {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.trend-focus-view {
+  fill: var(--accent);
+  stroke: var(--bg-secondary);
+  stroke-width: 2;
+}
+
+.trend-focus-ip {
+  fill: #2ac3de;
+  stroke: var(--bg-secondary);
+  stroke-width: 1.8;
+}
+
+/* 整片感應區：覆蓋整個 SVG，滑鼠在任何高度都能觸發對應日期的細部數據 */
+.chart-hit-area {
+  cursor: crosshair;
+}
+
+.analytics-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend-line {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.chart-legend-line.is-dashed {
+  height: 2px;
+  background: repeating-linear-gradient(
+    to right,
+    #2ac3de 0 5px,
+    transparent 5px 9px
+  );
+}
+
+/* 提示框內容 */
+.chart-tt-date {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chart-tt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.chart-tt-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.chart-tt-swatch.is-view { background: var(--accent); }
+.chart-tt-swatch.is-ip { background: #2ac3de; }
+
+.chart-tt-num {
+  margin-left: auto;
+  padding-left: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 /* Analytics Table Filter & Action Link */

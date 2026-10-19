@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.9.1
+   mdWebview — Application Logic (app.js) v3.9.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6293,7 +6293,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8168,7 +8168,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -8481,7 +8481,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.9.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -8605,6 +8605,83 @@
 
   // ── SVG Visualizations & Chart Helpers ──────────────────────────
 
+  /**
+   * 選擇「好看」的 Y 軸步長：一定是整數、且剛好涵蓋最大值。
+   *
+   * 舊版用 Math.round(maxY / 3 * i) 直接算刻度，當 maxY 很小（例如 1）時
+   * 會產生 0, 0, 1, 1 這種重複刻度；較大的數字也落在不整齊的間隔上。
+   */
+  function computeNiceScale(maxValue, tickCount = 4) {
+    const safeMax = Math.max(1, Math.ceil(maxValue));
+    const rawStep = safeMax / tickCount;
+    const exp = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const frac = rawStep / exp;
+    // 2.5 也列入，否則 100 這種常見最大值會被推到 0/50/100 三個稀疏刻度，
+    // 而不是 0/25/50/75/100 五個。
+    const niceFrac = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 2.5 ? 2.5 : frac <= 5 ? 5 : 10;
+    // 這些都是「次數」，步長至少為 1，否則會出現 0.5 這種無意義刻度。
+    const step = Math.max(1, Math.round(niceFrac * exp));
+    return { max: Math.ceil(safeMax / step) * step, step };
+  }
+
+  /**
+   * 單調三次曲線（Fritsch–Carlson）。
+   *
+   * 比直線柔和，又不像 Catmull–Rom 會在劇烈起伏處 overshoot 到負值——
+   * 那會讓折線畫到座標軸下方，看起來像資料出錯。
+   */
+  function monotonePath(points) {
+    const n = points.length;
+    if (n === 0) return '';
+    if (n === 1) return `M ${points[0].x},${points[0].y}`;
+    if (n === 2) {
+      return `M ${points[0].x},${points[0].y} L ${points[1].x},${points[1].y}`;
+    }
+
+    const dx = [];
+    const slope = [];
+    for (let i = 0; i < n - 1; i++) {
+      dx[i] = points[i + 1].x - points[i].x;
+      slope[i] = dx[i] === 0 ? 0 : (points[i + 1].y - points[i].y) / dx[i];
+    }
+
+    const tangent = new Array(n);
+    tangent[0] = slope[0];
+    for (let i = 1; i < n - 1; i++) {
+      // 相鄰斜率異號（或為 0）時取 0，形成平坦的極值，避免 overshoot
+      tangent[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+    }
+    tangent[n - 1] = slope[n - 2];
+
+    for (let i = 0; i < n - 1; i++) {
+      if (slope[i] === 0) {
+        tangent[i] = 0;
+        tangent[i + 1] = 0;
+        continue;
+      }
+      const a = tangent[i] / slope[i];
+      const b = tangent[i + 1] / slope[i];
+      const s = a * a + b * b;
+      if (s > 9) {
+        const tau = 3 / Math.sqrt(s);
+        tangent[i] = tau * a * slope[i];
+        tangent[i + 1] = tau * b * slope[i];
+      }
+    }
+
+    let d = `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const h = dx[i];
+      const c1x = points[i].x + h / 3;
+      const c1y = points[i].y + (tangent[i] * h) / 3;
+      const c2x = points[i + 1].x - h / 3;
+      const c2y = points[i + 1].y - (tangent[i + 1] * h) / 3;
+      d += ` C ${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ` +
+           `${points[i + 1].x.toFixed(1)},${points[i + 1].y.toFixed(1)}`;
+    }
+    return d;
+  }
+
   function renderAnalyticsTrendChart(dailyTrend) {
     const wrapper = $('analyticsTrendChartWrapper');
     if (!wrapper) return;
@@ -8614,112 +8691,211 @@
       return;
     }
 
-    const width = 640;
-    const height = 180;
-    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
-    const chartW = width - padding.left - padding.right;
-    const chartH = height - padding.top - padding.bottom;
-
-    const maxViews = Math.max(1, ...dailyTrend.map(d => d.views || 0));
-    const maxIps = Math.max(1, ...dailyTrend.map(d => d.uniqueIps || 0));
-    const maxY = Math.max(maxViews, maxIps);
+    const width = 720;
+    const height = 220;
+    const padding = { top: 26, right: 18, bottom: 34, left: 48 };
+    const chartW = Math.max(1, width - padding.left - padding.right);
+    const chartH = Math.max(1, height - padding.top - padding.bottom);
 
     const count = dailyTrend.length;
+    const viewVals = dailyTrend.map(d => Number(d.views) || 0);
+    const ipVals = dailyTrend.map(d => Number(d.uniqueIps) || 0);
+    const { max: maxY, step: yStep } = computeNiceScale(
+      Math.max(1, ...viewVals, ...ipVals), 4
+    );
+
     const getX = (i) => padding.left + (count === 1 ? chartW / 2 : (i / (count - 1)) * chartW);
-    const getY = (val) => padding.top + chartH - (val / maxY) * chartH;
+    const getY = (v) => padding.top + chartH - (Math.min(Number(v) || 0, maxY) / maxY) * chartH;
+    const baseY = padding.top + chartH;
 
-    const viewPoints = dailyTrend.map((d, i) => `${getX(i).toFixed(1)},${getY(d.views).toFixed(1)}`);
-    const ipPoints = dailyTrend.map((d, i) => `${getX(i).toFixed(1)},${getY(d.uniqueIps).toFixed(1)}`);
+    const viewPoints = viewVals.map((v, i) => ({ x: getX(i), y: getY(v) }));
+    const ipPoints = ipVals.map((v, i) => ({ x: getX(i), y: getY(v) }));
 
-    const viewPathD = `M ${viewPoints.join(' L ')}`;
-    const ipPathD = `M ${ipPoints.join(' L ')}`;
-    const viewAreaD = `M ${getX(0)},${padding.top + chartH} L ${viewPoints.join(' L ')} L ${getX(count - 1)},${padding.top + chartH} Z`;
+    const viewPathD = monotonePath(viewPoints);
+    const ipPathD = monotonePath(ipPoints);
+    const viewAreaD =
+      `${viewPathD} L ${(padding.left + chartW).toFixed(1)},${baseY} ` +
+      `L ${padding.left.toFixed(1)},${baseY} Z`;
 
-    let gridLines = '';
-    for (let i = 0; i <= 3; i++) {
-      const yVal = Math.round((maxY / 3) * i);
-      const yPos = getY(yVal);
-      gridLines += `<line x1="${padding.left}" y1="${yPos}" x2="${width - padding.right}" y2="${yPos}" stroke="var(--border-subtle, rgba(255,255,255,0.06))" stroke-dasharray="3,3" />`;
-      gridLines += `<text x="${padding.left - 8}" y="${yPos + 4}" font-size="10" fill="var(--text-muted)" text-anchor="end">${yVal}</text>`;
+    // Y 軸格線與刻度
+    let grid = '';
+    for (let v = 0; v <= maxY + 1e-9; v += yStep) {
+      const y = getY(v).toFixed(1);
+      grid += `<line class="trend-grid-line" x1="${padding.left}" y1="${y}" ` +
+              `x2="${(padding.left + chartW).toFixed(1)}" y2="${y}" />`;
+      grid += `<text class="trend-axis-label" x="${padding.left - 10}" y="${(Number(y) + 3.5).toFixed(1)}" ` +
+              `text-anchor="end">${Math.round(v).toLocaleString()}</text>`;
     }
 
+    // X 軸標籤（避免擁擠）
+    const labelStep = Math.max(1, Math.ceil(count / 7));
     let xLabels = '';
-    const step = Math.max(1, Math.floor(count / 6));
     dailyTrend.forEach((d, i) => {
-      if (i % step === 0 || i === count - 1) {
-        const xPos = getX(i);
-        let shortDate = d.date;
-        if (d.date.includes(' ')) {
-          shortDate = d.date.split(' ')[1];
-        } else if (d.date.length >= 10) {
-          shortDate = d.date.substring(5);
-        }
-        xLabels += `<text x="${xPos}" y="${height - 8}" font-size="10" fill="var(--text-muted)" text-anchor="middle">${shortDate}</text>`;
+      if (i % labelStep === 0 || i === count - 1) {
+        const raw = String(d.date || '');
+        let short = raw;
+        if (raw.includes(' ')) short = raw.split(' ')[1];
+        else if (raw.length >= 10) short = raw.slice(5);
+        xLabels += `<text class="trend-axis-label" x="${getX(i).toFixed(1)}" y="${height - 10}" ` +
+                   `text-anchor="middle">${escHtml(short)}</text>`;
       }
     });
 
+    // 資料點：小而不搶眼；實際互動靠整片感應區 + 聚焦點
     let dots = '';
-    dailyTrend.forEach((d, i) => {
-      const cx = getX(i);
-      const cyView = getY(d.views);
-      const cyIp = getY(d.uniqueIps);
-      dots += `<circle cx="${cx}" cy="${cyView}" r="4" fill="#7aa2f7" class="trend-dot" data-date="${d.date}" data-views="${d.views}" data-ips="${d.uniqueIps}" title="${d.date}: ${d.views} 點閱" />`;
-      dots += `<circle cx="${cx}" cy="${cyIp}" r="3" fill="#2ac3de" class="trend-dot" data-date="${d.date}" data-views="${d.views}" data-ips="${d.uniqueIps}" title="${d.date}: ${d.uniqueIps} 獨立 IP" />`;
+    viewVals.forEach((v, i) => {
+      dots += `<circle class="trend-dot trend-dot-view" cx="${getX(i).toFixed(1)}" ` +
+              `cy="${getY(v).toFixed(1)}" r="2.6" />`;
+    });
+    ipVals.forEach((v, i) => {
+      dots += `<circle class="trend-dot trend-dot-ip" cx="${getX(i).toFixed(1)}" ` +
+              `cy="${getY(v).toFixed(1)}" r="2.2" />`;
     });
 
     wrapper.innerHTML = `
       <div id="chartFloatingTooltip" class="chart-floating-tooltip" style="display: none;"></div>
-      <svg viewBox="0 0 ${width} ${height}" class="analytics-trend-svg" style="width: 100%; height: auto; overflow: visible;">
+      <svg viewBox="0 0 ${width} ${height}" class="analytics-trend-svg" role="img"
+           aria-label="全站流量與檢索趨勢圖">
         <defs>
           <linearGradient id="viewTrendGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#7aa2f7" stop-opacity="0.3"/>
-            <stop offset="100%" stop-color="#7aa2f7" stop-opacity="0.0"/>
+            <stop class="trend-grad-0" offset="0%" />
+            <stop class="trend-grad-1" offset="55%" />
+            <stop class="trend-grad-2" offset="100%" />
           </linearGradient>
         </defs>
-        ${gridLines}
+        ${grid}
         ${xLabels}
-        <path d="${viewAreaD}" fill="url(#viewTrendGrad)" />
-        <path d="${viewPathD}" fill="none" stroke="#7aa2f7" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
-        <path d="${ipPathD}" fill="none" stroke="#2ac3de" stroke-width="2" stroke-dasharray="4,3" stroke-linejoin="round" stroke-linecap="round" />
+        <path class="trend-area" d="${viewAreaD}" fill="url(#viewTrendGrad)" />
+        <path class="trend-glow" d="${viewPathD}" />
+        <path class="trend-line trend-line-views" d="${viewPathD}" />
+        <path class="trend-line trend-line-ips" d="${ipPathD}" />
+        <line class="chart-cursor-line" x1="0" y1="${padding.top}" x2="0" y2="${baseY}" />
+        <circle class="trend-focus trend-focus-view" r="5" />
+        <circle class="trend-focus trend-focus-ip" r="4.2" />
         ${dots}
+        <!-- 感應區刻意覆蓋整個繪圖區高度：滑鼠移到任一高度都能觸發該日細部數據，
+             不必精準命中直徑僅數 px 的資料點。必須放在最後才能蓋在圖形之上。 -->
+        <rect class="chart-hit-area" x="0" y="0" width="${width}" height="${height}"
+              fill="transparent" />
       </svg>
-      <div class="analytics-chart-legend" style="display: flex; justify-content: center; gap: 20px; margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
-        <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 12px; height: 3px; background: #7aa2f7; border-radius: 2px;"></span> 閱讀點閱數 (Page Views)</span>
-        <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 12px; height: 2px; background: #2ac3de; border-style: dashed;"></span> 獨立訪客數 (Unique IPs)</span>
+      <div class="analytics-chart-legend">
+        <span class="chart-legend-item">
+          <span class="chart-legend-line"></span>閱讀點閱數 (Page Views)
+        </span>
+        <span class="chart-legend-item">
+          <span class="chart-legend-line is-dashed"></span>獨立訪客數 (Unique IPs)
+        </span>
       </div>
     `;
 
     const tooltip = $('chartFloatingTooltip');
     const svgEl = wrapper.querySelector('.analytics-trend-svg');
-    if (tooltip && svgEl) {
-      wrapper.querySelectorAll('.trend-dot').forEach(dot => {
-        dot.addEventListener('mouseenter', () => {
-          const date = dot.getAttribute('data-date') || '';
-          const views = dot.getAttribute('data-views') || '0';
-          const ips = dot.getAttribute('data-ips') || '0';
-          const cx = parseFloat(dot.getAttribute('cx'));
-          const cy = parseFloat(dot.getAttribute('cy'));
+    if (!tooltip || !svgEl) return;
 
-          const svgRect = svgEl.getBoundingClientRect();
-          const scaleX = svgRect.width / width;
-          const scaleY = svgRect.height / height;
-          const left = cx * scaleX;
-          const top = cy * scaleY;
+    const cursor = svgEl.querySelector('.chart-cursor-line');
+    const focusView = svgEl.querySelector('.trend-focus-view');
+    const focusIp = svgEl.querySelector('.trend-focus-ip');
+    const hitArea = svgEl.querySelector('.chart-hit-area');
+    if (!cursor || !focusView || !focusIp || !hitArea) return;
 
-          tooltip.innerHTML = `<b>📅 ${escHtml(date)}</b><br><span style="color:#7aa2f7;">● 閱讀點閱: <b>${parseInt(views, 10).toLocaleString()}</b></span><br><span style="color:#2ac3de;">● 獨立訪客: <b>${parseInt(ips, 10).toLocaleString()}</b></span>`;
-          tooltip.style.left = `${left}px`;
-          tooltip.style.top = `${top}px`;
-          tooltip.style.display = 'block';
-        });
+    const hideTooltip = () => {
+      cursor.style.opacity = '0';
+      focusView.style.opacity = '0';
+      focusIp.style.opacity = '0';
+      tooltip.style.display = 'none';
+      tooltip.classList.remove('is-left');
+    };
 
-        dot.addEventListener('mouseleave', () => {
-          tooltip.style.display = 'none';
-        });
-      });
-    }
+    const showTooltip = (evt) => {
+      const rect = svgEl.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+
+      // 只需要水平位置：垂直方向不論在哪個高度，都對應到最近的那一天，
+      // 因此整片感應區都能觸發，而不只是資料點附近。
+      const svgX = (evt.clientX - rect.left) * (width / rect.width);
+      let idx = 0;
+      let best = Infinity;
+      for (let i = 0; i < count; i++) {
+        const dist = Math.abs(getX(i) - svgX);
+        if (dist < best) {
+          best = dist;
+          idx = i;
+        }
+      }
+
+      const point = dailyTrend[idx];
+      const x = getX(idx);
+      const yView = getY(viewVals[idx]);
+      const yIp = getY(ipVals[idx]);
+
+      cursor.setAttribute('x1', x.toFixed(1));
+      cursor.setAttribute('x2', x.toFixed(1));
+      cursor.style.opacity = '1';
+
+      focusView.setAttribute('cx', x.toFixed(1));
+      focusView.setAttribute('cy', yView.toFixed(1));
+      focusView.style.opacity = '1';
+
+      focusIp.setAttribute('cx', x.toFixed(1));
+      focusIp.setAttribute('cy', yIp.toFixed(1));
+      focusIp.style.opacity = '1';
+
+      tooltip.innerHTML =
+        `<span class="chart-tt-date">${escHtml(String(point.date || ''))}</span>` +
+        `<span class="chart-tt-row"><span class="chart-tt-swatch is-view"></span>` +
+        `<span>閱讀點閱</span><b class="chart-tt-num">${viewVals[idx].toLocaleString()}</b></span>` +
+        `<span class="chart-tt-row"><span class="chart-tt-swatch is-ip"></span>` +
+        `<span>獨立訪客</span><b class="chart-tt-num">${ipVals[idx].toLocaleString()}</b></span>`;
+      tooltip.style.display = 'block';
+
+      // 提示框放在游標線「側邊」：兩個資料點都落在游標線正上方，
+      // 而兩點可能相距上百 px、圖表頂端又常沒有空間，因此往上或往下
+      // 放都一定會蓋掉其中一個點。水平錯開就不會重疊。
+      //
+      // 座標系：絕對定位子元素的包含區塊是父層的 **padding box**，
+      // 其原點在 border 內緣（padding 含在裡面），因此
+      //   元素座標 = clientX - (容器 left + border)
+      // 且可用寬高就是 clientWidth / clientHeight。
+      // 先前誤把 padding 也加進原點，導致提示框整整偏左一個 padding，
+      // 反而壓在資料點上。
+      const wrapRect = wrapper.getBoundingClientRect();
+      const cs = getComputedStyle(wrapper);
+      const originX = wrapRect.left + (parseFloat(cs.borderLeftWidth) || 0);
+      const originY = wrapRect.top + (parseFloat(cs.borderTopWidth) || 0);
+      const innerW = wrapper.clientWidth;
+      const innerH = wrapper.clientHeight;
+
+      const tw = tooltip.offsetWidth;
+      const th = tooltip.offsetHeight;
+
+      // 用聚焦點的實際畫面座標（與容器同一座標系），避免換算 viewBox 出錯
+      const viewRect = focusView.getBoundingClientRect();
+      const anchorX = viewRect.left + viewRect.width / 2 - originX;
+
+      const GAP = 14;
+      // 預設放右側；右邊不夠就放左側，並在必要時夾回容器內
+      let left = anchorX + GAP;
+      if (left + tw > innerW) {
+        left = anchorX - GAP - tw;
+        tooltip.classList.add('is-left');
+      } else {
+        tooltip.classList.remove('is-left');
+      }
+      left = Math.max(0, Math.min(left, Math.max(0, innerW - tw)));
+
+      // 垂直對齊圖表頂端，夾在容器內
+      const svgTop = svgEl.getBoundingClientRect().top - originY;
+      const top = Math.max(0, Math.min(svgTop, Math.max(0, innerH - th)));
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    };
+
+    hitArea.addEventListener('pointermove', showTooltip);
+    hitArea.addEventListener('pointerdown', showTooltip);
+    hitArea.addEventListener('pointerleave', hideTooltip);
+    hitArea.addEventListener('pointercancel', hideTooltip);
   }
-
-
 
   async function loadHardwareStats() {
     try {
