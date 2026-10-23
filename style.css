@@ -482,7 +482,7 @@ body,
 }
 
 .small-minus, .small-plus {
-  font-size: 11px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   margin-left: 1px;
   vertical-align: super;
 }
@@ -2916,7 +2916,7 @@ img.markdown-img:hover {
 
   .user-settings-version-footer {
     text-align: center;
-    font-size: 11px;
+    font-size: calc(12.5px * var(--ui-font-scale, 1));
     color: var(--text-muted);
   }
 
@@ -4068,7 +4068,7 @@ img.markdown-img:hover {
 }
 
 .field-hint {
-  font-size: 11px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -4304,7 +4304,7 @@ mark.search-keyword-highlight {
 
 .user-settings-version-badge {
   display: inline-block;
-  font-size: 11px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   font-weight: 600;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
   padding: 2px 8px;
@@ -4325,7 +4325,7 @@ mark.search-keyword-highlight {
 }
 
 .user-settings-version-footer {
-  font-size: 12px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, monospace;
   color: var(--text-muted, #888);
   user-select: none;
@@ -4408,7 +4408,7 @@ mark.search-keyword-highlight {
 }
 
 .setting-desc {
-  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-size: calc(13px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
 
@@ -4942,7 +4942,7 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 
 .log-time {
   color: #8b949e;
-  font-size: 11.5px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
 }
 
 .log-badge {
@@ -5107,7 +5107,7 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 }
 
 .analytics-card-label {
-  font-size: 11px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   color: var(--text-secondary);
   margin-top: 1px;
 }
@@ -5136,7 +5136,7 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 .analytics-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
 }
 
 .analytics-table th {
