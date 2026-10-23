@@ -5149,6 +5149,9 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   top: 0;
   z-index: 2;
   border-bottom: 1px solid var(--border);
+  /* 欄位變多時（例如加上「操作」欄）若允許換行，表頭會被壓成一直排，
+     故一律不換行；真的放不下時由 .analytics-table-wrapper 橫向捲動。 */
+  white-space: nowrap;
 }
 
 .analytics-table td {
@@ -7379,6 +7382,17 @@ body.modal-open {
 
 .table-action-link:hover {
   background: rgba(56, 139, 253, 0.2);
+}
+
+/* 統計表格的「檢視」按鈕沿用 .table-action-link 外觀。
+   原本該類別只用於 <a>，改用 <button> 後需自行消掉瀏覽器預設的
+   邊框、背景與字型，否則會出現灰色的原生按鈕外框。 */
+button.table-action-link {
+  border: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 /* ── §36 Media Lightbox (全螢幕圖片放大、縮放與平移檢視器) ───── */

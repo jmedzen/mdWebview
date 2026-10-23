@@ -9696,20 +9696,32 @@
     const topSearchesTable = $('analyticsTopSearchesTable');
     if (topSearchesTable) {
       if (!data.topSearches || data.topSearches.length === 0) {
-        topSearchesTable.innerHTML = '<tr><td colspan="3" class="analytics-empty">尚無搜尋紀錄</td></tr>';
+        topSearchesTable.innerHTML = '<tr><td colspan="4" class="analytics-empty">尚無搜尋紀錄</td></tr>';
       } else {
         topSearchesTable.innerHTML = data.topSearches.map((item, idx) => `<tr>
           <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
           <td style="font-weight: 600;">${escHtml(item.query)}</td>
           <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>
+          <td style="text-align: center;">
+            <button type="button" class="table-action-link analytics-replay-search" data-query="${escHtml(item.query)}" title="以這個關鍵字重新搜尋，重現使用者的搜尋結果">🔍 檢視</button>
+          </td>
         </tr>`).join('');
+
+        topSearchesTable.querySelectorAll('.analytics-replay-search').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const q = e.currentTarget.getAttribute('data-query');
+            if (!q) return;
+            closeAdminModal();
+            activateSearchPanel(q);
+          });
+        });
       }
     }
 
     const topLookupsTable = $('analyticsTopLookupsTable');
     if (topLookupsTable) {
       if (!data.topLookups || data.topLookups.length === 0) {
-        topLookupsTable.innerHTML = '<tr><td colspan="5" class="analytics-empty">尚無辭典查閱紀錄</td></tr>';
+        topLookupsTable.innerHTML = '<tr><td colspan="6" class="analytics-empty">尚無辭典查閱紀錄</td></tr>';
       } else {
         topLookupsTable.innerHTML = data.topLookups.map((item, idx) => {
           const formattedTime = formatTimestampWithTZ(item.lastLookup, tz);
@@ -9718,22 +9730,52 @@
             <td style="font-weight: 600;">${escHtml(item.headword)}</td>
             <td style="color: var(--text-secondary);">${escHtml(item.fileName)}</td>
             <td style="text-align: right; font-weight: 700; color: #58a6ff;">${item.count.toLocaleString()}</td>
-            <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(formattedTime)}</td>
+            <td style="color: var(--text-secondary); font-size: calc(12.5px * var(--ui-font-scale, 1));">${escHtml(formattedTime)}</td>
+            <td style="text-align: center;">
+              <button type="button" class="table-action-link analytics-replay-lookup" data-headword="${escHtml(item.headword)}" title="在辭典側欄重新查詢這個詞條，重現使用者的查閱結果">📖 檢視</button>
+            </td>
           </tr>`;
         }).join('');
+
+        topLookupsTable.querySelectorAll('.analytics-replay-lookup').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const hw = e.currentTarget.getAttribute('data-headword');
+            if (!hw) return;
+            closeAdminModal();
+            toggleDictSidebar(true);
+            const input = $('dictSearchInput');
+            if (input) input.value = hw;
+            runDictSearch(hw);
+          });
+        });
       }
     }
 
     const topDictSearchesTable = $('analyticsTopDictSearchesTable');
     if (topDictSearchesTable) {
       if (!data.topDictSearches || data.topDictSearches.length === 0) {
-        topDictSearchesTable.innerHTML = '<tr><td colspan="3" class="analytics-empty">尚無辭典搜尋紀錄</td></tr>';
+        topDictSearchesTable.innerHTML = '<tr><td colspan="4" class="analytics-empty">尚無辭典搜尋紀錄</td></tr>';
       } else {
         topDictSearchesTable.innerHTML = data.topDictSearches.map((item, idx) => `<tr>
           <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
           <td style="font-weight: 600;">${escHtml(item.query)}</td>
           <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>
+          <td style="text-align: center;">
+            <button type="button" class="table-action-link analytics-replay-dictsearch" data-query="${escHtml(item.query)}" title="在辭典側欄重新搜尋這個關鍵字，重現使用者的搜尋結果">📖 檢視</button>
+          </td>
         </tr>`).join('');
+
+        topDictSearchesTable.querySelectorAll('.analytics-replay-dictsearch').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const q = e.currentTarget.getAttribute('data-query');
+            if (!q) return;
+            closeAdminModal();
+            toggleDictSidebar(true);
+            const input = $('dictSearchInput');
+            if (input) input.value = q;
+            runDictSearch(q);
+          });
+        });
       }
     }
 
