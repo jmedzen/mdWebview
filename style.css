@@ -686,7 +686,10 @@ body,
   opacity: 1;
 }
 .panel-action-label {
-  max-width: 48px;
+  /* em（而非 px）讓上限隨字級縮放，字型調大時標籤才不會被截成「相…」。
+     3.5em 足以容納目前最長的三字標籤（相關性／命中↓），仍保留省略號
+     作為未來更長標籤的安全網。 */
+  max-width: 3.5em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
