@@ -1,6 +1,6 @@
 [package]
 name = "mdwebview"
-version = "3.9.5"
+version = "3.9.7"
 description = "mdWebview — 佛典經論閱讀器"
 authors = ["mdWebview"]
 license = "MIT"
