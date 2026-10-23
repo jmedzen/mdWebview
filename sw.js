@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.9.5';
+const CACHE_VERSION = 'v3.9.7';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -96,12 +96,20 @@ async function trimCache(cacheName, maxItems) {
 }
 
 // 1. Install: Pre-cache App Shell with allSettled to prevent single-asset failure blocking SW
+//
+// 預快取必須帶上？v= 版本號，否則會與 fetch 時的版本判斷對不上：
+// 不帶參數時 CACHE_VERSION 一升版，舊的無參數條目仍可能被 ignoreSearch 命中。
+// 這裡統一補上 ?v=<CACHE_VERSION>，讓快取鍵與頁面請求一致。
+const VERSIONED_SHELL_ASSETS = SHELL_ASSETS.map(
+  u => (u.includes('?') ? u : `${u}?v=${CACHE_VERSION.replace(/^v/, '')}`)
+);
+
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
       .then(cache => {
         return Promise.allSettled(
-          SHELL_ASSETS.map(url => cache.add(url).catch(err => {
+          VERSIONED_SHELL_ASSETS.map(url => cache.add(url).catch(err => {
             console.warn(`[SW] Pre-cache asset skipped (${url}):`, err);
           }))
         );
@@ -212,6 +220,36 @@ self.addEventListener('fetch', event => {
   }
 
   // D. Static Assets (CSS, JS, Fonts, Icons, Vendor) -> Stale-While-Revalidate
+  //
+  // index.html 走 network-first，所以伺服器一更新，頁面立刻拿到新 HTML；
+  // 但若靜態資源照樣回舊快取，就會出現「HTML 是新的、app.js 還是舊的」
+  // 的新舊混用狀態。實際發生過：統計表已長出「操作」欄位，按鈕卻不存在，
+  // 因為表頭來自新 HTML，而按鈕程式碼在舊 app.js 裡。
+  //
+  // 因此當請求帶的 ?v= 與本 SW 的 CACHE_VERSION 不一致時，代表頁面比 SW 新，
+  // 改走 network-first，確保不會供應過期的 JS／CSS。版本一致時仍走原本的
+  // stale-while-revalidate，維持 0ms 啟動。
+  const reqVersion = url.searchParams.get('v');
+  const swVersion = CACHE_VERSION.replace(/^v/, '');
+  if (reqVersion && reqVersion !== swVersion) {
+    event.respondWith(
+      fetch(req)
+        .then(networkRes => {
+          if (networkRes && networkRes.status === 200) {
+            const copy = networkRes.clone();
+            event.waitUntil(
+              caches.open(SHELL_CACHE).then(cache => cache.put(req, copy)).catch(() => {})
+            );
+          }
+          return networkRes;
+        })
+        .catch(() => caches.match(req, { ignoreSearch: true }).then(
+          cached => cached || new Response('', { status: 504, statusText: 'Gateway Timeout' })
+        ))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then(cached => {
       const fetchPromise = fetch(req)
