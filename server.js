@@ -2497,6 +2497,8 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
     let doneUnits = 0;
     const totalUnits = units.length;
+    // 每 2000 units 記錄一次進度（見下方跨越門檻判斷）
+    let nextProgressMilestone = 2000;
 
     await runIndexWorkerPool(tasks,
       (task) => ({ type: 'index-build-file', payload: { fullPath: task.fullPath, units: task.units } }),
@@ -2507,10 +2509,17 @@ async function buildSearchIndexAsync(forceRebuild = false) {
             if (!list) { list = []; bigrams.set(bg, list); }
             list.push(r.unitId);
           }
-        }
-        doneUnits += task.units.length;
-        if (doneUnits % 20000 === 0 || doneUnits === totalUnits) {
-          Logger.info('Index', `Indexing progress (build #${buildId}): ${doneUnits}/${totalUnits} units...`);
+          // 逐 unit 累加並檢查里程碑：worker 是一檔一 task 回傳，若只在 task
+          // 結束時累加，單一大檔案會一次跳過好幾個里程碑（實測曾一次跳 4200
+          // units），進度就無法穩定每 2000 一則。逐 unit 判斷可精準落在門檻上。
+          // 同時涵蓋收尾：totalUnits 非 2000 倍數時，最後一個 unit 會觸發
+          // doneUnits === totalUnits 而補上 100% 那則；若是倍數則由里程碑
+          // 條件本身命中，兩者互斥，不會重複記錄。
+          doneUnits++;
+          if (doneUnits >= nextProgressMilestone || doneUnits === totalUnits) {
+            Logger.info('Index', `Indexing progress (build #${buildId}): ${doneUnits}/${totalUnits} units...`);
+            nextProgressMilestone = (Math.floor(doneUnits / 2000) + 1) * 2000;
+          }
         }
       },
       concurrency);
