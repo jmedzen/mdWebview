@@ -348,8 +348,8 @@ Tauri 依賴系統的 WebView2 runtime。Tauri 的**預設**安裝模式是
 
 | 外殼 | 產品名稱 | macOS | Windows |
 | :--- | :--- | :--- | :--- |
-| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.9.4_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.9.4_x64-setup.exe`<br>`mdWebview-Tauri_3.9.4_x64_en-US.msi`<br>`mdWebview-Tauri_3.9.4_arm64-setup.exe`<br>`mdWebview-Tauri_3.9.4_arm64_en-US.msi` |
-| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.9.4-arm64.dmg`<br>`mdWebview-Electron-3.9.4-x64.dmg`<br>`mdWebview-Electron-3.9.4-arm64-mac.zip`<br>`mdWebview-Electron-3.9.4-mac.zip` | `mdWebview-Electron-3.9.4-x64-setup.exe`<br>`mdWebview-Electron-3.9.4-x64-portable.exe`<br>`mdWebview-Electron-3.9.4-arm64-setup.exe`<br>`mdWebview-Electron-3.9.4-arm64-portable.exe` |
+| Tauri | `mdWebview-Tauri` | `mdWebview-Tauri_3.9.5_aarch64.dmg`<br>`mdWebview-Tauri.app` | `mdWebview-Tauri_3.9.5_x64-setup.exe`<br>`mdWebview-Tauri_3.9.5_x64_en-US.msi`<br>`mdWebview-Tauri_3.9.5_arm64-setup.exe`<br>`mdWebview-Tauri_3.9.5_arm64_en-US.msi` |
+| Electron | `mdWebview-Electron` | `mdWebview-Electron-3.9.5-arm64.dmg`<br>`mdWebview-Electron-3.9.5-x64.dmg`<br>`mdWebview-Electron-3.9.5-arm64-mac.zip`<br>`mdWebview-Electron-3.9.5-mac.zip` | `mdWebview-Electron-3.9.5-x64-setup.exe`<br>`mdWebview-Electron-3.9.5-x64-portable.exe`<br>`mdWebview-Electron-3.9.5-arm64-setup.exe`<br>`mdWebview-Electron-3.9.5-arm64-portable.exe` |
 
 > **x64 與 arm64 並存**：Intel／AMD 機器需要 x64 版；Windows on ARM
 > （Snapdragon X 等）另有原生 arm64 版，不必倚賴 x64 模擬。
