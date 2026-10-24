@@ -1777,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "mdwebview"
-version = "3.9.7"
+version = "3.9.8"
 dependencies = [
  "serde",
  "serde_json",
