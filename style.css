@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.10.1
+   mdWebview — Style System (style.css) v3.10.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1461,7 +1461,21 @@ section.chunk.chunk-error {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  /*
+   * 必須用 min-height，不可用 height: 100%。
+   *
+   * 用固定高度 + justify-content: center 時，內容一旦超過容器高度，flex 置中
+   * 會讓上下兩端同時溢出：下方溢出還能往下捲，但「上方溢出」落在捲動原點
+   * 之上，永遠捲不到。實際症狀是 iPhone 首頁最上方的蓮花整個消失，而且在
+   * 畫面上怎麼滑都不會出現（實測 iPhone SE：內容 702px、容器 619px、
+   * 蓮花 top 為 −33px，捲到最頂仍是 −33px）。
+   *
+   * 改成 min-height 後，容器高度隨內容成長，溢出交給父層 .content 的
+   * overflow-y: auto 處理，置中效果在「內容較矮」時仍然保留。
+   */
+  min-height: 100%;
+  padding: 24px 16px;
+  box-sizing: border-box;
   text-align: center;
   animation: fadeIn 0.6s ease;
 }
