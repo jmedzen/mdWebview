@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.10.0
+   mdWebview — Style System (style.css) v3.10.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1524,6 +1524,212 @@ section.chunk.chunk-error {
 
 .welcome-footer-sep {
   opacity: 0.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PWA 安裝引導（首頁卡片 + iOS 圖文教學 + 設定入口）
+
+   設計原則：
+   - 不打斷閱讀。首頁卡片是頁面內元素，不是覆蓋層。
+   - 兩顆按鈕等重。「以後再說」不用灰色小字，把拒絕權藏起來只會換來反感。
+   - 字級一律乘 var(--ui-font-scale)，與全站無障礙設定一致。
+   - 尊重 prefers-reduced-motion。
+   ═══════════════════════════════════════════════════════════════ */
+
+.install-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+  margin: 26px auto 0;
+  padding: 18px 20px;
+  max-width: 560px;
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  animation: installCardIn 400ms ease-out both;
+}
+
+/* hidden 屬性在 display:flex 之下會失效，必須明確覆蓋，
+   否則卡片會無視 JS 的顯示判斷而一直出現。 */
+.install-card[hidden] {
+  display: none !important;
+}
+
+@keyframes installCardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-card { animation: none; }
+}
+
+.install-card-icon {
+  font-size: calc(26px * var(--ui-font-scale, 1));
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.install-card-body {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.install-card-title {
+  margin: 0 0 5px;
+  font-size: calc(15px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.install-card-desc {
+  margin: 0;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.install-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.install-card-btn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  font-family: inherit;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 140ms ease, background 140ms ease;
+}
+
+.install-card-btn.primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.install-card-btn.primary:hover {
+  filter: brightness(1.1);
+}
+
+/* 次要動作給予同等可見度（有邊框、非灰字），
+   讓「拒絕」是一個體面的選擇，而不是被藏起來的逃生口。 */
+.install-card-btn.ghost {
+  background: transparent;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.18));
+  color: var(--text-secondary);
+}
+
+.install-card-btn.ghost:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* 窄螢幕：按鈕換行並各自撐滿，避免兩個字擠成一團 */
+@media (max-width: 520px) {
+  .install-card {
+    padding: 16px;
+    gap: 12px;
+  }
+  .install-card-actions {
+    width: 100%;
+    flex-direction: column-reverse;
+  }
+  .install-card-btn {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* ── iOS 圖文教學 Modal ────────────────────────────────────── */
+
+.install-guide-card {
+  max-width: 460px;
+  width: calc(100vw - 40px);
+}
+
+.install-guide-body {
+  padding: 4px 22px 8px;
+}
+
+.install-guide-intro {
+  margin: 0 0 18px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.install-guide-step {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 0;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.07));
+}
+
+.install-guide-step:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.install-guide-num {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.install-guide-step-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.install-guide-step-text strong {
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.install-guide-hint {
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.install-guide-icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 46px;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.install-guide-note {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.07));
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  line-height: 1.7;
+  color: var(--text-muted);
 }
 
 .welcome-download-link,

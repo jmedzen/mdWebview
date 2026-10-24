@@ -37,7 +37,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.10.0'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.10.1'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -50,11 +50,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#181825">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.10.0">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.10.0">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.10.0">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.10.0">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.10.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.10.1">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.10.1">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.10.1">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.10.1">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.10.1">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -76,7 +76,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.10.0">
+  <link rel="stylesheet" href="style.css?v=3.10.1">
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -275,6 +275,31 @@
             <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
           </div>
           <div class="welcome-footer" id="welcomeFooter" style="display: none;"></div>
+
+          <!--
+            PWA 安裝引導卡片。
+
+            只在「使用者已經讀過東西」之後才出現（見 app.js shouldOfferInstall），
+            因為第一次造訪時連這是什麼都還不知道，此刻談安裝只會被關掉。
+
+            文案刻意避開「PWA」「安裝應用程式」「Service Worker」等技術詞彙：
+            目標讀者要的是「把經書帶在身上」，不是「部署一個 Web App」。
+            兩顆按鈕等重並列——「以後再說」不是灰色小字，因為把拒絕權藏起來
+            只會換來反感，而不是安裝。
+          -->
+          <div class="install-card" id="installCard" hidden>
+            <div class="install-card-icon">🪷</div>
+            <div class="install-card-body">
+              <h3 class="install-card-title" id="installCardTitle">把經書放到手機桌面</h3>
+              <p class="install-card-desc" id="installCardDesc">
+                加入桌面後不必再開瀏覽器，點一下就能讀，已讀過的經文沒有網路也能看。
+              </p>
+            </div>
+            <div class="install-card-actions">
+              <button type="button" class="install-card-btn primary" id="installCardAccept">好，加到桌面</button>
+              <button type="button" class="install-card-btn ghost" id="installCardLater">以後再說</button>
+            </div>
+          </div>
         </div>
 
         <!-- File Content -->
@@ -387,7 +412,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.10.0</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.10.1</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -515,6 +540,25 @@
           <div class="recent-files-list" id="recentFilesList">
             <div class="list-empty-hint">尚無最近開啟的經文檔案</div>
           </div>
+
+          <!--
+            安裝入口的常駐位置。
+
+            首頁卡片可以在被拒絕後長期靜默，但這裡永遠保留：使用者當下嫌煩，
+            過幾天改變主意時仍找得到路徑。已安裝（display-mode: standalone）
+            或瀏覽器不支援時整段隱藏——對已經裝好的人來說這是雜訊。
+          -->
+          <div id="installSettingsSection" style="display: none;">
+            <div class="setting-section-header">
+              <span>📲 加到手機桌面</span>
+            </div>
+            <p class="setting-desc">
+              加到桌面後不必開瀏覽器，點圖示就能讀；已讀過的經文沒有網路也能看。
+            </p>
+            <div class="backup-action-buttons">
+              <button type="button" id="btnInstallPwa" class="modal-btn submit-btn">加到桌面</button>
+            </div>
+          </div>
         </div>
 
         <!-- Tab 3: 書籤最愛 (Bookmarks) -->
@@ -550,7 +594,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.10.0</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.10.1</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -587,7 +631,84 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.10.0</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.10.1</span>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    iOS「加入主畫面」圖文教學。
+
+    iOS Safari 不支援 beforeinstallprompt，無法用程式觸發安裝，只能教使用者
+    手動操作。因此這裡沒有「安裝」按鈕——按了也不會有反應，只會讓人困惑。
+
+    圖示一律用 inline SVG 而非外部圖片：教學內容必須在離線時也能正確顯示，
+    而外部圖檔正是離線時最容易缺失的部分。
+  -->
+  <div class="modal-overlay install-guide-overlay" id="installGuideOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="installGuideTitle">
+    <div class="modal-card install-guide-card">
+      <div class="modal-header">
+        <span class="modal-icon">📲</span>
+        <h2 id="installGuideTitle">把經書放到桌面</h2>
+        <button type="button" class="modal-close-btn" id="installGuideCloseBtn" title="關閉" aria-label="關閉">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="install-guide-body">
+        <p class="install-guide-intro">
+          iPhone 與 iPad 需要手動加入，只要三個步驟：
+        </p>
+
+        <div class="install-guide-step">
+          <span class="install-guide-num">1</span>
+          <div class="install-guide-step-text">
+            <strong>點下方的分享鈕</strong>
+            <span class="install-guide-hint">在 Safari 畫面最下方，方框加向上箭頭</span>
+          </div>
+          <svg class="install-guide-icon" viewBox="0 0 40 48" fill="none" aria-hidden="true">
+            <rect x="4" y="4" width="32" height="40" rx="6" stroke="currentColor" stroke-width="2" opacity=".35"/>
+            <path d="M20 14v13" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M14.5 19.5L20 13.5l5.5 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M13 30h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <div class="install-guide-step">
+          <span class="install-guide-num">2</span>
+          <div class="install-guide-step-text">
+            <strong>往下找到「加入主畫面」</strong>
+            <span class="install-guide-hint">在選單中往下滑一點就看到了</span>
+          </div>
+          <svg class="install-guide-icon" viewBox="0 0 40 48" fill="none" aria-hidden="true">
+            <rect x="3" y="8" width="34" height="10" rx="3" stroke="currentColor" stroke-width="1.6" opacity=".25"/>
+            <rect x="3" y="21" width="34" height="10" rx="3" stroke="currentColor" stroke-width="2.2"/>
+            <path d="M12 26h9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            <path d="M26 23v6M23 26h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <div class="install-guide-step">
+          <span class="install-guide-num">3</span>
+          <div class="install-guide-step-text">
+            <strong>點右上角的「新增」</strong>
+            <span class="install-guide-hint">完成後，桌面就會出現經書圖示</span>
+          </div>
+          <svg class="install-guide-icon" viewBox="0 0 40 48" fill="none" aria-hidden="true">
+            <rect x="3" y="6" width="34" height="36" rx="5" stroke="currentColor" stroke-width="2" opacity=".35"/>
+            <path d="M14 13h12" stroke="currentColor" stroke-width="1.6" opacity=".25" stroke-linecap="round"/>
+            <rect x="20" y="24" width="12" height="7" rx="3" stroke="currentColor" stroke-width="2"/>
+            <path d="M26 25.5v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <p class="install-guide-note">
+          加入後，已讀過的經文沒有網路也能看。
+        </p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn submit-btn" id="installGuideDoneBtn">知道了</button>
       </div>
     </div>
   </div>
@@ -1771,8 +1892,8 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/mermaid/mermaid.min.js" defer></script>
-  <script src="marked.min.js?v=3.10.0" defer></script>
-  <script src="s2t.js?v=3.10.0" defer></script>
-  <script src="app.js?v=3.10.0" defer></script>
+  <script src="marked.min.js?v=3.10.1" defer></script>
+  <script src="s2t.js?v=3.10.1" defer></script>
+  <script src="app.js?v=3.10.1" defer></script>
 </body>
 </html>
