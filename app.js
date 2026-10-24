@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.2
+   mdWebview — Application Logic (app.js) v3.10.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -131,6 +131,78 @@
   const userLineHeight = storage.get(STORAGE_KEYS.LINE_HEIGHT);
   const userMaxWidth = storage.get(STORAGE_KEYS.MAX_WIDTH);
   const userReadProgress = storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED);
+
+  /**
+   * 判斷瀏覽器的主要語言是否為簡體中文。
+   *
+   * 站台的內文一律是繁體，簡體中文使用者讀起來會有落差，因此對他們預設開啟
+   * 「簡體自動轉繁體」是合理的體貼，而不是自作主張——他們仍可在偏好設定裡
+   * 隨手關掉。
+   *
+   * 判定只看主要語言（第一個），理由是一個只把 zh-CN 排在次要順位、主要
+   * 語言其實是英文的使用者，預期看到的介面仍是英文語境，不該被套用轉換。
+   *
+   * 涵蓋的標籤：zh-CN、zh_CN、zh-Hans、zh-Hans-CN、zh-SG 等。zh-Hans 是
+   * 「簡體中文」的語法標記，Chrome 在某些平台上會用它而非 zh-CN；zh-SG
+   * （新加坡）官方用簡體，故一併視為簡體。
+   *
+   * @param {string} [lang] - 語言標籤，預設取 navigator.language
+   * @returns {boolean}
+   */
+  function isSimplifiedChineseLocale(lang) {
+    let tag = '';
+    try {
+      tag = String(lang !== undefined ? lang : (navigator.language || '')).toLowerCase();
+    } catch (_) {
+      return false;
+    }
+    if (!tag) return false;
+    // 正規化分隔符：BCP 47 用 '-'，但部分舊環境或外掛會給 '_'
+    tag = tag.replace(/_/g, '-');
+    // 必須是中文語系，避免把 'zh' 之外的標籤誤判
+    if (!/^zh\b/.test(tag)) return false;
+    // 明確的簡體標記
+    if (/-hans\b/.test(tag)) return true;
+    if (/-cn\b/.test(tag)) return true;
+    if (/-sg\b/.test(tag)) return true;
+    // 裸 'zh' 不判定：無法區分繁簡，寧可維持站台原本的繁體預設
+    return false;
+  }
+
+  /**
+   * 首次造訪且瀏覽器語言為簡體中文時，自動開啟簡體轉繁體並寫入 localStorage。
+   *
+   * 只在「使用者從未表達過偏好」時介入：
+   *   - 已有 AUTO_S2T 記錄（不論 true 或 false）→ 完全尊重，不再覆寫。
+   *     這一點很重要：使用者若曾手動關掉，下次進站不該又被自動打開。
+   *   - 沒有記錄且語言為簡體 → 寫入 'true'。
+   *
+   * 寫入 localStorage 而非只改記憶體狀態，是為了讓使用者的設定在重新整理、
+   * 換分頁、以及之後的偏好備份匯出時都保持一致；否則「自動開啟」會變成每次
+   * 載入都重新判斷，使用者手動關閉後仍會被再次開啟。
+   *
+   * @returns {boolean} 是否因此自動開啟
+   */
+  function maybeAutoEnableS2TFromLocale() {
+    let existing = null;
+    try {
+      existing = storage.get(STORAGE_KEYS.AUTO_S2T);
+    } catch (_) {
+      return false;
+    }
+    // 使用者已經做過選擇，一律不覆寫。
+    if (existing === 'true' || existing === 'false') return false;
+    if (!isSimplifiedChineseLocale()) return false;
+    try {
+      storage.set(STORAGE_KEYS.AUTO_S2T, 'true');
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
+  // 必須在讀取 userAutoS2T 之前執行，否則 state 會沿用舊值。
+  maybeAutoEnableS2TFromLocale();
   const userAutoS2T = storage.get(STORAGE_KEYS.AUTO_S2T);
 
   function safeJsonParse(key, fallback) {
@@ -174,7 +246,8 @@
    * @property {string}       lineHeight        - 行高倍數字串 ('1.6'|'1.8'|'2.0')
    * @property {string}       maxWidth          - 閱讀區最大寬度 CSS 值 ('800px'|'100%'|…)
    * @property {boolean}      autoReadProgress  - 是否自動記錄與恢復閱讀進度
-   * @property {boolean}      autoS2T           - 是否自動簡體轉繁體（預設 false）
+   * @property {boolean}      autoS2T           - 是否自動簡體轉繁體（預設 false；瀏覽器語言為
+   *   簡體中文且使用者從未設定過時，首次造訪會自動開啟並寫入 localStorage）
    * @property {boolean}      isMobile          - 是否為行動裝置（UA 或視窗寬度 <= 768px）
    *
    * ── 站台設定 ──────────────────────────────────────────────────
@@ -6608,7 +6681,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8483,7 +8556,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -8796,7 +8869,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
