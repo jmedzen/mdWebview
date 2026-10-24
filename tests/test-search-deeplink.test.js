@@ -160,13 +160,13 @@ function runActivateSearchPanel(query, opts = {}) {
   };
   vm.createContext(sandbox);
   const source = fs.readFileSync(APP_JS, 'utf8');
-  const body = extractFunctionBody(source, 'function activateSearchPanel(query)');
+  const body = extractFunctionBody(source, 'function activateSearchPanel(query, opts)');
   const decodeBody = extractFunctionBody(source, 'function safeDecodeURIComponent(str)');
   assert.ok(body, 'app.js 應包含 activateSearchPanel');
   assert.ok(decodeBody, 'app.js 應包含 safeDecodeURIComponent');
   vm.runInContext(
     `function safeDecodeURIComponent(str) ${decodeBody}\n` +
-    `function activateSearchPanel(query) ${body}\nglobalThis.__run = activateSearchPanel;`,
+    `function activateSearchPanel(query, opts) ${body}\nglobalThis.__run = activateSearchPanel;`,
     sandbox
   );
   sandbox.__run(query);
@@ -523,7 +523,7 @@ describe('全庫搜尋深層連結 4：原始碼契約', () => {
 
   test('activateSearchPanel 應存在且真的執行搜尋', () => {
     const src = fs.readFileSync(APP_JS, 'utf8');
-    const body = extractFunctionBody(src, 'function activateSearchPanel(query)');
+    const body = extractFunctionBody(src, 'function activateSearchPanel(query, opts)');
     assert.ok(body, '應定義 activateSearchPanel');
     assert.ok(body.includes('performGlobalSearch('), 'activateSearchPanel 應實際執行搜尋');
     assert.ok(body.includes('globalSearchInput'), 'activateSearchPanel 應同步輸入框內容');

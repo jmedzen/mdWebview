@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.10.6
+   mdWebview — Style System (style.css) v3.10.7
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -40,6 +40,7 @@
    §35 Dictionary Sidebar
    §36 Markdown Enhancements   (highlights, task lists, math/KaTeX, Mermaid)
    §37 Announcement Modal      (微光玻璃浮島)
+   §38 Display Script Toggle   (繁／簡切換按鈕、首次自動切換提示)
    ================================================================ */
 
 /* ── §1 Reset ───────────────────────────────────────────────── */
@@ -57,6 +58,10 @@ html {
   --content-text-align: justify;
   --content-line-height: 1.8;
   --content-max-width: 800px;
+  /* 中文字型：繁體顯示用 Noto Serif TC；簡體顯示改用系統的簡體字型（見 §38），
+     避免 TC 字型以台灣字形畫簡體字，或缺字時混用不同字型 */
+  --cjk-serif: 'Noto Serif TC';
+  --cjk-sans: 'Noto Sans TC';
   /* Global fallbacks for undefined variable references */
   --text-normal: var(--text-primary);
   --border-color: var(--border);
@@ -70,7 +75,7 @@ html {
 }
 
 body {
-  font-family: 'Inter', 'Noto Serif TC', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', var(--cjk-serif), -apple-system, BlinkMacSystemFont, sans-serif;
   overflow: hidden;
   height: 100%;
   width: 100%;
@@ -571,7 +576,7 @@ body,
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-family: 'Inter', 'Noto Serif TC', sans-serif;
+  font-family: 'Inter', var(--cjk-serif), sans-serif;
   font-size: calc(var(--sidebar-font-size) * 12 / 13);
   font-weight: 500;
   cursor: pointer;
@@ -916,7 +921,7 @@ body,
   word-break: break-word;
   overflow-wrap: break-word;
   line-height: 1.35;
-  font-family: 'Noto Serif TC', 'Inter', sans-serif;
+  font-family: var(--cjk-serif), 'Inter', sans-serif;
   font-size: var(--sidebar-font-size);
 }
 
@@ -956,7 +961,7 @@ body,
   border: 1px solid var(--border-color);
   border-radius: 6px;
   color: var(--text-primary);
-  font-family: 'Noto Serif TC', 'Inter', sans-serif;
+  font-family: var(--cjk-serif), 'Inter', sans-serif;
   font-size: calc(var(--sidebar-font-size) * 11 / 13);
   outline: none;
   cursor: pointer;
@@ -991,7 +996,7 @@ body,
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: var(--text-primary);
-  font-family: 'Noto Serif TC', 'Inter', sans-serif;
+  font-family: var(--cjk-serif), 'Inter', sans-serif;
   font-size: var(--sidebar-font-size);
   outline: none;
   transition: all 0.2s ease;
@@ -1177,7 +1182,7 @@ body,
   padding-right: 6px;
   margin: 1px 0;
   font-size: var(--sidebar-font-size);
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, var(--cjk-sans), sans-serif;
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
@@ -1442,7 +1447,7 @@ section.chunk.chunk-error {
 
 
 .content-header .file-title {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--cjk-serif), serif;
   font-size: 1.8em;
   font-weight: 700;
   color: var(--heading-color);
@@ -1496,7 +1501,7 @@ section.chunk.chunk-error {
 }
 
 .welcome-subtitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--cjk-serif), serif;
   font-size: calc(16px * var(--ui-font-scale, 1));
   color: var(--text-muted);
   letter-spacing: 4px;
@@ -2320,7 +2325,7 @@ kbd {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-family: 'Noto Serif TC', 'Inter', sans-serif;
+  font-family: var(--cjk-serif), 'Inter', sans-serif;
   font-size: 13px;
   outline: none;
 }
@@ -2359,7 +2364,7 @@ kbd {
 
 /* ── §20 Markdown Body ──────────────────────────────────────── */
 .markdown-body {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--cjk-serif), serif;
   font-size: var(--content-font-size, 16px);
   text-align: var(--content-text-align, justify);
   line-height: var(--content-line-height, 1.8);
@@ -3304,7 +3309,7 @@ img.markdown-img:hover {
 }
 
 .modal-header h2 {
-  font-family: 'Inter', 'Noto Serif TC', sans-serif;
+  font-family: 'Inter', var(--cjk-serif), sans-serif;
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
@@ -6116,7 +6121,7 @@ details.callout[open] > summary .callout-fold-icon {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-family: 'Inter', 'Noto Serif TC', sans-serif;
+  font-family: 'Inter', var(--cjk-serif), sans-serif;
   font-size: calc(var(--sidebar-font-size) * 12 / 13);
   font-weight: 500;
   cursor: pointer;
@@ -6264,7 +6269,7 @@ details.callout[open] > summary .callout-fold-icon {
   border-radius: 6px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: 'Inter', 'Noto Serif TC', sans-serif;
+  font-family: 'Inter', var(--cjk-serif), sans-serif;
   font-size: calc(var(--sidebar-font-size) * 12 / 13);
   outline: none;
   transition: border-color 0.15s ease;
@@ -6461,7 +6466,7 @@ details.callout[open] > summary .callout-fold-icon {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-family: 'Inter', 'Noto Serif TC', sans-serif;
+  font-family: 'Inter', var(--cjk-serif), sans-serif;
   font-size: var(--sidebar-font-size);
   font-weight: 600;
   cursor: pointer;
@@ -7801,3 +7806,108 @@ button.table-action-link {
 
 
 
+
+/* ── §38 Display Script Toggle (繁／簡切換) ───────────────────── */
+/* 簡體顯示要等 OpenCC 轉換完成才呈現，避免先閃一下繁體。
+   i18n/boot.js 設定 data-display-script，app.js 完成後設定 data-t2s-ready；
+   boot.js 另有 4 秒保底，任何錯誤都不會讓畫面一直空白。 */
+html[data-display-script="hans"]:not([data-t2s-ready]) body {
+  visibility: hidden;
+}
+
+html[data-display-script="hans"] {
+  --cjk-serif: 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', 'Noto Serif TC';
+  --cjk-sans: 'Noto Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans TC';
+}
+
+.display-script-btn {
+  min-width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+}
+.display-script-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.display-script-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.display-script-glyph {
+  font-family: 'Noto Serif TC', 'Noto Serif SC', 'Songti SC', serif;
+  font-size: calc(15px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  line-height: 1;
+}
+.display-script-btn.pulse {
+  animation: displayScriptPulse 1.2s ease-out 3;
+}
+@keyframes displayScriptPulse {
+  0%   { box-shadow: 0 0 0 0 var(--accent-dim); }
+  70%  { box-shadow: 0 0 0 8px rgba(0, 0, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+
+/* 首次依瀏覽器語言自動切換時的提示：固定在右上角、指向切換按鈕 */
+.display-script-notice {
+  position: fixed;
+  top: 54px;
+  right: 12px;
+  z-index: 10001;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px var(--shadow-color);
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  line-height: 1.6;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.display-script-notice.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.display-script-notice::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  right: var(--notice-arrow-right, 18px);
+  width: 12px;
+  height: 12px;
+  background: var(--bg-tertiary);
+  border-left: 1px solid var(--accent);
+  border-top: 1px solid var(--accent);
+  transform: rotate(45deg);
+}
+.display-script-notice-title {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.display-script-notice-body {
+  color: var(--text-secondary);
+}
+.display-script-notice-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.display-script-notice-dismiss {
+  border: none;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  padding: 4px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.display-script-notice-dismiss:hover {
+  background: var(--active-bg);
+}

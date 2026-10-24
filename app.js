@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.6
+   mdWebview — Application Logic (app.js) v3.10.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -69,6 +69,8 @@
     LINE_HEIGHT: 'mdWebview-user-lineheight',
     MAX_WIDTH: 'mdWebview-user-maxwidth',
     AUTO_S2T: 'mdWebview-auto-s2t',
+    // 繁／簡顯示：'hant'（繁體，預設）或 'hans'（簡體）。i18n/boot.js 也直接讀這個鍵。
+    DISPLAY_SCRIPT: 'mdWebview-display-script',
     READ_PROGRESS_ENABLED: 'mdWebview-user-readprogress',
     LAST_READ_PROGRESS: 'mdWebview-last-read-progress',
     RECENT_FILES: 'mdWebview-user-recentfiles',
@@ -213,6 +215,48 @@
   maybeAutoEnableS2TFromLocale();
   const userAutoS2T = storage.get(STORAGE_KEYS.AUTO_S2T);
 
+  /**
+   * 正規化繁簡顯示值。只接受 'hant'／'hans'，其餘（含舊備份檔的缺值）回傳 null。
+   * @param {*} value
+   * @returns {'hant'|'hans'|null}
+   */
+  function normalizeDisplayScript(value) {
+    return value === 'hans' || value === 'hant' ? value : null;
+  }
+
+  /**
+   * 首次造訪且瀏覽器語言為簡體中文時，自動切換為簡體顯示並寫入 localStorage。
+   *
+   * 與 maybeAutoEnableS2TFromLocale 同一套原則：
+   *   - 已有 DISPLAY_SCRIPT 記錄（'hant' 或 'hans'）→ 完全尊重，不再覆寫。
+   *     使用者切回繁體後，下次進站不該又被切成簡體。
+   *   - 沒有記錄且語言為簡體 → 寫入 'hans'，並回傳 true 讓畫面顯示一次提示。
+   *   - 沒有記錄且語言不是簡體 → 不寫入，維持預設繁體。日後瀏覽器語言改成
+   *     簡體時仍會在第一次進站時判斷一次。
+   *
+   * @returns {boolean} 是否因此自動切換為簡體
+   */
+  function maybeAutoSelectDisplayScriptFromLocale() {
+    let existing = null;
+    try {
+      existing = storage.get(STORAGE_KEYS.DISPLAY_SCRIPT);
+    } catch (_) {
+      return false;
+    }
+    if (normalizeDisplayScript(existing)) return false;
+    if (!isSimplifiedChineseLocale()) return false;
+    try {
+      if (!storage.set(STORAGE_KEYS.DISPLAY_SCRIPT, 'hans')) return false;
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
+  // 必須在讀取 userDisplayScript 之前執行，理由同上。
+  const displayScriptAutoSelected = maybeAutoSelectDisplayScriptFromLocale();
+  const userDisplayScript = normalizeDisplayScript(storage.get(STORAGE_KEYS.DISPLAY_SCRIPT));
+
   function safeJsonParse(key, fallback) {
     const parsed = storage.getJson(key, fallback);
     return Array.isArray(parsed) ? parsed : fallback;
@@ -256,6 +300,8 @@
    * @property {boolean}      autoReadProgress  - 是否自動記錄與恢復閱讀進度
    * @property {boolean}      autoS2T           - 是否自動簡體轉繁體（預設 false；瀏覽器語言為
    *   簡體中文且使用者從未設定過時，首次造訪會自動開啟並寫入 localStorage）
+   * @property {string}       displayScript     - 繁簡顯示 ('hant'|'hans'，預設 'hant'；規則同上，
+   *   瀏覽器語言為簡體中文且從未設定過時，首次造訪自動切為 'hans' 並提示)
    * @property {boolean}      isMobile          - 是否為行動裝置（UA 或視窗寬度 <= 768px）
    *
    * ── 站台設定 ──────────────────────────────────────────────────
@@ -337,6 +383,7 @@
     maxWidth: (isMobile && (!userMaxWidth || userMaxWidth === '100%')) ? '95%' : (userMaxWidth || '800px'),
     autoReadProgress: userReadProgress !== 'false',
     autoS2T: userAutoS2T === 'true',
+    displayScript: userDisplayScript || 'hant',
     isMobile: isMobile,
     recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
     bookmarks: safeJsonParse('mdWebview-user-bookmarks', []),
@@ -520,6 +567,9 @@
    * 取得目錄樹 → 取得推薦列表並觸發公告彈窗 → 處理 URL 深連結。
    */
   async function init() {
+    // 繁簡顯示最先處理：簡體時 body 由 CSS 隱藏，愈早轉換完成愈早顯示。
+    initDisplayScript();
+
     // Configure marked once at startup (not on every render)
     marked.setOptions({ breaks: true, gfm: true, headerIds: true, mangle: false });
     marked.use({
@@ -1168,6 +1218,23 @@
     });
   }
 
+  /**
+   * 高亮用的關鍵字變體：原字、簡轉繁，以及簡體顯示時畫面上實際呈現的字形。
+   * 搜尋關鍵字與索引都是繁體，但簡體顯示下 DOM 裡是轉換後的簡體字。
+   */
+  function highlightTermVariants(term) {
+    const out = [];
+    const add = (v) => { if (v && !out.includes(v)) out.push(v); };
+    add(term);
+    const trad = typeof toTraditional === 'function' ? toTraditional(term) : term;
+    add(trad);
+    if (isHansDisplay()) {
+      add(toDisplayScript(term));
+      add(toDisplayScript(trad));
+    }
+    return out;
+  }
+
   function highlightLineKeyword(anchorEl, query, searchMode) {
     if (!anchorEl || !query || typeof query !== 'string') return { matched: false, hitBlock: null, firstMark: null };
     const mode = searchMode || (state.lastSearchData && state.lastSearchData.mode) || state.searchMode || 'loose';
@@ -1177,7 +1244,7 @@
       const terms = query.trim().split(/\s+/).filter(Boolean);
       if (terms.length === 0) return { matched: false, hitBlock: null, firstMark: null };
 
-      const regexPattern = terms.map(t => escRegex(t)).join('|');
+      const regexPattern = terms.flatMap(t => highlightTermVariants(t)).map(t => escRegex(t)).join('|');
       if (!regexPattern) return { matched: false, hitBlock: null, firstMark: null };
       const regex = new RegExp(`(${regexPattern})`, 'gi');
 
@@ -1317,10 +1384,8 @@
     const terms = [];
     for (const t of rawTerms) {
       if (!t) continue;
-      terms.push(t);
-      if (typeof toTraditional === 'function') {
-        const trad = toTraditional(t);
-        if (trad && trad !== t) terms.push(trad);
+      for (const v of highlightTermVariants(t)) {
+        if (!terms.includes(v)) terms.push(v);
       }
     }
 
@@ -2109,7 +2174,7 @@
     const dateEl = $('announcementModalDate');
     if (dateEl) {
       try {
-        dateEl.textContent = new Date().toLocaleDateString('zh-TW', {
+        dateEl.textContent = new Date().toLocaleDateString(activeLocale(), {
           year: 'numeric',
           month: 'long',
           day: 'numeric',
@@ -4556,9 +4621,16 @@
       const h = headings[i];
       if (!h.id) h.id = 'heading-' + i;
 
-      const clone = h.cloneNode(true);
-      clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
-      const rawText = clone.textContent.trim();
+      // 以原文建表：wikilink 的錨點文字來自繁體原文，簡體顯示下 DOM 已是簡體
+      const ds = window.mdDisplayScript;
+      let rawText;
+      if (ds && ds.isActive()) {
+        rawText = ds.originalTextContent(h, el => el.classList && el.classList.contains('line-anchor')).trim();
+      } else {
+        const clone = h.cloneNode(true);
+        clone.querySelectorAll('.line-anchor').forEach(el => el.remove());
+        rawText = clone.textContent.trim();
+      }
       const cleanText = rawText.replace(/^【/, '').replace(/】$/, '').trim();
 
       if (rawText && !headingTextMap.has(rawText)) {
@@ -5011,7 +5083,13 @@
    *
    * @param {string} query 要搜尋的關鍵字
    */
-  function activateSearchPanel(query) {
+  /**
+   * @param {string} query
+   * @param {{ original?: boolean }} [opts] - original：query 已是繁體原文（簡體顯示下的
+   *   劃詞搜尋），不再做簡轉繁
+   */
+  function activateSearchPanel(query, opts) {
+    opts = opts || {};
     const q = (query || '').trim();
     if (!q) return;
 
@@ -5040,7 +5118,7 @@
     // 輸入框，故這裡直接填入原文即可。
     const searchInput = $('globalSearchInput');
     if (searchInput) searchInput.value = q;
-    performGlobalSearch(q);
+    performGlobalSearch(q, opts);
 
     // 同步網址，讓右鍵搜尋的結果也能直接分享或加書籤；已是同一組參數時
     // 不重複推入歷史，避免返回鍵要按兩次才離開。
@@ -5051,13 +5129,15 @@
     }
   }
 
-  async function performGlobalSearch(query) {
-    if (state.autoS2T && typeof toTraditional === 'function') {
+  async function performGlobalSearch(query, opts) {
+    opts = opts || {};
+    if (!opts.original && s2tQueryEnabled() && typeof toTraditional === 'function') {
       const trad = toTraditional(query);
       if (trad !== query) {
         query = trad;
+        // 簡體顯示時保留使用者輸入的簡體字，只在送出查詢時轉為繁體
         const input = $('globalSearchInput');
-        if (input && input.value !== trad) input.value = trad;
+        if (input && input.value !== trad && !isHansDisplay()) input.value = trad;
       }
     }
     if (!query || query.trim().length === 0) {
@@ -5091,7 +5171,7 @@
     $('searchResults').innerHTML = '<div class="search-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
 
     try {
-      const s2tParam = state.autoS2T ? '1' : '0';
+      const s2tParam = (!opts.original && s2tQueryEnabled()) ? '1' : '0';
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}&s2t=${s2tParam}&mode=${state.searchMode}`, {
         signal: searchAbortController.signal,
       });
@@ -5671,14 +5751,19 @@
     return out;
   }
 
-  async function runDictSearch(query) {
+  // 目前辭典查詢字串是否為繁體原文（簡體顯示下的劃詞查詢）；分頁沿用同一設定
+  let dictQueryIsOriginal = false;
+
+  async function runDictSearch(query, opts) {
+    opts = opts || {};
+    dictQueryIsOriginal = !!opts.original;
     let q = (query || '').trim();
-    if (state.autoS2T && typeof toTraditional === 'function') {
+    if (!opts.original && s2tQueryEnabled() && typeof toTraditional === 'function') {
       const trad = toTraditional(q);
       if (trad !== q) {
         q = trad;
         const input = $('dictSearchInput');
-        if (input && input.value !== trad) input.value = trad;
+        if (input && input.value !== trad && !isHansDisplay()) input.value = trad;
       }
     }
     if (!q) {
@@ -5693,7 +5778,7 @@
     // Re-check input in case it was updated while loading
     const currentInputVal = ($('dictSearchInput')?.value || '').trim();
     if (currentInputVal && currentInputVal !== q) {
-      q = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(currentInputVal) : currentInputVal;
+      q = (!opts.original && s2tQueryEnabled() && typeof toTraditional === 'function') ? toTraditional(currentInputVal) : currentInputVal;
     }
     if (!q) return;
     // Invalidate cached fulltext results if query has changed
@@ -5864,7 +5949,7 @@
    * @returns {Promise<Object>} 原始 JSON 分頁資料（未正規化）
    */
   function fetchDictFulltextPage(q, filesParam, after, controller, done) {
-    const s2tParam = state.autoS2T ? '1' : '0';
+    const s2tParam = (!dictQueryIsOriginal && s2tQueryEnabled()) ? '1' : '0';
     let url = `/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}&s2t=${s2tParam}`;
     if (after && Object.keys(after).length > 0) {
       url += `&after=${encodeURIComponent(JSON.stringify(after))}`;
@@ -6117,12 +6202,12 @@
     state.pageSearchQuery = null;
 
     let q = (query || '').trim();
-    if (state.autoS2T && typeof toTraditional === 'function') {
+    if (s2tQueryEnabled() && typeof toTraditional === 'function') {
       const trad = toTraditional(q);
       if (trad !== q) {
         q = trad;
         const input = $('pageSearchInput');
-        if (input && input.value !== trad) input.value = trad;
+        if (input && input.value !== trad && !isHansDisplay()) input.value = trad;
       }
     }
 
@@ -6143,7 +6228,8 @@
     const body = $('markdownBody');
     if (!body || !body.textContent) return;
 
-    const matches = highlightTextNodes(body, q);
+    // 簡體顯示時畫面上的字是簡體，比對前把（已轉繁的）關鍵字轉成畫面字形
+    const matches = highlightTextNodes(body, toDisplayScript(q));
     state.pageSearchMatches = matches;
 
     if (matches.length > 0) {
@@ -6169,7 +6255,7 @@
     pageSearchAbortController = new AbortController();
     const signal = pageSearchAbortController.signal;
     try {
-      const s2tParam = state.autoS2T ? '1' : '0';
+      const s2tParam = s2tQueryEnabled() ? '1' : '0';
       const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}&s2t=${s2tParam}`, { signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
@@ -6521,6 +6607,229 @@
     }
   }
 
+  // ── 繁／簡顯示 (Display Script) ───────────────────────────
+  //
+  // 經文與介面原文都是繁體；簡體顯示由 i18n/display-script.js 在瀏覽器端
+  // 即時轉換畫面文字（保留原文，切回繁體可逐字還原）。這裡負責偏好、
+  // 按鈕狀態、首次自動切換提示，以及與搜尋的銜接。
+
+  function isHansDisplay() {
+    return state.displayScript === 'hans';
+  }
+
+  /**
+   * 搜尋關鍵字是否要先做簡轉繁。簡體顯示時一律開啟：畫面是簡體，使用者
+   * 自然會輸入簡體，但索引是繁體。
+   */
+  function s2tQueryEnabled() {
+    return !!state.autoS2T || isHansDisplay();
+  }
+
+  /** 目前介面語系，用於 i18n 與日期格式。 */
+  function activeLocale() {
+    return isHansDisplay() ? 'zh-CN' : 'zh-TW';
+  }
+
+  function i18nT(key, params) {
+    return window.mdI18n ? window.mdI18n.t(key, params) : key;
+  }
+
+  /** 把繁體字串轉成目前畫面所用的字形（內文規則）；繁體顯示時原樣回傳。 */
+  function toDisplayScript(str) {
+    const ds = window.mdDisplayScript;
+    return isHansDisplay() && ds && ds.isLoaded() ? ds.toContent(str) : str;
+  }
+
+  function assetVersionQuery() {
+    const el = document.querySelector('script[src*="app.js"]');
+    const m = el && (el.getAttribute('src') || '').match(/[?&]v=([^&]+)/);
+    return m ? `?v=${m[1]}` : '';
+  }
+
+  function markDisplayScriptReady() {
+    document.documentElement.setAttribute('data-t2s-ready', '1');
+  }
+
+  function updateDisplayScriptUI() {
+    const root = document.documentElement;
+    root.setAttribute('lang', isHansDisplay() ? 'zh-Hans' : 'zh-TW');
+    root.setAttribute('data-display-script', state.displayScript);
+    if (window.mdI18n) {
+      window.mdI18n.setLocale(activeLocale());
+      window.mdI18n.apply(document);
+    }
+    const group = $('settingDisplayScriptGroup');
+    if (group) {
+      $$('.segment-btn', group).forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === state.displayScript);
+      });
+    }
+  }
+
+  /**
+   * 內文區是否有「轉換後才產生、沒有原文紀錄」的文字節點。
+   *
+   * 搜尋高亮會把文字節點切開再組回去，新節點只拿得到簡體字，切回繁體時
+   * 無法逐字還原。偵測到這種節點就重新渲染目前檔案，確保繁體與原文一致。
+   */
+  function contentHasUnrestorableText() {
+    const ds = window.mdDisplayScript;
+    const body = $('markdownBody');
+    if (!ds || !body || typeof hasSimplified !== 'function') return false;
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+    let n;
+    while ((n = walker.nextNode())) {
+      if (ds.originalText(n) === n.data && hasSimplified(n.data) &&
+          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function rerenderCurrentFile() {
+    const file = state.currentFile;
+    if (!file) return;
+    const scroller = $('content');
+    const top = scroller ? scroller.scrollTop : 0;
+    Promise.resolve(openFile(file))
+      .then(() => { if (scroller) scroller.scrollTop = top; })
+      .catch(err => log.warn('重新渲染失敗', err));
+  }
+
+  /**
+   * 套用繁簡顯示。
+   * @param {'hant'|'hans'} script
+   * @param {boolean} [saveToLocalStorage=true]
+   * @param {{ announce?: boolean }} [opts] - announce：完成後顯示 Toast
+   * @returns {Promise<boolean>} 是否成功套用（簡體元件載入失敗時回傳 false，畫面維持繁體）
+   */
+  async function applyDisplayScript(script, saveToLocalStorage = true, opts) {
+    opts = opts || {};
+    const next = normalizeDisplayScript(script) || 'hant';
+    const ds = window.mdDisplayScript;
+    state.displayScript = next;
+    if (saveToLocalStorage) storage.set(STORAGE_KEYS.DISPLAY_SCRIPT, next);
+
+    if (next === 'hans') {
+      try {
+        if (!ds) throw new Error('display-script.js 未載入');
+        await ds.load(`vendor/opencc/t2cn.js${assetVersionQuery()}`);
+        // 下載期間使用者又切回繁體
+        if (state.displayScript !== 'hans') return false;
+        updateDisplayScriptUI();
+        if (!ds.isActive()) ds.enable(document.documentElement);
+      } catch (err) {
+        log.warn('簡體轉換元件載入失敗，暫以繁體顯示', err);
+        // 只退回畫面，不改寫偏好：下次進站仍會再試
+        state.displayScript = 'hant';
+        updateDisplayScriptUI();
+        markDisplayScriptReady();
+        showToast(i18nT('script.loadFailed', { error: err.message || String(err) }), 'error');
+        return false;
+      }
+    } else {
+      let needRerender = false;
+      if (ds && ds.isActive()) {
+        needRerender = contentHasUnrestorableText();
+        ds.disable(document.documentElement);
+      }
+      updateDisplayScriptUI();
+      if (needRerender) rerenderCurrentFile();
+    }
+
+    markDisplayScriptReady();
+    if (opts.announce) showToast(i18nT('script.switched'), 'success');
+    return true;
+  }
+
+  function dismissDisplayScriptNotice() {
+    const el = document.getElementById('displayScriptNotice');
+    const btn = $('displayScriptToggleBtn');
+    if (btn) btn.classList.remove('pulse');
+    if (!el) return;
+    if (el._timer) clearTimeout(el._timer);
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 220);
+  }
+
+  /**
+   * 首次依瀏覽器語言自動切換為簡體時，在右上角切換按鈕下方顯示提示，
+   * 告訴使用者為何是簡體、以及如何切回。只在自動切換的那一次出現。
+   */
+  function showDisplayScriptNotice() {
+    const btn = $('displayScriptToggleBtn');
+    if (!btn || document.getElementById('displayScriptNotice')) return;
+
+    const el = document.createElement('div');
+    el.id = 'displayScriptNotice';
+    el.className = 'display-script-notice';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    // 字串已依語系取自 i18n 表，不需再轉換
+    el.setAttribute('data-no-t2s', '');
+
+    const title = document.createElement('div');
+    title.className = 'display-script-notice-title';
+    title.textContent = i18nT('script.autoNotice.title');
+    const body = document.createElement('div');
+    body.className = 'display-script-notice-body';
+    body.textContent = i18nT('script.autoNotice.body', { label: i18nT('script.toggle.label') });
+    const actions = document.createElement('div');
+    actions.className = 'display-script-notice-actions';
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'display-script-notice-dismiss';
+    ok.textContent = i18nT('script.autoNotice.dismiss');
+    ok.addEventListener('click', dismissDisplayScriptNotice);
+    actions.appendChild(ok);
+    el.append(title, body, actions);
+    document.body.appendChild(el);
+
+    // 對齊按鈕：提示框貼齊視窗右側，箭頭指向按鈕中央
+    const r = btn.getBoundingClientRect();
+    const right = Math.max(8, Math.round(window.innerWidth - r.right - 4));
+    el.style.top = `${Math.round(r.bottom + 10)}px`;
+    el.style.right = `${right}px`;
+    const arrowRight = Math.round(window.innerWidth - (r.left + r.width / 2) - right - 6);
+    el.style.setProperty('--notice-arrow-right', `${Math.max(10, arrowRight)}px`);
+
+    btn.classList.add('pulse');
+    requestAnimationFrame(() => el.classList.add('show'));
+    el._timer = setTimeout(dismissDisplayScriptNotice, 15000);
+  }
+
+  function initDisplayScript() {
+    const btn = $('displayScriptToggleBtn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        dismissDisplayScriptNotice();
+        applyDisplayScript(isHansDisplay() ? 'hant' : 'hans', true, { announce: true });
+      });
+    }
+    const group = $('settingDisplayScriptGroup');
+    if (group) {
+      $$('.segment-btn', group).forEach(b => {
+        b.addEventListener('click', () => {
+          const v = normalizeDisplayScript(b.getAttribute('data-value'));
+          if (v && v !== state.displayScript) {
+            dismissDisplayScriptNotice();
+            applyDisplayScript(v, true, { announce: true });
+          }
+        });
+      });
+    }
+
+    updateDisplayScriptUI();
+    if (isHansDisplay()) {
+      applyDisplayScript('hans', false).then(ok => {
+        if (ok && displayScriptAutoSelected) showDisplayScriptNotice();
+      });
+    } else {
+      markDisplayScriptReady();
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════
   // §15 RECENT FILES (Top 20)
   // ═══════════════════════════════════════════════════════════
@@ -6533,7 +6842,7 @@
     list.unshift({
       filePath,
       fileName,
-      time: new Date().toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      time: new Date().toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     });
     if (list.length > 20) list = list.slice(0, 20);
     state.recentFiles = list;
@@ -6701,7 +7010,7 @@
       list.unshift({
         filePath,
         fileName,
-        time: new Date().toLocaleDateString('zh-TW')
+        time: new Date().toLocaleDateString(activeLocale())
       });
       isBookmarked = true;
       showToast('已新增至書籤', 'success');
@@ -6892,7 +7201,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -6907,6 +7216,7 @@
           lineHeight: state.lineHeight || storage.get(STORAGE_KEYS.LINE_HEIGHT) || '1.8',
           maxWidth: state.maxWidth || storage.get(STORAGE_KEYS.MAX_WIDTH) || (isMobileBrowser() ? '95%' : '800px'),
           autoS2T: state.autoS2T !== undefined ? state.autoS2T : (storage.get(STORAGE_KEYS.AUTO_S2T) === 'true'),
+          displayScript: normalizeDisplayScript(state.displayScript) || normalizeDisplayScript(storage.get(STORAGE_KEYS.DISPLAY_SCRIPT)) || 'hant',
           autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED) !== 'false'),
           searchMode: state.searchMode
         },
@@ -6982,6 +7292,10 @@
         }
         if (typeof pref.autoS2T === 'boolean') {
           applyAutoS2T(pref.autoS2T, true);
+        }
+        // 舊版備份沒有 displayScript：保留目前設定，不回退成繁體
+        if (normalizeDisplayScript(pref.displayScript) && pref.displayScript !== state.displayScript) {
+          applyDisplayScript(pref.displayScript, true);
         }
         if (typeof pref.autoReadProgress === 'boolean') {
           applyAutoReadProgress(pref.autoReadProgress, true);
@@ -8784,10 +9098,11 @@
 
     const s2tChk = $('settingAutoS2TCheck');
     if (s2tChk) s2tChk.checked = !!state.autoS2T;
+    updateDisplayScriptUI();
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9119,7 +9434,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.6';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.7';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10128,7 +10443,7 @@
       const d = new Date(isoStr);
       if (isNaN(d.getTime())) return isoStr;
       const targetTz = (tz === 'auto' || !tz) ? getEffectiveTimezone() : tz;
-      const formatter = new Intl.DateTimeFormat('zh-TW', {
+      const formatter = new Intl.DateTimeFormat(activeLocale(), {
         timeZone: targetTz,
         year: 'numeric',
         month: '2-digit',
@@ -11304,6 +11619,9 @@
     let currentShareUrl = '';
     let currentLineNum = null;
     let currentSelectedText = '';
+    // 簡體顯示時 currentSelectedText 是還原後的繁體原文，查詢時不可再做簡轉繁
+    // （否則「皇后」會被轉成「皇後」）
+    let currentSelectedIsOriginal = false;
 
     document.addEventListener('mouseup', () => {
       // Small timeout to let selection clear/update
@@ -11332,6 +11650,15 @@
         }
 
         currentSelectedText = text;
+        currentSelectedIsOriginal = false;
+        const ds = window.mdDisplayScript;
+        if (isHansDisplay() && ds && ds.isActive()) {
+          const orig = ds.originalTextOfRange(range);
+          if (orig && orig.trim()) {
+            currentSelectedText = orig.trim();
+            currentSelectedIsOriginal = true;
+          }
+        }
         currentLineNum = lineNum;
 
         // Calculate position: right above/right of the selection
@@ -11381,16 +11708,17 @@
 
       let rawSelected = (currentSelectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const queryText = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
+      const queryText = (!currentSelectedIsOriginal && s2tQueryEnabled() && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const searchInput = $('globalSearchInput');
       if (searchInput) searchInput.focus();
-      activateSearchPanel(queryText);
+      activateSearchPanel(queryText, { original: currentSelectedIsOriginal });
     });
 
     // 2. 辭典查詢按鈕
     dictBtn.addEventListener('click', async () => {
       if (!currentSelectedText) return;
       const selectedText = currentSelectedText; // capture before popup hides
+      const selectedIsOriginal = currentSelectedIsOriginal;
       popup.classList.remove('visible');
 
       // Enable dictionary and open right sidebar
@@ -11405,13 +11733,13 @@
 
       let rawSelected = (selectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const queryText = (state.autoS2T && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
+      const queryText = (!selectedIsOriginal && s2tQueryEnabled() && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const dictInput = $('dictSearchInput');
       if (dictInput) {
         dictInput.value = queryText;
         dictInput.focus();
       }
-      runDictSearch(queryText);
+      runDictSearch(queryText, { original: selectedIsOriginal });
     });
 
     // 3. 分享指定行按鈕

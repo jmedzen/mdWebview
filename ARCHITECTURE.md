@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.10.6 | 最後更新：2026-10
+> 版本：v3.10.7 | 最後更新：2026-10
 
 ---
 
@@ -21,6 +21,7 @@
    - [7.1 集中式常數池與安全儲存封裝](#71-集中式常數池與安全儲存封裝)
    - [7.2 偏好備份與還原機制](#72-偏好備份與還原機制)
    - [7.3 簡轉繁依瀏覽器語言自動啟用](#73-簡轉繁依瀏覽器語言自動啟用v3103)
+   - [7.4 繁／簡顯示切換](#74-繁簡顯示切換v3107)
 8. [後端模組架構與 API 路由索引](#8-後端模組架構與-api-路由索引)
    - [8.1 lib/ 原生模組職責劃分](#81-lib-原生模組職責劃分)
    - [8.2 server.js 段落分區表](#82-serverjs-段落分區表section-map)
@@ -448,7 +449,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     PrefUI["使用者設定彈窗\n(#userSettingsOverlay)"] --> Tabs["設定分頁\n- 外觀主題 (Theme)\n- 視覺排版 (Typography & Layout)\n- 偏好備份與還原 (Backup & Restore)"]
-    Tabs --> Settings["排版偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶 (readProgress)\n- 自動簡體轉繁體 (autoS2T)"]
+    Tabs --> Settings["排版偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶 (readProgress)\n- 自動簡體轉繁體 (autoS2T)\n- 繁簡顯示 (displayScript)"]
     Settings --> StorageAPI["storage 安全封裝物件\n(get / set / remove / getJson / setJson)"]
     StorageAPI --> LocalStorage["localStorage 獨立持久化\n(基於 STORAGE_KEYS 常數池)"]
     Settings --> LiveApply["即時 CSS 變數與 DOM 更新\n(零重載刷新閱讀畫面)"]
@@ -468,6 +469,7 @@ flowchart TD
 | `LINE_HEIGHT` | `mdWebview-user-lineheight` | 行高倍率（`1.6`, `1.8`, `2.0`） |
 | `MAX_WIDTH` | `mdWebview-user-maxwidth` | 閱讀容器最大寬度（`800px`, `1000px`, `100%`） |
 | `AUTO_S2T` | `mdWebview-auto-s2t` | 自動簡轉繁開關（`'true'` 或 `'false'`） |
+| `DISPLAY_SCRIPT` | `mdWebview-display-script` | 繁簡顯示（`'hant'` 或 `'hans'`；`i18n/boot.js` 也直接讀取此鍵） |
 | `READ_PROGRESS_ENABLED` | `mdWebview-user-readprogress` | 是否啟用自動記錄/恢復閱讀進度 |
 | `LAST_READ_PROGRESS` | `mdWebview-last-read-progress` | 最近閱讀經文路徑與行號錨點 |
 | `RECENT_FILES` | `mdWebview-user-recentfiles` | 最近開啟經文清單（上限 20 筆 JSON） |
@@ -540,6 +542,62 @@ if (existing === 'true' || existing === 'false') return false;
 | `en-US` | 無 | 保持未設定、開關未勾 | ✅ |
 | `zh-CN` | `'false'` | 尊重既有值，不覆寫 | ✅ |
 | `zh-TW` | `'true'` | 保持 `'true'` | ✅ |
+
+### 7.4 繁／簡顯示切換（v3.10.7）
+
+全站預設以繁體顯示；右上角的 **繁／简** 按鈕可切換整個網站（介面與經文）為簡體。按鈕文字顯示目前字形，點擊立即切換並寫入 `DISPLAY_SCRIPT`；偏好設定「繁簡顯示」也有同一組選項。
+
+**首次造訪自動切換**
+
+`maybeAutoSelectDisplayScriptFromLocale()` 沿用 §7.3 的三條原則：在讀取 `userDisplayScript` 之前執行、絕不覆寫已存的 `'hant'`／`'hans'`、結果寫入 localStorage。只有「這一次是自動切換」時才在按鈕下方顯示提示（簡體撰寫，說明依瀏覽器語言切換、可點右上角按鈕切回），15 秒後或按「知道了」關閉；之後重新整理不再出現。
+
+**轉換方式：瀏覽器端即時轉換，原文不動**
+
+經文與介面原文都是繁體，伺服器、ETag、SSR 爬蟲頁一律不變。簡體顯示由 `i18n/display-script.js` 在瀏覽器端轉換畫面上的文字節點：
+
+| 區域 | OpenCC 轉換 | 修正表 | 理由 |
+| :--- | :--- | :--- | :--- |
+| 內文區：`#markdownBody`、`#fileTree`、`#searchResults`、`#tocList`、`#dictResults`、`.file-path`、最近閱讀與書籤… | `tw → cn` 逐字 | `content` | 不做詞彙替換，避免經文用詞被改寫（「軟體」不會變「软件」） |
+| 介面區：其餘所有元素 | `twp → cn` 含詞彙 | `ui` | 台灣用語轉大陸用語（檔案→文件、搜尋→搜索、設定→设置） |
+
+- **不轉換**：`script`、`style`、`textarea`（內容）、`code`、`pre`、`kbd`、`samp`、`svg`、`.katex`、`.mermaid`、`[data-no-t2s]`、可編輯區。屬性只轉 `title`、`placeholder`、`aria-label`；`href`、`src`、`id`、`data-*` 不動。
+- **動態內容**：`MutationObserver` 監看整份文件，虛擬捲動區塊、搜尋結果、Toast 等新節點自動轉換，`app.js` 的渲染程式不需個別處理。
+- **保留原文**：每個被轉換的文字節點與屬性都以 `WeakMap` 記住原文。切回繁體時逐字還原，而非以簡轉繁反推（後／后、髮／发、乾／干 無法反推）。搜尋高亮會切開文字節點、新節點沒有原文紀錄；切回時若偵測到這類節點，就重新渲染目前檔案，確保與原文一致。
+- **二次轉換防護**：OpenCC 有三個輸出字再轉一次還會改變（麼→么→幺、薴→苧→苎），程式複製已轉換文字成新節點時會被誤轉，故這些字原樣保留；清單由測試全字掃描驗證。
+- **修正表** `i18n/content-terms.js`：鍵是 OpenCC 轉換「後」的簡體字串，例如 `['干慧地', '乾慧地']`。檔頭說明新增步驟。
+
+**搜尋銜接**
+
+- 索引是繁體。簡體顯示時 `s2tQueryEnabled()` 一律為真：查詢先簡轉繁，但輸入框保留使用者輸入的簡體。
+- 劃詞搜尋與辭典查詢以 `originalTextOfRange()` 取回**繁體原文**（逐字對齊 `range.toString()`），並以 `{ original: true }` 略過簡轉繁，避免「皇后」被轉成「皇後」。
+- 高亮（`highlightTermVariants`）、頁內搜尋把繁體關鍵字再轉成畫面字形比對；wikilink 標題索引（`buildHeadingMap`）以原文建立。
+
+**載入與防閃爍**
+
+- OpenCC（`vendor/opencc/t2cn.js`，opencc-js 1.4.2，約 110 KB，MIT／Apache-2.0）只在簡體顯示時才下載；Service Worker 仍預快取，離線時也能切換。
+- `i18n/boot.js` 於 `<head>` 同步執行：預判本次為簡體時先設 `data-display-script="hans"` 並預載 OpenCC，CSS 隱藏 body；`app.js` 轉換完成後設 `data-t2s-ready` 才顯示，4 秒保底。
+- 簡體顯示改用系統簡體字型（`--cjk-serif`／`--cjk-sans`），避免 Noto Serif TC 以台灣字形畫簡體字。
+- `<html lang>` 隨之切換為 `zh-Hans`／`zh-TW`；前端日期格式改用 `activeLocale()`。OpenCC 載入失敗時畫面退回繁體並提示，但不改寫偏好，下次進站再試。
+
+**介面字串表（i18n）**
+
+`i18n/zh-TW.js`、`i18n/zh-CN.js` 只收錄需依語系撰寫不同措辭的字串（切換按鈕、首次提示、設定說明），以 `mdI18n.t(key, params)` 查表、`data-i18n`／`data-i18n-attr` 標記靜態 HTML。其餘介面文字由上表的介面區轉換處理，因此不必把全部 UI 字串搬進字串表。兩份表的鍵、`{參數}` 與 `index.html` 標記的一致性由 `tests/test-i18n.test.js` 檢查。
+
+**備份相容**：`exportUserPreferences` 匯出 `displayScript`；匯入時只接受 `'hant'`／`'hans'`，舊版備份沒有此欄位時保留目前設定。
+
+**端對端驗證**（無頭 Chrome，以 CDP 覆寫 `navigator.language`）：
+
+| 情境 | 預期 | 結果 |
+| :--- | :--- | :---: |
+| `zh-CN` 首次造訪 | 自動切簡體、寫入 `'hans'`、按鈕顯示「简」、出現提示、介面與經文皆簡體 | ✅ |
+| 重新整理 | 維持簡體、不再提示 | ✅ |
+| 簡體下頁內搜尋（簡／繁關鍵字）、全庫搜尋（簡體輸入） | 皆可命中，結果以簡體顯示 | ✅ |
+| 簡體下劃詞搜尋 | 送出繁體原文「照見五蘊」 | ✅ |
+| 辭典結果與詞條 | 以簡體顯示 | ✅ |
+| 頁內搜尋高亮後切回繁體 | 經文與直接以繁體開啟者逐字相同 | ✅ |
+| `zh-TW` 首次造訪 | 維持繁體、不寫入、不提示、不下載 OpenCC | ✅ |
+| 繁體下手動切簡體 | 即時轉換、記住偏好、不跳首次提示 | ✅ |
+| 375px 行動版 | 按鈕可見且在畫面內 | ✅ |
 
 ---
 
@@ -731,6 +789,7 @@ flowchart TD
 | `maxWidth` | `string` | 閱讀區最大寬度 CSS 值，行動版預設 `95%`，桌面版 `800px` |
 | `autoReadProgress` | `boolean` | 是否自動儲存/恢復閱讀進度 |
 | `autoS2T` | `boolean` | 是否自動將簡體中文轉換為繁體中文。全站預設 `false`；若使用者從未設定過，且瀏覽器主要語言為簡體中文，首次造訪時自動設為 `true` 並寫入 localStorage（見 §7.3） |
+| `displayScript` | `string` | 繁簡顯示，`'hant'`（預設）或 `'hans'`。規則同 `autoS2T`：從未設定且瀏覽器為簡體中文時，首次造訪自動設為 `'hans'` 並顯示一次提示（見 §7.4） |
 | `isMobile` | `boolean` | 是否為行動裝置（UA 或視窗寬度 ≤ 768px） |
 | `siteName` | `string` | 站台名稱，來自 `config.settings.siteName`，預設 `'mdWebview'` |
 | `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
@@ -868,7 +927,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.10.6'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.10.7'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
