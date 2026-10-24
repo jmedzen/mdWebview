@@ -19,6 +19,9 @@
 - 🎨 **五種閱讀配色**：暗色、亮色、Solarized、禪風、Gruvbox，挑自己看得順眼的。
 - 📱 **排版自己調**：字的大小、行距、文字靠左或靠中、每行多寬，都能自己設定。
 - 🔤 **簡體自動轉繁體**：讀簡體資料時可以開啟自動轉換；搜尋時也會一併轉換，不怕漏找。
+  - 系統預設關閉，但若你的瀏覽器語言是簡體中文（`zh-CN`／`zh-Hans`／`zh-SG`），
+    首次造訪會自動幫你開啟並記住。之後你仍可隨時在偏好設定裡關掉；
+    一旦手動選擇過，系統就不會再更動你的設定。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
 **搜尋**
@@ -37,6 +40,11 @@
 - 🌐 **分享到社群**：把網址貼到 Facebook、Line 等地方時，會自動顯示標題、簡介與預覽圖。
 - 🔒 **後台管理**：管理員可設定站名、公告與推薦清單，查看使用情況與系統狀態，並匯出報表。密碼以加密方式保存，有人反覆嘗試登入會被暫時擋下；登入與登出也都有記錄，方便日後追查。
 - 📦 **離線也能看**：核心程式都放在自己的網站上，不依賴外部服務。看過的內容在斷網後仍可重看；若點開還沒下載過的經文，會清楚顯示「目前處於離線狀態，此經文尚未快取」，而不是空白畫面。
+- 📲 **加到手機桌面**：可以像 App 一樣放在桌面，點一下就讀，不必每次開瀏覽器。
+  - 讀過幾篇之後，首頁會出現一張卡片詢問；不想裝也有「以後再說」，30 天內不再打擾。
+  - iPhone／iPad 沒有捷徑可觸發，會顯示三個步驟的圖文教學。
+  - 偏好設定裡永遠保留入口，改變主意時隨時找得到。
+  - 已加到桌面的人不會再看到任何提示。
 - 🐳 **可安裝在自己的電腦或伺服器**：支援 Docker，一個指令就能啟動。
 
 ---
@@ -128,7 +136,8 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 > ⚠️ 拼錯的 `MDW_DEPLOY_TARGET` 會**回退 `web`**（安全預設），
 > 避免本該受保護的部署意外變成免登入。
 
-> 💡 若要自行以 Tauri／Electron 包裝單機版，請使用**固定連接埠**而非隨機埠。
+> 💡 單機模式只是伺服器的一種執行型態，本專案不含桌面外殼程式。
+> 若你要自行以 Tauri／Electron 等方案包裝，請使用**固定連接埠**而非隨機埠——
 > 瀏覽器的偏好設定（主題、字級、書籤、閱讀進度）以網址來源為界，
 > 隨機埠會讓這些設定每次啟動都失效。設 `MDW_PORT_SCAN=1` 可在埠被占用時自動往後找。
 
@@ -212,6 +221,7 @@ mdWebview/
 - 🎨 **Five reading color schemes**: Dark, Light, Solarized, Zen, and Gruvbox. Pick whichever is easiest on your eyes.
 - 📱 **Adjust the layout**: Set the text size, line spacing, whether text is left-aligned or centered, and how wide each line is.
 - 🔤 **Simplified to Traditional Chinese**: Turn on automatic conversion when reading Simplified Chinese texts. Searches are converted the same way, so nothing is missed.
+  - Off by default, but if your browser language is Simplified Chinese (`zh-CN`, `zh-Hans`, `zh-SG`) it turns on automatically on your first visit and is remembered. You can switch it off any time in the settings; once you have chosen, the system will not change it for you.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
 
 **Searching**
@@ -230,6 +240,11 @@ mdWebview/
 - 🌐 **Sharing on social media**: Paste a link into Facebook, Line, or similar and it shows a title, description, and preview image.
 - 🔒 **Admin area**: Administrators can set the site name, announcements, and recommended reading, view usage and system status, and export reports. Passwords are stored encrypted, repeated failed sign-in attempts are temporarily blocked, and sign-ins and sign-outs are logged for later review.
 - 📦 **Works offline**: The core files are all hosted on your own site with no outside services. Anything you have already viewed stays readable without a network; if you open a text that was never downloaded, you get a clear "you are offline and this text is not cached yet" message rather than a blank page.
+- 📲 **Add to your home screen**: Install it like an app and open a text in one tap, without launching a browser.
+  - After you have read a few texts, a card on the home page offers to install it. Choose "later" and it stays quiet for 30 days.
+  - iPhone and iPad cannot be triggered programmatically, so a three-step illustrated guide is shown instead.
+  - The settings panel always keeps an entry, so you can change your mind later.
+  - Anyone who has already installed it never sees the prompts again.
 - 🐳 **Install on your own computer or server**: Docker is supported — one command gets it running.
 
 ---
@@ -319,7 +334,7 @@ In single-user mode:
 
 > ⚠️ A misspelled `MDW_DEPLOY_TARGET` falls back to `web`, the safe default, so a deployment that should be protected never silently becomes login-free.
 
-> 💡 If you package the single-user build yourself with Tauri or Electron, use a **fixed port** rather than a random one. Browser preferences — theme, font size, bookmarks, reading progress — are scoped to the page origin, so a random port would discard them on every launch. Set `MDW_PORT_SCAN=1` to walk forward when the port is taken.
+> 💡 Single-user mode is only a run mode of the server; this project ships no desktop shell. If you wrap it yourself with Tauri, Electron or similar, use a **fixed port** rather than a random one — browser preferences (theme, font size, bookmarks, reading progress) are scoped to the page origin, so a random port would discard them on every launch. Set `MDW_PORT_SCAN=1` to walk forward when the port is taken.
 
 ---
 

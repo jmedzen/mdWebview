@@ -1,8 +1,8 @@
 # 🏗️ mdWebview — Architecture Reference
 
-> **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
+> **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.10.3 | 最後更新：2026-11
+> 版本：v3.10.3 | 最後更新：2026-10
 
 ---
 
@@ -20,6 +20,7 @@
 7. [使用者偏好與排版控制](#7-使用者偏好與排版控制)
    - [7.1 集中式常數池與安全儲存封裝](#71-集中式常數池與安全儲存封裝)
    - [7.2 偏好備份與還原機制](#72-偏好備份與還原機制)
+   - [7.3 簡轉繁依瀏覽器語言自動啟用](#73-簡轉繁依瀏覽器語言自動啟用v3103)
 8. [後端模組架構與 API 路由索引](#8-後端模組架構與-api-路由索引)
    - [8.1 lib/ 原生模組職責劃分](#81-lib-原生模組職責劃分)
    - [8.2 server.js API 路由索引表](#82-serverjs-api-路由索引表)
@@ -33,6 +34,8 @@
 14. [CI/CD 與自動化維護工作流程](#14-cicd-與自動化維護工作流程)
 15. [前端高並發與競態防護設計](#15-前端高並發與競態防護設計)
 16. [CSS 樣式系統與響應式斷點設計](#16-css-樣式系統與響應式斷點設計)
+    - [16.4 首頁垂直溢出防護](#164-首頁垂直溢出防護v3102)
+17. [PWA 安裝引導](#17-pwa-安裝引導v3101)
 
 ---
 
@@ -474,6 +477,8 @@ flowchart TD
 | `FORCE_FULL` | `mdWebview-force-full` | 虛擬化超大經文強制全量展開旗標 |
 | `SEARCH_MODE` | `mdWebview-search-mode` | 全文搜尋模式偏好（`'loose'` 或 `'strict'`） |
 | `ANNOUNCEMENT_ACK` | `mdWebview-announcement-modal-ack` | 今日公告已確認紀錄簽章 |
+| `INSTALL_DISMISSED` | `mdWebview-install-dismissed` | 婉拒安裝引導的時間戳（30 天內不再提示，見 §17） |
+| `INSTALL_INSTALLED` | `mdWebview-install-done` | 已安裝至桌面的旗標，一旦寫入即永久停用所有安裝提示 |
 
 #### 2. storage 防例外包裝工具
 - `storage.get(key, fallback)`：內建 try-catch，無拋錯讀取字串。
@@ -489,6 +494,51 @@ flowchart TD
 - **還原驗證與向下相容**：支援拖曳或上傳 JSON 檔案，進行結構合法性檢查後原子化覆蓋偏好並即時刷新介面；`searchMode` 經值驗證（只接受 `'loose'` 或 `'strict'`）後還原，若舊備份檔無此欄位則維持現狀，具備完全向下相容性。
 - **UI 整合淨化**：移除舊版位於 UI 底部左下角的重複「下載備份」按鈕，統一集中由「使用者設定」彈窗掌管，維持首頁與閱讀介面的乾淨簡約。
 
+### 7.3 簡轉繁依瀏覽器語言自動啟用（v3.10.3）
+
+站台內文一律為繁體，簡體中文使用者初次造訪時會有閱讀落差，因此對他們預設開啟 `autoS2T`。這項行為刻意寫得保守，避免變成「自作主張」：
+
+**啟動順序是硬性要求**
+
+`maybeAutoEnableS2TFromLocale()` 必須在 `const userAutoS2T = storage.get(...)` **之前**執行（`app.js` 第 205 行）。若順序顛倒，`state.autoS2T` 會先套用舊值（`null → false`），自動啟用的結果永遠進不到 state。此順序由 `tests/test-s2t-locale.test.js` 斷言鎖定。
+
+**絕不覆寫使用者已表達的偏好**
+
+```js
+if (existing === 'true' || existing === 'false') return false;
+```
+
+這是整個設計最重要的一條。若每次載入都依語言重新判斷，使用者手動關閉後下次進站又被打開，等於設定功能失效。因此只有 `AUTO_S2T` 完全不存在時才介入。
+
+**必須寫入 localStorage，不能只改記憶體狀態**
+
+若只改 `state`，重新整理即失效、換分頁不同步、偏好備份匯出不一致，也無法阻止每次載入重複自動啟用。寫入 localStorage 同時解決這四個問題。
+
+**語言判定規則**（`isSimplifiedChineseLocale()`）
+
+| 標籤 | 判定 | 理由 |
+| :--- | :---: | :--- |
+| `zh-CN`／`zh_CN`／`zh-CN.UTF-8` | ✅ | 地區碼；分隔符先正規化為 `-` |
+| `zh-Hans`／`zh-Hans-CN` | ✅ | 語法標記，Chrome 部分平台採用而非地區碼 |
+| `zh-SG` | ✅ | 新加坡官方使用簡體 |
+| `zh-TW`／`zh-HK`／`zh-Hant` | ❌ | 明確為繁體 |
+| `zh`（裸標籤） | ❌ | 無法區分繁簡，寧可維持站台原本的繁體預設 |
+
+判定僅取 `navigator.language`（主要語言），不讀 `navigator.languages`。一個主要語言為英文、僅將 `zh-CN` 排在次要順位者，預期介面語境仍是英文，不應被套用轉換。
+
+`navigator` 不可用或 localStorage 拋錯時，函式一律回傳 `false` 且不拋出例外，確保啟動流程不中斷。
+
+**端對端驗證**（以 CDP `Page.addScriptToEvaluateOnNewDocument` 於頁面載入前覆寫 `navigator.language`）：
+
+| 語言 | 既有設定 | 預期 | 結果 |
+| :--- | :--- | :--- | :---: |
+| `zh-CN` | 無 | 自動設為 `true`，開關勾選 | ✅ |
+| `zh-Hans` | 無 | 自動設為 `true`，開關勾選 | ✅ |
+| `zh-TW` | 無 | 保持未設定、開關未勾 | ✅ |
+| `en-US` | 無 | 保持未設定、開關未勾 | ✅ |
+| `zh-CN` | `'false'` | 尊重既有值，不覆寫 | ✅ |
+| `zh-TW` | `'true'` | 保持 `'true'` | ✅ |
+
 ---
 
 ## 8. 後端模組架構與 API 路由索引
@@ -499,7 +549,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    ServerEntry["server.js (主服務入口 5,069 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
+    ServerEntry["server.js (主服務入口 5,600 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
 
     ServerEntry --> ConstMod["lib/constants.js\n全域常數 / MIME / 安全標頭"]
     ServerEntry --> UtilMod["lib/utils.js\n時區 / PRNG / 爬蟲辨識 / 路徑安全"]
@@ -627,7 +677,7 @@ flowchart TD
 | `lineHeight` | `string` | 行高倍數字串：`'1.6'`|`'1.8'`|`'2.0'` |
 | `maxWidth` | `string` | 閱讀區最大寬度 CSS 值，行動版預設 `95%`，桌面版 `800px` |
 | `autoReadProgress` | `boolean` | 是否自動儲存/恢復閱讀進度 |
-| `autoS2T` | `boolean` | 是否自動將簡體中文轉換為繁體中文（全站預設 `false`，儲存於 localStorage） |
+| `autoS2T` | `boolean` | 是否自動將簡體中文轉換為繁體中文。全站預設 `false`；若使用者從未設定過，且瀏覽器主要語言為簡體中文，首次造訪時自動設為 `true` 並寫入 localStorage（見 §7.3） |
 | `isMobile` | `boolean` | 是否為行動裝置（UA 或視窗寬度 ≤ 768px） |
 | `siteName` | `string` | 站台名稱，來自 `config.settings.siteName`，預設 `'mdWebview'` |
 | `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
@@ -758,7 +808,7 @@ flowchart TD
 | 常數 | 定義位置 | 值 | 說明 |
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
-| `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號。自行以 Tauri／Electron 包裝時應傳入固定埠，勿用隨機埠 |
+| `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號。本專案不含桌面外殼；若自行以 Tauri／Electron 等方案包裝，應傳入固定埠而非隨機埠，否則瀏覽器偏好（以 origin 為界）每次啟動都會失效 |
 | `MDW_DEPLOY_TARGET` | `lib/constants.js` | `'web'`（env `MDW_DEPLOY_TARGET`） | 部署型態：`web`／`mac-app`／`win-app`／`linux-app`／`ios-app`／`android-app`。非 `web` 即為單機模式（停用 admin／SEO／數據分析）。**未知值一律回退 `web`** |
 | `IS_SINGLE_USER` | `lib/constants.js` | `false` | `DEPLOY_TARGET !== 'web'`。單機模式總開關 |
 | `MDW_PORT_SCAN` | `lib/constants.js` | `false` | `true`／`1` 時，固定埠被占用會依序嘗試 `PORT+1 … PORT+10`，全滿才退回 OS 配發埠。單機包裝建議設為 `1` |
@@ -1010,3 +1060,95 @@ flowchart TD
   以 `sidebar.offsetWidth` 為基準，未對把手寬度做任何硬編碼假設。
 
 行動端（≤768px）與列印（`@media print`）皆完全隱藏把手，不提供拖曳調整（見 §16.1）。
+
+### 16.4 首頁垂直溢出防護（v3.10.2）
+
+**症狀**：iPhone 首頁最上方的蓮花 🪷 完全消失，且在畫面上任何方向的滑動都無法讓它出現。
+
+**成因**：`.welcome-screen` 同時使用 `height: 100%` 與 `justify-content: center`。內容一旦超過容器高度，flex 置中會讓**上下兩端同時溢出**——下方溢出仍可向下捲動，但上方溢出落在捲動原點之上，該處沒有任何捲動空間，因此永遠搆不到。
+
+這是 v3.10.1 安裝引導卡片（約 163px）造成的回歸：它把原本勉強塞得下的首頁推過了臨界點。
+
+**實測數據**（375×667，模擬 3 項推薦清單 + 安裝卡片顯示）：
+
+| 項目 | 修前 | 修後 |
+| :--- | ---: | ---: |
+| 內容總高 | 702px | 819px |
+| 容器可視高 | 619px | 619px |
+| 蓮花 `top` | **−33px** | **66px** |
+| 被裁切高度 | 81px | 0px |
+| `scrollTop = 0` 後 | 仍為 −33px | 正常可見 |
+
+修後於 375×667、390×844、393×852 三種尺寸驗證，蓮花 `top` 分別為 66 / 64 / 72px，均完整可見且容器可正常捲動。
+
+**修法**：
+
+```css
+.welcome-screen {
+  min-height: 100%;      /* 原為 height: 100% */
+  padding: 24px 16px;
+  box-sizing: border-box;
+  justify-content: center;   /* 保留，內容較矮時仍置中 */
+}
+```
+
+改為 `min-height` 後，容器高度隨內容成長，溢出交給父層 `.content` 的 `overflow-y: auto` 處理；內容較矮時置中效果完全不變。
+
+**防護措施**：`tests/test-welcome-overflow.test.js`（4 項）斷言 `.welcome-screen` 不得使用 `height: 100%`、必須使用 `min-height: 100%`、保留置中，並確認安裝卡片位於 `#welcomeScreen` 內以隨首頁一起捲動。測試的失敗訊息直接寫明後果，避免後人以「看起來比較簡潔」為由改回固定高度。
+
+> ⚠️ 同類陷阱：任何 `display: flex` + 固定高度 + `justify-content: center` 且內容可能超出的容器，都有相同的「頂端不可及」問題。此類容器應改用 `min-height`，或改用 `justify-content: safe center`（需留意瀏覽器支援度）。
+
+---
+
+## 17. PWA 安裝引導（v3.10.1）
+
+讓使用者知道可以把站台「加到手機桌面」。設計原則是**不在第一次造訪就打擾**，且任何提示都必須有禮貌的退出方式。
+
+### 17.1 顯示時機
+
+同時滿足以下條件才會出現首頁安裝卡片：
+
+| 條件 | 判斷依據 |
+| :--- | :--- |
+| 不是獨立視窗模式 | `isStandaloneMode()`：`matchMedia('(display-mode: standalone)')` 或 `navigator.standalone === true` |
+| 尚未安裝 | `localStorage` 無 `mdWebview-install-done` |
+| 未被暫時婉拒 | 距上次「以後再說」超過 30 天（`mdWebview-install-dismissed`） |
+| 已建立使用意圖 | `recentFiles.length >= 2` **或** 存在 `LAST_READ_PROGRESS.filePath` |
+
+「已建立使用意圖」是核心門檻：讀過至少兩篇、或至少有一篇讀到一半，才代表這人真的在用，此時建議安裝才有意義。
+
+### 17.2 平台分流
+
+| 平台 | 行為 |
+| :--- | :--- |
+| Chromium（Android／桌機） | 攔截 `beforeinstallprompt` 存入 `_deferredInstallPrompt`，按下安裝時呼叫 `prompt()` |
+| iOS／iPadOS | Safari 不支援 `beforeinstallprompt`，改顯示三步驟圖文教學 Modal |
+| 已安裝 | 所有提示永久停用，設定入口也一併隱藏 |
+
+iPadOS 的判定需特別處理：其 UA 與 macOS Safari 相同，因此額外檢查 `navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1`。
+
+### 17.3 三個入口
+
+1. **首頁卡片**：`#installCard`，位於 `#welcomeScreen` 內，隨首頁一起捲動。
+2. **圖文教學 Modal**：`#installGuideOverlay`，三個步驟各帶行內 SVG 圖示。
+3. **設定常駐入口**：`#installSettingsSection`（閱讀紀錄分頁），永久保留，讓改變主意的使用者隨時找得到。
+
+### 17.4 兩個實作陷阱
+
+**`.install-card[hidden]` 需要 `!important`**
+
+`.install-card` 使用 `display: flex`，會覆蓋 `[hidden]` 的預設 `display: none`。因此必須明寫：
+
+```css
+.install-card[hidden] { display: none !important; }
+```
+
+**文案避開技術術語**
+
+使用者不需要知道「PWA」、「Service Worker」、「離線快取」。卡片只說「加到手機桌面，點一下就能讀」。
+
+### 17.5 測試
+
+`tests/test-pwa-install-prompt.test.js`（22 項）涵蓋：卡片與 Modal 結構、三步驟與行內 SVG（禁止外部 `<img src=>`）、`hidden` 預設值、「以後再說」寫入 30 天、iPadOS 判定、iOS 走教學 Modal、Chromium 攔截 `beforeinstallprompt`、`appinstalled` 事件、`setupInstallPrompt()` 於 `init()` 內被呼叫、`goHome()` 觸發卡片、`.install-card[hidden]` 的 `!important`、`prefers-reduced-motion` 支援。
+
+
