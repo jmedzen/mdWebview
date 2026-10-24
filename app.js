@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.8
+   mdWebview — Application Logic (app.js) v3.10.9
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6664,6 +6664,44 @@
         btn.classList.toggle('active', btn.getAttribute('data-value') === state.displayScript);
       });
     }
+    centerDisplayScriptGlyph();
+  }
+
+  /**
+   * 將切換鈕上的「繁／简」字形依實際墨跡置中。
+   *
+   * CSS 只能把字的 content area 置中，墨跡位置則取決於字型：繁由 Noto Serif TC
+   * 呈現，简不在該字型內，會退回各平台的系統字型（如 Songti SC），兩者的
+   * ascent/descent 與字面位置都不同，固定的 CSS 偏移無法同時兼顧。改以 canvas
+   * 量測墨跡外框，算出與字框中心的差距，以 em 為單位寫入 CSS 變數，介面字級
+   * 縮放時不必重算。
+   */
+  function centerDisplayScriptGlyph() {
+    const glyph = document.querySelector('#displayScriptToggleBtn .display-script-glyph');
+    const textNode = glyph && glyph.firstChild;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE || !textNode.data) return;
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (!ctx) return;
+    glyph.style.removeProperty('--glyph-shift-x');
+    glyph.style.removeProperty('--glyph-shift-y');
+    const cs = getComputedStyle(glyph);
+    const fontSize = parseFloat(cs.fontSize);
+    if (!fontSize) return;
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const m = ctx.measureText(textNode.data);
+    if (!m.actualBoundingBoxAscent && !m.actualBoundingBoxDescent) return;
+    const range = document.createRange();
+    range.selectNodeContents(textNode);
+    const text = range.getBoundingClientRect();
+    const box = glyph.getBoundingClientRect();
+    if (!text.height || !box.height) return;
+    const baseline = text.top + m.fontBoundingBoxAscent;
+    const inkX = text.left + (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2;
+    const inkY = baseline + (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2;
+    const dx = (box.left + box.width / 2 - inkX) / fontSize;
+    const dy = (box.top + box.height / 2 - inkY) / fontSize;
+    glyph.style.setProperty('--glyph-shift-x', `${dx.toFixed(3)}em`);
+    glyph.style.setProperty('--glyph-shift-y', `${dy.toFixed(3)}em`);
   }
 
   /**
@@ -6821,6 +6859,11 @@
     }
 
     updateDisplayScriptUI();
+    // 網頁字型晚於首次量測載入時，字形與墨跡位置會改變，載入後重新置中
+    if (document.fonts && document.fonts.addEventListener) {
+      document.fonts.addEventListener('loadingdone', centerDisplayScriptGlyph);
+      document.fonts.ready.then(centerDisplayScriptGlyph).catch(() => {});
+    }
     if (isHansDisplay()) {
       applyDisplayScript('hans', false).then(ok => {
         if (ok && displayScriptAutoSelected) showDisplayScriptNotice();
@@ -7201,7 +7244,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.8';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.9';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9102,7 +9145,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.8';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.9';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9434,7 +9477,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.8';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.9';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',

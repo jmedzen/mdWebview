@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.10.8
+   mdWebview — Style System (style.css) v3.10.9
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -7834,7 +7834,11 @@ html[data-display-script="hans"] {
 }
 
 .display-script-btn {
-  min-width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
   height: 28px;
   padding: 0;
   border: 1px solid var(--border);
@@ -7850,10 +7854,14 @@ html[data-display-script="hans"] {
   outline-offset: 2px;
 }
 .display-script-glyph {
+  display: block;
   font-family: 'Noto Serif TC', 'Noto Serif SC', 'Songti SC', serif;
   font-size: calc(15px * var(--ui-font-scale, 1));
   font-weight: 700;
   line-height: 1;
+  /* 墨跡置中偏移由 app.js centerDisplayScriptGlyph() 依實際字型量測後寫入 */
+  transform: translate(var(--glyph-shift-x, 0), var(--glyph-shift-y, 0));
+  pointer-events: none;
 }
 .display-script-btn.pulse {
   animation: displayScriptPulse 1.2s ease-out 3;

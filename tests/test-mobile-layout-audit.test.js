@@ -71,5 +71,22 @@ describe('手機版本排版與 RWD 審計自動化測試 (Mobile Layout & RWD A
       }
     }
   });
+  test('8. 繁／简切換鈕與相鄰圖示鈕同尺寸，字形依墨跡置中', () => {
+    const btn = cssContent.match(/\.display-script-btn\s*\{([^}]*)\}/);
+    assert.ok(btn, '.display-script-btn 規則應存在');
+    assert.match(btn[1], /align-items:\s*center;/, '必須垂直置中');
+    assert.match(btn[1], /justify-content:\s*center;/, '必須水平置中');
+    assert.match(btn[1], /(?:^|[\s;])width:\s*32px;/, '寬度須與 .control-btn 的 32px 一致');
+    assert.match(btn[1], /height:\s*28px;/, '高度須與 .control-btn 的 28px 一致');
+    assert.match(btn[1], /padding:\s*0;/, '不得有內距');
+    const glyph = cssContent.match(/\.display-script-glyph\s*\{([^}]*)\}/);
+    assert.ok(glyph, '.display-script-glyph 規則應存在');
+    assert.match(glyph[1], /line-height:\s*1;/, '字形行高必須為 1');
+    // 简不在 Noto Serif TC 內而退回系統字型，墨跡位置因字型而異，須由 JS 量測後偏移
+    assert.match(glyph[1], /transform:\s*translate\(var\(--glyph-shift-x, 0\), var\(--glyph-shift-y, 0\)\);/, '必須套用量測出的墨跡偏移');
+    const appJs = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+    assert.match(appJs, /function centerDisplayScriptGlyph\(\)/, 'app.js 應有墨跡置中函式');
+    assert.match(appJs, /function updateDisplayScriptUI\(\)[\s\S]*?centerDisplayScriptGlyph\(\);[\s\S]*?\n  \}/, '切換繁簡時必須重新置中');
+    assert.match(appJs, /document\.fonts\.addEventListener\('loadingdone', centerDisplayScriptGlyph\)/, '網頁字型載入後必須重新置中');
+  });
 });
-
