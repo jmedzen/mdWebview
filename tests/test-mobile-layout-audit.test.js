@@ -54,5 +54,22 @@ describe('手機版本排版與 RWD 審計自動化測試 (Mobile Layout & RWD A
     // 驗證行動端 .dict-search-input 具備 16px !important，防止 iOS Safari 點擊聚焦時自動放大畫面
     assert.match(cssContent, /\.dict-search-input\s*\{[^}]*font-size:\s*16px\s*!important;/s, '行動端字典輸入框必須設為 16px !important 防止 iOS 自動放大');
   });
+  test('7. 內文標頭「連結」與「加書籤」按鈕共用尺寸，高度與垂直置中一致', () => {
+    const shared = cssContent.match(/\.copy-link-btn,\s*\.bookmark-btn\s*\{([^}]*)\}/);
+    assert.ok(shared, '兩顆按鈕必須共用同一條尺寸規則');
+    const body = shared[1];
+    assert.match(body, /align-items:\s*center;/, '必須垂直置中');
+    assert.match(body, /height:\s*calc\(24px \* var\(--ui-font-scale, 1\)\);/, '必須固定同一高度');
+    assert.match(body, /font-size:\s*calc\(12px \* var\(--ui-font-scale, 1\)\);/, '必須同一字級');
+    assert.match(body, /line-height:\s*1;/, '必須同一行高');
+    // 個別規則不得再覆寫尺寸，否則兩顆按鈕又會高低不一
+    for (const sel of ['copy-link-btn', 'bookmark-btn']) {
+      const own = [...cssContent.matchAll(new RegExp(`(?<!,\\s*)(?:^|\\n)\\.${sel}\\s*\\{([^}]*)\\}`, 'g'))];
+      assert.ok(own.length > 0, `.${sel} 個別規則應存在`);
+      for (const m of own) {
+        assert.doesNotMatch(m[1], /(?:^|[\s;])(?:font-size|padding|height|line-height|margin-left)\s*:/, `.${sel} 個別規則不得覆寫尺寸`);
+      }
+    }
+  });
 });
 

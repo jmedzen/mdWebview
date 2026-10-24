@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.10.7
+   mdWebview — Style System (style.css) v3.10.8
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1417,21 +1417,45 @@ section.chunk.chunk-error {
   line-height: 1.4;
 }
 
-/* Copy-link button (permanently visible) */
-.copy-link-btn {
+/* Copy-link / bookmark buttons share one metric so the pair stays the same
+   height and vertically centred; only colours differ. */
+.copy-link-btn,
+.bookmark-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 3px 8px;
+  box-sizing: border-box;
+  height: calc(24px * var(--ui-font-scale, 1));
+  padding: 0 8px;
   border: 1px solid var(--border-color);
   border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
   font-family: 'Inter', sans-serif;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.copy-link-btn svg,
+.bookmark-btn .bookmark-icon {
+  flex-shrink: 0;
+  width: 1.1em;
+  height: 1.1em;
+}
+.bookmark-btn .bookmark-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* Copy-link button (permanently visible) */
+.copy-link-btn {
+  color: var(--text-muted);
   opacity: 1;
   pointer-events: auto;
 }
@@ -4789,20 +4813,9 @@ mark.search-keyword-highlight {
   padding: 16px 0;
 }
 
-/* Bookmark Button in Header */
+/* Bookmark Button in Header (sizing shared with .copy-link-btn above) */
 .bookmark-btn {
-  background: transparent;
-  border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: calc(13px * var(--ui-font-scale, 1));
-  padding: 3px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 8px;
-  transition: all 0.2s ease;
 }
 
 .bookmark-btn:hover {
