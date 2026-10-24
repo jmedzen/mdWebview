@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.0
+   mdWebview — Application Logic (app.js) v3.10.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -71,7 +71,11 @@
     DICT_FILE_SELECT: 'mdWebview-dict-selected',
     FORCE_FULL: 'mdWebview-force-full',
     SEARCH_MODE: 'mdWebview-search-mode',
-    ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack'
+    ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack',
+    // 安裝引導狀態。DISMISSED 存「以後再說」的時間戳（用來算靜默期），
+    // INSTALLED 存 '1'（一旦安裝就永久不再提）。
+    INSTALL_DISMISSED: 'mdWebview-install-dismissed',
+    INSTALL_INSTALLED: 'mdWebview-install-done'
   };
 
   // ── 安全 LocalStorage 存取工具 (Safe Storage Helper) ───────
@@ -582,6 +586,7 @@
     window.addEventListener('popstate', handleUrlChange);
 
     initPwaServiceWorker();
+    setupInstallPrompt();
   }
 
   function initPwaServiceWorker() {
@@ -627,6 +632,312 @@
     window.addEventListener('online', () => {
       showToast('🌐 網路連線已恢復', 'success', 3000);
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §16.5 PWA 安裝引導
+  // ═══════════════════════════════════════════════════════════
+  //
+  // 目標：讓使用者把站台加到手機桌面。這件事在技術上早就可行，但沒有任何
+  // 引導，於是幾乎沒有人知道要做——功能做完卻無人使用，等於沒做。
+  //
+  // 幾個刻意的設計決定：
+  //
+  // 1. 不在第一次造訪就提。那時使用者連這是什麼都不知道，此刻談安裝只會被
+  //    關掉，而且會被記住「這站很煩」。改為等使用者讀過東西（見
+  //    shouldOfferInstall）之後才出現。
+  //
+  // 2. 被拒絕後靜默 30 天。但「以後再說」不寫入永久紀錄，偏好設定裡永遠
+  //    保留一個入口——使用者改變主意時找得到路。
+  //
+  // 3. iOS 沒有 beforeinstallprompt，無法用程式觸發安裝。硬要做只會變成
+  //    一個按了沒反應的按鈕，所以改走圖文教學（showInstallGuide）。
+  //
+  // 4. 文案避開「PWA」「安裝應用程式」等詞。目標讀者要的是「把經書帶在
+  //    身上」，不是「部署一個 Web App」。
+
+  /** beforeinstallprompt 事件的暫存（只能呼叫一次，用完即失效） */
+  let _deferredInstallPrompt = null;
+  /** 已安裝的旗標：避免同一分頁內重複顯示引導 */
+  let _installDone = false;
+
+  /**
+   * 是否為 iOS（含 iPadOS）。
+   *
+   * iPadOS 13 以後的 Safari 使用者代理偽裝成 macOS，只看 UA 會漏掉所有 iPad，
+   * 因此額外用「Mac 平台 + 多點觸控」判定。這個判斷只影響要走哪一種引導，
+   * 誤判最壞情況是顯示 iOS 教學，不會造成功能錯誤。
+   *
+   * @returns {boolean}
+   */
+  function isIOSDevice() {
+    const ua = navigator.userAgent || '';
+    if (/iphone|ipad|ipod/i.test(ua)) return true;
+    return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1;
+  }
+
+  /**
+   * 是否已以「安裝後」的形式執行（standalone 視窗）。
+   *
+   * iOS Safari 不支援 display-mode 媒體查詢，另有專屬的 navigator.standalone，
+   * 兩者都要檢查。已經裝好的人不該再看到任何安裝引導。
+   *
+   * @returns {boolean}
+   */
+  function isStandaloneMode() {
+    try {
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+    } catch (_) {}
+    return navigator.standalone === true;
+  }
+
+  /**
+   * 這個瀏覽器「有沒有能力」安裝。
+   *
+   * iOS 一律視為可引導（走教學），因為 Safari 不會發出 beforeinstallprompt，
+   * 不能用事件判斷。其餘瀏覽器則必須真的收到過該事件才算數，否則會出現
+   * 「引導了但按下去沒反應」的窘境。
+   *
+   * @returns {boolean}
+   */
+  function canOfferInstall() {
+    if (isStandaloneMode() || _installDone) return false;
+    if (storage.get(STORAGE_KEYS.INSTALL_INSTALLED) === '1') return false;
+    if (isIOSDevice()) return true;
+    return !!_deferredInstallPrompt;
+  }
+
+  /**
+   * 使用者是否已投入足夠心力，值得談安裝。
+   *
+   * 判定依據是「真實使用痕跡」而非時間或次數：
+   *   - 讀過 2 篇以上（recentFiles）
+   *   - 有續讀紀錄（LAST_READ_PROGRESS）→ 回頭客
+   * 任一成立即可。這兩個訊號都來自既有資料，不需要新增埋點。
+   *
+   * @returns {boolean}
+   */
+  function shouldOfferInstall() {
+    if (!canOfferInstall()) return false;
+    if (state.recentFiles && state.recentFiles.length >= 2) return true;
+    const progress = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
+    return !!(progress && progress.filePath);
+  }
+
+  /**
+   * 是否仍在「被拒絕後」的靜默期內（30 天）。
+   *
+   * @returns {boolean} true 表示仍在靜默期，不應主動顯示引導
+   */
+  function isInstallSnoozed() {
+    const raw = storage.get(STORAGE_KEYS.INSTALL_DISMISSED);
+    if (!raw) return false;
+    const ts = parseInt(raw, 10);
+    if (!Number.isFinite(ts)) return false;
+    return (Date.now() - ts) < 30 * 24 * 60 * 60 * 1000;
+  }
+
+  /**
+   * 首頁安裝卡片的文案。iOS 與其他平台走不同的說明：
+   * iOS 只能教學，因此描述「怎麼加」；其餘平台描述「加了有什麼好處」。
+   */
+  function applyInstallCardCopy() {
+    const title = $('installCardTitle');
+    const desc = $('installCardDesc');
+    const accept = $('installCardAccept');
+    if (!title || !desc || !accept) return;
+
+    if (isIOSDevice()) {
+      title.textContent = '把經書放到手機桌面';
+      desc.textContent = 'iPhone 需要手動加入：點下方分享鈕，選「加入主畫面」，再按「新增」。點一下就能讀，沒網路也能看。';
+      accept.textContent = '看怎麼加入';
+    } else {
+      title.textContent = '把經書放到手機桌面';
+      desc.textContent = '加入桌面後不必再開瀏覽器，點一下就能讀，已讀過的經文沒有網路也能看。';
+      accept.textContent = '好，加到桌面';
+    }
+  }
+
+  /**
+   * 依當前狀態決定是否顯示首頁安裝卡片。
+   *
+   * @param {boolean} [force=false] - true 時略過時機與靜默期判斷（供設定頁手動開啟）
+   */
+  function maybeShowInstallCard(force = false) {
+    const card = $('installCard');
+    if (!card) return;
+
+    if (_installDone || isStandaloneMode()) {
+      card.hidden = true;
+      return;
+    }
+    if (!force && (isInstallSnoozed() || !shouldOfferInstall())) {
+      card.hidden = true;
+      return;
+    }
+    applyInstallCardCopy();
+    card.hidden = false;
+  }
+
+  /** 隱藏首頁安裝卡片 */
+  function hideInstallCard() {
+    const card = $('installCard');
+    if (card) card.hidden = true;
+  }
+
+  /**
+   * 顯示 iOS 圖文教學 Modal。
+   *
+   * 非 iOS 平台不顯示：那裡的安裝由原生對話框完成，教學反而多餘。
+   */
+  function showInstallGuide() {
+    if (!isIOSDevice()) return false;
+    const overlay = $('installGuideOverlay');
+    if (!overlay) return false;
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    const done = $('installGuideDoneBtn');
+    if (done) {
+      try { done.focus(); } catch (_) {}
+    }
+    return true;
+  }
+
+  /** 關閉 iOS 圖文教學 Modal */
+  function closeInstallGuide() {
+    const overlay = $('installGuideOverlay');
+    if (!overlay) return;
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    // 看完教學即視為「已處理」，進入靜默期，避免每次回首頁都再問一次。
+    storage.set(STORAGE_KEYS.INSTALL_DISMISSED, String(Date.now()));
+    hideInstallCard();
+  }
+
+  /**
+   * 觸發安裝流程。
+   *
+   * iOS 走圖文教學；其餘平台呼叫原生 prompt。若 prompt 不存在（例如已經
+   * 用過一次），退回顯示提示，而不是靜默失敗——按鈕沒反應是最糟的體驗。
+   */
+  async function triggerInstall() {
+    if (isStandaloneMode() || _installDone) {
+      showToast('✅ 已經加入桌面了', 'info', 2500);
+      return;
+    }
+
+    if (isIOSDevice()) {
+      showInstallGuide();
+      return;
+    }
+
+    if (!_deferredInstallPrompt) {
+      showToast('請從瀏覽器選單選擇「安裝應用程式」或「加到主畫面」', 'info', 4500);
+      return;
+    }
+
+    const promptEvent = _deferredInstallPrompt;
+    _deferredInstallPrompt = null;
+    try {
+      promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice && choice.outcome === 'accepted') {
+        markInstalled();
+      } else {
+        storage.set(STORAGE_KEYS.INSTALL_DISMISSED, String(Date.now()));
+        hideInstallCard();
+      }
+    } catch (err) {
+      console.warn('[PWA] install prompt failed:', err);
+      showToast('安裝未完成，可從瀏覽器選單手動加入', 'warning', 4000);
+    }
+  }
+
+  /** 記錄「已安裝」狀態並收起所有引導 */
+  function markInstalled() {
+    _installDone = true;
+    storage.set(STORAGE_KEYS.INSTALL_INSTALLED, '1');
+    hideInstallCard();
+    updateInstallSettingsVisibility();
+    showToast('✅ 已加入桌面，點圖示就能開始閱讀', 'success', 4000);
+  }
+
+  /**
+   * 更新設定頁「加到桌面」區塊的可見性。
+   *
+   * 已安裝或瀏覽器無安裝能力時整段隱藏——對已經裝好的人來說那只是雜訊。
+   * 但 iOS 例外：Safari 不發事件，只能靠裝置判斷，故 iOS 一律顯示。
+   */
+  function updateInstallSettingsVisibility() {
+    const section = $('installSettingsSection');
+    if (!section) return;
+    const available = !isStandaloneMode() && !_installDone
+      && storage.get(STORAGE_KEYS.INSTALL_INSTALLED) !== '1'
+      && (isIOSDevice() || !!_deferredInstallPrompt);
+    section.style.display = available ? '' : 'none';
+  }
+
+  /**
+   * 綁定安裝引導相關事件。於 init() 尾端呼叫一次。
+   */
+  function setupInstallPrompt() {
+    // 瀏覽器認為可安裝時才拿得到這個事件。必須 preventDefault，否則部分
+    // 平台會自行跳出小橫幅，與我們自己的引導互相干擾。
+    window.addEventListener('beforeinstallprompt', e => {
+      try { e.preventDefault(); } catch (_) {}
+      _deferredInstallPrompt = e;
+      updateInstallSettingsVisibility();
+      maybeShowInstallCard();
+    });
+
+    // 使用者從瀏覽器選單自行安裝時也會觸發，一併記錄。
+    window.addEventListener('appinstalled', () => {
+      markInstalled();
+    });
+
+    const accept = $('installCardAccept');
+    if (accept) accept.addEventListener('click', triggerInstall);
+
+    const later = $('installCardLater');
+    if (later) {
+      later.addEventListener('click', () => {
+        storage.set(STORAGE_KEYS.INSTALL_DISMISSED, String(Date.now()));
+        hideInstallCard();
+      });
+    }
+
+    const settingsBtn = $('btnInstallPwa');
+    if (settingsBtn) settingsBtn.addEventListener('click', triggerInstall);
+
+    const guideDone = $('installGuideDoneBtn');
+    if (guideDone) guideDone.addEventListener('click', closeInstallGuide);
+
+    const guideClose = $('installGuideCloseBtn');
+    if (guideClose) guideClose.addEventListener('click', closeInstallGuide);
+
+    const guideOverlay = $('installGuideOverlay');
+    if (guideOverlay) {
+      // 點背景關閉，與其他 Modal 的行為一致。
+      guideOverlay.addEventListener('click', e => {
+        if (e.target === guideOverlay) closeInstallGuide();
+      });
+    }
+
+    // Esc 關閉教學（它是 Modal，理應支援鍵盤退出）。
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      const overlay = $('installGuideOverlay');
+      if (overlay && overlay.style.display === 'flex') closeInstallGuide();
+    });
+
+    // 已安裝（standalone）者直接顯示「已安裝」而非引導。
+    if (isStandaloneMode()) {
+      _installDone = true;
+      hideInstallCard();
+    }
+
+    updateInstallSettingsVisibility();
+    maybeShowInstallCard();
   }
 
   /**
@@ -1356,6 +1667,10 @@
     if (welcome) welcome.style.display = 'flex';
     if (wrapper) wrapper.style.display = 'none';
     if (loading) loading.style.display = 'none';
+
+    // 回到首頁是唯一適合談安裝的時機（閱讀中打擾最不可取）。每次回首頁
+    // 重新評估：使用者可能剛讀完第二篇，正好跨過門檻。
+    maybeShowInstallCard();
 
     if (clearUrl) {
       // Clear URL query parameters
@@ -6293,7 +6608,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8168,7 +8483,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -8481,7 +8796,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
