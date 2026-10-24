@@ -57,29 +57,6 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
     }
   });
 
-  /**
-   * 桌面外殼的版本欄位決定安裝檔名（Tauri 以 {productName}_{version}_{arch}
-   * 組檔名），與 package.json 不同步會直接產生版本號錯亂的 Release 產物。
-   */
-  test('桌面外殼（Tauri / Electron）版本應與 package.json 一致', () => {
-    const checks = [
-      ['desktop/tauri/package.json', /"version"\s*:\s*"([^"]+)"/],
-      ['desktop/tauri/src-tauri/tauri.conf.json', /"version"\s*:\s*"([^"]+)"/],
-      ['desktop/tauri/src-tauri/Cargo.toml', /^version\s*=\s*"([^"]+)"/m],
-      ['desktop/electron/package.json', /"version"\s*:\s*"([^"]+)"/]
-    ];
-    for (const [relPath, pattern] of checks) {
-      const content = fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf8');
-      const m = content.match(pattern);
-      assert.ok(m, `${relPath} 應包含 version 欄位`);
-      assert.equal(
-        m[1],
-        version,
-        `${relPath} 版本為 '${m[1]}'，應與 package.json 的 '${version}' 一致`
-      );
-    }
-  });
-
   test('app.js 應包含頂部版本標頭且 appVer fallback 出現至少 2 次', () => {
     const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
     assert.ok(

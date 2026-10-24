@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 13,000 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.9.8 | 最後更新：2026-11
+> 版本：v3.10.0 | 最後更新：2026-11
 
 ---
 
@@ -758,14 +758,14 @@ flowchart TD
 | 常數 | 定義位置 | 值 | 說明 |
 |------|---------|-----|------|
 | `NODE_OPTIONS` | `Dockerfile` / `docker-compose.yml` | `--max-old-space-size=6144` | V8 記憶體堆疊上限（可由 `NODE_MAX_OLD_SPACE_MB` 調校） |
-| `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號。桌面外殼傳固定埠（Tauri `8330`／Electron `8331`） |
+| `PORT` | `lib/constants.js` | `8330`（env `PORT`） | HTTP 服務監聽埠號。自行以 Tauri／Electron 包裝時應傳入固定埠，勿用隨機埠 |
 | `MDW_DEPLOY_TARGET` | `lib/constants.js` | `'web'`（env `MDW_DEPLOY_TARGET`） | 部署型態：`web`／`mac-app`／`win-app`／`linux-app`／`ios-app`／`android-app`。非 `web` 即為單機模式（停用 admin／SEO／數據分析）。**未知值一律回退 `web`** |
 | `IS_SINGLE_USER` | `lib/constants.js` | `false` | `DEPLOY_TARGET !== 'web'`。單機模式總開關 |
-| `MDW_PORT_SCAN` | `lib/constants.js` | `false` | `true`／`1` 時，固定埠被占用會依序嘗試 `PORT+1 … PORT+10`，全滿才退回 OS 配發埠。桌面外殼固定設為 `1` |
+| `MDW_PORT_SCAN` | `lib/constants.js` | `false` | `true`／`1` 時，固定埠被占用會依序嘗試 `PORT+1 … PORT+10`，全滿才退回 OS 配發埠。單機包裝建議設為 `1` |
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.9.8'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.10.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -859,7 +859,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 | **迴環判定不可偽造** | `lib/auth.js` `isLoopbackRequest()` | 取 `req.socket.remoteAddress`，**不取** `getClientIP()`。後者在 `TRUST_PROXY` 下信任 `X-Forwarded-For`／`CF-Connecting-IP`，遠端可送 `X-Forwarded-For: 127.0.0.1` 冒充本機並取得維護權限。接受 `127.0.0.0/8`、`::1`、`::ffff:127.0.0.0/8`；無 socket 或位址一律 `false`（fail-closed） |
 | **`MDW_ALLOW_LAN` 不放大權限** | `lib/constants.js` `IS_LOOPBACK_ONLY` | 該旗標僅允許「別台裝置閱讀」，維護端點永遠限迴環。`IS_LOOPBACK_ONLY = IS_SINGLE_USER` 為無條件值，明確的 `HOST` 環境變數亦不得關閉它 |
 | **單機模式不建立憑證** | `server.js` 路由層 | `POST /api/admin/setup` → 403、`POST /api/admin/password` → 409。避免在使用者設定檔寫入永遠不會被檢查的帳密，或讓使用者誤以為已受密碼保護 |
-| **固定埠與 origin 完整性** | `desktop/*`、`server.js` `listenWithFallback()` | 桌面外殼傳固定埠（Tauri `8330`／Electron `8331`）而非 `PORT=0`。`localStorage` 以 origin 為界，隨機埠等同每次啟動清空使用者偏好。`MDW_PORT_SCAN=1` 時埠被占用依序嘗試 `+1…+10`；**未啟用掃描且埠被占用則明確失敗**，不靜默改用其他埠 |
+| **固定埠與 origin 完整性** | `server.js` `listenWithFallback()` | 單機包裝應傳固定埠而非 `PORT=0`。`localStorage` 以 origin 為界，隨機埠等同每次啟動清空使用者偏好。`MDW_PORT_SCAN=1` 時埠被占用依序嘗試 `+1…+10`；**未啟用掃描且埠被占用則明確失敗**，不靜默改用其他埠 |
 
 ### 13.1 日誌子系統設計決策
 
