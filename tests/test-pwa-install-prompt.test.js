@@ -98,11 +98,23 @@ describe('PWA 安裝引導 (Install Prompt)', () => {
       assert.match(fn, /canOfferInstall/, '應先確認瀏覽器具備安裝能力');
     });
 
-    test('必須有 30 天靜默期，避免被拒絕後反覆騷擾', () => {
+    test('必須有 3 天靜默期，避免被拒絕後反覆騷擾', () => {
       const fn = extractFunction(appJs, 'isInstallSnoozed');
       assert.ok(fn, '應存在 isInstallSnoozed 函式');
-      assert.match(fn, /30\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/, '靜默期應為 30 天');
+      assert.match(
+        fn, /INSTALL_SNOOZE_DAYS\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/,
+        '靜默期應以 INSTALL_SNOOZE_DAYS 常數計算，避免天數散落多處失去同步'
+      );
       assert.match(fn, /INSTALL_DISMISSED/, '靜默期應讀取 INSTALL_DISMISSED 時間戳');
+    });
+
+    test('靜默期常數應為 3 天', () => {
+      // 天數是產品決策，集中在一處宣告，測試直接鎖住數值本身，
+      // 任何調整都會被看見，不會悄悄生效。
+      assert.match(
+        appJs, /const\s+INSTALL_SNOOZE_DAYS\s*=\s*3\s*;/,
+        'INSTALL_SNOOZE_DAYS 應為 3'
+      );
     });
 
     test('已安裝者不得再看到任何引導', () => {

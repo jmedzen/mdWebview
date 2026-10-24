@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.3
+   mdWebview — Application Logic (app.js) v3.10.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -720,7 +720,7 @@
   //    關掉，而且會被記住「這站很煩」。改為等使用者讀過東西（見
   //    shouldOfferInstall）之後才出現。
   //
-  // 2. 被拒絕後靜默 30 天。但「以後再說」不寫入永久紀錄，偏好設定裡永遠
+  // 2. 被拒絕後靜默 3 天。但「以後再說」不寫入永久紀錄，偏好設定裡永遠
   //    保留一個入口——使用者改變主意時找得到路。
   //
   // 3. iOS 沒有 beforeinstallprompt，無法用程式觸發安裝。硬要做只會變成
@@ -728,6 +728,16 @@
   //
   // 4. 文案避開「PWA」「安裝應用程式」等詞。目標讀者要的是「把經書帶在
   //    身上」，不是「部署一個 Web App」。
+
+  /**
+   * 「以後再說」之後的靜默天數。
+   *
+   * 3 天而非更長：這個數字要在「不再騷擾」與「還來得及被想起」之間取捨。
+   * 30 天對多數讀者而言等於「永遠不會再看到」，安裝率被壓得過低；3 天大致
+   * 涵蓋一次連續閱讀的節奏，過了就換個時機再提一次。若使用者真的不需要，
+   * 第二次婉拒後通常也已建立起明確態度，此時再拉長也無意義。
+   */
+  const INSTALL_SNOOZE_DAYS = 3;
 
   /** beforeinstallprompt 事件的暫存（只能呼叫一次，用完即失效） */
   let _deferredInstallPrompt = null;
@@ -798,7 +808,9 @@
   }
 
   /**
-   * 是否仍在「被拒絕後」的靜默期內（30 天）。
+   * 是否仍在「被拒絕後」的靜默期內（3 天）。
+   *
+   * 靜默期長度集中定義在 INSTALL_SNOOZE_DAYS，避免天數散落在多處而失去同步。
    *
    * @returns {boolean} true 表示仍在靜默期，不應主動顯示引導
    */
@@ -807,7 +819,7 @@
     if (!raw) return false;
     const ts = parseInt(raw, 10);
     if (!Number.isFinite(ts)) return false;
-    return (Date.now() - ts) < 30 * 24 * 60 * 60 * 1000;
+    return (Date.now() - ts) < INSTALL_SNOOZE_DAYS * 24 * 60 * 60 * 1000;
   }
 
   /**
@@ -6681,7 +6693,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.4';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8556,7 +8568,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -8869,7 +8881,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.3';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.4';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',

@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.10.3 | 最後更新：2026-10
+> 版本：v3.10.4 | 最後更新：2026-10
 
 ---
 
@@ -477,7 +477,7 @@ flowchart TD
 | `FORCE_FULL` | `mdWebview-force-full` | 虛擬化超大經文強制全量展開旗標 |
 | `SEARCH_MODE` | `mdWebview-search-mode` | 全文搜尋模式偏好（`'loose'` 或 `'strict'`） |
 | `ANNOUNCEMENT_ACK` | `mdWebview-announcement-modal-ack` | 今日公告已確認紀錄簽章 |
-| `INSTALL_DISMISSED` | `mdWebview-install-dismissed` | 婉拒安裝引導的時間戳（30 天內不再提示，見 §17） |
+| `INSTALL_DISMISSED` | `mdWebview-install-dismissed` | 婉拒安裝引導的時間戳（3 天內不再提示，見 §17） |
 | `INSTALL_INSTALLED` | `mdWebview-install-done` | 已安裝至桌面的旗標，一旦寫入即永久停用所有安裝提示 |
 
 #### 2. storage 防例外包裝工具
@@ -815,7 +815,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.10.3'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.10.4'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1112,10 +1112,16 @@ flowchart TD
 | :--- | :--- |
 | 不是獨立視窗模式 | `isStandaloneMode()`：`matchMedia('(display-mode: standalone)')` 或 `navigator.standalone === true` |
 | 尚未安裝 | `localStorage` 無 `mdWebview-install-done` |
-| 未被暫時婉拒 | 距上次「以後再說」超過 30 天（`mdWebview-install-dismissed`） |
+| 未被暫時婉拒 | 距上次「以後再說」超過 3 天（`mdWebview-install-dismissed`，常數 `INSTALL_SNOOZE_DAYS`） |
 | 已建立使用意圖 | `recentFiles.length >= 2` **或** 存在 `LAST_READ_PROGRESS.filePath` |
 
 「已建立使用意圖」是核心門檻：讀過至少兩篇、或至少有一篇讀到一半，才代表這人真的在用，此時建議安裝才有意義。
+
+**靜默期為何是 3 天**
+
+`INSTALL_SNOOZE_DAYS = 3` 是產品決策，集中宣告於 `app.js` 的 §17 區塊開頭；`isInstallSnoozed()` 與測試皆引用此常數，避免天數散落多處失去同步。
+
+原本定為 30 天，但那對多數讀者等同「永遠不會再看到」，安裝率被壓得過低。3 天大致涵蓋一次連續閱讀的節奏，過了就換個時機再提一次；若使用者仍不需要，第二次婉拒後態度已明確，此時再拉長也無意義。
 
 ### 17.2 平台分流
 
@@ -1149,6 +1155,6 @@ iPadOS 的判定需特別處理：其 UA 與 macOS Safari 相同，因此額外�
 
 ### 17.5 測試
 
-`tests/test-pwa-install-prompt.test.js`（22 項）涵蓋：卡片與 Modal 結構、三步驟與行內 SVG（禁止外部 `<img src=>`）、`hidden` 預設值、「以後再說」寫入 30 天、iPadOS 判定、iOS 走教學 Modal、Chromium 攔截 `beforeinstallprompt`、`appinstalled` 事件、`setupInstallPrompt()` 於 `init()` 內被呼叫、`goHome()` 觸發卡片、`.install-card[hidden]` 的 `!important`、`prefers-reduced-motion` 支援。
+`tests/test-pwa-install-prompt.test.js`（23 項）涵蓋：卡片與 Modal 結構、三步驟與行內 SVG（禁止外部 `<img src=>`）、`hidden` 預設值、「以後再說」寫入 3 天（並鎖住 `INSTALL_SNOOZE_DAYS === 3`）、iPadOS 判定、iOS 走教學 Modal、Chromium 攔截 `beforeinstallprompt`、`appinstalled` 事件、`setupInstallPrompt()` 於 `init()` 內被呼叫、`goHome()` 觸發卡片、`.install-card[hidden]` 的 `!important`、`prefers-reduced-motion` 支援。
 
 

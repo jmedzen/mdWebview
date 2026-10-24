@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.10.3) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v3.10.4) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -41,7 +41,7 @@
 - 🔒 **後台管理**：管理員可設定站名、公告與推薦清單，查看使用情況與系統狀態，並匯出報表。密碼以加密方式保存，有人反覆嘗試登入會被暫時擋下；登入與登出也都有記錄，方便日後追查。
 - 📦 **離線也能看**：核心程式都放在自己的網站上，不依賴外部服務。看過的內容在斷網後仍可重看；若點開還沒下載過的經文，會清楚顯示「目前處於離線狀態，此經文尚未快取」，而不是空白畫面。
 - 📲 **加到手機桌面**：可以像 App 一樣放在桌面，點一下就讀，不必每次開瀏覽器。
-  - 讀過幾篇之後，首頁會出現一張卡片詢問；不想裝也有「以後再說」，30 天內不再打擾。
+  - 讀過幾篇之後，首頁會出現一張卡片詢問；不想裝也有「以後再說」，3 天內不再打擾。
   - iPhone／iPad 沒有捷徑可觸發，會顯示三個步驟的圖文教學。
   - 偏好設定裡永遠保留入口，改變主意時隨時找得到。
   - 已加到桌面的人不會再看到任何提示。
@@ -162,7 +162,7 @@ mdWebview/
 ├── s2t.js              # 簡體轉繁體
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.10.3）
+├── package.json        # 專案資訊（v3.10.4）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -208,7 +208,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.10.3) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v3.10.4) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -241,7 +241,7 @@ mdWebview/
 - 🔒 **Admin area**: Administrators can set the site name, announcements, and recommended reading, view usage and system status, and export reports. Passwords are stored encrypted, repeated failed sign-in attempts are temporarily blocked, and sign-ins and sign-outs are logged for later review.
 - 📦 **Works offline**: The core files are all hosted on your own site with no outside services. Anything you have already viewed stays readable without a network; if you open a text that was never downloaded, you get a clear "you are offline and this text is not cached yet" message rather than a blank page.
 - 📲 **Add to your home screen**: Install it like an app and open a text in one tap, without launching a browser.
-  - After you have read a few texts, a card on the home page offers to install it. Choose "later" and it stays quiet for 30 days.
+  - After you have read a few texts, a card on the home page offers to install it. Choose "later" and it stays quiet for 3 days.
   - iPhone and iPad cannot be triggered programmatically, so a three-step illustrated guide is shown instead.
   - The settings panel always keeps an entry, so you can change your mind later.
   - Anyone who has already installed it never sees the prompts again.
@@ -357,7 +357,7 @@ mdWebview/
 ├── s2t.js              # Simplified to Traditional Chinese conversion
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.10.3)
+├── package.json        # Project information (v3.10.4)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers
