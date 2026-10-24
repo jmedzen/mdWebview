@@ -23,7 +23,8 @@
    - [7.3 簡轉繁依瀏覽器語言自動啟用](#73-簡轉繁依瀏覽器語言自動啟用v3103)
 8. [後端模組架構與 API 路由索引](#8-後端模組架構與-api-路由索引)
    - [8.1 lib/ 原生模組職責劃分](#81-lib-原生模組職責劃分)
-   - [8.2 server.js API 路由索引表](#82-serverjs-api-路由索引表)
+   - [8.2 server.js 段落分區表](#82-serverjs-段落分區表section-map)
+   - [8.3 server.js API 路由索引表](#83-serverjs-api-路由索引表)
 9. [app.js 前端架構與 State 物件說明](#9-appjs-前端架構與-state-物件說明)
    - [9.1 段落索引與通用 Helper](#91-段落索引與通用-helper)
    - [9.2 State 物件欄位一覽](#92-state-物件欄位一覽)
@@ -36,6 +37,7 @@
 16. [CSS 樣式系統與響應式斷點設計](#16-css-樣式系統與響應式斷點設計)
     - [16.4 首頁垂直溢出防護](#164-首頁垂直溢出防護v3102)
 17. [PWA 安裝引導](#17-pwa-安裝引導v3101)
+18. [為何 app.js / server.js 不做模組化重構](#18-為何-appjs-serverjs-不做模組化重構)
 
 ---
 
@@ -575,7 +577,34 @@ flowchart TD
 | `lib/markdown.js` | Markdown 與 Frontmatter 文本處理：YAML 標頭剝離、metadata 解析與行號偏移 (lineOffset) 計算 | `stripFrontmatter` |
 | `lib/text.js` | 索引與搜尋共用的文本正規化層：CJK 判定、標點/換行透明集合判定、Bigram 抽取、寬鬆模式比對與文本掃描（Index/Render Worker 皆引用，確保索引抽取透明集 ⊇ 掃描透明集） | `isCJKIdeograph`, `isTransparent`, `extractBigramsFromText`, `normalizeLooseTerm`, `SNIPPET_RADIUS`, `localLineAt`, `findLoose`, `matchLooseSequence`, `scanText` |
 
-### 8.2 server.js API 路由索引表
+### 8.2 server.js 段落分區表（Section Map）
+
+`server.js` 約 5,640 行、86 個頂層函式。下表行號為 v3.10.4 實測值，改動後會位移——**請以區段標題或函式名搜尋**。
+
+| 段落 | 起始行 | 行數 | 職責 |
+| :--- | ---: | ---: | :--- |
+| `§2–§5` | 165 | 237 | Worker Pool、Config、Static Cache、SSR 的**組裝層**（實作已移至 `lib/`） |
+| `§6` | 402 | 24 | `handleTree`（`/api/tree`）與 `fs.watch` 快取失效 |
+| `§7` | 426 | 241 | SEO：`robots.txt`、`manifest.json`、`sitemap.xml` |
+| `§8` | 667 | 263 | `handleCrawlerSsr()` 爬蟲預渲染 |
+| `§9` | 930 | 305 | `handleFile`（`/api/file`）、`handleMedia`（`/api/media`） |
+| `§10` | 1235 | 239 | 大檔分塊 API：`handleSectionIndex`、`handleRenderChunk` |
+| `§14` | 1474 | 48 | 搜尋處理器（掛載點，實作見 §12） |
+| `§12` | 1522 | 18 | **僅狀態與常數**：`searchIndex` 物件、快取路徑 |
+| `§11` | 1540 | 471 | 章節索引引擎：`getSectionIndex`、二進位磁碟快取、去抖寫入 |
+| `§12 (續)` | 2011 | 591 | 全文 Bigram 索引本體：`buildSearchIndexAsync`、載入／儲存 |
+| `§13` | 2602 | 1,189 | 辭典索引與 API：`buildDictIndexAsync`、`handleDictHeadwords`、`handleDictSearch` |
+| `§15–§17` | 3791 | 186 | Static Cache、Auth、Rate Limiting、Analytics 的**組裝層**（實作已移至 `lib/`） |
+| `§18` | 3977 | 212 | 每日單詞與推薦：Mulberry32 決定性 PRNG、`handleSuggestList` |
+| `§19` | 4189 | 82 | 硬體工具函式：`getDockerMemoryLimit`、`getDirSizeAsync`、`getCpuUsagePct`、`isDockerContainer` |
+| `§19 (續)` | 4271 | 209 | `getSystemHardwareStats` 聚合器、`handleHardwareStats` |
+| `§19.5` | 4480 | 358 | 後台維護：重建索引／辭典、改密碼、路徑診斷、重建 sitemap、清快取 |
+| `§20` | 4838 | 803 | HTTP Server 建立與主路由分派（40+ 條 `pathname` 比對） |
+
+> **編號非遞增**：實際排列為 §6 → §7 → §8 → §9 → §10 → §14 → §12 → §11 → §13 → §15 → §18 → §19 → §19.5 → §20。
+> 原因為 §11／§12／§13 是後來插入的大型引擎（章節索引、全文索引、辭典索引），為避免搬動既有程式碼而就地插入。`§12` 的標記位置只放狀態常數，函式本體在 `§12 (續)`。
+
+### 8.3 server.js API 路由索引表
 
 `server.js` 負責核心請求攔截、路由分派以及搜尋/章節索引之調度：
 
@@ -631,32 +660,56 @@ flowchart TD
 ### 9.1 段落索引與通用 Helper
 
 #### 1. 邏輯段落分區表（Section Map）
-| 段落編號 | 核心模組 | 職責與功能概述 |
-|---------|---------|---------------|
-| `§0` | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
-| `§1` | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
-| `§2` | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
-| `§3` | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
-| `§4` | Announcement Modal | 公告訊息彈窗顯示與今日已讀簽章驗證 |
-| `§5` | File Tree | 經論目錄樹建置、過濾、排序與非同步渲染 |
-| `§6` | Markdown Viewer | 小型經論渲染、標題錨點、雙向註腳跳轉、Wikilink |
-| `§7` | Wikilink Resolver | 內部經文雙鏈快速跳轉與索引比對 |
-| `§8` | Table of Contents | 大綱目錄生成、ScrollSpy 滾動追蹤高亮 |
-| `§9` | Global Search | Bigram 全文搜尋、分批渲染（300筆/批）防介面凍結 |
-| `§10` | Dictionary Sidebar | 佛學辭典抽屜、前綴與全文檢索、分詞查閱 |
-| `§11` | In-Page Search (Ctrl+F) | 頁內即時高亮搜尋與跳轉 |
-| `§12` | Theme | 主題切換與即時 CSS 變數套用 |
-| `§13` | Font Size | 字體大小即時縮放與持久化 |
-| `§14` | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁轉換開關 |
-| `§15` | Recent Files | 最近閱讀經文紀錄（最多 20 筆） |
-| `§16` | Toast Notifications | 全域浮動提示通知（showToast） |
-| `§17` | Bookmarks | 經本書籤收藏管理 |
-| `§18` | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
-| `§19` | Sidebar Resize | 側邊欄拖曳調整寬度 |
-| `§20` | Event Listeners | 快捷鍵、全域點擊、popstate 路由監聽 |
-| `§21` | Admin Panel | 後台管理面板 UI、設定表單、圖表與日誌 |
-| `§22` | Utilities | 通用轉義、時區格式化、通用 Helper |
-| `§23` | Boot Entry | DOMContentLoaded 初始化啟動入口 |
+
+`app.js` 為單一 IIFE（約 11,300 行、246 個函式），所有函式共用同一閉包。下表行號為 v3.10.4 的實測值，改動後會位移——**請以區塊標題搜尋，勿依賴行號**。
+
+| 段落 | 起始行 | 行數 | 核心模組 | 職責與功能概述 |
+| :--- | ---: | ---: | :--- | :--- |
+| `§0` | 61 | 454 | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
+| `§1` | 515 | 204 | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
+| `§16.5` | 719 | 956 | PWA Install Prompt | 首頁安裝卡片、iOS 三步驟教學 Modal、設定常駐入口（見 §17） |
+| `§2` | 1675 | 158 | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
+| `§3` | 1833 | 136 | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
+| `§4` | 1969 | 263 | Announcement Modal | 公告訊息彈窗顯示與今日已讀簽章驗證 |
+| `§5` | 2232 | 262 | File Tree | 經論目錄樹建置、過濾、排序與非同步渲染 |
+| `§6` | 2494 | 1,748 | Markdown Viewer | 小型經論渲染、標題錨點、雙向註腳跳轉、大檔虛擬化 |
+| `§7` | 4242 | 221 | Wikilink Resolver | 內部經文雙鏈快速跳轉與索引比對 |
+| `§8` | 4463 | 341 | Table of Contents | 大綱目錄生成、ScrollSpy 滾動追蹤高亮 |
+| `§9` | 4804 | 337 | Global Search | Bigram 全文搜尋、分批渲染（300 筆/批）防介面凍結 |
+| `§10` | 5141 | 755 | Dictionary Sidebar | 佛學辭典抽屜、前綴與全文檢索、分詞查閱 |
+| `§11` | 5896 | 223 | In-Page Search | 頁內即時高亮搜尋與跳轉（Ctrl+F） |
+| `§12` | 6119 | 67 | Theme | 主題切換與即時 CSS 變數套用 |
+| `§13` | 6186 | 33 | Font Size | 字體大小即時縮放與持久化 |
+| `§14` | 6219 | 115 | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁轉換開關 |
+| `§15` | 6334 | 62 | Recent Files | 最近閱讀經文紀錄（最多 20 筆） |
+| `§16` | 6396 | 97 | Toast Notifications | 全域浮動提示通知（`showToast`） |
+| `§17` | 6493 | 100 | Bookmarks | 經本書籤收藏管理 |
+| `§18` | 6593 | 103 | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
+| `§18.5` | 6696 | 154 | Preferences Backup | 使用者偏好匯出／匯入 JSON |
+| `§19` | 6850 | 96 | Sidebar Resize | 側邊欄拖曳調整寬度 |
+| `§6.5` | 6946 | 354 | Media Lightbox | 圖片全螢幕放大、拖曳、雙擊與雙指捏合縮放 |
+| `§20` | 7300 | 1,327 | Event Listeners | `setupEventListeners()`：全站事件綁定（全檔最大單一函式） |
+| `§21` | 8627 | 2,419 | Admin Panel | 後台管理面板（內含 6 個子群，見下） |
+| `§22` | 11046 | 246 | Utilities | 通用轉義、時區格式化、通用 Helper |
+| `§23` | 11292 | 5 | Boot Entry | DOMContentLoaded 初始化啟動入口 |
+
+> **編號非遞增**：實際排列為 §0 → §1 → §16.5 → §2 … → §19 → §6.5 → §20 → §21。
+> §6.5 與 §16.5 是後續功能插入時就地放置，未重排既有程式碼。搜尋時請用標題關鍵字。
+
+#### 1.1 §21 後台面板子群索引
+
+§21 佔 2,419 行、44 個函式，是全檔最大區塊。內部依功能可分為六群：
+
+| 子群 | 內容 | 代表函式 |
+| :--- | :--- | :--- |
+| §21.1 | 面板開關與髒值追蹤 | `closeAdminModal`、`setAdminDirty`、`setupAdminDirtyTracking` |
+| §21.2 | 帳號與設定維護 | `setupChangePassword`、`setupConfigBackupAndRestore`、`setupPathDiagnostics`、`setupHardwareClearCache` |
+| §21.3 | 流量趨勢圖繪製 | `computeNiceScale`、`monotonePath`、`renderAnalyticsTrendChart` |
+| §21.4 | 硬體監控儀表板 | `formatBytes`、`formatUptime`、`loadHardwareStats`、`renderHardwareDashboard`、`setupHardwareIndexRebuild` |
+| §21.5 | 日誌與流量報表 | `openSettingsOverlay`、`filterLogEntries`、`fetchAdminLogs`、`loadAdminAnalytics`、`renderAdminAnalytics` |
+| §21.6 | 設定表單與 SEO | `setupAdminTabEvents`、`setupArticlePicker`、`setupSuggestFormEvents`、`loadSeoSettings`、`setupAdminSeoEvents` |
+
+§21.3 是唯一可獨立測試的子群：`computeNiceScale` 與 `monotonePath` 為純函式，不碰網路與 `state`，由 `tests/test-analytics-chart.test.js` 以原始碼抽取方式實際執行驗證。
 
 #### 2. 前端通用 Helper
 - `isNarrowScreen()`：整合行動裝置 User-Agent 識別與 `window.innerWidth <= 768` 判斷，全站統一響應式邊界判斷。
@@ -1158,3 +1211,65 @@ iPadOS 的判定需特別處理：其 UA 與 macOS Safari 相同，因此額外�
 `tests/test-pwa-install-prompt.test.js`（23 項）涵蓋：卡片與 Modal 結構、三步驟與行內 SVG（禁止外部 `<img src=>`）、`hidden` 預設值、「以後再說」寫入 3 天（並鎖住 `INSTALL_SNOOZE_DAYS === 3`）、iPadOS 判定、iOS 走教學 Modal、Chromium 攔截 `beforeinstallprompt`、`appinstalled` 事件、`setupInstallPrompt()` 於 `init()` 內被呼叫、`goHome()` 觸發卡片、`.install-card[hidden]` 的 `!important`、`prefers-reduced-motion` 支援。
 
 
+---
+
+## 18. 為何 app.js / server.js 不做模組化重構
+
+v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`（5,600 行）分段抽成 `lib/` 模組」。結論是**不建議**，原因如下，記錄於此以免日後重複評估。
+
+### 18.1 量測結果
+
+以作用域分析逐函式計算對全域狀態的依賴（已排除 `fs`/`path`/`os`/`http` 等原生模組）：
+
+| 檔案 | 行數 | 頂層函式 | 頂層綁定 | ≥40 行函式的平均全域依賴 |
+| :--- | ---: | ---: | ---: | ---: |
+| `app.js` | 11,296 | 246 | 66 | —（單一閉包，無法分割） |
+| `server.js` | 5,640 | 86 | 231 | **6.0 個** |
+
+### 18.2 app.js：結構上不可分割
+
+`app.js` 是**單一 IIFE**，246 個函式共用同一個閉包，包含 `state`、`storage`、`$`、`showToast`、`escHtml`、`apiFetch` 等 66 個頂層變數。要抽出任何區塊，必須把這些依賴逐一參數化——等同重寫整個檔案。
+
+| 候選區塊 | 行數 | 實際耦合 |
+| :--- | ---: | :--- |
+| §21 Admin Panel | 2,419 | `state`×40、`showToast`×37、`escHtml`×35、`storage`×12 |
+| §6.5 Media Lightbox | 354 | `state`×79（跨 26 個欄位）、`showToast`×17 |
+| §6 Markdown Viewer | 1,748 | 虛擬化引擎，與 §8 TOC、§9 搜尋共用節點 |
+
+此外，`lib/` 是**後端專用慣例**（10 個模組全部 `module.exports`），瀏覽器端無法 `require()`。前端唯一可行的跨檔模式是像 `s2t.js` 那樣掛 `window`，但會引入全域命名衝突與載入順序依賴。
+
+**替代方案**：`app.js` 於 v3.10.4 修正了失真的區塊標記（見 §9.1 與下表），使 11,300 行的檔案可正確導覽，而不必承擔重寫風險。
+
+### 18.3 server.js：沒有低耦合的大型區塊
+
+原本的評估假設可抽出 4 個大區塊（約 3,038 行）。實際量測後全數推翻：
+
+| 原目標 | 原估依賴 | 實際依賴 | 判定 |
+| :--- | ---: | ---: | :--- |
+| `getSystemHardwareStats` | 1 | **24** | 是聚合器，非獨立模組 |
+| `buildSearchIndexAsync` | 3 | **16** | 與索引狀態深度綁定 |
+| `listenWithFallback` | 1 | **16** | 依賴啟動期設定 |
+| `handleAnalyticsExport` | 3 | **20** | 依賴 analytics 全套狀態 |
+| `getSectionIndex` | 2 | **11** | 依賴三層快取狀態 |
+
+`getSystemHardwareStats` 是最典型的例子：它讀取 `searchIndex`、`dictIndex`、`httpMetrics`、`sessions`、`searchMetrics`、`sectionIndexMetrics`、`workerPool` 等約 20 個全域狀態並組成單一回應物件。抽到 `lib/` 需注入全部依賴，反而比留在原處更難維護。
+
+真正無狀態的只有 4 個小工具函式（`getDockerMemoryLimit`、`getDirSizeAsync`、`getCpuUsagePct`、`isDockerContainer`），合計 76 行、佔 1.4%，抽取收益不足以合理化改動。
+
+### 18.4 已完成的替代改善
+
+既然「搬程式碼」不可行，改為修正**失真的區塊標記**（純註解，零行為變更）：
+
+| 檔案 | 問題 | 修正 |
+| :--- | :--- | :--- |
+| `app.js` | §6.5 標記涵蓋 1,668 行，但燈箱程式碼僅 354 行；其後 1,327 行是 `setupEventListeners()` | 將事件綁定獨立為 §20，§6.5 縮回 354 行 |
+| `app.js` | §21 單一標題涵蓋 2,419 行、44 個函式 | 細分為 §21.1–§21.6 六個子群並建立索引 |
+| `app.js` | 頂部索引缺 §6.5、§16.5、§18.5 | 補齊並標註非遞增順序 |
+| `server.js` | §19 標記涵蓋 557 行，但硬體程式碼僅 291 行；其後是 8 個 admin handlers | 拆為 §19（工具）、§19 (續)（聚合器）、§19.5（admin 維護） |
+| `server.js` | §12 標記僅 18 行（只有狀態常數），函式本體在 500 行之後 | 標記為「狀態與常數」，並在函式本體處補 `§12 (續)` |
+
+修正後，兩個檔案的所有區塊標記**與實際內容一致**，且 `git diff` 確認零程式碼變更、406 項測試全數通過。
+
+### 18.5 若日後仍需縮短檔案
+
+唯一可行路徑是**架構級重構**：把 20 多個全域狀態收進單一 `AppContext` 物件，再按功能切分模組。代價是改動幾乎整個 `server.js`、13 個 server 測試需重寫、風險集中於全站唯一入口。建議在有大規模功能變更時一併進行，而非單獨為「縮短檔案」而做。

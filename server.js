@@ -37,7 +37,15 @@
  *   §17 Analytics API            handleAnalytics, handleAnalyticsExport (CSV/JSON)
  *   §18 Daily Words & Suggest    Mulberry32 deterministic RNG, handleSuggestList
  *   §19 System Hardware Stats    getSystemHardwareStats, handleHardwareStats
+ *   §19.5 Admin Maintenance      rebuild index/dict, password, path diagnostics,
+ *                                sitemap rebuild, cache clear (all requireAdmin)
  *   §20 HTTP Server & Router     Main request dispatch & admin API routes
+ *
+ * ── 檔案內 §編號並非嚴格遞增 ───────────────────────────────────
+ *   實際排列為 §6 → §7 → §8 → §9 → §10 → §14 → §12 → §11 → §13 → §15 → §18
+ *   → §19，原因為 §11/§12/§13 是後來插入的大型引擎（章節索引、全文索引、
+ *   辭典索引），為了避免搬動既有程式碼而就地插入。搜尋請用函式名，勿依
+ *   編號位置推測。
  */
 
 const http = require('http');
@@ -1511,7 +1519,10 @@ function flattenTreeToFiles(nodes, mdRoot) {
   return files;
 }
 
-// ── §12 Full-Text Bigram Search Engine ───────────────────────────
+// ── §12 Full-Text Bigram Search Engine（狀態與常數）─────────────
+// 注意：此處只有 searchIndex 狀態物件與快取路徑常數。實際的建置、
+// 載入與儲存函式位於約 2030 行之後（「§12 (續)」標記處），因為
+// §11 章節索引後來插在中間。直接跳到 §12 (續) 才找得到函式。
 const SEARCH_INDEX_CACHE_FILE = path.join(LOG_DIR, 'search-index-cache.json');
 const SEARCH_INDEX_CACHE_BIN = path.join(LOG_DIR, 'search-index-cache.bin');
 
@@ -1996,6 +2007,17 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
     Logger.error('Index', `Failed to save ${label} cache`, err);
   }
 }
+
+// ── §12 (續) Full-Text Bigram Search Engine ───────────────────
+// §11 的章節索引到此為止（setSectionIndex / buildSectionIndex /
+// doSaveSectionIndexBin / saveAllSectionIndexes 等）。
+//
+// 以下才是 §12 的實作本體。開頭的 §12 標記（約 1520 行處）只放了
+// searchIndex 狀態與快取路徑常數，實際函式全在這裡，因此依編號
+// 閱讀會找不到東西——請以函式名 locate。
+//
+// computeVaultSignature 為 §11 與 §12 共用：兩者都以 vault 檔案清單的
+// md5 指紋判斷快取是否過期。
 
 /**
  * Computes a quick fingerprint of all files in vault based on path, size, and mtime
@@ -4164,6 +4186,13 @@ async function handleSuggestList(req, res) {
   }
 }
 
+// ── §19 System Hardware Stats & Monitor ──────────────────────
+// 前四個是無狀態的工具函式（只依賴 fs/os/path），可安全複用：
+//   getDockerMemoryLimit  讀 cgroup v1/v2 的記憶體上限，非容器則回退 totalmem
+//   getDirSizeAsync       遞迴加總目錄大小
+//   getCpuUsagePct        以兩次取樣差值計算使用率（狀態僅 lastCpuTimes）
+//   isDockerContainer     偵測 /.dockerenv、cgroup 字串
+
 async function getDockerMemoryLimit() {
   try {
     const raw = await fs.promises.readFile('/sys/fs/cgroup/memory.max', 'utf-8');
@@ -4239,7 +4268,11 @@ function isDockerContainer() {
   return false;
 }
 
-// ── §19 System Hardware Stats & Monitor ───────────────────────
+// ── §19 (續) Hardware Stats Aggregator ────────────────────────
+// getSystemHardwareStats 是「聚合器」而非獨立模組：它讀取約 20 個全域
+// 狀態（searchIndex、dictIndex、httpMetrics、sessions、searchMetrics、
+// sectionIndexMetrics、workerPool 等）並組成單一回應物件。因此它必須
+// 留在 server.js，抽取到 lib/ 需注入全部依賴，反而更難維護。
 async function getSystemHardwareStats() {
   const cpus = os.cpus() || [];
   const loadAvg = os.loadavg() || [0, 0, 0];
@@ -4443,6 +4476,12 @@ async function handleHardwareStats(req, res) {
     return sendJSON(res, 500, { error: err.message });
   }
 }
+
+// ── §19.5 Admin Maintenance Handlers ─────────────────────────
+// 這些處理器原本被歸在 §19「系統硬體監控」之下，但它們並非硬體資訊，
+// 而是後台維護操作（重建索引、改密碼、路徑診斷、重建 sitemap、清快取）。
+// 全部都需要 requireAdmin，且都會改動伺服器狀態。
+// 與 §19 唯一的關聯是 handleHardwareStats 同樣需要管理員權限。
 
 async function handleRebuildIndex(req, res) {
   if (!requireAdmin(req, res, sendJSON)) return;

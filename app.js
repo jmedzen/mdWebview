@@ -21,11 +21,19 @@
    §14 Text/Layout Preferences   textAlign, lineHeight, maxWidth, readProgress
    §15 Recent Files              recentFiles (localStorage, max 20)
    §16 Toast Notifications       showToast
+   §16.5 PWA Install Prompt      install card, iOS guide modal, settings entry
    §17 Bookmarks                 bookmarks (localStorage)
    §18 Read Progress             autoSaveProgress, restoreProgress
+   §18.5 Preferences Backup      export / import user preferences JSON
    §19 Sidebar Resize            drag-to-resize sidebar width
-   §20 Event Listeners           keyboard, click, popstate wiring
+   §20 Event Listeners           setupEventListeners — keyboard, click, popstate wiring
    §21 Admin Panel               settings UI, analytics, logs
+       §21.1 面板開關與髒值追蹤      closeAdminModal, setAdminDirty
+       §21.2 帳號與設定維護          password, backup/restore, diagnostics
+       §21.3 流量趨勢圖繪製          computeNiceScale, monotonePath
+       §21.4 硬體監控儀表板          loadHardwareStats, renderHardwareDashboard
+       §21.5 日誌與流量報表          fetchAdminLogs, renderAdminAnalytics
+       §21.6 設定表單與 SEO          setupAdminTabEvents, loadSeoSettings
    §22 Utilities                 escHtml, formatDate, helpers
    §23 Boot Entry                DOMContentLoaded → init()
    ================================================================ */
@@ -7288,6 +7296,19 @@
   window.resetMediaLightbox = resetLightboxZoom;
   window.mediaLightboxState = mediaLightboxState;
 
+  // ═══════════════════════════════════════════════════════════
+  // §20 EVENT LISTENERS (全站事件綁定：鍵盤、側邊欄、搜尋、排序、捲動…)
+  //
+  // 此區塊原本被誤歸在 §6.5 圖片燈箱之下，導致「找事件綁定」的人
+  // 會在燈箱章節裡迷路。setupEventListeners() 長達約 1,270 行，是
+  // 全檔最大的單一函式，內容涵蓋側邊欄切換、搜尋排序、檔案排序、
+  // 捲動監聽、快捷鍵等數十個獨立綁定。與燈箱唯一的關聯只有第一行
+  // 的 initMediaLightboxEvents()。
+  //
+  // 尾端巢狀宣告了 openUserSettingsOverlay()（§21 的入口），
+  // 因為它與這裡的偏好設定事件綁定共用同一批元素查詢。
+  // ═══════════════════════════════════════════════════════════
+
   function setupEventListeners() {
     initMediaLightboxEvents();
 
@@ -8604,6 +8625,25 @@
 
   // ═══════════════════════════════════════════════════════════
   // §21 ADMIN & USER PREFERENCES PANELS
+  //
+  // 這是全檔最大的區塊（約 2,400 行、44 個函式），內部可再分為六個
+  // 子群。原標記只給了一個籠統標題，導致要改其中一個功能時得整段
+  // 讀完。以下為子群索引（行號會隨改動位移，以函式名為準）：
+  //
+  //   §21.1 面板開關與髒值追蹤   closeAdminModal, setAdminDirty,
+  //                              setupAdminDirtyTracking
+  //   §21.2 帳號與設定維護       setupPathDiagnostics, setupChangePassword,
+  //                              setupConfigBackupAndRestore, setupHardwareClearCache
+  //   §21.3 流量趨勢圖繪製       computeNiceScale, monotonePath,
+  //                              renderAnalyticsTrendChart（純計算 + SVG 路徑）
+  //   §21.4 硬體監控儀表板       formatBytes, formatUptime, loadHardwareStats,
+  //                              renderHardwareDashboard, setupHardwareIndexRebuild,
+  //                              setupHardwareDictIndexRebuild, setupHardwareAutoRefresh
+  //   §21.5 日誌與流量報表       openSettingsOverlay, filterLogEntries, fetchAdminLogs,
+  //                              renderAdminLogs, loadAdminAnalytics, renderAdminAnalytics
+  //   §21.6 設定表單與 SEO       setupAdminTabEvents, setupArticlePicker,
+  //                              setupSuggestFormEvents, loadSuggestSettings,
+  //                              loadSeoSettings, setupAdminSeoEvents
   // ═══════════════════════════════════════════════════════════
   let hwAutoRefreshTimer = null;
   let indexRebuildPollingTimer = null;
@@ -9003,7 +9043,9 @@
     return parts.join(' ');
   }
 
-  // ── SVG Visualizations & Chart Helpers ──────────────────────────
+  // ── §21.3 SVG Visualizations & Chart Helpers ───────────────────
+  // 純計算 + DOM 繪製，不碰網路與 state；computeNiceScale / monotonePath
+  // 由 tests/test-analytics-chart.test.js 直接抽出來實跑驗證。
 
   /**
    * 選擇「好看」的 Y 軸步長：一定是整數、且剛好涵蓋最大值。
@@ -9296,6 +9338,10 @@
     hitArea.addEventListener('pointerleave', hideTooltip);
     hitArea.addEventListener('pointercancel', hideTooltip);
   }
+
+  // ── §21.4 Hardware Monitor Dashboard ───────────────────────────
+  // 對應後端 /api/admin/hardware（server.js 的 getSystemHardwareStats）。
+  // 含索引重建按鈕與自動刷新計時器；計時器握把宣告在 §21 開頭。
 
   async function loadHardwareStats() {
     try {
@@ -9753,6 +9799,9 @@
     $('loginErrorMsg').style.display = 'none';
     $('adminLoginOverlay').style.display = 'flex';
   }
+
+  // ── §21.5 Admin Logs & Analytics Reports ───────────────────────
+  // 登入入口、日誌檢視（含時區與篩選）、流量報表與 CSV/JSON 匯出。
 
   async function openSettingsOverlay() {
     setupAdminTabEvents();
@@ -10227,6 +10276,9 @@
       });
     });
   }
+
+  // ── §21.6 Settings Forms, Article Picker, Suggest & SEO ────────
+  // 分頁切換與表單綁定、文章挑選器、推薦清單設定、Sitemap 與 SEO 工具。
 
   function setupAdminTabEvents() {
     if (state._adminTabEventsSetup) return;
