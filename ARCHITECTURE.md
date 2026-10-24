@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.10.5 | 最後更新：2026-10
+> 版本：v3.10.6 | 最後更新：2026-10
 
 ---
 
@@ -868,7 +868,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.10.5'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.10.6'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -941,7 +941,21 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 |------|---------|------|
 | **Footnote XSS 雙重消毒 (P0-1)** | `render-worker.js` / `md-worker.js` | 註腳 id 採用 `escapeAttr()`、文字標籤 `escapeHtml()`；註腳內文與組裝後容器全面經 `sanitizeDangerousTags()` 過濾 `<script>`、`<style>`、`<iframe>`、`onerror` 等危險屬性 |
 | **畸形 Host 標頭與懸置防禦 (P0-2)** | `server.js` 路由入口 | `new URL` 全面包覆 try/catch（失敗即回 400 Bad Request）；全域 router 設有最終例外捕捉（500）；啟用 `server.requestTimeout = 30s`、`headersTimeout = 10s` 與 `clientError` 事件監聽立即銷毀異常 socket |
-| **嚴格 TRUST_PROXY 驗證 (P0-3)** | `server.js` `getClientIP()` | 僅在明確配置 `TRUST_PROXY=true` 或指定 IP 白名單時信任代理標頭，杜絕同 LAN / 內網橋接任意偽造來源 IP 繞過限流 |
+| **嚴格 TRUST_PROXY 驗證 (P0-3)** | `lib/utils.js` `getClientIP()` | 只有在 **TCP 對端本身是受信任代理** 時才採信轉發標頭：`TRUST_PROXY=true` 僅信任 loopback／RFC1918／link-local／IPv6 ULA 對端（cloudflared、Docker bridge、同機 nginx），亦可填 IP／CIDR 清單（如 `TRUST_PROXY=172.18.0.0/16`），`all` 為舊行為（不建議）。標頭優先序：`CF-Connecting-IP` → `X-Forwarded-For` 由右往左第一個非代理節點 → `X-Real-IP`；不再採信 `True-Client-IP`。直連源站的公網對端無法以標頭偽造 IP；若啟用信任卻收到來自未列名對端的轉發標頭，會於 console 警告一次，避免所有訪客被合併成同一 IP |
+| **登入鎖定預先計次** | `server.js` `/api/admin/login` | 失敗次數在非同步 PBKDF2 雜湊**之前**即累加，並列請求無法在第一筆雜湊完成前繞過 5 次上限；成功登入才清除計數 |
+| **讀取端點限縮 (.md / 非隱藏 / 媒體白名單)** | `server.js` `handleFile`、`handleRender`、`resolveMdPath`、`handleCrawlerSsr`、`handleMedia` | 文字端點只服務 `.md`，任何路徑段以 `.` 開頭（`.obsidian`、`.git`）一律 403；`/api/media` 只服務圖片與 PDF，且庫外候選路徑在 `stat` 前即剔除，不再洩漏庫外檔案是否存在 |
+| **禁止系統目錄作為內容根** | `lib/utils.js` `isForbiddenContentRoot()` | `/api/admin/settings` 拒絕將 `mdRoot`／`dictionaryPath` 設為檔案系統根目錄、`/etc`、`/proc`、`/usr` 等系統目錄或 `APP_ROOT` 本身（回 400 `FORBIDDEN_ROOT`） |
+| **首次設定一次性設定碼** | `server.js` `getSetupToken()`、`/api/admin/setup` | 尚未建立管理員時，`/api/admin/setup` 必須附上 `setupToken`：取自 `ADMIN_SETUP_TOKEN` 環境變數，未設定則每次啟動隨機產生並僅印在 console（`docker logs`），不寫入設定檔與日誌。錯誤或缺少回 403 `INVALID_SETUP_TOKEN`，避免部署後空窗期被搶先建立管理員 |
+| **App Shell 不回 304** | `lib/static-cache.js` `serveStatic()` | `index.html` 每次回應都帶新的 CSP nonce，因此不送 ETag、不回 304；否則瀏覽器會沿用舊 HTML（舊 nonce）卻套用 304 的無 nonce CSP，導致重新整理後 inline 設定腳本被封鎖 |
+| **前端 DOM 白名單消毒** | `app.js` `setSanitizedHTML()` / `sanitizeRenderedHtml()` | 所有渲染結果（`/api/render`、分塊、md-worker、快取）以瀏覽器解析器在惰性 `<template>` 中解析，依元素／屬性／URL scheme 白名單過濾後直接搬移節點（不再序列化），並防止文件 id 覆蓋 App 元素（DOM clobbering）。伺服器端 regex 過濾保留為第一道與爬蟲 SSR 用，補上 `&colon;`、`&Tab;`、無分號數字實體、控制字元與 `formaction`/`srcdoc` 等繞過；wikilink 改用 `href="#"`；Mermaid 改為 `securityLevel: 'strict'` |
+| **SSR 模板注入以函式替換** | `server.js` `handleCrawlerSsr`、`lib/static-cache.js` `getIndexHtml` | 所有 `html.replace(pattern, 內容)` 一律改用 `() => 內容`，避免經文或設定中的 `$$`、`$&`、`` $` ``、`$'` 被當成替換樣式（KaTeX 區塊公式 `$$x$$` 曾被吃成 `$x$`）；JSON-LD 改用 `safeJsonForScript()`，標題含 `</script>` 也無法跳出；canonical／og:image 等屬性內的 URL 一律 `escapeHtmlString()` |
+| **設定 API 先驗型別再寫入** | `server.js` `POST /api/admin/settings` | 字串欄位與 `suggestList` 先整批驗型別（錯誤回 400 `INVALID_FIELD_TYPE`），`defaultTheme` 限白名單；`null` 視為未提供（匯入備份不再存成 `"null"`），避免半途 TypeError 造成記憶體與磁碟設定不一致 |
+| **分塊渲染先回 304** | `server.js` `handleRenderChunk` | `If-None-Match` 在讀檔與渲染之前比對；`fh.read` 實際讀取位元組數不足（檔案在 stat 後被截斷）即視為檔案不存在，不渲染補零內容 |
+| **JSON body 位元組正確解碼** | `lib/auth.js` `readJSONBody` | 以 Buffer 收集後一次解碼，跨 chunk 的中文不再變亂碼；上限以位元組計；非物件 JSON 視為 `{}`；登入雜湊比較全面 `timingSafeCompare`，非字串帳密回 400 |
+| **辭典關閉即不可讀** | `server.js` `resolveRoot` | `dict:` 前綴改走 `getDictionaryPath()`，辭典功能關閉時一律 404 |
+| **X-Forwarded-Host 僅信任代理** | `lib/utils.js` `getBaseUrl` | 未設定 `siteUrl` 時，`X-Forwarded-Host`／`-Proto` 只採信受信任代理對端，Host 需符合主機名格式，避免汙染 `lastKnownBaseUrl` 與背景 Sitemap |
+| **Console 日誌防偽造** | `lib/logger.js` `sanitizeConsoleLine` | 解碼後的訊息輸出到 console 前，CR／LF／控制字元／U+2028 一律轉為跳脫序列，`?q=%0A[ERROR]…` 無法在 `docker logs` 偽造新行 |
+| **容器以非 root 執行** | `Dockerfile`、`docker-entrypoint.sh` | `npm ci --omit=dev`；entrypoint 以 root 啟動時只把設定檔與 logs 目錄交給 `node` 使用者（不改動經文庫／辭典的擁有者），再以 `su-exec node` 降權執行，node 仍為 PID 1 可收 SIGTERM |
 | **Analytics 匯出同源保護 (P0-4)** | `server.js` `handleAnalyticsExport` | 所有匯出路徑強制執行 `verifySameOrigin(req)` 同源檢查，杜絕 CSRF 跨站竊取日誌 |
 | **Analytics 匯出標頭專用認證** | `server.js` `handleAnalyticsExport` | 匯出端點**只接受 `X-Admin-Token` 標頭**，明確拒絕 `?token=` 查詢字串認證；前端改以已驗證的 `fetch` 取得 Blob 後觸發下載，避免 session token 進入瀏覽器歷史、複製連結、反向代理與監控日誌 |
 | **設定檔靜態存取封鎖** | `lib/static-cache.js` `serveStatic()` | 除比對 `CONFIG_PATH` 解析路徑外，另以 `basename === 'config.json'`（不分大小寫）無條件拒絕，即使 `CONFIG_PATH` 指向他處（如 Docker `/data/config.json`）而 `APP_ROOT/config.json` 存在，亦不會外洩管理員帳號、PBKDF2 雜湊與 salt |

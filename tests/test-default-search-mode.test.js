@@ -48,7 +48,7 @@ describe('全站預設搜尋模式與偏好設定測試 (Default Search Mode & P
     const serverContent = fs.readFileSync(path.join(ROOT_DIR, 'server.js'), 'utf8');
     assert.match(
       serverContent,
-      /defaultSearchMode[\s\S]*?=\s*data\.settings/,
+      /defaultSearchMode[\s\S]*?=\s*(?:data\.settings|incomingSettings)/,
       'server.js 的 POST /api/admin/settings 必須解構 defaultSearchMode'
     );
     assert.match(

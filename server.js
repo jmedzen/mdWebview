@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.10.5
+ * @version 3.10.6
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -82,7 +82,8 @@ const {
   isCrawlerRequest, isBotEntry, extractAnalyticsPath, extractAnalyticsQuery,
   getRootRealpath, isRealPathWithinRoot, clearRealpathCache,
   flattenMarkdownFiles, getClientIP, getBaseUrl,
-  safeDecodeURI, safeDecodeURIComponent
+  safeDecodeURI, safeDecodeURIComponent,
+  hasHiddenSegment, isMarkdownPath, isForbiddenContentRoot
 } = require('./lib/utils');
 
 const {
@@ -765,23 +766,23 @@ async function handleCrawlerSsr(req, res, filePath, query) {
           for (const item of sl.adminList.slice(0, 15)) {
             const cleanPath = String(item).trim();
             const displayName = path.basename(cleanPath, '.md');
-            crawlBody += `<li><a href="${baseUrl}/?file=${encodeURIComponent(cleanPath)}">${escapeHtmlString(displayName)}</a></li>`;
+            crawlBody += `<li><a href="${escapeHtmlString(baseUrl)}/?file=${encodeURIComponent(cleanPath)}">${escapeHtmlString(displayName)}</a></li>`;
           }
           crawlBody += `</ul>`;
         }
       } catch (_) {}
 
-      crawlBody += `<p style="margin-top:32px;"><a href="${baseUrl}/sitemap.xml">檢視全站經文索引 Sitemap.xml</a></p>`;
+      crawlBody += `<p style="margin-top:32px;"><a href="${escapeHtmlString(baseUrl)}/sitemap.xml">檢視全站經文索引 Sitemap.xml</a></p>`;
       crawlBody += `</div>`;
 
       // Replace Title & Description
-      html = html.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
-      html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
+      html = html.replace(/<title>.*?<\/title>/i, () => `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content="[^"]*">/i, () => `<meta name="description" content="${safeDesc}">`);
 
       // Reveal contentWrapper with rich homepage intro
       html = html.replace(/<div class="welcome-screen" id="welcomeScreen">/i, '<div class="welcome-screen" id="welcomeScreen" style="display:none">');
       html = html.replace(/<div class="content-wrapper" id="contentWrapper" style="display:none">/i, '<div class="content-wrapper" id="contentWrapper" style="display:block">');
-      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, `<article class="markdown-body" id="markdownBody">${crawlBody}</article>`);
+      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, () => `<article class="markdown-body" id="markdownBody">${crawlBody}</article>`);
 
       const renderedBuf = Buffer.from(html, 'utf-8');
       const headers = indexHtmlHeaders({
@@ -801,7 +802,8 @@ async function handleCrawlerSsr(req, res, filePath, query) {
   const fullPath = path.join(getMdRoot(), filePath);
   const resolved = path.resolve(fullPath);
   const relative = path.relative(getMdRoot(), resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (relative.startsWith('..') || path.isAbsolute(relative) ||
+      hasHiddenSegment(relative) || !isMarkdownPath(resolved)) {
     res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
     return res.end('Access denied');
   }
@@ -838,19 +840,19 @@ async function handleCrawlerSsr(req, res, filePath, query) {
       const safeDesc = escapeHtmlString(description);
 
       // 1. Replace Title & Description
-      html = html.replace(/<title>.*?<\/title>/i, `<title>${pageTitle}</title>`);
-      html = html.replace(/<meta name="description" content="[^"]*">/i, `<meta name="description" content="${safeDesc}">`);
+      html = html.replace(/<title>.*?<\/title>/i, () => `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content="[^"]*">/i, () => `<meta name="description" content="${safeDesc}">`);
 
       // 2. Replace Canonical & OpenGraph & Twitter tags
-      html = html.replace(/<link rel="canonical"[^>]*>/i, `<link rel="canonical" href="${canonicalUrl}">`);
-      html = html.replace(/<meta property="og:url"[^>]*>/i, `<meta property="og:url" content="${canonicalUrl}">`);
-      html = html.replace(/<meta property="og:title"[^>]*>/i, `<meta property="og:title" content="${pageTitle}">`);
-      html = html.replace(/<meta property="og:description"[^>]*>/i, `<meta property="og:description" content="${safeDesc}">`);
-      html = html.replace(/<meta property="og:type"[^>]*>/i, `<meta property="og:type" content="article">`);
-      html = html.replace(/<meta property="og:image" content="[^"]*">/i, `<meta property="og:image" content="${ogImageUrl}">`);
-      html = html.replace(/<meta name="twitter:title"[^>]*>/i, `<meta name="twitter:title" content="${pageTitle}">`);
-      html = html.replace(/<meta name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${safeDesc}">`);
-      html = html.replace(/<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${ogImageUrl}">`);
+      html = html.replace(/<link rel="canonical"[^>]*>/i, () => `<link rel="canonical" href="${escapeHtmlString(canonicalUrl)}">`);
+      html = html.replace(/<meta property="og:url"[^>]*>/i, () => `<meta property="og:url" content="${escapeHtmlString(canonicalUrl)}">`);
+      html = html.replace(/<meta property="og:title"[^>]*>/i, () => `<meta property="og:title" content="${pageTitle}">`);
+      html = html.replace(/<meta property="og:description"[^>]*>/i, () => `<meta property="og:description" content="${safeDesc}">`);
+      html = html.replace(/<meta property="og:type"[^>]*>/i, () => `<meta property="og:type" content="article">`);
+      html = html.replace(/<meta property="og:image" content="[^"]*">/i, () => `<meta property="og:image" content="${escapeHtmlString(ogImageUrl)}">`);
+      html = html.replace(/<meta name="twitter:title"[^>]*>/i, () => `<meta name="twitter:title" content="${pageTitle}">`);
+      html = html.replace(/<meta name="twitter:description"[^>]*>/i, () => `<meta name="twitter:description" content="${safeDesc}">`);
+      html = html.replace(/<meta name="twitter:image" content="[^"]*">/i, () => `<meta name="twitter:image" content="${escapeHtmlString(ogImageUrl)}">`);
 
       // 3. Construct Breadcrumbs & Rich Article Schema.org JSON-LD
       const pathSegments = filePath.split('/').filter(Boolean);
@@ -900,14 +902,16 @@ async function handleCrawlerSsr(req, res, filePath, query) {
           }
         ]
       };
-      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${JSON.stringify(jsonLdGraph)}</script>`;
-      html = html.replace('</head>', `  ${jsonLdTag}\n</head>`);
+      // safeJsonForScript escapes < > & U+2028/2029 so a document title containing
+      // "</script>" cannot terminate the JSON-LD block and inject markup.
+      const jsonLdTag = `<script type="application/ld+json" nonce="${nonce}">${safeJsonForScript(jsonLdGraph)}</script>`;
+      html = html.replace('</head>', () => `  ${jsonLdTag}\n</head>`);
 
       // 4. Hide welcomeScreen and reveal contentWrapper with pre-rendered markdown
       html = html.replace(/<div class="welcome-screen" id="welcomeScreen">/i, '<div class="welcome-screen" id="welcomeScreen" style="display:none">');
       html = html.replace(/<div class="content-wrapper" id="contentWrapper" style="display:none">/i, '<div class="content-wrapper" id="contentWrapper" style="display:block">');
-      html = html.replace(/<div class="content-header" id="contentHeader"><\/div>/i, `<div class="content-header" id="contentHeader"><h1 class="file-title">${escapeHtmlString(title)}</h1></div>`);
-      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, `<article class="markdown-body" id="markdownBody">${bodyHtml}</article>`);
+      html = html.replace(/<div class="content-header" id="contentHeader"><\/div>/i, () => `<div class="content-header" id="contentHeader"><h1 class="file-title">${escapeHtmlString(title)}</h1></div>`);
+      html = html.replace(/<article class="markdown-body" id="markdownBody"><\/article>/i, () => `<article class="markdown-body" id="markdownBody">${bodyHtml}</article>`);
 
       const renderedBuf = Buffer.from(html, 'utf-8');
       const headers = indexHtmlHeaders({
@@ -956,7 +960,9 @@ async function handleFile(req, res, query) {
 
   // Check for path traversal using path.relative to prevent partial-name matching
   const relative = path.relative(getMdRoot(), resolved);
-  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  // Inside the vault, not hidden (.obsidian/.git/...), and a Markdown document.
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative) &&
+                 !hasHiddenSegment(relative) && isMarkdownPath(resolved);
 
   if (!isSafe) {
     return sendJSON(res, 403, { error: 'Access denied' });
@@ -1029,7 +1035,31 @@ async function handleMedia(req, res, query) {
     currFolder = (parent === '.' || parent === '/') ? '' : parent;
   }
 
+  // Only image/PDF attachments are served. Anything else (.md, .json, .zip,
+  // desktop.ini, ...) is not media and must go through the Markdown endpoints.
+  const MEDIA_MIME_TYPES = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.bmp': 'image/bmp',
+    '.pdf': 'application/pdf'
+  };
+  if (!MEDIA_MIME_TYPES[path.extname(baseName).toLowerCase()]) {
+    res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+    return res.end('Media not found');
+  }
+
   for (const cand of candidates) {
+    // Discard out-of-vault and hidden candidates BEFORE touching the disk, so
+    // the response can never reveal whether a file outside the vault exists,
+    // and a bad early candidate cannot shadow a valid later one.
+    const candRel = path.relative(mdRoot, path.resolve(cand));
+    if (candRel.startsWith('..') || path.isAbsolute(candRel) || hasHiddenSegment(candRel)) continue;
+    if (!MEDIA_MIME_TYPES[path.extname(cand).toLowerCase()]) continue;
     try {
       const stat = await fs.promises.stat(cand);
       if (stat.isFile()) {
@@ -1059,18 +1089,7 @@ async function handleMedia(req, res, query) {
   }
 
   const ext = path.extname(resolvedPath).toLowerCase();
-  const MIME_TYPES = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.webp': 'image/webp',
-    '.ico': 'image/x-icon',
-    '.bmp': 'image/bmp',
-    '.pdf': 'application/pdf'
-  };
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+  const contentType = MEDIA_MIME_TYPES[ext];
 
   try {
     const stat = await fs.promises.stat(resolvedPath);
@@ -1144,6 +1163,7 @@ async function handleRender(req, res, query) {
   filePath = filePath.replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/');
 
   const { root, fsRel } = resolveRoot(filePath);
+  if (!root) return sendJSON(res, 404, { error: 'File not found: ' + filePath });
   let resolved = path.resolve(path.join(root, fsRel));
 
   // Fallback: if resolved file doesn't exist directly, try with .md extension
@@ -1156,7 +1176,8 @@ async function handleRender(req, res, query) {
   }
 
   const relative = path.relative(root, resolved);
-  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative) &&
+                 !hasHiddenSegment(relative) && isMarkdownPath(resolved);
   if (!isSafe) return sendJSON(res, 403, { error: 'Access denied' });
 
   try {
@@ -1241,7 +1262,9 @@ async function handleRender(req, res, query) {
 function resolveRoot(filePath) {
   const p = String(filePath || '');
   if (p.startsWith('dict:')) {
-    return { root: config.settings.dictionaryPath, fsRel: p.slice(5), relPath: p };
+    // getDictionaryPath() is null while the dictionary feature is disabled, so
+    // dictionary files stop being readable the moment it is switched off.
+    return { root: getDictionaryPath(), fsRel: p.slice(5), relPath: p };
   }
   return { root: getMdRoot(), fsRel: p, relPath: p };
 }
@@ -1251,6 +1274,7 @@ function resolveMdPath(filePath) {
   let p = String(filePath || '').replace(/\\/g, '/').split('/').map(s => s.trim()).filter(Boolean).join('/');
   if (!p || p.includes('\0')) return null;
   const { root, fsRel, relPath } = resolveRoot(p);
+  if (!root) return null;
   let resolved = path.resolve(path.join(root, fsRel));
   let outFsRel = fsRel;
   let outRelPath = relPath;
@@ -1259,7 +1283,8 @@ function resolveMdPath(filePath) {
     if (fs.existsSync(candidate)) { resolved = candidate; outFsRel = fsRel + '.md'; outRelPath = relPath + '.md'; }
   }
   const relative = path.relative(root, resolved);
-  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative);
+  const isSafe = !relative.startsWith('..') && !path.isAbsolute(relative) &&
+                 !hasHiddenSegment(relative) && isMarkdownPath(resolved);
   if (!isSafe) return null;
   return { resolved, relPath: outRelPath, root };
 }
@@ -1403,11 +1428,27 @@ async function handleRenderChunk(req, res, query) {
     const lineOffset = (from === 0) ? 0 : (idx.entries[from].lineStart - 1);
     const byteLen = end - start;
 
+    // Answer conditional requests BEFORE reading and rendering: the ETag only
+    // depends on the file version and the clamped range, so a 304 needs neither.
+    const etag = `W/"${stat.size}-${stat.mtimeMs}-${from}-${to}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      res.end();
+      return;
+    }
+
     const fh = await fs.promises.open(r.resolved, 'r');
     let body;
     try {
       const buf = Buffer.alloc(byteLen);
-      await fh.read(buf, 0, byteLen, start);
+      const { bytesRead } = await fh.read(buf, 0, byteLen, start);
+      // The section index is keyed on size+mtime, but the file can still be
+      // truncated between stat() and read(). Never render a zero-padded tail.
+      if (bytesRead !== byteLen) {
+        const err = new Error('File changed while reading chunk');
+        err.code = 'ENOENT';
+        throw err;
+      }
       body = buf.toString('utf-8');
     } finally {
       await fh.close();
@@ -1426,13 +1467,6 @@ async function handleRenderChunk(req, res, query) {
       lineStart: (from === 0) ? 1 : idx.entries[from].lineStart,
       totalEntries: total,
     }), 'utf-8').toString('base64');
-
-    const etag = `W/"${stat.size}-${stat.mtimeMs}-${from}-${to}"`;
-    if (req.headers['if-none-match'] === etag) {
-      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
-      res.end();
-      return;
-    }
 
     const responseHeaders = Object.assign({
       'Content-Type': 'text/html; charset=utf-8',
@@ -4835,6 +4869,34 @@ async function handleAnalyticsExport(req, res, query) {
   }
 }
 
+// ── First-run setup token ────────────────────────────────────
+// ADMIN_SETUP_TOKEN lets an operator pre-provision the token (e.g. in a
+// docker-compose secret); otherwise one is generated per process and printed
+// to the console at boot. It is never written to config, the log buffer or
+// the jsonl access logs.
+let setupTokenValue = null;
+function getSetupToken() {
+  if (!setupTokenValue) {
+    const fromEnv = (process.env.ADMIN_SETUP_TOKEN || '').trim();
+    setupTokenValue = fromEnv || crypto.randomBytes(12).toString('base64url');
+  }
+  return setupTokenValue;
+}
+
+function announceSetupTokenIfNeeded() {
+  if (IS_SINGLE_USER || config.admin) return;
+  const fromEnv = !!(process.env.ADMIN_SETUP_TOKEN || '').trim();
+  const token = getSetupToken();
+  console.log('  ⚠  No administrator configured yet.');
+  if (fromEnv) {
+    console.log('     Complete first-run setup with the token from ADMIN_SETUP_TOKEN.');
+  } else {
+    console.log(`     First-run setup token: ${token}`);
+    console.log('     (Enter it in the setup dialog. It changes on every restart until setup is done.)');
+  }
+  console.log('');
+}
+
 // ── §20 HTTP Server & Main Request Router ────────────────────
 const server = http.createServer((req, res) => {
   const reqStart = Date.now();
@@ -5030,7 +5092,10 @@ const server = http.createServer((req, res) => {
     if (config.admin) {
       return sendJSON(res, 400, { error: 'Admin already configured' });
     }
-    // Scheme A: First-run admin creation allows remote setup upon initial deployment.
+    // First-run admin creation is reachable from the network, so it requires a
+    // one-time setup token that only the operator can see (ADMIN_SETUP_TOKEN or
+    // the token printed to the server console at boot). Without it, whoever
+    // reached a fresh deployment first could claim the administrator account.
     // Once configured, config.admin is persisted to disk and /api/admin/setup is permanently disabled.
     return readJSONBody(req).then(data => {
       const { username, password } = data;
@@ -5047,6 +5112,13 @@ const server = http.createServer((req, res) => {
       }
       if (password.length < 8) {
         return sendJSON(res, 400, { error: '密碼長度至少需為 8 個字元' });
+      }
+      if (!timingSafeCompare(String(data.setupToken || '').trim(), getSetupToken())) {
+        Logger.warn('Admin', 'Rejected first-run setup attempt with a missing or invalid setup token', req);
+        return sendJSON(res, 403, {
+          error: '設定碼不正確。請至伺服器啟動日誌（例如 docker logs）查看一次性設定碼，或設定 ADMIN_SETUP_TOKEN 環境變數。',
+          code: 'INVALID_SETUP_TOKEN'
+        });
       }
       return hashPassword(password).then(({ salt, hash }) => {
         config.admin = {
@@ -5079,20 +5151,34 @@ const server = http.createServer((req, res) => {
       return sendJSON(res, 429, { error: `登入失敗次數過多，請於 ${waitMinutes} 分鐘後再試。` });
     }
 
+    // Charge the attempt BEFORE the (async, ~100ms) password hash. Otherwise a
+    // burst of parallel requests all pass the lock check above while the first
+    // one is still hashing, and the 5-attempt limit becomes "as many as fit in
+    // one hash window". A successful login clears the counter below.
+    attempt.attempts += 1;
+    if (attempt.attempts >= MAX_ATTEMPTS) {
+      attempt.lockUntil = Date.now() + LOCK_DURATION;
+    }
+    loginAttempts.set(ip, attempt);
+    if (loginAttempts.size > MAX_LOGIN_ENTRIES) {
+      const oldestKey = loginAttempts.keys().next().value;
+      loginAttempts.delete(oldestKey);
+    }
+
     return readJSONBody(req).then(data => {
       const { username, password } = data;
-      if (!username || !password) {
+      if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
 
       // Perform async hashing
       return hashPassword(password, config.admin.salt, 100000).then(({ hash }) => {
-        if (hash === config.admin.passwordHash) {
+        if (timingSafeCompare(hash, config.admin.passwordHash)) {
           return { hash };
         }
         // Fallback for legacy 1000 iterations
         return hashPassword(password, config.admin.salt, 1000).then(legacy => {
-          return { hash: legacy.hash === config.admin.passwordHash ? legacy.hash : hash };
+          return { hash: timingSafeCompare(legacy.hash, config.admin.passwordHash) ? legacy.hash : hash };
         });
       }).then(({ hash }) => {
         const isUsernameCorrect = timingSafeCompare(username, config.admin.username);
@@ -5106,18 +5192,11 @@ const server = http.createServer((req, res) => {
           Logger.info('Auth', `Admin login succeeded for user "${String(username).slice(0, 100)}"`, req);
           return sendJSON(res, 200, { success: true, token });
         } else {
-          attempt.attempts += 1;
+          // The attempt was already charged before hashing (see above).
           // 每次失敗皆記錄，使第 1~4 次嘗試可見、可觀測憑證填充 (credential stuffing)。
           Logger.warn('Auth', `Failed admin login attempt #${attempt.attempts} for user "${String(username).slice(0, 100)}"`, req);
           if (attempt.attempts >= MAX_ATTEMPTS) {
-            attempt.lockUntil = Date.now() + LOCK_DURATION;
             Logger.warn('Auth', `IP locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`, req);
-          }
-          loginAttempts.set(ip, attempt); // Correctly save the attempt block in all paths
-          // Evict oldest entries if over limit
-          if (loginAttempts.size > MAX_LOGIN_ENTRIES) {
-            const oldestKey = loginAttempts.keys().next().value;
-            loginAttempts.delete(oldestKey);
           }
           return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
         }
@@ -5164,13 +5243,38 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/admin/settings' && req.method === 'POST') {
     if (!requireAdmin(req, res, sendJSON)) return;
     return readJSONBody(req).then(data => {
+      // null means "not provided" (an exported settings file may contain nulls);
+      // dropping them keeps partial-update semantics and avoids String(null) === 'null'.
+      const incomingSettings = (data && typeof data.settings === 'object' && data.settings !== null && !Array.isArray(data.settings))
+        ? Object.fromEntries(Object.entries(data.settings).filter(([, v]) => v !== null))
+        : {};
       const {
         mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists,
         enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, defaultSearchMode,
         dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
         seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
         googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoEnableSearchBox, seoHomepageSummary
-      } = data.settings || {};
+      } = incomingSettings;
+
+      // Validate every field's type up front. updateSettings() mutates
+      // config.settings field by field, so a late TypeError (e.g. siteName: 123
+      // → "siteName.trim is not a function") used to leave the in-memory config
+      // half-updated while the file on disk kept the old values.
+      const stringFields = { mdRoot, siteName, siteUrl, timezone, version, downloadUrl, dictionaryPath,
+        announcementMessage, seoSiteDescription, seoKeywords, seoOgImage, seoDisallowPaths,
+        googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoHomepageSummary, defaultTheme };
+      for (const [field, value] of Object.entries(stringFields)) {
+        if (value !== undefined && typeof value !== 'string') {
+          return sendJSON(res, 400, { error: `欄位 ${field} 必須為字串`, code: 'INVALID_FIELD_TYPE', field });
+        }
+      }
+      if (suggestList !== undefined && (typeof suggestList !== 'object' || Array.isArray(suggestList))) {
+        return sendJSON(res, 400, { error: '欄位 suggestList 必須為物件', code: 'INVALID_FIELD_TYPE', field: 'suggestList' });
+      }
+      const KNOWN_THEMES = ['obsidian-dark', 'obsidian-light', 'solarized', 'zen', 'gruvbox'];
+      if (defaultTheme && !KNOWN_THEMES.includes(defaultTheme)) {
+        return sendJSON(res, 400, { error: `未知的主題：${defaultTheme}`, code: 'INVALID_THEME', field: 'defaultTheme' });
+      }
 
       // Allow partial settings updates: if mdRoot is omitted, preserve existing config.settings.mdRoot
       if (mdRoot !== undefined && (!mdRoot || mdRoot.trim() === '')) {
@@ -5188,6 +5292,23 @@ const server = http.createServer((req, res) => {
       const nextDictPath = (dictionaryPath !== undefined)
         ? (String(dictionaryPath).trim() ? path.resolve(String(dictionaryPath).trim()) : deriveDictRoot(resolvedPath))
         : config.settings.dictionaryPath;
+
+      // Every file under mdRoot / dictionaryPath becomes publicly readable, so
+      // refuse the filesystem root, system directories and the app directory.
+      if (mdRoot !== undefined && isForbiddenContentRoot(resolvedPath, APP_ROOT)) {
+        return sendJSON(res, 400, {
+          error: `不允許將經文庫設為系統目錄或根目錄："${resolvedPath}"`,
+          code: 'FORBIDDEN_ROOT',
+          field: 'mdRoot'
+        });
+      }
+      if (dictionaryPath !== undefined && nextDictPath && isForbiddenContentRoot(nextDictPath, APP_ROOT)) {
+        return sendJSON(res, 400, {
+          error: `不允許將辭典目錄設為系統目錄或根目錄："${nextDictPath}"`,
+          code: 'FORBIDDEN_ROOT',
+          field: 'dictionaryPath'
+        });
+      }
 
       const updateSettings = () => {
         if (config.settings.mdRoot !== resolvedPath) {
@@ -5564,6 +5685,7 @@ if (require.main === module) {
     console.log('');
     // Emitted on stdout for launchers to parse. Keep this format stable.
     console.log(`MDWEBVIEW_READY port=${actualPort}`);
+    announceSetupTokenIfNeeded();
 
     // Eagerly build Bigram Inverted Index & Sitemap in background on boot.
     // The search index is required in every mode; the sitemap only exists to be
@@ -5634,6 +5756,7 @@ if (typeof module !== "undefined" && module.exports) {
     buildSearchIndexAsync,
     buildDictIndexAsync,
     stripFrontmatter,
-    ChunkedBinaryWriter
+    ChunkedBinaryWriter,
+    getSetupToken
   };
 }

@@ -428,33 +428,67 @@ function convertWikilinks(html) {
       }
     }
 
-    return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="javascript:void(0)" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
+    return `<a class="wikilink" data-wikilink-file="${escapeAttr(file)}" data-wikilink-anchor="${escapeAttr(anchor)}" href="#" title="${escapeAttr(target)}">${escapeHtml(display)}</a>`;
   });
 }
 
 function sanitizeDangerousTags(html) {
   if (!html) return '';
   return html
-    // 1. Strip <script> entirely, including a bare/unclosed opening tag
+    // 1. Strip <script> entirely, including a bare/unclosed opening tag (in a
+    //    real parser script-data state runs to EOF, so drop everything after it).
     .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
     // 2. Strip a broad set of active/unsafe elements (opening + closing tags).
-    //    Includes <svg>/<math> (mXSS vectors) and <style>/<base>/<meta>/<link>/<form>
-    .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript)\b[^>]*>/gi, '')
-    // 3. Strip inline event handlers regardless of what precedes `on*`.
+    //    Includes <svg>/<math> (mXSS vectors), <template>/<noscript>/<xmp>
+    //    (parser-differential vectors) and <style>/<base>/<meta>/<link>/<form>
+    //    which can exfiltrate or hijack the page.
+    .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript|template|textarea|xmp|plaintext|noembed|noframes|portal|isindex|title)\b[^>]*>/gi, '')
+    // 3. Strip inline event handlers regardless of what precedes `on*`. The
+    //    original required whitespace, letting `<img/onerror=...>` (where `/`
+    //    is a self-closing flag) slip through. `\b` also catches `data-on*`.
     .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
-    // 4. Neutralize javascript:/vbscript: pseudo-protocols in href/src (and data: in href),
-    //    decoding HTML entities first.
-    .replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
+    // 4. srcdoc embeds a whole document; never allow it.
+    .replace(/\bsrcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+    // 5. Neutralize javascript:/vbscript:/data: pseudo-protocols in every
+    //    URL-bearing attribute, decoding entities the way a browser would.
+    .replace(/((?:xlink:)?href|src|action|formaction|poster|background|lowsrc|dynsrc|data|cite)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
       const raw = /^["']/.test(val) ? val.slice(1, -1) : val;
-      const decoded = raw
-        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-        .replace(/&#([0-9]+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
-        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&')
-        .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
-      if (/^\s*(?:javascript|vbscript)\s*:/i.test(decoded)) return attr + '="#"';
-      if (attr.toLowerCase() === 'href' && /^\s*data\s*:/i.test(decoded)) return attr + '="#"';
+      if (isDangerousUrl(raw, attr)) return attr + '="#"';
       return m;
     });
+}
+
+// Named character references a browser decodes inside attribute values that
+// matter for spelling a URL scheme. Numeric references are accepted with or
+// without the trailing ';', exactly as HTML parsers do.
+const URL_NAMED_ENTITIES = {
+  colon: ':', tab: '\t', newline: '\n', lpar: '(', rpar: ')', sol: '/', bsol: '\\',
+  period: '.', comma: ',', semi: ';', excl: '!', quest: '?', num: '#', percnt: '%',
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0'
+};
+
+function decodeUrlEntities(s) {
+  return String(s)
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => { const c = parseInt(h, 16); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : ''; })
+    .replace(/&#([0-9]+);?/g, (_, d) => { const c = parseInt(d, 10); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : ''; })
+    .replace(/&([a-z]+);/gi, (m, name) => {
+      const v = URL_NAMED_ENTITIES[name.toLowerCase()];
+      return v !== undefined ? v : m;
+    });
+}
+
+function isDangerousUrl(rawValue, attr) {
+  // Browsers ignore leading C0 controls/spaces and strip tab/CR/LF anywhere in
+  // a URL before reading the scheme, so `\x01java\tscript:` is javascript:.
+  const compact = decodeUrlEntities(rawValue).replace(/[\u0000-\u0020\u007f-\u009f\u00a0\u200b-\u200d\u2028\u2029\ufeff]+/g, '').toLowerCase();
+  if (/^(?:javascript|vbscript|livescript|mocha):/.test(compact)) return true;
+  if (compact.startsWith('data:')) {
+    // Inline raster images are fine as <img src>; any other data: URL can
+    // carry an HTML/SVG document.
+    const a = String(attr).toLowerCase();
+    return !(a === 'src' && /^data:image\/(?:png|jpe?g|gif|webp|bmp);/.test(compact));
+  }
+  return false;
 }
 
 function escapeHtml(s) {
