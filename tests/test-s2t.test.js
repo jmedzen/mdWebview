@@ -109,4 +109,44 @@ describe('S2T 簡繁轉換引擎與佛教名相保護測試', () => {
     assert.equal(s2t.hasSimplified(null), false);
     assert.equal(s2t.hasSimplified(undefined), false);
   });
+
+  test('字表誤植修正：违→違、觎→覦', () => {
+    assert.equal(s2t.dict['违'], '違');
+    assert.equal(s2t.dict['觎'], '覦');
+    assert.equal(s2t.toTraditional('违背'), '違背');
+    assert.equal(s2t.toTraditional('觊觎'), '覬覦');
+  });
+
+  test('多個簡體字對到同一繁體字，只允許已知的異體字組', () => {
+    // 這些是同一個字的簡體異寫，合法地對到同一個繁體字。
+    // 新增項目前請先確認不是誤植（如曾有的 违→維、觎→覬）。
+    const allowed = new Set([
+      '䦆镢', '䩄腼', '稆穞', '緼缊', '线缐', '蕴藴', '輼辒', '酝醖', '钟锺'
+    ]);
+    const rev = {};
+    for (const [k, v] of Object.entries(s2t.dict)) {
+      (rev[v] = rev[v] || []).push(k);
+    }
+    for (const [target, keys] of Object.entries(rev)) {
+      if (keys.length < 2) continue;
+      const group = keys.slice().sort().join('');
+      const ok = [...allowed].some(a => [...a].sort().join('') === group);
+      assert.ok(ok, `${keys.join('、')} 都轉成「${target}」，請確認是否誤植`);
+    }
+  });
+
+  test('轉換目標採台灣常用字，與經文語料一致', () => {
+    // 依 OpenCC TWVariants，並以語料字頻核對（1/5 抽樣：為 790,006 vs 爲 20,120）
+    const tw = {
+      '为': '為', '众': '眾', '伪': '偽', '启': '啟', '妫': '媯',
+      '娴': '嫻', '沩': '溈', '湿': '濕', '缰': '韁'
+    };
+    for (const [k, v] of Object.entries(tw)) {
+      assert.equal(s2t.dict[k], v, `${k} 應轉為台灣常用字 ${v}`);
+    }
+    assert.equal(s2t.toTraditional('为人'), '為人');
+    assert.equal(s2t.toTraditional('众生'), '眾生');
+    // 佛典語料「鉢」遠多於「缽」（16,634 vs 2,876），保留鉢
+    assert.equal(s2t.dict['钵'], '鉢');
+  });
 });
