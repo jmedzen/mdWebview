@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.5
+   mdWebview — Application Logic (app.js) v3.10.6
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2587,7 +2587,7 @@
         sectionEl.setAttribute('data-chunk', ci);
         sectionEl.setAttribute('data-from', from);
         sectionEl.setAttribute('data-to', to);
-        sectionEl.innerHTML = html;
+        setSanitizedHTML(sectionEl, html);
         postProcessMarkdownDOM(sectionEl);
         insertChunkSorted(ci, sectionEl);
         v.chunks.set(ci, { sectionEl, from, to });
@@ -3637,7 +3637,7 @@
         if (cachedHtml) {
           if (token !== state._openToken) return;
           const el = $('markdownBody');
-          el.innerHTML = cachedHtml;
+          setSanitizedHTML(el, cachedHtml);
           postProcessMarkdownDOM(el);
           const cachedMeta = renderCache.__meta ? renderCache.__meta.get(filePath) : {};
           renderContentHeader(filePath, cachedMeta || {});
@@ -3698,7 +3698,7 @@
 
       // Insert pre-rendered HTML
       const el = $('markdownBody');
-      el.innerHTML = html;
+      setSanitizedHTML(el, html);
       postProcessMarkdownDOM(el);
 
       // Cache for instant re-opens
@@ -3841,7 +3841,7 @@
     }
 
     // Insert HTML into DOM
-    el.innerHTML = html;
+    setSanitizedHTML(el, html);
     postProcessMarkdownDOM(el);
 
     // Add IDs to headings for scroll spy
@@ -3881,20 +3881,60 @@
   function sanitizeDangerousTags(html) {
     if (!html) return '';
     return html
+      // 1. Strip <script> entirely, including a bare/unclosed opening tag (in a
+      //    real parser script-data state runs to EOF, so drop everything after it).
       .replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '')
-      .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|form|base|meta|link|source|applet|noscript)\b[^>]*>/gi, '')
+      // 2. Strip a broad set of active/unsafe elements (opening + closing tags).
+      //    Includes <svg>/<math> (mXSS vectors), <template>/<noscript>/<xmp>
+      //    (parser-differential vectors) and <style>/<base>/<meta>/<link>/<form>
+      //    which can exfiltrate or hijack the page.
+      .replace(/<\/?(?:script|iframe|embed|object|frame|frameset|style|math|form|base|meta|link|svg|video|audio|source|applet|noscript|template|textarea|xmp|plaintext|noembed|noframes|portal|isindex|title)\b[^>]*>/gi, '')
+      // 3. Strip inline event handlers regardless of what precedes `on*`. The
+      //    original required whitespace, letting `<img/onerror=...>` (where `/`
+      //    is a self-closing flag) slip through. `\b` also catches `data-on*`.
       .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
-      .replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
+      // 4. srcdoc embeds a whole document; never allow it.
+      .replace(/\bsrcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+      // 5. Neutralize javascript:/vbscript:/data: pseudo-protocols in every
+      //    URL-bearing attribute, decoding entities the way a browser would.
+      .replace(/((?:xlink:)?href|src|action|formaction|poster|background|lowsrc|dynsrc|data|cite)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, attr, val) => {
         const raw = /^["']/.test(val) ? val.slice(1, -1) : val;
-        const decoded = raw
-          .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-          .replace(/&#([0-9]+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
-          .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&')
-          .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
-        if (/^\s*(?:javascript|vbscript)\s*:/i.test(decoded)) return attr + '="#"';
-        if (attr.toLowerCase() === 'href' && /^\s*data\s*:/i.test(decoded)) return attr + '="#"';
+        if (isDangerousUrl(raw, attr)) return attr + '="#"';
         return m;
       });
+  }
+
+  // Named character references a browser decodes inside attribute values that
+  // matter for spelling a URL scheme. Numeric references are accepted with or
+  // without the trailing ';', exactly as HTML parsers do.
+  const URL_NAMED_ENTITIES = {
+    colon: ':', tab: '\t', newline: '\n', lpar: '(', rpar: ')', sol: '/', bsol: '\\',
+    period: '.', comma: ',', semi: ';', excl: '!', quest: '?', num: '#', percnt: '%',
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0'
+  };
+
+  function decodeUrlEntities(s) {
+    return String(s)
+      .replace(/&#x([0-9a-f]+);?/gi, (_, h) => { const c = parseInt(h, 16); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : ''; })
+      .replace(/&#([0-9]+);?/g, (_, d) => { const c = parseInt(d, 10); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : ''; })
+      .replace(/&([a-z]+);/gi, (m, name) => {
+        const v = URL_NAMED_ENTITIES[name.toLowerCase()];
+        return v !== undefined ? v : m;
+      });
+  }
+
+  function isDangerousUrl(rawValue, attr) {
+    // Browsers ignore leading C0 controls/spaces and strip tab/CR/LF anywhere in
+    // a URL before reading the scheme, so `\x01java\tscript:` is javascript:.
+    const compact = decodeUrlEntities(rawValue).replace(/[\u0000-\u0020\u007f-\u009f\u00a0\u200b-\u200d\u2028\u2029\ufeff]+/g, '').toLowerCase();
+    if (/^(?:javascript|vbscript|livescript|mocha):/.test(compact)) return true;
+    if (compact.startsWith('data:')) {
+      // Inline raster images are fine as <img src>; any other data: URL can
+      // carry an HTML/SVG document.
+      const a = String(attr).toLowerCase();
+      return !(a === 'src' && /^data:image\/(?:png|jpe?g|gif|webp|bmp);/.test(compact));
+    }
+    return false;
   }
 
   const CALLOUT_ICONS = {
@@ -4003,7 +4043,9 @@
       window.mermaid.initialize({
         startOnLoad: false,
         theme: isDark ? 'dark' : 'default',
-        securityLevel: 'loose'
+        // 'strict' makes mermaid sanitize labels and disables click/callback
+        // directives; 'loose' let a diagram call arbitrary global functions.
+        securityLevel: 'strict'
       });
       blocks.forEach((codeEl, idx) => {
         if (codeEl.dataset.mermaidRendered) return;
@@ -4032,6 +4074,144 @@
     renderMath(container);
     renderMermaid(container);
   }
+
+  // ── Rendered-Markdown sanitizer (DOM allowlist) ───────────────────────────
+  // Every rendered document (server /api/render, chunked render, md-worker,
+  // render cache) is inserted through setSanitizedHTML(). The server-side regex
+  // filter stays as a first pass, but regexes cannot model how a browser parses
+  // HTML (named entities such as `&colon;`, control characters in URLs, odd
+  // attribute syntax). Here the browser's own parser builds an inert <template>
+  // fragment, which is walked against an allowlist and then MOVED into the page
+  // — never re-serialized — so there is no parse/serialize mismatch to exploit.
+  const SANITIZE_DROP_TAGS = new Set([
+    'script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
+    'svg', 'math', 'form', 'template', 'noscript', 'link', 'meta', 'base', 'title',
+    'textarea', 'select', 'option', 'button', 'portal', 'video', 'audio', 'source',
+    'track', 'canvas', 'dialog', 'slot', 'xmp', 'plaintext', 'noembed', 'noframes', 'head'
+  ]);
+  const SANITIZE_ALLOWED_TAGS = new Set([
+    'a', 'abbr', 'b', 'bdi', 'bdo', 'blockquote', 'br', 'caption', 'center', 'cite', 'code',
+    'col', 'colgroup', 'dd', 'del', 'details', 'dfn', 'div', 'dl', 'dt', 'em', 'figcaption',
+    'figure', 'font', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input', 'ins',
+    'kbd', 'li', 'mark', 'ol', 'p', 'pre', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'section',
+    'small', 'span', 'strike', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td',
+    'tfoot', 'th', 'thead', 'time', 'tr', 'tt', 'u', 'ul', 'var', 'wbr', 'article', 'aside',
+    'header', 'footer', 'nav', 'main', 'hgroup', 'address'
+  ]);
+  const SANITIZE_GLOBAL_ATTRS = new Set(['id', 'class', 'title', 'lang', 'dir', 'style', 'role', 'align', 'valign']);
+  const SANITIZE_TAG_ATTRS = {
+    a: new Set(['href', 'target', 'rel']),
+    img: new Set(['src', 'alt', 'width', 'height', 'loading']),
+    td: new Set(['colspan', 'rowspan', 'width']),
+    th: new Set(['colspan', 'rowspan', 'width', 'scope']),
+    col: new Set(['span', 'width']),
+    colgroup: new Set(['span', 'width']),
+    ol: new Set(['start', 'type', 'reversed']),
+    li: new Set(['value']),
+    details: new Set(['open']),
+    input: new Set(['type', 'checked', 'disabled']),
+    font: new Set(['color', 'size']),
+    time: new Set(['datetime']),
+    q: new Set(['cite']),
+    blockquote: new Set(['cite'])
+  };
+  const SANITIZE_SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+  const SANITIZE_DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
+
+  function isSafeUrl(value, attrName) {
+    const v = String(value || '').trim();
+    if (v === '' || v.startsWith('#')) return true;
+    if (attrName === 'src' && SANITIZE_DATA_IMAGE_RE.test(v)) return true;
+    let parsed;
+    try { parsed = new URL(v, window.location.href); } catch (_) { return false; }
+    // Same-origin relative URLs resolve to the page's own scheme.
+    return SANITIZE_SAFE_PROTOCOLS.has(parsed.protocol);
+  }
+
+  function sanitizeElementAttributes(el, tag) {
+    const tagAttrs = SANITIZE_TAG_ATTRS[tag];
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const allowed = SANITIZE_GLOBAL_ATTRS.has(name) ||
+        (tagAttrs && tagAttrs.has(name)) ||
+        (/^data-[a-z0-9_.-]+$/.test(name)) ||
+        (/^aria-[a-z]+$/.test(name));
+      if (!allowed) { el.removeAttribute(attr.name); continue; }
+      if ((name === 'href' || name === 'src' || name === 'cite') && !isSafeUrl(attr.value, name)) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (name === 'style' && /expression\s*\(|url\s*\(|@import|behavior\s*:|-moz-binding/i.test(attr.value)) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      // DOM clobbering: a document id must never shadow one of the app's own
+      // elements (e.g. id="markdownBody"), which the UI looks up by id.
+      if (name === 'id') {
+        const existing = document.getElementById(attr.value);
+        // Allowed only when the existing element is itself earlier rendered
+        // document content (strictly inside the reader), never the reader
+        // container or any other piece of the app shell.
+        const reader = document.getElementById('markdownBody');
+        const isPriorContent = existing && reader && existing !== reader && reader.contains(existing);
+        if (existing && !isPriorContent) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    }
+    if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() !== 'checkbox') {
+      return false; // only GFM task-list checkboxes
+    }
+    if (tag === 'input') el.setAttribute('disabled', '');
+    if (tag === 'a' && el.getAttribute('target')) {
+      el.setAttribute('rel', 'noopener noreferrer');
+    }
+    return true;
+  }
+
+  function sanitizeNodeTree(root) {
+    // Snapshot children first: the loop mutates the tree.
+    for (const node of Array.from(root.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) continue;
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        node.remove(); // comments, processing instructions, CDATA
+        continue;
+      }
+      const tag = node.localName;
+      if (SANITIZE_DROP_TAGS.has(tag) || node.namespaceURI !== 'http://www.w3.org/1999/xhtml') {
+        node.remove();
+        continue;
+      }
+      if (!SANITIZE_ALLOWED_TAGS.has(tag)) {
+        // Unknown but harmless wrapper (e.g. <center>-like legacy tags,
+        // custom elements): keep its text/children, drop the element itself.
+        sanitizeNodeTree(node);
+        node.replaceWith(...Array.from(node.childNodes));
+        continue;
+      }
+      if (!sanitizeElementAttributes(node, tag)) {
+        node.remove();
+        continue;
+      }
+      sanitizeNodeTree(node);
+    }
+  }
+
+  /** Parse untrusted HTML inertly and return a sanitized DocumentFragment. */
+  function sanitizeRenderedHtml(html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = String(html || '');
+    const frag = tpl.content;
+    sanitizeNodeTree(frag);
+    return frag;
+  }
+
+  /** Replace el's content with sanitized HTML (no re-serialization). */
+  function setSanitizedHTML(el, html) {
+    if (!el) return;
+    el.replaceChildren(sanitizeRenderedHtml(html));
+  }
+  window.__mdwSanitizeRenderedHtml = sanitizeRenderedHtml; // exposed for tests
 
   function inlineParseMarkdown(body) {
     if (!body) return '';
@@ -4305,7 +4485,7 @@
         }
       }
 
-      return `<a class="wikilink" data-wikilink-file="${escHtml(file)}" data-wikilink-anchor="${escHtml(anchor)}" href="javascript:void(0)" title="${escHtml(target)}">${escHtml(display)}</a>`;
+      return `<a class="wikilink" data-wikilink-file="${escHtml(file)}" data-wikilink-anchor="${escHtml(anchor)}" href="#" title="${escHtml(target)}">${escHtml(display)}</a>`;
     });
   }
 
@@ -4980,7 +5160,9 @@
     const terms = (isLoose && Array.isArray(data.terms) && data.terms.length > 0)
       ? data.terms
       : rawQuery.trim().split(/\s+/).filter(Boolean);
-    const escapedTerms = terms.map(t => escRegex(escHtml(t)));
+    // Match against the RAW snippet (highlightSearchTerm escapes afterwards);
+    // matching escaped HTML let terms like "amp" split "&amp;" apart.
+    const escapedTerms = terms.filter(Boolean).map(t => escRegex(t));
     const precompiledRegex = (!isLoose && escapedTerms.length > 0) ? new RegExp(`(${escapedTerms.join('|')})`, 'gi') : null;
 
     let rendered = 0;
@@ -5045,18 +5227,27 @@
   }
 
   function highlightSearchTerm(text, compiledRegexOrQuery) {
-    const escaped = escHtml(text);
-    if (!compiledRegexOrQuery) return escaped;
+    const raw = text == null ? '' : String(text);
+    if (!compiledRegexOrQuery) return escHtml(raw);
 
     let regex;
     if (compiledRegexOrQuery instanceof RegExp) {
       regex = compiledRegexOrQuery;
     } else {
-      const queryEscaped = escHtml(compiledRegexOrQuery);
-      regex = new RegExp(`(${escRegex(queryEscaped)})`, 'gi');
+      regex = new RegExp(`(${escRegex(String(compiledRegexOrQuery))})`, 'gi');
     }
-    return escaped.replace(regex, '<mark>$1</mark>');
+    // Split the raw text on the (single capturing group) regex: odd indices are
+    // matches. Each segment is escaped on its own, so a match can never land
+    // inside an HTML entity produced by escaping.
+    const parts = raw.split(regex);
+    let out = '';
+    for (let i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      out += (i % 2 === 1) ? `<mark>${escHtml(parts[i])}</mark>` : escHtml(parts[i]);
+    }
+    return out;
   }
+
 
   // 前端透明集合鏡像：定義於上方 LOOSE_TRANSPARENT_RE，與 lib/text.js 透明集合 T 保持一致
   function highlightLooseSnippet(rawSnippet, terms) {
@@ -6701,7 +6892,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.5';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.6';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8327,7 +8518,14 @@
       const password = $('setupPassword').value;
       const confirm = $('setupPasswordConfirm').value;
       const siteUrl = ($('setupSiteUrl') ? $('setupSiteUrl').value : '').trim();
+      const setupToken = ($('setupToken') ? $('setupToken').value : '').trim();
       const errorEl = $('setupErrorMsg');
+
+      if (!setupToken) {
+        errorEl.textContent = '請輸入伺服器日誌中的一次性設定碼';
+        errorEl.style.display = 'block';
+        return;
+      }
 
       if (!siteUrl) {
         errorEl.textContent = '請填寫首頁權威 URL';
@@ -8351,7 +8549,7 @@
         const res = await fetch('/api/admin/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, siteUrl })
+          body: JSON.stringify({ username, password, siteUrl, setupToken })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -8589,7 +8787,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.5';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.6';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -8921,7 +9119,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.5';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.6';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
