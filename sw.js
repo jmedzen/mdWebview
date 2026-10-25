@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.10.9';
+const CACHE_VERSION = 'v3.11.0';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -15,13 +15,13 @@ const SHELL_ASSETS = [
   '/style.css',
   '/app.js',
   '/marked.min.js',
-  '/s2t.js',
   '/i18n/boot.js',
   '/i18n/zh-TW.js',
   '/i18n/zh-CN.js',
   '/i18n/i18n.js',
   '/i18n/content-terms.js',
   '/i18n/display-script.js',
+  '/i18n/search-variants.js',
   // 簡體顯示才會載入，但離線時也要能切換，故一併預快取（約 110 KB）
   '/vendor/opencc/t2cn.js',
   '/md-worker.js',

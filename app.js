@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.10.9
+   mdWebview — Application Logic (app.js) v3.11.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -146,7 +146,7 @@
    * 判斷瀏覽器的主要語言是否為簡體中文。
    *
    * 站台的內文一律是繁體，簡體中文使用者讀起來會有落差，因此對他們預設開啟
-   * 「簡體自動轉繁體」是合理的體貼，而不是自作主張——他們仍可在偏好設定裡
+   * 「簡繁字形一併比對」是合理的體貼，而不是自作主張——他們仍可在偏好設定裡
    * 隨手關掉。
    *
    * 判定只看主要語言（第一個），理由是一個只把 zh-CN 排在次要順位、主要
@@ -180,7 +180,7 @@
   }
 
   /**
-   * 首次造訪且瀏覽器語言為簡體中文時，自動開啟簡體轉繁體並寫入 localStorage。
+   * 首次造訪且瀏覽器語言為簡體中文時，自動開啟「簡繁字形一併比對」並寫入 localStorage。
    *
    * 只在「使用者從未表達過偏好」時介入：
    *   - 已有 AUTO_S2T 記錄（不論 true 或 false）→ 完全尊重，不再覆寫。
@@ -298,7 +298,7 @@
    * @property {string}       lineHeight        - 行高倍數字串 ('1.6'|'1.8'|'2.0')
    * @property {string}       maxWidth          - 閱讀區最大寬度 CSS 值 ('800px'|'100%'|…)
    * @property {boolean}      autoReadProgress  - 是否自動記錄與恢復閱讀進度
-   * @property {boolean}      autoS2T           - 是否自動簡體轉繁體（預設 false；瀏覽器語言為
+   * @property {boolean}      autoS2T           - 搜尋時是否簡繁字形一併比對（預設 false；瀏覽器語言為
    *   簡體中文且使用者從未設定過時，首次造訪會自動開啟並寫入 localStorage）
    * @property {string}       displayScript     - 繁簡顯示 ('hant'|'hans'，預設 'hant'；規則同上，
    *   瀏覽器語言為簡體中文且從未設定過時，首次造訪自動切為 'hans' 並提示)
@@ -1219,20 +1219,25 @@
   }
 
   /**
-   * 高亮用的關鍵字變體：原字、簡轉繁，以及簡體顯示時畫面上實際呈現的字形。
-   * 搜尋關鍵字與索引都是繁體，但簡體顯示下 DOM 裡是轉換後的簡體字。
+   * 閱讀區高亮是否以字組比對（簡繁變體互相命中，見 i18n/search-variants.js）。
+   * 簡體顯示時畫面上是 OpenCC 轉換後的字，而轉換結果必定與原字同組，
+   * 所以同一套字組比對同時適用於原文與畫面字形。
    */
-  function highlightTermVariants(term) {
-    const out = [];
-    const add = (v) => { if (v && !out.includes(v)) out.push(v); };
-    add(term);
-    const trad = typeof toTraditional === 'function' ? toTraditional(term) : term;
-    add(trad);
-    if (isHansDisplay()) {
-      add(toDisplayScript(term));
-      add(toDisplayScript(trad));
-    }
-    return out;
+  function highlightVariants() {
+    return s2tQueryEnabled() || !!(state.lastSearchData && state.lastSearchData.variants);
+  }
+
+  /** 查詢詞的 RegExp 片段：字組比對時每個字為 [字組]，否則為字面跳脫。 */
+  function termRegexSource(term, variants) {
+    const sv = variants ? window.mdSearchVariants : null;
+    return sv ? sv.termPattern(term, false) : escRegex(term);
+  }
+
+  /** 兩字是否視為相同（字組比對時同組即相同）。 */
+  function sameSearchChar(a, b, variants) {
+    if (a === b) return true;
+    const sv = window.mdSearchVariants;
+    return !!(variants && sv && sv.same(a, b));
   }
 
   function highlightLineKeyword(anchorEl, query, searchMode) {
@@ -1244,7 +1249,8 @@
       const terms = query.trim().split(/\s+/).filter(Boolean);
       if (terms.length === 0) return { matched: false, hitBlock: null, firstMark: null };
 
-      const regexPattern = terms.flatMap(t => highlightTermVariants(t)).map(t => escRegex(t)).join('|');
+      const variants = highlightVariants();
+      const regexPattern = terms.map(t => termRegexSource(t, variants)).join('|');
       if (!regexPattern) return { matched: false, hitBlock: null, firstMark: null };
       const regex = new RegExp(`(${regexPattern})`, 'gi');
 
@@ -1381,13 +1387,8 @@
       ? state.lastSearchData.terms
       : query.trim().split(/\s+/).filter(Boolean);
 
-    const terms = [];
-    for (const t of rawTerms) {
-      if (!t) continue;
-      for (const v of highlightTermVariants(t)) {
-        if (!terms.includes(v)) terms.push(v);
-      }
-    }
+    const terms = rawTerms.filter(Boolean);
+    const variants = highlightVariants();
 
     const matchedRanges = [];
     for (const term of terms) {
@@ -1410,7 +1411,7 @@
       while (pos < seqLen) {
         let start = -1;
         for (let i = pos; i < seqLen; i++) {
-          if (seq[i].ch === firstChar) {
+          if (sameSearchChar(seq[i].ch, firstChar, variants)) {
             start = i;
             break;
           }
@@ -1425,7 +1426,7 @@
             idx++;
             continue;
           }
-          if (item.ch === cleanChars[k]) {
+          if (sameSearchChar(item.ch, cleanChars[k], variants)) {
             k++;
             idx++;
           } else {
@@ -5085,11 +5086,8 @@
    */
   /**
    * @param {string} query
-   * @param {{ original?: boolean }} [opts] - original：query 已是繁體原文（簡體顯示下的
-   *   劃詞搜尋），不再做簡轉繁
    */
-  function activateSearchPanel(query, opts) {
-    opts = opts || {};
+  function activateSearchPanel(query) {
     const q = (query || '').trim();
     if (!q) return;
 
@@ -5114,11 +5112,10 @@
     if (searchPanel) searchPanel.classList.add('active');
     state.sidebarTab = 'search';
 
-    // 填入並執行。performGlobalSearch 內部在開啟 autoS2T 時會自行轉換並回寫
-    // 輸入框，故這裡直接填入原文即可。
+    // 填入原文並執行；簡繁字組比對由伺服器處理，輸入框內容保持不變。
     const searchInput = $('globalSearchInput');
     if (searchInput) searchInput.value = q;
-    performGlobalSearch(q, opts);
+    performGlobalSearch(q);
 
     // 同步網址，讓右鍵搜尋的結果也能直接分享或加書籤；已是同一組參數時
     // 不重複推入歷史，避免返回鍵要按兩次才離開。
@@ -5129,17 +5126,7 @@
     }
   }
 
-  async function performGlobalSearch(query, opts) {
-    opts = opts || {};
-    if (!opts.original && s2tQueryEnabled() && typeof toTraditional === 'function') {
-      const trad = toTraditional(query);
-      if (trad !== query) {
-        query = trad;
-        // 簡體顯示時保留使用者輸入的簡體字，只在送出查詢時轉為繁體
-        const input = $('globalSearchInput');
-        if (input && input.value !== trad && !isHansDisplay()) input.value = trad;
-      }
-    }
+  async function performGlobalSearch(query) {
     if (!query || query.trim().length === 0) {
       if (searchAbortController) {
         searchAbortController.abort();
@@ -5171,8 +5158,7 @@
     $('searchResults').innerHTML = '<div class="search-loading"><div class="spinner"></div><span>搜尋中…</span></div>';
 
     try {
-      const s2tParam = (!opts.original && s2tQueryEnabled()) ? '1' : '0';
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}&s2t=${s2tParam}&mode=${state.searchMode}`, {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&folder=${encodeURIComponent(folder)}&variants=${variantsParam()}&mode=${state.searchMode}`, {
         signal: searchAbortController.signal,
       });
       if (!res.ok) throw new Error('Search failed');
@@ -5242,7 +5228,8 @@
       : rawQuery.trim().split(/\s+/).filter(Boolean);
     // Match against the RAW snippet (highlightSearchTerm escapes afterwards);
     // matching escaped HTML let terms like "amp" split "&amp;" apart.
-    const escapedTerms = terms.filter(Boolean).map(t => escRegex(t));
+    const variants = !!data.variants;
+    const escapedTerms = terms.filter(Boolean).map(t => termRegexSource(t, variants));
     const precompiledRegex = (!isLoose && escapedTerms.length > 0) ? new RegExp(`(${escapedTerms.join('|')})`, 'gi') : null;
 
     let rendered = 0;
@@ -5261,7 +5248,7 @@
           break outer;
         }
         const snippet = isLoose
-          ? highlightLooseSnippet(item.snippet, terms)
+          ? highlightLooseSnippet(item.snippet, terms, variants)
           : highlightSearchTerm(item.snippet, precompiledRegex);
         const headwordTag = item.headword
           ? `<span class="search-result-headword">${escHtml(item.headword)}</span>`
@@ -5306,7 +5293,7 @@
     }
   }
 
-  function highlightSearchTerm(text, compiledRegexOrQuery) {
+  function highlightSearchTerm(text, compiledRegexOrQuery, variants) {
     const raw = text == null ? '' : String(text);
     if (!compiledRegexOrQuery) return escHtml(raw);
 
@@ -5314,7 +5301,7 @@
     if (compiledRegexOrQuery instanceof RegExp) {
       regex = compiledRegexOrQuery;
     } else {
-      regex = new RegExp(`(${escRegex(String(compiledRegexOrQuery))})`, 'gi');
+      regex = new RegExp(`(${termRegexSource(String(compiledRegexOrQuery), variants)})`, 'gi');
     }
     // Split the raw text on the (single capturing group) regex: odd indices are
     // matches. Each segment is escaped on its own, so a match can never land
@@ -5330,16 +5317,27 @@
 
 
   // 前端透明集合鏡像：定義於上方 LOOSE_TRANSPARENT_RE，與 lib/text.js 透明集合 T 保持一致
-  function highlightLooseSnippet(rawSnippet, terms) {
+  function highlightLooseSnippet(rawSnippet, terms, variants) {
     if (!rawSnippet) return '';
     if (!terms || terms.length === 0) return escHtml(rawSnippet);
 
+    const sv = window.mdSearchVariants;
     const spans = [];
     for (const term of terms) {
       if (!term) continue;
       const cleanTerm = Array.from(term).filter(c => !LOOSE_TRANSPARENT_RE.test(c)).join('');
       const chars = Array.from(cleanTerm);
       if (chars.length === 0) continue;
+      if (variants && sv) {
+        // 字組比對：字與字之間可夾標點，每個字比對整個簡繁字組
+        const re = new RegExp(sv.termPattern(cleanTerm, true), 'gu');
+        let m;
+        while ((m = re.exec(rawSnippet)) !== null) {
+          if (m[0].length === 0) { re.lastIndex++; continue; }
+          spans.push({ start: m.index, end: m.index + m[0].length });
+        }
+        continue;
+      }
       const firstChar = chars[0];
       const firstLen = firstChar.length;
       let pos = 0;
@@ -5751,21 +5749,8 @@
     return out;
   }
 
-  // 目前辭典查詢字串是否為繁體原文（簡體顯示下的劃詞查詢）；分頁沿用同一設定
-  let dictQueryIsOriginal = false;
-
-  async function runDictSearch(query, opts) {
-    opts = opts || {};
-    dictQueryIsOriginal = !!opts.original;
+  async function runDictSearch(query) {
     let q = (query || '').trim();
-    if (!opts.original && s2tQueryEnabled() && typeof toTraditional === 'function') {
-      const trad = toTraditional(q);
-      if (trad !== q) {
-        q = trad;
-        const input = $('dictSearchInput');
-        if (input && input.value !== trad && !isHansDisplay()) input.value = trad;
-      }
-    }
     if (!q) {
       state.dictFulltextCache = null;
       state.dictFulltextScrollTop = 0;
@@ -5778,7 +5763,7 @@
     // Re-check input in case it was updated while loading
     const currentInputVal = ($('dictSearchInput')?.value || '').trim();
     if (currentInputVal && currentInputVal !== q) {
-      q = (!opts.original && s2tQueryEnabled() && typeof toTraditional === 'function') ? toTraditional(currentInputVal) : currentInputVal;
+      q = currentInputVal;
     }
     if (!q) return;
     // Invalidate cached fulltext results if query has changed
@@ -5803,6 +5788,25 @@
     }
   }
 
+  /**
+   * 字組比對用的詞頭索引：每個詞頭換成字組代表字（fold）後排序，供前綴二分搜尋。
+   * 只在第一次以字組比對查詢時建立，之後隨 state.dictIndex 一起失效。
+   */
+  function dictFoldedIndex(idx) {
+    if (idx.folded) return idx.folded;
+    const sv = window.mdSearchVariants;
+    const folded = idx.sorted.map((it, i) => ({ hw: sv.fold(it.hw), i }));
+    folded.sort((a, b) => (a.hw < b.hw ? -1 : a.hw > b.hw ? 1 : a.i - b.i));
+    idx.folded = folded;
+    return folded;
+  }
+
+  /** 查詢字串若含有簡繁變體字，且字組比對開啟，回傳 mdSearchVariants；否則 null。 */
+  function dictVariantMatcher(q) {
+    const sv = window.mdSearchVariants;
+    return (sv && s2tQueryEnabled() && sv.hasVariants(q)) ? sv : null;
+  }
+
   function dictSearchPrefix(q) {
     const idx = state.dictIndex;
     const results = $('dictResults');
@@ -5811,6 +5815,23 @@
       return;
     }
     const sel = dictSelectedSet();
+    const sv = dictVariantMatcher(q);
+    if (sv) {
+      // 字組比對：在 fold 後的詞頭上做同樣的前綴二分搜尋，結果依原排序輸出
+      const folded = dictFoldedIndex(idx);
+      const fq = sv.fold(q);
+      let lo = 0, hi = folded.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (folded[mid].hw < fq) lo = mid + 1; else hi = mid; }
+      const hits = [];
+      for (let i = lo; i < folded.length && folded[i].hw.startsWith(fq); i++) {
+        const it = idx.sorted[folded[i].i];
+        if (sel.has(it.fi)) hits.push(folded[i].i);
+      }
+      if (hits.length === 0) return dictSearchFuzzy(q);
+      hits.sort((a, b) => a - b);
+      renderDictHeadwordResults(hits.map(i => idx.sorted[i]), q);
+      return;
+    }
     const sorted = idx.sorted;
     // Binary search the sorted array for [q, q + U+FFFF).
     let lo = 0, hi = sorted.length;
@@ -5840,11 +5861,25 @@
       return;
     }
     const sel = dictSelectedSet();
+    const sv = dictVariantMatcher(q);
+    // 字組比對：bigram 取所有字組組合的 posting 聯集，比對時兩邊都 fold
+    const fq = sv ? sv.fold(q) : q;
+    const hwMatches = sv ? (hw) => sv.fold(hw).includes(fq) : (hw) => hw.includes(q);
     const qBigrams = extractCJKBigrams(q);
     let candidateIdx = null;
     if (qBigrams.size > 0) {
       for (const bg of qBigrams) {
-        const posting = idx.bigrams.get(bg);
+        let posting;
+        if (sv) {
+          const combos = sv.expandBigram(bg);
+          if (!combos) continue; // 組合過多：此 bigram 不參與縮小範圍
+          const lists = combos.map(c => idx.bigrams.get(c)).filter(Boolean);
+          posting = lists.length === 0 ? null
+            : lists.length === 1 ? lists[0]
+            : Array.from(new Set(lists.flat())).sort((a, b) => a - b);
+        } else {
+          posting = idx.bigrams.get(bg);
+        }
         if (!posting) { candidateIdx = []; break; }
         candidateIdx = (candidateIdx === null) ? posting.slice() : intersectSortedIdx(candidateIdx, posting);
         if (candidateIdx.length === 0) break;
@@ -5854,12 +5889,12 @@
     if (candidateIdx && candidateIdx.length > 0) {
       for (const i of candidateIdx) {
         const it = idx.sorted[i];
-        if (it.hw.includes(q) && sel.has(it.fi)) matched.push(it);
+        if (hwMatches(it.hw) && sel.has(it.fi)) matched.push(it);
       }
     } else if (candidateIdx === null) {
       // No CJK bigrams (e.g. single char / non-CJK) → linear includes scan.
       for (const it of idx.sorted) {
-        if (it.hw.includes(q) && sel.has(it.fi)) matched.push(it);
+        if (hwMatches(it.hw) && sel.has(it.fi)) matched.push(it);
       }
     }
     renderDictHeadwordResults(matched, q);
@@ -5884,7 +5919,7 @@
       const f = files[fi] || { name: '未知', path: '' };
       html += `<div class="dict-result-group"><div class="dict-result-file">📖 ${escHtml(f.name)}<span class="dict-result-file-count">${items.length}</span></div>`;
       for (const it of items) {
-        html += `<div class="dict-result-item" data-file="${escHtml(f.path)}" data-line="${it.line}" data-entry="${it.ei}" data-headword="${escHtml(it.hw)}"><span class="dict-result-headword">${highlightSearchTerm(it.hw, q)}</span></div>`;
+        html += `<div class="dict-result-item" data-file="${escHtml(f.path)}" data-line="${it.line}" data-entry="${it.ei}" data-headword="${escHtml(it.hw)}"><span class="dict-result-headword">${highlightSearchTerm(it.hw, q, s2tQueryEnabled())}</span></div>`;
       }
       html += `</div>`;
     }
@@ -5949,8 +5984,7 @@
    * @returns {Promise<Object>} 原始 JSON 分頁資料（未正規化）
    */
   function fetchDictFulltextPage(q, filesParam, after, controller, done) {
-    const s2tParam = (!dictQueryIsOriginal && s2tQueryEnabled()) ? '1' : '0';
-    let url = `/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}&s2t=${s2tParam}`;
+    let url = `/api/dict-search?q=${encodeURIComponent(q)}&files=${filesParam}&variants=${variantsParam()}`;
     if (after && Object.keys(after).length > 0) {
       url += `&after=${encodeURIComponent(JSON.stringify(after))}`;
     }
@@ -6014,7 +6048,7 @@
         const cleanHeadword = cleanDictHeadword(r.headword);
         const headwordTag = cleanHeadword ? `<span class="dict-result-headword">${escHtml(cleanHeadword)}</span>` : '';
         const entryAttr = (r.entryIndex !== undefined && r.entryIndex !== null && r.entryIndex >= 0) ? ` data-entry="${escHtml(r.entryIndex)}"` : '';
-        html += `<div class="dict-result-item" data-file="${escHtml(r.file)}" data-line="${escHtml(r.line)}" data-headword="${escHtml(cleanHeadword)}"${entryAttr}>${headwordTag}<span class="dict-result-snippet">${highlightSearchTerm(r.snippet, q)}</span></div>`;
+        html += `<div class="dict-result-item" data-file="${escHtml(r.file)}" data-line="${escHtml(r.line)}" data-headword="${escHtml(cleanHeadword)}"${entryAttr}>${headwordTag}<span class="dict-result-snippet">${highlightSearchTerm(r.snippet, q, s2tQueryEnabled())}</span></div>`;
       }
       html += `</div>`;
     }
@@ -6201,15 +6235,7 @@
     state.pageSearchIndex = -1;
     state.pageSearchQuery = null;
 
-    let q = (query || '').trim();
-    if (s2tQueryEnabled() && typeof toTraditional === 'function') {
-      const trad = toTraditional(q);
-      if (trad !== q) {
-        q = trad;
-        const input = $('pageSearchInput');
-        if (input && input.value !== trad && !isHansDisplay()) input.value = trad;
-      }
-    }
+    const q = (query || '').trim();
 
     if (!q || q.length === 0) {
       if (pageSearchAbortController) {
@@ -6228,8 +6254,8 @@
     const body = $('markdownBody');
     if (!body || !body.textContent) return;
 
-    // 簡體顯示時畫面上的字是簡體，比對前把（已轉繁的）關鍵字轉成畫面字形
-    const matches = highlightTextNodes(body, toDisplayScript(q));
+    // 字組比對：畫面上的簡體字與輸入的繁／簡字都屬同一字組
+    const matches = highlightTextNodes(body, q, s2tQueryEnabled());
     state.pageSearchMatches = matches;
 
     if (matches.length > 0) {
@@ -6255,8 +6281,7 @@
     pageSearchAbortController = new AbortController();
     const signal = pageSearchAbortController.signal;
     try {
-      const s2tParam = s2tQueryEnabled() ? '1' : '0';
-      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}&s2t=${s2tParam}`, { signal });
+      const res = await fetch(`/api/search-file?path=${encodeURIComponent(v.filePath)}&q=${encodeURIComponent(query)}&variants=${variantsParam()}`, { signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       if (signal.aborted) return;
@@ -6318,7 +6343,7 @@
     $('pageSearchCount').textContent = `${state.pageSearchIndex + 1}/${matches.length}`;
   }
 
-  function highlightTextNodes(root, query) {
+  function highlightTextNodes(root, query, variants) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     const textNodes = [];
     while (walker.nextNode()) {
@@ -6326,11 +6351,14 @@
     }
 
     const matches = [];
-    const lowerQuery = query.toLowerCase();
+    // 字組比對：兩邊都換成字組代表字（fold 不改變長度，位置可直接對應原文）
+    const sv = variants ? window.mdSearchVariants : null;
+    const norm = (s) => (sv ? sv.fold(s.toLowerCase()) : s.toLowerCase());
+    const lowerQuery = norm(query);
 
     for (const textNode of textNodes) {
       const text = textNode.textContent;
-      const lowerText = text.toLowerCase();
+      const lowerText = norm(text);
 
       // Find all match positions
       const positions = [];
@@ -6617,9 +6645,15 @@
     return state.displayScript === 'hans';
   }
 
+  /** 搜尋 API 的 variants 參數：字組比對開啟時為 '1'。 */
+  function variantsParam() {
+    return s2tQueryEnabled() ? '1' : '0';
+  }
+
   /**
-   * 搜尋關鍵字是否要先做簡轉繁。簡體顯示時一律開啟：畫面是簡體，使用者
-   * 自然會輸入簡體，但索引是繁體。
+   * 搜尋是否以簡繁字組比對（i18n/search-variants.js）。簡體顯示時一律開啟：
+   * 畫面是簡體，使用者自然會輸入簡體，而經文多為繁體；繁體顯示時由
+   * 「簡繁字形一併比對」設定（autoS2T）決定，關閉時為字面比對。
    */
   function s2tQueryEnabled() {
     return !!state.autoS2T || isHansDisplay();
@@ -6632,12 +6666,6 @@
 
   function i18nT(key, params) {
     return window.mdI18n ? window.mdI18n.t(key, params) : key;
-  }
-
-  /** 把繁體字串轉成目前畫面所用的字形（內文規則）；繁體顯示時原樣回傳。 */
-  function toDisplayScript(str) {
-    const ds = window.mdDisplayScript;
-    return isHansDisplay() && ds && ds.isLoaded() ? ds.toContent(str) : str;
   }
 
   function assetVersionQuery() {
@@ -6713,11 +6741,12 @@
   function contentHasUnrestorableText() {
     const ds = window.mdDisplayScript;
     const body = $('markdownBody');
-    if (!ds || !body || typeof hasSimplified !== 'function') return false;
+    const sv = window.mdSearchVariants;
+    if (!ds || !body || !sv) return false;
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
     let n;
     while ((n = walker.nextNode())) {
-      if (ds.originalText(n) === n.data && hasSimplified(n.data) &&
+      if (ds.originalText(n) === n.data && sv.hasSimplified(n.data) &&
           !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid'))) {
         return true;
       }
@@ -7244,7 +7273,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.9';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9145,7 +9174,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.9';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9477,7 +9506,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.10.9';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11661,10 +11690,9 @@
     const shareLabel = $('selectionShareLabel');
     let currentShareUrl = '';
     let currentLineNum = null;
+    // 簡體顯示時盡量還原成繁體原文，搜尋框與網址顯示的就是經文原字；
+    // 無法還原時保留畫面上的簡體字，由字組比對涵蓋。
     let currentSelectedText = '';
-    // 簡體顯示時 currentSelectedText 是還原後的繁體原文，查詢時不可再做簡轉繁
-    // （否則「皇后」會被轉成「皇後」）
-    let currentSelectedIsOriginal = false;
 
     document.addEventListener('mouseup', () => {
       // Small timeout to let selection clear/update
@@ -11693,14 +11721,10 @@
         }
 
         currentSelectedText = text;
-        currentSelectedIsOriginal = false;
         const ds = window.mdDisplayScript;
         if (isHansDisplay() && ds && ds.isActive()) {
           const orig = ds.originalTextOfRange(range);
-          if (orig && orig.trim()) {
-            currentSelectedText = orig.trim();
-            currentSelectedIsOriginal = true;
-          }
+          if (orig && orig.trim()) currentSelectedText = orig.trim();
         }
         currentLineNum = lineNum;
 
@@ -11751,17 +11775,15 @@
 
       let rawSelected = (currentSelectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const queryText = (!currentSelectedIsOriginal && s2tQueryEnabled() && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const searchInput = $('globalSearchInput');
       if (searchInput) searchInput.focus();
-      activateSearchPanel(queryText, { original: currentSelectedIsOriginal });
+      activateSearchPanel(rawSelected);
     });
 
     // 2. 辭典查詢按鈕
     dictBtn.addEventListener('click', async () => {
       if (!currentSelectedText) return;
       const selectedText = currentSelectedText; // capture before popup hides
-      const selectedIsOriginal = currentSelectedIsOriginal;
       popup.classList.remove('visible');
 
       // Enable dictionary and open right sidebar
@@ -11776,13 +11798,12 @@
 
       let rawSelected = (selectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const queryText = (!selectedIsOriginal && s2tQueryEnabled() && typeof toTraditional === 'function') ? toTraditional(rawSelected) : rawSelected;
       const dictInput = $('dictSearchInput');
       if (dictInput) {
-        dictInput.value = queryText;
+        dictInput.value = rawSelected;
         dictInput.focus();
       }
-      runDictSearch(queryText, { original: selectedIsOriginal });
+      runDictSearch(rawSelected);
     });
 
     // 3. 分享指定行按鈕

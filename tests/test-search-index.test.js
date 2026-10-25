@@ -2,7 +2,6 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const s2t = require('../s2t.js');
 
 // Load scanSections from index-worker.js; extractBigramsFromText from lib/text.js
 const { extractBigramsFromText } = require('../lib/text.js');
@@ -90,21 +89,15 @@ describe('全文搜尋與 Bigram 倒排索引演算法測試', () => {
     assert.equal(result.totalLines, 6);
   });
 
-  test('搜尋 S2T 參數控制 (s2t=0 保留簡體 vs s2t=1 強制繁體)', () => {
-    function resolveQuery(query) {
-      const rawQ = (query.q || '').trim();
-      const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
-      return shouldS2T ? s2t.toTraditional(rawQ) : rawQ;
+  test('搜尋查詢不再改寫為繁體：三個搜尋 API 皆以 isVariantSearch 決定字組比對', () => {
+    // 行為測試見 tests/test-search-variants.test.js（isVariantSearch 與端對端查詢）
+    const src = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+    assert.doesNotMatch(src, /toTraditional|require\('\.\/s2t'\)/);
+    for (const fn of ['handleSearch', 'handleSearchFile', 'handleDictSearch']) {
+      const i = src.indexOf(`async function ${fn}(`);
+      assert.ok(i > 0, fn);
+      assert.match(src.slice(i, i + 900), /const variants = isVariantSearch\(query\);/, `${fn} 應以 isVariantSearch 判斷`);
     }
-
-    // 1. 預設（未傳入 s2t 參數）-> 預設轉換為繁體以向後相容
-    assert.equal(resolveQuery({ q: '观自在菩萨' }), '觀自在菩薩');
-
-    // 2. 顯式 s2t='1' -> 轉換為繁體
-    assert.equal(resolveQuery({ q: '般若波罗蜜多', s2t: '1' }), '般若波羅蜜多');
-
-    // 3. 顯式 s2t='0' -> 忠實保留使用者輸入的簡體
-    assert.equal(resolveQuery({ q: '观自在菩萨', s2t: '0' }), '观自在菩萨');
-    assert.equal(resolveQuery({ q: '般若波罗蜜多', s2t: '0' }), '般若波罗蜜多');
   });
+
 });

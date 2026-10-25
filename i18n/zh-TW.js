@@ -18,7 +18,7 @@
     'script.autoNotice.dismiss': '知道了',
     'script.loadFailed': '簡體轉換元件載入失敗，暫以繁體顯示：{error}',
     'settings.displayScript.title': '繁簡顯示',
-    'settings.displayScript.desc': '整個網站以繁體或簡體顯示。經文原文為繁體，簡體為即時轉換，不影響搜尋結果'
+    'settings.displayScript.desc': '整個網站以繁體或簡體顯示。經文原文為繁體，簡體為即時轉換；簡體顯示時搜尋會一併比對簡繁字形'
   };
   const root = (global.MDW_I18N_TABLES = global.MDW_I18N_TABLES || {});
   root['zh-TW'] = table;

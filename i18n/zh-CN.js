@@ -13,7 +13,7 @@
     'script.autoNotice.dismiss': '知道了',
     'script.loadFailed': '简体转换组件加载失败，暂以繁体显示：{error}',
     'settings.displayScript.title': '繁简显示',
-    'settings.displayScript.desc': '整个网站以繁体或简体显示。经文原文为繁体，简体为即时转换，不影响搜索结果'
+    'settings.displayScript.desc': '整个网站以繁体或简体显示。经文原文为繁体，简体为即时转换；简体显示时搜索会一并比对简繁字形'
   };
   const root = (global.MDW_I18N_TABLES = global.MDW_I18N_TABLES || {});
   root['zh-CN'] = table;

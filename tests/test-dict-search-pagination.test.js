@@ -287,8 +287,8 @@ describe('辭典全文搜尋分頁 2：server.js after / nextAfter / hasMore 契
   test('回應保留 query/results/total/capped 並新增 nextAfter/hasMore/exhausted', () => {
     assert.match(
       handlerBody,
-      /sendJSON\(\s*res\s*,\s*200\s*,\s*\{\s*query\s*:\s*q\s*,\s*results\s*,\s*total\s*:\s*results\.length\s*,\s*capped\s*:\s*hitCap\s*,\s*nextAfter\s*,\s*hasMore\s*,\s*exhausted\s*:\s*Array\.from\(\s*exhausted\s*\)\s*\}\s*\)/,
-      '回應欄位需為 query/results/total/capped/nextAfter/hasMore/exhausted'
+      /sendJSON\(\s*res\s*,\s*200\s*,\s*\{\s*query\s*:\s*q\s*,\s*variants\s*,\s*results\s*,\s*total\s*:\s*results\.length\s*,\s*capped\s*:\s*hitCap\s*,\s*nextAfter\s*,\s*hasMore\s*,\s*exhausted\s*:\s*Array\.from\(\s*exhausted\s*\)\s*\}\s*\)/,
+      '回應欄位需為 query/variants/results/total/capped/nextAfter/hasMore/exhausted'
     );
     assert.match(handlerBody, /total\s*:\s*results\.length/, 'total 仍是本頁筆數');
   });
@@ -426,7 +426,7 @@ describe('辭典全文搜尋分頁 3：app.js 翻頁與快取契約', () => {
   test('保留既有行為：狀態列、高亮、點擊開啟與檔案分組', () => {
     assert.match(renderBody, /找到\s*\$\{\s*data\.total\s*\}\s*筆/, '狀態列需顯示本頁筆數');
     assert.match(renderBody, /data\.capped\s*\?\s*'（已達上限）'\s*:\s*''/, '狀態列需保留（已達上限）提示');
-    assert.match(renderBody, /highlightSearchTerm\(\s*r\.snippet\s*,\s*q\s*\)/, '摘要仍需關鍵字高亮');
+    assert.match(renderBody, /highlightSearchTerm\(\s*r\.snippet\s*,\s*q\s*,\s*s2tQueryEnabled\(\)\s*\)/, '摘要仍需關鍵字高亮（字組比對開啟時一併高亮簡繁變體）');
     assert.match(renderBody, /data-file="\$\{\s*escHtml\(\s*r\.file\s*\)\s*\}"/, '結果項仍需 data-file');
     assert.match(renderBody, /data-line="\$\{\s*escHtml\(\s*r\.line\s*\)\s*\}"/, '結果項仍需 data-line');
     assert.match(renderBody, /entryAttr/, '結果項仍需 data-entry');

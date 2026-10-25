@@ -10,7 +10,9 @@
  *       → { ok, result:{entryLevel,preambleLineCount,totalLines,totalBytes,entries,groups} }
  *   { type:'index-build-file', jobId, fullPath, units:[{unitId,byteOffset,byteLength}] }
  *       → { ok, result:{ results:[{unitId, bigrams:[...]}] } }
- *   { type:'search-scan', jobId, fullPath, units:[{unitId,file,fileName,entryIndex,headword,byteOffset,byteLength,lineStart}], terms, maxProximityDist, maxPerFile, ignorePunct, skip }
+ *   { type:'search-scan', jobId, fullPath, units:[{unitId,file,fileName,entryIndex,headword,byteOffset,byteLength,lineStart}], terms, maxProximityDist, maxPerFile, ignorePunct, variants, skip }
+ *       `variants` turns on variant-class (字組) matching: each query char also matches its
+ *       Simplified/Traditional variants (i18n/search-variants.js). Absent means exact matching.
  *       `skip` is the pagination cursor: the number of matches already delivered for this
  *       file by earlier pages. Matches are numbered in document order across ALL units by
  *       one running counter, and only indices in [skip, skip+maxPerFile) are emitted, so
@@ -165,7 +167,7 @@ parentPort.on('message', async (msg) => {
       }
       parentPort.postMessage({ jobId: msg.jobId, ok: true, result: { results } });
     } else if (msg.type === 'search-scan') {
-      const { fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct } = msg;
+      const { fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct, variants } = msg;
       const cap = typeof maxPerFile === 'number' ? maxPerFile : Infinity;
       // Cursor pagination. Matches are numbered in document order across all units;
       // `skip` counts the matches already delivered by earlier pages. Matches with
@@ -190,7 +192,7 @@ parentPort.on('message', async (msg) => {
         if (offset >= fileSize) continue;
         const end = Math.min(fileSize, offset + length);
         const slice = fileBuf.subarray(offset, end);
-        const ms = scanText(slice.toString('utf-8'), terms, maxProximityDist, ignorePunct);
+        const ms = scanText(slice.toString('utf-8'), terms, maxProximityDist, ignorePunct, !!variants);
         for (const m of ms) {
           const idx = seen++;
           if (idx < skip) continue;

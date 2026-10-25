@@ -19,7 +19,7 @@ ds._setConverters(converters);
 
 /**
  * 從 app.js 取出函式主體（以大括號配對到結尾），跳過字串與樣板內的括號。
- * 與 test-s2t-locale.test.js 相同，必須從函式宣告處開始找。
+ * 與 test-variant-locale.test.js 相同，必須從函式宣告處開始找。
  */
 function extractFunctionBody(source, signature) {
   const start = source.indexOf(signature);
@@ -436,38 +436,38 @@ describe('繁簡顯示 5：i18n/boot.js 開機前置', () => {
 });
 
 describe('繁簡顯示 6：搜尋與偏好整合', () => {
-  test('高亮關鍵字變體：簡體顯示時加入畫面字形', () => {
-    const body = extractFunctionBody(appSource, 'function highlightTermVariants(term)');
-    assert.ok(body);
-    const sandbox = {
-      hans: true,
-      isHansDisplay() { return this.hans; },
-      toTraditional: (s) => s.replace(/后/g, '後').replace(/经/g, '經'),
-      toDisplayScript: (s) => converters.content(s)
-    };
-    sandbox.isHansDisplay = sandbox.isHansDisplay.bind(sandbox);
+  test('高亮以字組比對：畫面上的簡體字與原文繁體字都命中', () => {
+    const body = extractFunctionBody(appSource, 'function termRegexSource(term, variants)');
+    const escBody = extractFunctionBody(appSource, 'function escRegex(str)');
+    assert.ok(body && escBody);
+    const sandbox = { window: { mdSearchVariants: require('../i18n/search-variants.js') } };
     vm.createContext(sandbox);
-    vm.runInContext(`function highlightTermVariants(term) ${body}\nglobalThis.__v = highlightTermVariants;`, sandbox);
-    const hans = sandbox.__v('經後');
-    assert.ok(hans.includes('經後'));
-    assert.ok(hans.includes('经后'), '應含畫面上的簡體字形');
-    sandbox.hans = false;
-    assert.deepEqual(Array.from(sandbox.__v('經後')), ['經後'], '繁體顯示時不加簡體變體');
+    vm.runInContext(`function escRegex(str) ${escBody}\nfunction termRegexSource(term, variants) ${body}\nglobalThis.__p = termRegexSource;`, sandbox);
+    const re = new RegExp(sandbox.__p('經後', true), 'g');
+    const shown = converters.content('經後與经后');
+    assert.equal((shown.match(re) || []).length, 2, '簡體畫面字形應命中');
+    assert.equal(('經後 经后'.match(re) || []).length, 2, '繁體與簡體原文都應命中');
+    const exact = new RegExp(sandbox.__p('經後', false), 'g');
+    assert.deepEqual('經後 经后'.match(exact), ['經後'], '關閉字組比對時為字面比對');
   });
 
-  test('簡體顯示時搜尋一律做簡轉繁（索引為繁體）', () => {
+  test('簡體顯示時搜尋一律以字組比對（送出 variants=1，不改寫輸入框）', () => {
     const body = extractFunctionBody(appSource, 'function s2tQueryEnabled()');
     assert.match(body, /state\.autoS2T\s*\|\|\s*isHansDisplay\(\)/);
-    assert.doesNotMatch(appSource, /const s2tParam = state\.autoS2T/, '查詢參數須改由 s2tQueryEnabled 判斷');
+    assert.match(extractFunctionBody(appSource, 'function variantsParam()'), /s2tQueryEnabled\(\)/);
+    assert.doesNotMatch(appSource, /[?&]s2t=/, '搜尋 API 改送 variants 參數');
+    assert.doesNotMatch(appSource, /toTraditional|(?<!\.)hasSimplified\b|window\.s2t/, '不再把查詢改寫為繁體（s2t.js 已移除）');
+    for (const api of ['/api/search?', '/api/dict-search?', '/api/search-file?']) {
+      const i = appSource.indexOf(api);
+      assert.ok(i > 0, api);
+      assert.match(appSource.slice(i, i + 220), /variants=\$\{variantsParam\(\)\}/, `${api} 需帶 variants`);
+    }
   });
 
-  test('劃詞查詢使用還原後的繁體原文，且不再做簡轉繁', () => {
+  test('劃詞查詢送出還原後的繁體原文', () => {
     assert.match(appSource, /originalTextOfRange\(range\)/);
-    assert.match(appSource, /activateSearchPanel\(queryText, \{ original: currentSelectedIsOriginal \}\)/);
-    assert.match(appSource, /runDictSearch\(queryText, \{ original: selectedIsOriginal \}\)/);
-    const perf = extractFunctionBody(appSource, 'async function performGlobalSearch(query, opts)');
-    assert.ok(perf);
-    assert.match(perf, /!opts\.original && s2tQueryEnabled\(\)/);
+    assert.match(appSource, /activateSearchPanel\(rawSelected\)/);
+    assert.match(appSource, /runDictSearch\(rawSelected\)/);
   });
 
   test('wikilink 標題索引以原文建立', () => {
