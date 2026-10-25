@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.11.0
+   mdWebview — Application Logic (app.js) v3.11.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2525,6 +2525,70 @@
     }
   }
 
+  /** 展開某個樹節點列的所有上層資料夾，讓它在檔案樹中可見。 */
+  function expandTreeAncestors(rowEl) {
+    let parent = rowEl.closest('.tree-children');
+    while (parent) {
+      parent.classList.add('expanded');
+      const row = parent.previousElementSibling;
+      if (row) {
+        const chevron = row.querySelector('.tree-chevron');
+        if (chevron) chevron.classList.add('expanded');
+        const icon = row.querySelector('.tree-icon');
+        if (icon) icon.textContent = '📂';
+      }
+      const grandparent = parent.parentElement;
+      parent = grandparent ? grandparent.closest('.tree-children') : null;
+    }
+  }
+
+  /**
+   * 麵包屑點擊：在左側檔案樹中定位某個資料夾或檔案，卷動到該列並閃爍提示。
+   *
+   * 側欄收合時先展開（行動版同時關閉辭典側欄），並切到「檔案瀏覽器」分頁；
+   * 隱藏中的面板無法 scrollIntoView，因此卷動延到下一次版面配置之後。
+   * 點的是資料夾時也一併展開它本身，讓使用者直接看到其中的經論。
+   *
+   * @param {string} treePath - 主樹相對路徑（不含 `dict:` 前綴）
+   */
+  function revealInFileTree(treePath) {
+    if (!treePath) return;
+    const sidebar = $('sidebar');
+    if (sidebar && sidebar.classList.contains('collapsed')) {
+      sidebar.classList.remove('collapsed');
+      state.sidebarCollapsed = false;
+      if ((isMobileBrowser() || window.innerWidth <= 768) && state.dictSidebarOpen) {
+        toggleDictSidebar(false);
+      }
+      updateSidebarBackdrop();
+    }
+    const filesTab = document.querySelector('.sidebar-tab[data-tab="files"]');
+    if (filesTab && !filesTab.classList.contains('active')) filesTab.click();
+
+    const row = document.querySelector(`.tree-item-row[data-path="${CSS.escape(treePath)}"]`);
+    if (!row) return;
+    expandTreeAncestors(row);
+    if (row.classList.contains('tree-folder')) {
+      const childrenEl = row.nextElementSibling;
+      if (childrenEl && childrenEl.classList.contains('tree-children')) {
+        childrenEl.classList.add('expanded');
+        const chevron = row.querySelector('.tree-chevron');
+        if (chevron) chevron.classList.add('expanded');
+        const icon = row.querySelector('.tree-icon');
+        if (icon) icon.textContent = '📂';
+      }
+    }
+
+    requestAnimationFrame(() => {
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // 移除後強制 reflow 再加回，連續點同一節點也會重新閃爍
+      row.classList.remove('tree-reveal-flash');
+      void row.offsetWidth;
+      row.classList.add('tree-reveal-flash');
+      row.addEventListener('animationend', () => row.classList.remove('tree-reveal-flash'), { once: true });
+    });
+  }
+
   function highlightActiveFile(path, meta) {
     updateActiveFileUI(path, meta);
 
@@ -2534,20 +2598,7 @@
     const target = document.querySelector(`.tree-file[data-path="${CSS.escape(path)}"]`);
     if (target) {
       target.classList.add('active');
-      // Expand parent folders
-      let parent = target.closest('.tree-children');
-      while (parent) {
-        parent.classList.add('expanded');
-        const row = parent.previousElementSibling;
-        if (row) {
-          const chevron = row.querySelector('.tree-chevron');
-          if (chevron) chevron.classList.add('expanded');
-          const icon = row.querySelector('.tree-icon');
-          if (icon) icon.textContent = '📂';
-        }
-        const grandparent = parent.parentElement;
-        parent = grandparent ? grandparent.closest('.tree-children') : null;
-      }
+      expandTreeAncestors(target);
 
       // Auto-scroll active file item into view in sidebar
       setTimeout(() => {
@@ -3845,10 +3896,19 @@
     const displayPath = filePath.startsWith('dict:') ? filePath.slice(5) : filePath;
     const parts = displayPath.split('/');
     const fileName = parts.pop().replace(/\.md$/, '');
-    const folder = parts.join(' / ');
+    const isDict = filePath.startsWith('dict:');
+
+    // 麵包屑：主樹檔案的每一層都可點擊，在檔案樹中定位該資料夾／檔案（辭典不在主樹內）
+    const crumbs = parts.map((name, i) => ({ name, path: parts.slice(0, i + 1).join('/') }));
+    crumbs.push({ name: fileName, path: displayPath });
+    const sep = '<span class="file-path-sep"> / </span>';
+    const crumbHtml = crumbs.map(c => isDict
+      ? `<span class="file-path-seg">${escHtml(c.name)}</span>`
+      : `<span class="file-path-seg file-path-link" role="button" tabindex="0" data-reveal-path="${escHtml(c.path)}" title="在檔案樹中定位">${escHtml(c.name)}</span>`
+    ).join(sep);
 
     let html = `<div class="file-path-row">`;
-    html += `<div class="file-path">${escHtml(folder ? folder + ' / ' + fileName : fileName)}</div>`;
+    html += `<div class="file-path">${crumbHtml}</div>`;
     html += `<button class="copy-link-btn" id="copyLinkBtn" title="複製連結">`;
     html += `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542L3.343 7.914a3 3 0 104.243 4.243l1.828-1.829A3 3 0 008.586 5.5L8 6.086a1 1 0 00-.154.199 2 2 0 01.861 3.337L6.88 11.45a2 2 0 11-2.83-2.83l.793-.792a4 4 0 01-.128-1.287zm5.57-1.084a3 3 0 10-4.243-4.243L4.214 3.043A3 3 0 007.407 10.5l.585-.585a1 1 0 00.154-.199 2 2 0 01-.861-3.337l1.827-1.828a2 2 0 112.83 2.83l-.793.792a4 4 0 01.128 1.287z"/></svg>`;
     html += `<span class="copy-link-label" id="copyLinkLabel">連結</span></button>`;
@@ -3867,6 +3927,14 @@
       html += `<div class="file-meta">${escHtml(meta.join(' · '))}</div>`;
     }
     header.innerHTML = html;
+
+    header.querySelectorAll('.file-path-link').forEach((seg) => {
+      const reveal = () => revealInFileTree(seg.getAttribute('data-reveal-path'));
+      seg.addEventListener('click', reveal);
+      seg.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reveal(); }
+      });
+    });
 
     // Update bookmark button initial UI state
     updateBookmarkButtonUI(filePath);
@@ -7273,7 +7341,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9174,7 +9242,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9506,7 +9574,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
