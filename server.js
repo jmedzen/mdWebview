@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.10.6
+ * @version 3.11.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -59,14 +59,7 @@ const v8 = require('v8');
 const readline = require('readline');
 const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
-let toTraditional = s => s, hasSimplified = () => false;
-try {
-  const s2t = require('./s2t');
-  toTraditional = s2t.toTraditional;
-  hasSimplified = s2t.hasSimplified;
-} catch (e) {
-  // Graceful fallback if s2t is not available
-}
+const searchVariants = require('./i18n/search-variants');
 
 // ── Core Native Modules (Refactored to lib/) ───────────────────────────────
 const {
@@ -168,7 +161,7 @@ process.on('unhandledRejection', (reason) => {
 let cachedTree = null;
 let cachedSitemapXml = null;
 let treeWatcher = null;
-const searchCache = new Map(); // key: "folder::q" -> { time, data }
+const searchCache = new Map(); // key: "mode::variants::folder::q" -> { time, data }
 const SEARCH_CACHE_MAX = 30;
 
 const searchMetrics = {
@@ -2443,6 +2436,86 @@ function intersectSorted(a, b) {
   return result;
 }
 
+function unionSorted(a, b) {
+  const result = [];
+  let i = 0, j = 0;
+  const aLen = a.length, bLen = b.length;
+  while (i < aLen && j < bLen) {
+    const av = a[i], bv = b[j];
+    if (av < bv) { result.push(av); i++; }
+    else if (av > bv) { result.push(bv); j++; }
+    else { result.push(av); i++; j++; }
+  }
+  while (i < aLen) result.push(a[i++]);
+  while (j < bLen) result.push(b[j++]);
+  return result;
+}
+
+/**
+ * 是否啟用字組比對（簡繁變體，見 i18n/search-variants.js）。
+ * `variants` 參數優先；未帶時沿用舊的 `s2t` 參數（未帶亦視為啟用，與舊預設相同）。
+ * 用戶端在簡體顯示或開啟「簡繁字形一併比對」時送 variants=1，否則送 variants=0（字面比對）。
+ */
+function isVariantSearch(query) {
+  const on = v => v === '1' || v === 'true';
+  if (query.variants !== undefined) return on(query.variants);
+  return query.s2t !== undefined ? on(query.s2t) : true;
+}
+
+/**
+ * 單一查詢 bigram 的 posting（已排序的 unit ID）。字組比對時取所有字組組合的聯集；
+ * 組合數超過上限時回傳 null，表示此 bigram 不參與縮小範圍。
+ */
+function bigramPosting(bigrams, bg, variants) {
+  if (!variants) {
+    const val = bigrams.get(bg);
+    if (val === undefined || val === null) return [];
+    return typeof val === 'number' ? [val] : val;
+  }
+  const combos = searchVariants.expandBigram(bg, searchVariants.DEFAULT_BIGRAM_CAP);
+  if (!combos) return null;
+  let acc = null;
+  for (const c of combos) {
+    const val = bigrams.get(c);
+    if (val === undefined || val === null) continue;
+    const posting = typeof val === 'number' ? [val] : val;
+    acc = acc === null ? posting : unionSorted(acc, posting);
+  }
+  return acc || [];
+}
+
+/**
+ * 以 Bigram 倒排索引求多詞 AND 的候選 unit（sorted-merge 交集，零 Set 配置）。
+ * @param {Map} bigrams - 索引 bigram → posting
+ * @param {string[]} terms - 查詢詞
+ * @param {boolean} variants - 是否字組比對
+ * @param {function(string): number} termLength - 用於判斷詞長是否 ≥ 2（寬鬆模式先去標點）
+ * @returns {number[]|null} 候選 unit ID；null 表示索引無法縮小範圍（需全掃描）
+ */
+function indexCandidates(bigrams, terms, variants, termLength) {
+  let finalCandidates = null;
+  for (const term of terms) {
+    if (termLength(term) < 2) continue;
+    const qBigrams = extractQueryBigrams(term);
+    if (qBigrams.length === 0) continue;
+
+    let termCandidates = null;
+    for (const bg of qBigrams) {
+      const posting = bigramPosting(bigrams, bg, variants);
+      if (posting === null) continue;
+      if (posting.length === 0) { termCandidates = []; break; }
+      termCandidates = termCandidates === null ? Array.from(posting) : intersectSorted(termCandidates, posting);
+      if (termCandidates.length === 0) break;
+    }
+
+    if (termCandidates !== null) {
+      finalCandidates = finalCandidates === null ? termCandidates : intersectSorted(finalCandidates, termCandidates);
+      if (finalCandidates.length === 0) break;
+    }
+  }
+  return finalCandidates;
+}
+
 // Note: activeIndexBuildId is declared above near setupTreeWatcher (L1603)
 
 // Note: runIndexWorkerPool is imported from lib/worker-pool.js
@@ -3227,7 +3300,7 @@ async function handleDictFiles(req, res) {
 // ── API: Dictionary Full-text Search ──────────────────────────────────────
 /**
  * 在辭典獨立 Bigram 索引中執行全文搜尋（GET /api/dict/search?q=...）。
- * 支援簡繁轉換（toTraditional）；結果依檔案路徑與行號排序。
+ * 支援字組比對（簡繁變體，isVariantSearch）；結果依檔案路徑與行號排序。
  *
  * 分頁採游標制（cursor pagination）：每個辭典檔案每頁最多回傳
  * DICT_SEARCH_MAX_PER_FILE（1500）筆命中，避免常見詞（如「一切」）產生數萬筆
@@ -3242,11 +3315,13 @@ async function handleDictFiles(req, res) {
  * @param {Object}               query - 查詢參數：
  *   - `q`     必要，查詢字串（空白分隔多詞）
  *   - `files` 可選，逗號分隔的辭典 relPath 限制
- *   - `s2t`   可選，'1'/'true' 啟用簡轉繁（預設啟用）
+ *   - `variants` 可選，'1'/'true' 啟用字組比對（簡繁變體互相命中）；'0' 為字面比對
+ *   - `s2t`   可選，舊參數，未帶 `variants` 時代表同一件事（兩者皆未帶時預設啟用）
  *   - `after` 可選，URL-encoded JSON，`dict:` relPath → 該檔已交付的命中數
  *   - `done`  可選，逗號分隔，已走完（可略過掃描）的 `dict:` relPath
  * @returns {Promise<void>} 以 JSON 回應：
- *   - `query`     正規化後的查詢字串
+ *   - `query`     查詢字串（使用者原文）
+ *   - `variants`  是否以字組比對
  *   - `results`   本頁命中（每筆 {file,fileName,entryIndex,headword,line,snippet}）
  *   - `total`     本頁命中數（= results.length）
  *   - `capped`    本頁是否觸及每檔上限（向後相容的舊訊號）
@@ -3263,9 +3338,8 @@ async function handleDictSearch(req, res, query) {
   // (e.g. 一切) yields tens of thousands of matches, and the unbounded `results`
   // array plus the client-side render balloon memory on repeated searches.
   const DICT_SEARCH_MAX_PER_FILE = 1500;
-  const rawQ = (query.q || '').trim();
-  const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
-  const q = shouldS2T ? toTraditional(rawQ) : rawQ;
+  const q = (query.q || '').trim();
+  const variants = isVariantSearch(query);
   if (!q || q.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
@@ -3287,7 +3361,7 @@ async function handleDictSearch(req, res, query) {
 
     const files = await scanDictFiles();
     if (files.length === 0) {
-      return sendJSON(res, 200, { query: q, results: [], total: 0, capped: false });
+      return sendJSON(res, 200, { query: q, variants, results: [], total: 0, capped: false });
     }
 
     let fileSet = null;
@@ -3297,27 +3371,7 @@ async function handleDictSearch(req, res, query) {
     let candidateUnits = null;
 
     if (dictIndex.ready && terms.some(t => t.length >= 2) && dictIndex.units && dictIndex.units.length > 0) {
-      let finalCandidates = null;
-      for (const term of terms) {
-        if (term.length < 2) continue;
-        const qBigrams = extractQueryBigrams(term);
-        if (qBigrams.length === 0) continue;
-        let termCandidates = null;
-        for (const bg of qBigrams) {
-          const val = dictIndex.bigrams.get(bg);
-          if (val === undefined || val === null) { termCandidates = []; break; }
-          if (termCandidates === null) termCandidates = typeof val === 'number' ? [val] : Array.from(val);
-          else {
-            const posting = typeof val === 'number' ? [val] : val;
-            termCandidates = intersectSorted(termCandidates, posting);
-            if (termCandidates.length === 0) break;
-          }
-        }
-        if (termCandidates !== null) {
-          if (finalCandidates === null) finalCandidates = termCandidates;
-          else { finalCandidates = intersectSorted(finalCandidates, termCandidates); if (finalCandidates.length === 0) break; }
-        }
-      }
+      const finalCandidates = indexCandidates(dictIndex.bigrams, terms, variants, t => t.length);
 
       if (finalCandidates && finalCandidates.length > 0) {
         candidateUnits = finalCandidates.map(uid => dictIndex.units[uid]).filter(Boolean);
@@ -3430,7 +3484,7 @@ async function handleDictSearch(req, res, query) {
 
     let hitCap = false;
     await runIndexWorkerPool(scanTasks,
-      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: DICT_SEARCH_MAX_PER_FILE, skip: skipFor(task.fullPath) } }),
+      (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: DICT_SEARCH_MAX_PER_FILE, variants, skip: skipFor(task.fullPath) } }),
       (result, task) => {
         const stat = pageStats.get(relPathByFullPath.get(task.fullPath));
         if (stat) {
@@ -3470,7 +3524,7 @@ async function handleDictSearch(req, res, query) {
       }
     }
 
-    sendJSON(res, 200, { query: q, results, total: results.length, capped: hitCap, nextAfter, hasMore, exhausted: Array.from(exhausted) });
+    sendJSON(res, 200, { query: q, variants, results, total: results.length, capped: hitCap, nextAfter, hasMore, exhausted: Array.from(exhausted) });
   } catch (err) {
     Logger.error('Dict', `Dictionary search failed for "${q}"`, err);
     sendJSON(res, 500, { error: 'Dictionary search failed' });
@@ -3509,19 +3563,19 @@ async function handleDictEvent(req, res) {
 // ── API: Full-text Search ────────────────────────────────────
 /**
  * 在全庫 Bigram 倒排索引中執行全文搜尋（GET /api/search?q=...）。
- * 支援多詞 AND 交集搜尋、簡繁轉換、資料夾範圍限制（folder 參數）。
- * 結果按 60 秒記憶體快取（cacheKey = folder::q），命中快取直接回傳。
+ * 支援多詞 AND 交集搜尋、字組比對（簡繁變體）、資料夾範圍限制（folder 參數）。
+ * 結果按 60 秒記憶體快取（cacheKey = mode::variants::folder::q），命中快取直接回傳。
  *
  * @param {http.IncomingMessage} req   - HTTP 請求物件
  * @param {http.ServerResponse}  res   - HTTP 回應物件
- * @param {Object}               query - 查詢參數：q（必要）、folder（可選，限制搜尋範圍）
+ * @param {Object}               query - 查詢參數：q（必要）、folder（可選，限制搜尋範圍）、
+ *   mode（strict|loose）、variants（1 = 字組比對；未帶時沿用舊的 s2t 參數，見 isVariantSearch）
  */
 async function handleSearch(req, res, query) {
   const searchStart = Date.now();
   const mode = query.mode === 'loose' ? 'loose' : 'strict';
-  const rawQ = (query.q || '').trim();
-  const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
-  const q = shouldS2T ? toTraditional(rawQ) : rawQ;
+  const q = (query.q || '').trim();
+  const variants = isVariantSearch(query);
   if (!q || q.length === 0) {
     return sendJSON(res, 400, { error: 'Missing query parameter' });
   }
@@ -3534,12 +3588,12 @@ async function handleSearch(req, res, query) {
   if (mode === 'loose') {
     terms = terms.map(normalizeLooseTerm).filter(Boolean);
     if (terms.length === 0) {
-      return sendJSON(res, 200, { query: q, mode, terms: [], results: [], total: 0, capped: false });
+      return sendJSON(res, 200, { query: q, mode, variants, terms: [], results: [], total: 0, capped: false });
     }
   }
 
   const targetFolder = query.folder ? query.folder.trim().replace(/^\/+|\/+$/g, '') : '';
-  const cacheKey = `${mode}::${targetFolder}::${q}`;
+  const cacheKey = `${mode}::${variants ? 'v' : 'x'}::${targetFolder}::${q}`;
   const cached = searchCache.get(cacheKey);
   if (cached && (Date.now() - cached.time) < 60000) {
     searchMetrics.totalQueries++;
@@ -3579,39 +3633,7 @@ async function handleSearch(req, res, query) {
 
     // Bigram Inverted Index filtering using sorted-merge intersection (zero Set allocation)
     if (searchIndex.ready && terms.some(t => normalizeLooseTerm(t).length >= 2) && !isFilenameOnly && searchIndex.units && searchIndex.units.length > 0) {
-      let finalCandidates = null; // sorted array of unit IDs
-
-      for (const term of terms) {
-        if (normalizeLooseTerm(term).length < 2) continue;
-        const qBigrams = extractQueryBigrams(term);
-        if (qBigrams.length === 0) continue;
-
-        let termCandidates = null; // sorted array of unit IDs
-        for (const bg of qBigrams) {
-          const val = searchIndex.bigrams.get(bg);
-          if (val === undefined || val === null) {
-            termCandidates = [];
-            break;
-          }
-
-          if (termCandidates === null) {
-            termCandidates = typeof val === 'number' ? [val] : Array.from(val);
-          } else {
-            const posting = typeof val === 'number' ? [val] : val;
-            termCandidates = intersectSorted(termCandidates, posting);
-            if (termCandidates.length === 0) break;
-          }
-        }
-
-        if (termCandidates !== null) {
-          if (finalCandidates === null) {
-            finalCandidates = termCandidates;
-          } else {
-            finalCandidates = intersectSorted(finalCandidates, termCandidates);
-            if (finalCandidates.length === 0) break;
-          }
-        }
-      }
+      const finalCandidates = indexCandidates(searchIndex.bigrams, terms, variants, t => normalizeLooseTerm(t).length);
 
       if (finalCandidates && finalCandidates.length > 0) {
         candidateUnits = finalCandidates
@@ -3637,11 +3659,13 @@ async function handleSearch(req, res, query) {
       for (const file of files) {
         if (results.length >= MAX_RESULTS) break;
         const cleanName = file.name.replace(/\.md$/, '');
-        const cleanNameLower = mode === 'loose' ? normalizeLooseTerm(cleanName).toLowerCase() : cleanName.toLowerCase();
-        const relPathLower = mode === 'loose' ? normalizeLooseTerm(file.relPath).toLowerCase() : file.relPath.toLowerCase();
+        // 字組比對：兩邊都換成字組代表字再比對（fold 不改變長度）
+        const norm = s => (variants ? searchVariants.fold(s) : s).toLowerCase();
+        const cleanNameLower = norm(mode === 'loose' ? normalizeLooseTerm(cleanName) : cleanName);
+        const relPathLower = norm(mode === 'loose' ? normalizeLooseTerm(file.relPath) : file.relPath);
 
         const matchesAll = terms.every(term => {
-          const tLower = (mode === 'loose' ? normalizeLooseTerm(term) : term).toLowerCase();
+          const tLower = norm(mode === 'loose' ? normalizeLooseTerm(term) : term);
           return cleanNameLower.includes(tLower) || relPathLower.includes(tLower);
         });
 
@@ -3699,7 +3723,7 @@ async function handleSearch(req, res, query) {
       const concurrency = Math.max(1, Math.min(os.cpus().length - 1, 8));
 
       await runIndexWorkerPool(scanTasks,
-        (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: MAX_FILE_MATCHES, ignorePunct: mode === 'loose' } }),
+        (task) => ({ type: 'search-scan', payload: { fullPath: task.fullPath, units: task.units, terms, maxProximityDist, maxPerFile: MAX_FILE_MATCHES, ignorePunct: mode === 'loose', variants } }),
         (result) => {
           for (const m of result.matches) {
             if (results.length >= MAX_RESULTS) break;
@@ -3730,7 +3754,7 @@ async function handleSearch(req, res, query) {
     searchMetrics.totalSearchTimeMs += searchDuration;
     searchMetrics.lastSearchTimeMs = searchDuration;
 
-    const searchData = { query: q, mode, terms, results, total: results.length, capped: results.length >= MAX_RESULTS };
+    const searchData = { query: q, mode, variants, terms, results, total: results.length, capped: results.length >= MAX_RESULTS };
     if (searchCache.size >= SEARCH_CACHE_MAX) {
       const oldestKey = searchCache.keys().next().value;
       searchCache.delete(oldestKey);
@@ -3751,9 +3775,8 @@ async function handleSearch(req, res, query) {
 // single file (ordered by line), scoped by entry so the client can jump to any
 // entry — not just the currently-mounted virtualization chunks.
 async function handleSearchFile(req, res, query) {
-  const rawQ = (query.q || '').trim();
-  const shouldS2T = query.s2t !== undefined ? (query.s2t === '1' || query.s2t === 'true') : true;
-  const q = shouldS2T ? toTraditional(rawQ) : rawQ;
+  const q = (query.q || '').trim();
+  const variants = isVariantSearch(query);
   const relPath = query.path;
   if (!q || !relPath) {
     return sendJSON(res, 400, { error: 'Missing query or path parameter' });
@@ -3806,7 +3829,7 @@ async function handleSearchFile(req, res, query) {
 
     const matches = [];
     await runIndexWorkerPool([{ fullPath: file.fullPath, units: scanUnits }],
-      (t) => ({ type: 'search-scan', payload: { fullPath: t.fullPath, units: t.units, terms, maxProximityDist, maxPerFile: MAX_RESULTS } }),
+      (t) => ({ type: 'search-scan', payload: { fullPath: t.fullPath, units: t.units, terms, maxProximityDist, maxPerFile: MAX_RESULTS, variants } }),
       (result) => {
         for (const m of result.matches) {
           matches.push({ line: m.line, entryIndex: m.entryIndex, headword: m.headword, snippet: m.snippet });
@@ -3815,7 +3838,7 @@ async function handleSearchFile(req, res, query) {
       1);
 
     matches.sort((a, b) => a.line - b.line);
-    sendJSON(res, 200, { path: relPath, query: q, matches, total: matches.length });
+    sendJSON(res, 200, { path: relPath, query: q, variants, matches, total: matches.length });
   } catch (err) {
     Logger.error('Search', `Search-file failed for "${relPath}" / "${q}"`, err, req);
     sendJSON(res, 500, { error: 'File search failed' });
@@ -5755,6 +5778,8 @@ if (typeof module !== "undefined" && module.exports) {
     loadDictIndexFromBinCacheAsync,
     buildSearchIndexAsync,
     buildDictIndexAsync,
+    isVariantSearch,
+    indexCandidates,
     stripFrontmatter,
     ChunkedBinaryWriter,
     getSetupToken

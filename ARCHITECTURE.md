@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.10.6 | 最後更新：2026-10
+> 版本：v3.11.0 | 最後更新：2026-10
 
 ---
 
@@ -16,11 +16,13 @@
 5. [資料流：全文搜尋](#5-資料流全文搜尋)
    - [5.1 辭典全文搜尋：游標分頁模型](#51-辭典全文搜尋游標分頁模型)
    - [5.2 已知限制：辭典詞條邊界造成多詞鄰近查詢漏失](#52-已知限制辭典詞條邊界造成多詞鄰近查詢漏失)
+   - [5.3 字組比對：簡繁變體互相命中](#53-字組比對簡繁變體互相命中v3110)
 6. [公告彈窗顯示邏輯](#6-公告彈窗顯示邏輯)
 7. [使用者偏好與排版控制](#7-使用者偏好與排版控制)
    - [7.1 集中式常數池與安全儲存封裝](#71-集中式常數池與安全儲存封裝)
    - [7.2 偏好備份與還原機制](#72-偏好備份與還原機制)
-   - [7.3 簡轉繁依瀏覽器語言自動啟用](#73-簡轉繁依瀏覽器語言自動啟用v3103)
+   - [7.3 簡繁字形一併比對依瀏覽器語言自動啟用](#73-簡繁字形一併比對依瀏覽器語言自動啟用v3103)
+   - [7.4 繁／簡顯示切換](#74-繁簡顯示切換v3107)
 8. [後端模組架構與 API 路由索引](#8-後端模組架構與-api-路由索引)
    - [8.1 lib/ 原生模組職責劃分](#81-lib-原生模組職責劃分)
    - [8.2 server.js 段落分區表](#82-serverjs-段落分區表section-map)
@@ -337,11 +339,11 @@ sequenceDiagram
     participant IX as index-worker.js
 
     U->>B: 輸入關鍵詞（空白分隔多詞，支援嚴格/寬鬆模式切換）
-    B->>S: GET /api/search?q=詞A+詞B&folder=...&mode=strict|loose
-    S->>IX: executeIndexJob('search-scan', {fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct})
+    B->>S: GET /api/search?q=詞A+詞B&folder=...&mode=strict|loose&variants=0|1
+    S->>IX: executeIndexJob('search-scan', {fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct, variants})
     Note over IX: 1. 標點/換行透明 Bigram 倒排縮小候選<br/>2. scanText 文本掃描（原文座標）<br/>3. 嚴格比對或寬鬆（忽略 T 集合：標點與換行）比對<br/>4. 鄰近距離過濾 (≤150 chars)<br/>5. 依命中數與相關性排序
     IX-->>S: [{file, fileName, entryIndex, headword, line, snippet}]
-    S-->>B: JSON results {query, mode, terms, results, total, capped}
+    S-->>B: JSON results {query, mode, variants, terms, results, total, capped}
     B->>B: renderSearchResults()<br/>（分批 SEARCH_RENDER_BATCH=300，寬鬆高亮 highlightLooseSnippet）
 ```
 
@@ -373,7 +375,7 @@ sequenceDiagram
     participant IX as index-worker.js
 
     U->>B: 輸入關鍵詞（辭典全文模式）
-    B->>S: GET /api/dict-search?q=…&files=…&s2t=…<br/>（第 1 頁：不帶 after / done）
+    B->>S: GET /api/dict-search?q=…&files=…&variants=…<br/>（第 1 頁：不帶 after / done）
     S->>IX: executeIndexJob('search-scan', {units, terms, maxPerFile: 1500, skip: 0})
     Note over IX: 依文件順序跨「所有 unit」連續編號<br/>只輸出索引落在 [skip, skip+cap) 的命中<br/>超出視窗仍存在下筆命中 → truncated=true（提早結束）
     IX-->>S: { matches, truncated }
@@ -415,6 +417,45 @@ sequenceDiagram
 
 辭典索引會把大型檔案切分為「以詞條為單位」的多個 unit，因此一個跨越兩個 unit 的鄰近詞叢集，在任一個 unit 內都無法成立，於是多詞鄰近查詢會漏失這類命中。以真實 unit 邊界實測（位元組覆蓋率 100.00%）：`一切 法` 整檔掃描 6,149 筆 vs 逐 unit 掃描 5,212 筆（漏失 937 筆）；`眾生 佛` 為 220 vs 200。關鍵在於 **bigram 前綴過濾本身毫無損失**（逐 unit 候選損失 = 0），全部損失都來自 unitization。單詞查詢不受影響（差異為 0）。線上確認：`q=眾生 佛` 回傳 213 筆，而整檔掃描能找到的某一行確實不在回應中。分頁只影響交付切分、不影響路徑選擇，因此**不會加重**此限制。
 
+### 5.3 字組比對：簡繁變體互相命中（v3.11.0）
+
+索引與經文以繁體為主，但也有簡體來源的檔案（如 `12-智師/未有名師`）；簡體顯示又是用 OpenCC `tw → cn` 逐字轉換畫面。v3.10.x 以前把查詢以 `s2t.js` 轉成「一個」繁體字再比對，畫面與查詢用的是兩張不同的表：`后` 只找 `後`（漏掉皇后）、`发` 只找 `發`（漏掉頭髮）、`头发` 變成 `頭發`、`无为` 只變成 `无為`（找不到 `無為`）、簡體來源檔案完全找不到。v3.11.0 移除 `s2t.js`，改為**字組**比對。
+
+**字組（variant class）**
+
+- 定義：凡是 OpenCC `tw → cn`（與簡體顯示同一個 converter）會轉成同一個簡體字的字，連同該簡體字本身，為同一組：`后 = {后, 後}`、`发 = {发, 發, 髮}`、`着 = {着, 著}`、`为 = {为, 為, 爲}`。只留兩字以上的組；最大組 6 字。
+- 產生：`tools/build-search-variants.js` 對 U+3400–U+4DBF、U+4E00–U+9FFF 逐字轉換，以 union-find 取等價類，寫入 `i18n/search-variants.js` 的 `@generated` 區塊；`--check` 只比對。`tests/test-search-variants.test.js` 鎖定產生結果與 vendored OpenCC 同步——**升級 OpenCC 後務必重跑產生器**。
+- `EXTRA_VARIANTS`：舊 `s2t.js` 有、但 OpenCC 不會輸出的 17 組簡繁對應（如 `缐→線`、`迳→逕`、`縆→緪`），一併併入。另有 28 組舊對應的繁體字落在 Ext-B 以後的 astral 區（如 `㓆→𠗣`），因索引的 bigram 抽取把 astral 字當斷詞，刻意不收。
+- 所有成員都在 BMP，因此 `fold()`（換成代表字）不改變字串長度，位置可直接對應原文。
+- 同一模組由 Node（`server.js`、`lib/text.js`、`index-worker.js`）`require`，瀏覽器以 `window.mdSearchVariants` 取用。
+
+**伺服器（`/api/search`、`/api/search-file`、`/api/dict-search`）**
+
+- `isVariantSearch(query)`：`variants=1|0` 優先；未帶時沿用舊參數 `s2t`；兩者皆未帶時預設開啟（與舊預設相同）。前端在簡體顯示或開啟 `autoS2T` 時送 `variants=1`，否則 `variants=0`——**繁體顯示且未開啟設定時為字面比對，結果與 v3.10.x 完全相同**。
+- 查詢字串不再改寫，回應的 `query` 是使用者原文，並多一個 `variants` 欄位。
+- Bigram 縮小範圍（`indexCandidates()` / `bigramPosting()`）：每個查詢 bigram 展開成「字組 × 字組」的所有組合，取 posting 聯集，再像以前一樣跨 bigram、跨詞交集。單一 bigram 的組合數超過 `DEFAULT_BIGRAM_CAP`（64）時，該 bigram 不參與縮小範圍（其他 bigram 仍會縮小；全部超過時退回全掃描）。
+- 掃描（`lib/text.js` `scanText(..., variants)` → `findTermPositions()`）：字組模式以 `[字組]` 字元類組成的 RegExp 比對（寬鬆模式字間允許透明字元），嚴格／寬鬆、單詞／多詞鄰近共用同一套座標邏輯；行號、摘要皆取自原文。
+- `searchCache` 鍵為 `mode::variants::folder::q`，切換字組模式不會拿到對方的快取。檔名搜尋兩邊都 `fold()` 後比對。
+
+**前端（`app.js`）**
+
+- 搜尋框、辭典框、頁內搜尋框都不再改寫為繁體；劃詞搜尋送出還原後的繁體原文。
+- 搜尋結果摘要與閱讀區高亮用 `termRegexSource()`（字組 RegExp）與 `sameSearchChar()`；寬鬆摘要 `highlightLooseSnippet(..., variants)`。
+- 辭典詞頭查詢：前綴查詢在 `fold()` 後的詞頭陣列（`dictFoldedIndex()`，首次使用時建立）上二分搜尋；模糊查詢的 bigram 同樣展開字組組合取聯集。
+
+**實測（本機語料 7,622 檔，v3.10.9 → v3.11.0）**
+
+| 查詢（簡體顯示） | 範圍 | v3.10.9 | v3.11.0 |
+| :--- | :--- | ---: | ---: |
+| 无为 | 全庫 | 164 筆／32 檔 | 1500+ 筆／110 檔 |
+| 头发 | 全庫 | 75 筆／54 檔 | 1500+ 筆／608 檔 |
+| 后来 | 全庫 | 123 筆／36 檔 | 1500+ 筆／479 檔 |
+| 头发 | `12-智師/未有名師`（含簡體來源） | 0 | 86 筆／27 檔 |
+| 无为 | `12-智師/未有名師` | 0 | 1500+ 筆／29 檔 |
+| 头发（辭典全文） | 全部辭典 | 0 | 41 |
+
+繁體顯示（`variants=0`）未達上限的查詢，結果集與 v3.10.9 逐筆相同；延遲持平（單次 ~10–350 ms，視命中數）。
+
 ---
 
 ## 6. 公告彈窗顯示邏輯
@@ -448,11 +489,11 @@ flowchart TD
 ```mermaid
 flowchart TD
     PrefUI["使用者設定彈窗\n(#userSettingsOverlay)"] --> Tabs["設定分頁\n- 外觀主題 (Theme)\n- 視覺排版 (Typography & Layout)\n- 偏好備份與還原 (Backup & Restore)"]
-    Tabs --> Settings["排版偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶 (readProgress)\n- 自動簡體轉繁體 (autoS2T)"]
+    Tabs --> Settings["排版偏好項目\n- 字型大小 (px)\n- 行高 (1.6 / 1.8 / 2.0)\n- 文字對齊 (兩端 / 靠左)\n- 閱讀版寬 (800px / 1000px / 100%)\n- 自動閱讀進度記憶 (readProgress)\n- 簡繁字形一併比對 (autoS2T)\n- 繁簡顯示 (displayScript)"]
     Settings --> StorageAPI["storage 安全封裝物件\n(get / set / remove / getJson / setJson)"]
     StorageAPI --> LocalStorage["localStorage 獨立持久化\n(基於 STORAGE_KEYS 常數池)"]
     Settings --> LiveApply["即時 CSS 變數與 DOM 更新\n(零重載刷新閱讀畫面)"]
-    Settings --> S2TSearch["搜尋請求連動\n(s2t=0 或 s2t=1 傳遞後端)"]
+    Settings --> S2TSearch["搜尋請求連動\n(variants=0 或 variants=1 傳遞後端)"]
 ```
 
 ### 7.1 集中式常數池與安全儲存封裝
@@ -467,7 +508,8 @@ flowchart TD
 | `TEXT_ALIGN` | `mdWebview-user-textalign` | 文字對齊（`justify` 或 `left`） |
 | `LINE_HEIGHT` | `mdWebview-user-lineheight` | 行高倍率（`1.6`, `1.8`, `2.0`） |
 | `MAX_WIDTH` | `mdWebview-user-maxwidth` | 閱讀容器最大寬度（`800px`, `1000px`, `100%`） |
-| `AUTO_S2T` | `mdWebview-auto-s2t` | 自動簡轉繁開關（`'true'` 或 `'false'`） |
+| `AUTO_S2T` | `mdWebview-auto-s2t` | 簡繁字形一併比對開關（`'true'` 或 `'false'`；鍵名沿用舊稱，備份檔向下相容） |
+| `DISPLAY_SCRIPT` | `mdWebview-display-script` | 繁簡顯示（`'hant'` 或 `'hans'`；`i18n/boot.js` 也直接讀取此鍵） |
 | `READ_PROGRESS_ENABLED` | `mdWebview-user-readprogress` | 是否啟用自動記錄/恢復閱讀進度 |
 | `LAST_READ_PROGRESS` | `mdWebview-last-read-progress` | 最近閱讀經文路徑與行號錨點 |
 | `RECENT_FILES` | `mdWebview-user-recentfiles` | 最近開啟經文清單（上限 20 筆 JSON） |
@@ -496,13 +538,13 @@ flowchart TD
 - **還原驗證與向下相容**：支援拖曳或上傳 JSON 檔案，進行結構合法性檢查後原子化覆蓋偏好並即時刷新介面；`searchMode` 經值驗證（只接受 `'loose'` 或 `'strict'`）後還原，若舊備份檔無此欄位則維持現狀，具備完全向下相容性。
 - **UI 整合淨化**：移除舊版位於 UI 底部左下角的重複「下載備份」按鈕，統一集中由「使用者設定」彈窗掌管，維持首頁與閱讀介面的乾淨簡約。
 
-### 7.3 簡轉繁依瀏覽器語言自動啟用（v3.10.3）
+### 7.3 簡繁字形一併比對依瀏覽器語言自動啟用（v3.10.3）
 
-站台內文一律為繁體，簡體中文使用者初次造訪時會有閱讀落差，因此對他們預設開啟 `autoS2T`。這項行為刻意寫得保守，避免變成「自作主張」：
+站台內文一律為繁體，簡體中文使用者初次造訪時會有閱讀落差，因此對他們預設開啟 `autoS2T`（v3.11.0 起代表「搜尋時簡繁字形一併比對」，見 §5.3；v3.10.x 以前是把查詢簡轉繁）。這項行為刻意寫得保守，避免變成「自作主張」：
 
 **啟動順序是硬性要求**
 
-`maybeAutoEnableS2TFromLocale()` 必須在 `const userAutoS2T = storage.get(...)` **之前**執行（`app.js` 第 205 行）。若順序顛倒，`state.autoS2T` 會先套用舊值（`null → false`），自動啟用的結果永遠進不到 state。此順序由 `tests/test-s2t-locale.test.js` 斷言鎖定。
+`maybeAutoEnableS2TFromLocale()` 必須在 `const userAutoS2T = storage.get(...)` **之前**執行（`app.js` 第 205 行）。若順序顛倒，`state.autoS2T` 會先套用舊值（`null → false`），自動啟用的結果永遠進不到 state。此順序由 `tests/test-variant-locale.test.js` 斷言鎖定。
 
 **絕不覆寫使用者已表達的偏好**
 
@@ -540,6 +582,62 @@ if (existing === 'true' || existing === 'false') return false;
 | `en-US` | 無 | 保持未設定、開關未勾 | ✅ |
 | `zh-CN` | `'false'` | 尊重既有值，不覆寫 | ✅ |
 | `zh-TW` | `'true'` | 保持 `'true'` | ✅ |
+
+### 7.4 繁／簡顯示切換（v3.10.7）
+
+全站預設以繁體顯示；右上角的 **繁／简** 按鈕可切換整個網站（介面與經文）為簡體。按鈕文字顯示目前字形，點擊立即切換並寫入 `DISPLAY_SCRIPT`；偏好設定「繁簡顯示」也有同一組選項。
+
+**首次造訪自動切換**
+
+`maybeAutoSelectDisplayScriptFromLocale()` 沿用 §7.3 的三條原則：在讀取 `userDisplayScript` 之前執行、絕不覆寫已存的 `'hant'`／`'hans'`、結果寫入 localStorage。只有「這一次是自動切換」時才在按鈕下方顯示提示（簡體撰寫，說明依瀏覽器語言切換、可點右上角按鈕切回），15 秒後或按「知道了」關閉；之後重新整理不再出現。
+
+**轉換方式：瀏覽器端即時轉換，原文不動**
+
+經文與介面原文都是繁體，伺服器、ETag、SSR 爬蟲頁一律不變。簡體顯示由 `i18n/display-script.js` 在瀏覽器端轉換畫面上的文字節點：
+
+| 區域 | OpenCC 轉換 | 修正表 | 理由 |
+| :--- | :--- | :--- | :--- |
+| 內文區：`#markdownBody`、`#fileTree`、`#searchResults`、`#tocList`、`#dictResults`、`.file-path`、最近閱讀與書籤… | `tw → cn` 逐字 | `content` | 不做詞彙替換，避免經文用詞被改寫（「軟體」不會變「软件」） |
+| 介面區：其餘所有元素 | `twp → cn` 含詞彙 | `ui` | 台灣用語轉大陸用語（檔案→文件、搜尋→搜索、設定→设置） |
+
+- **不轉換**：`script`、`style`、`textarea`（內容）、`code`、`pre`、`kbd`、`samp`、`svg`、`.katex`、`.mermaid`、`[data-no-t2s]`、可編輯區。屬性只轉 `title`、`placeholder`、`aria-label`；`href`、`src`、`id`、`data-*` 不動。
+- **動態內容**：`MutationObserver` 監看整份文件，虛擬捲動區塊、搜尋結果、Toast 等新節點自動轉換，`app.js` 的渲染程式不需個別處理。
+- **保留原文**：每個被轉換的文字節點與屬性都以 `WeakMap` 記住原文。切回繁體時逐字還原，而非以簡轉繁反推（後／后、髮／发、乾／干 無法反推）。搜尋高亮會切開文字節點、新節點沒有原文紀錄；切回時若偵測到這類節點，就重新渲染目前檔案，確保與原文一致。
+- **二次轉換防護**：OpenCC 有三個輸出字再轉一次還會改變（麼→么→幺、薴→苧→苎），程式複製已轉換文字成新節點時會被誤轉，故這些字原樣保留；清單由測試全字掃描驗證。
+- **修正表** `i18n/content-terms.js`：鍵是 OpenCC 轉換「後」的簡體字串，例如 `['干慧地', '乾慧地']`。檔頭說明新增步驟。
+
+**搜尋銜接**
+
+- 簡體顯示時 `s2tQueryEnabled()` 一律為真，搜尋以**字組比對**（§5.3）：查詢不改寫，輸入框保留使用者輸入；畫面上的簡體字必定與原字同組，所見即可搜。
+- 劃詞搜尋與辭典查詢以 `originalTextOfRange()` 取回**繁體原文**（逐字對齊 `range.toString()`）後送出。
+- 閱讀區高亮（`termRegexSource`／`sameSearchChar`）、頁內搜尋（`highlightTextNodes`）與辭典詞頭查詢都以字組比對；wikilink 標題索引（`buildHeadingMap`）以原文建立。
+
+**載入與防閃爍**
+
+- OpenCC（`vendor/opencc/t2cn.js`，opencc-js 1.4.2，約 110 KB，MIT／Apache-2.0）只在簡體顯示時才下載；Service Worker 仍預快取，離線時也能切換。
+- `i18n/boot.js` 於 `<head>` 同步執行：預判本次為簡體時先設 `data-display-script="hans"` 並預載 OpenCC，CSS 隱藏 body；`app.js` 轉換完成後設 `data-t2s-ready` 才顯示，4 秒保底。
+- 簡體顯示改用系統簡體字型（`--cjk-serif`／`--cjk-sans`），避免 Noto Serif TC 以台灣字形畫簡體字。
+- `<html lang>` 隨之切換為 `zh-Hans`／`zh-TW`；前端日期格式改用 `activeLocale()`。OpenCC 載入失敗時畫面退回繁體並提示，但不改寫偏好，下次進站再試。
+
+**介面字串表（i18n）**
+
+`i18n/zh-TW.js`、`i18n/zh-CN.js` 只收錄需依語系撰寫不同措辭的字串（切換按鈕、首次提示、設定說明），以 `mdI18n.t(key, params)` 查表、`data-i18n`／`data-i18n-attr` 標記靜態 HTML。其餘介面文字由上表的介面區轉換處理，因此不必把全部 UI 字串搬進字串表。兩份表的鍵、`{參數}` 與 `index.html` 標記的一致性由 `tests/test-i18n.test.js` 檢查。
+
+**備份相容**：`exportUserPreferences` 匯出 `displayScript`；匯入時只接受 `'hant'`／`'hans'`，舊版備份沒有此欄位時保留目前設定。
+
+**端對端驗證**（無頭 Chrome，以 CDP 覆寫 `navigator.language`）：
+
+| 情境 | 預期 | 結果 |
+| :--- | :--- | :---: |
+| `zh-CN` 首次造訪 | 自動切簡體、寫入 `'hans'`、按鈕顯示「简」、出現提示、介面與經文皆簡體 | ✅ |
+| 重新整理 | 維持簡體、不再提示 | ✅ |
+| 簡體下頁內搜尋（簡／繁關鍵字）、全庫搜尋（簡體輸入） | 皆可命中，結果以簡體顯示 | ✅ |
+| 簡體下劃詞搜尋 | 送出繁體原文「照見五蘊」 | ✅ |
+| 辭典結果與詞條 | 以簡體顯示 | ✅ |
+| 頁內搜尋高亮後切回繁體 | 經文與直接以繁體開啟者逐字相同 | ✅ |
+| `zh-TW` 首次造訪 | 維持繁體、不寫入、不提示、不下載 OpenCC | ✅ |
+| 繁體下手動切簡體 | 即時轉換、記住偏好、不跳首次提示 | ✅ |
+| 375px 行動版 | 按鈕可見且在畫面內 | ✅ |
 
 ---
 
@@ -620,7 +718,7 @@ flowchart TD
 | `/api/render` | GET | `handleRender()` | ❌ | 經文渲染 API（小型檔案完整渲染並提取 Meta） |
 | `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型經論與辭典章節分塊 Metadata (.bin 磁碟快取) |
 | `/api/render-chunk` | GET | `handleRenderChunk()` | ❌ | 大型經論特定分塊動態渲染（Worker 調度） |
-| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 s2t 簡繁轉換、mode=strict|loose 寬鬆模式與鄰近過濾） |
+| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 variants 字組比對、mode=strict|loose 寬鬆模式與鄰近過濾） |
 | `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索（虛擬化模式的頁內搜尋） |
 | `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料（支援 `If-None-Match` 304） |
 | `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文）；全文模式自 v3.7.6 起採**游標分頁**（`after` / `done` 進、`nextAfter` / `hasMore` / `exhausted` 出，每頁每檔 1500 筆） |
@@ -680,7 +778,7 @@ flowchart TD
 | `§11` | 5896 | 223 | In-Page Search | 頁內即時高亮搜尋與跳轉（Ctrl+F） |
 | `§12` | 6119 | 67 | Theme | 主題切換與即時 CSS 變數套用 |
 | `§13` | 6186 | 33 | Font Size | 字體大小即時縮放與持久化 |
-| `§14` | 6219 | 115 | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁轉換開關 |
+| `§14` | 6219 | 115 | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁字形一併比對開關 |
 | `§15` | 6334 | 62 | Recent Files | 最近閱讀經文紀錄（最多 20 筆） |
 | `§16` | 6396 | 97 | Toast Notifications | 全域浮動提示通知（`showToast`） |
 | `§17` | 6493 | 100 | Bookmarks | 經本書籤收藏管理 |
@@ -730,7 +828,8 @@ flowchart TD
 | `lineHeight` | `string` | 行高倍數字串：`'1.6'`|`'1.8'`|`'2.0'` |
 | `maxWidth` | `string` | 閱讀區最大寬度 CSS 值，行動版預設 `95%`，桌面版 `800px` |
 | `autoReadProgress` | `boolean` | 是否自動儲存/恢復閱讀進度 |
-| `autoS2T` | `boolean` | 是否自動將簡體中文轉換為繁體中文。全站預設 `false`；若使用者從未設定過，且瀏覽器主要語言為簡體中文，首次造訪時自動設為 `true` 並寫入 localStorage（見 §7.3） |
+| `autoS2T` | `boolean` | 搜尋時是否簡繁字形一併比對（字組比對，§5.3；簡體顯示時不論此值一律開啟）。全站預設 `false`；若使用者從未設定過，且瀏覽器主要語言為簡體中文，首次造訪時自動設為 `true` 並寫入 localStorage（見 §7.3） |
+| `displayScript` | `string` | 繁簡顯示，`'hant'`（預設）或 `'hans'`。規則同 `autoS2T`：從未設定且瀏覽器為簡體中文時，首次造訪自動設為 `'hans'` 並顯示一次提示（見 §7.4） |
 | `isMobile` | `boolean` | 是否為行動裝置（UA 或視窗寬度 ≤ 768px） |
 | `siteName` | `string` | 站台名稱，來自 `config.settings.siteName`，預設 `'mdWebview'` |
 | `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
@@ -868,7 +967,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.10.6'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.11.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1250,7 +1349,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | §6.5 Media Lightbox | 354 | `state`×79（跨 26 個欄位）、`showToast`×17 |
 | §6 Markdown Viewer | 1,748 | 虛擬化引擎，與 §8 TOC、§9 搜尋共用節點 |
 
-此外，`lib/` 是**後端專用慣例**（10 個模組全部 `module.exports`），瀏覽器端無法 `require()`。前端唯一可行的跨檔模式是像 `s2t.js` 那樣掛 `window`，但會引入全域命名衝突與載入順序依賴。
+此外，`lib/` 是**後端專用慣例**（10 個模組全部 `module.exports`），瀏覽器端無法 `require()`。前端唯一可行的跨檔模式是像 `i18n/search-variants.js` 那樣掛 `window`，但會引入全域命名衝突與載入順序依賴。
 
 **替代方案**：`app.js` 於 v3.10.4 修正了失真的區塊標記（見 §9.1 與下表），使 11,300 行的檔案可正確導覽，而不必承擔重寫風險。
 

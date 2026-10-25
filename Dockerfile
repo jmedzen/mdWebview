@@ -8,8 +8,9 @@ RUN npm ci --omit=dev && npm cache clean --force \
  && apk add --no-cache su-exec
 
 # Copy all essential application files
-COPY server.js app.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js s2t.js ./
+COPY server.js app.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
 COPY lib/ ./lib/
+COPY i18n/ ./i18n/
 COPY vendor/ ./vendor/
 COPY manifest.json sw.js icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png favicon-16.png favicon-32.png favicon.ico favicon.svg icon.svg og-preview.png ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

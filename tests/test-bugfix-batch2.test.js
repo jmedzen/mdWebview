@@ -69,7 +69,10 @@ describe('15. strict search highlight', () => {
     const i = src.indexOf(`  function ${name}(`);
     return src.slice(i, src.indexOf('\n  }\n', i) + 4);
   };
-  const highlight = new Function(grab('escHtml') + grab('escRegex') + grab('highlightSearchTerm') + 'return highlightSearchTerm;')();
+  const highlight = new Function(grab('escHtml') + grab('escRegex') + grab('termRegexSource') + grab('highlightSearchTerm') + 'return highlightSearchTerm;')();
+  const highlightVariants = new Function('window',
+    grab('escHtml') + grab('escRegex') + grab('termRegexSource') + grab('highlightSearchTerm') + 'return highlightSearchTerm;'
+  )({ mdSearchVariants: require('../i18n/search-variants.js') });
 
   test('terms that spell entity names do not break escaping', () => {
     const out = highlight('A & B "q" <c>', 'amp');
@@ -81,6 +84,12 @@ describe('15. strict search highlight', () => {
     assert.equal(highlight('x <b> y', '<b>'), 'x <mark>&lt;b&gt;</mark> y');
     assert.equal(highlight('般若波羅蜜', /(波羅)/gi), '般若<mark>波羅</mark>蜜');
   });
+
+  test('字組比對：簡體查詢高亮繁體摘要，關閉時維持字面比對', () => {
+    assert.equal(highlightVariants('然後，皇后', '后', true), '然<mark>後</mark>，皇<mark>后</mark>');
+    assert.equal(highlightVariants('頭髮 <b>', '头发', true), '<mark>頭髮</mark> &lt;b&gt;');
+    assert.equal(highlightVariants('然後，皇后', '后', false), '然後，皇<mark>后</mark>');
+  });
 });
 
 describe('16. getBaseUrl and console log lines', () => {
@@ -89,7 +98,14 @@ describe('16. getBaseUrl and console log lines', () => {
   const req = (peer, headers) => ({ socket: { remoteAddress: peer }, headers });
 
   test('X-Forwarded-Host from an untrusted peer is ignored', () => {
+    // 這裡驗證「沒有設定 siteUrl 時」由請求標頭推導網址；本機 config.json 或
+    // SITE_URL 若設定了 siteUrl 會直接回傳該值，因此測試期間暫時清空。
+    const { config } = require('../lib/config.js');
+    const prevSiteUrl = config.settings.siteUrl;
+    const prevEnvSiteUrl = process.env.SITE_URL;
     const prev = process.env.TRUST_PROXY;
+    config.settings.siteUrl = '';
+    delete process.env.SITE_URL;
     process.env.TRUST_PROXY = 'true';
     try {
       assert.equal(getBaseUrl(req('198.51.100.1', { host: 'real.example', 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https' }), ''),
@@ -98,6 +114,8 @@ describe('16. getBaseUrl and console log lines', () => {
         'https://site.example');
     } finally {
       if (prev === undefined) delete process.env.TRUST_PROXY; else process.env.TRUST_PROXY = prev;
+      config.settings.siteUrl = prevSiteUrl;
+      if (prevEnvSiteUrl !== undefined) process.env.SITE_URL = prevEnvSiteUrl;
     }
   });
 

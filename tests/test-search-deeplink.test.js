@@ -312,10 +312,28 @@ describe('全庫搜尋深層連結 3：WebSite + SearchAction 伺服器端輸出
   // 以子行程隔離啟動，才能分別以不同 config 驗證。
   const { spawn } = require('child_process');
 
+  // 設定合併順序是「環境變數 → 專案 config.json → CONFIG_PATH」，本機 config.json 的
+  // siteUrl／seoEnableSearchBox 會蓋過下面傳入的環境變數。因此把這兩項同時寫進
+  // 每次啟動專用的臨時 CONFIG_PATH（最後套用），讓結果與本機設定無關。
+  const tmpDirs = [];
+  after(() => {
+    for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+  const isolatedConfigEnv = (env) => {
+    const settings = {};
+    if (env.SITE_URL !== undefined) settings.siteUrl = env.SITE_URL;
+    if (env.SEO_ENABLE_SEARCH_BOX !== undefined) settings.seoEnableSearchBox = env.SEO_ENABLE_SEARCH_BOX === 'true';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdweb-deeplink-'));
+    tmpDirs.push(dir);
+    const configPath = path.join(dir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({ settings }), 'utf-8');
+    return { CONFIG_PATH: configPath };
+  };
+
   const startServer = (env) => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['server.js'], {
       cwd: ROOT_DIR,
-      env: Object.assign({}, process.env, { PORT: '0', HOST: '127.0.0.1' }, env)
+      env: Object.assign({}, process.env, { PORT: '0', HOST: '127.0.0.1' }, isolatedConfigEnv(env), env)
     });
     let buf = '';
     const onData = (chunk) => {

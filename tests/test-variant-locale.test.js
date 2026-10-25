@@ -82,7 +82,7 @@ function loadS2TLocale(options = {}) {
   return sandbox;
 }
 
-describe('簡體中文瀏覽器自動開啟簡轉繁', () => {
+describe('簡體中文瀏覽器自動開啟簡繁字形一併比對（AUTO_S2T）', () => {
   describe('語言判定 isSimplifiedChineseLocale', () => {
     const simplified = [
       'zh-CN', 'zh-cn', 'zh_CN', 'zh-Hans', 'zh-hans',
