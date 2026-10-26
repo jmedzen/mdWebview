@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.11.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v3.11.2) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -31,7 +31,7 @@
 
 - 🔍 **全站找字**：一次搜尋所有經論，結果很快就出來。
   - 用空白分開幾個詞，會找出同時包含這些詞的段落（例如輸入「阿賴耶識 唯識」）。
-  - 不怕標點與換行：搜尋「佛法僧」也能找到「佛法，僧」、「佛、法、僧」。
+  - 不怕標點與換行：搜尋「佛法僧」也能找到「佛法，僧」、「佛、法、僧」（寬鬆比對，預設開啟；搜尋面板的 ≈／= 按鈕或偏好設定可切換）。
   - 相隔太遠、明顯不相關的結果會自動省略。
 - 📖 **佛學辭典**：可依詞條開頭查、模糊查，或全文查。結果可以一直往下翻，直到把整部辭典查完，不會中途停住。
 - 🔗 **文章互相連結**：文章之間可以用 `[[檔名]]` 互相連結，點一下就能跳過去。
@@ -167,7 +167,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Mermaid、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.11.1）
+├── package.json        # 專案資訊（v3.11.2）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -213,7 +213,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.11.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v3.11.2) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -236,7 +236,7 @@ mdWebview/
 
 - 🔍 **Search everything**: Search across all texts at once, with results appearing quickly.
   - Separate words with spaces to find passages containing all of them (for example, `阿賴耶識 唯識`).
-  - Punctuation and line breaks do not get in the way: searching `佛法僧` also finds `佛法，僧` and `佛、法、僧`.
+  - Punctuation and line breaks do not get in the way: searching `佛法僧` also finds `佛法，僧` and `佛、法、僧` (loose matching, on by default; toggle it with the ≈／= button in the search panel or in the settings).
   - Results where the words are far apart and clearly unrelated are left out automatically.
 - 📖 **Buddhist dictionary**: Look up entries by their beginning, by approximate spelling, or by full text. You can keep paging through results all the way to the end of the dictionary instead of stopping partway.
 - 🔗 **Link articles together**: Use `[[filename]]` to link between articles — click and it jumps straight there.
@@ -367,7 +367,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Mermaid, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.11.1)
+├── package.json        # Project information (v3.11.2)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers
