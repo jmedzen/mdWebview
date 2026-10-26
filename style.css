@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.11.2
+   mdWebview — Style System (style.css) v3.12.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -38,7 +38,7 @@
    §33 Callouts
    §34 Hardware Dashboard
    §35 Dictionary Sidebar
-   §36 Markdown Enhancements   (highlights, task lists, math/KaTeX, Mermaid)
+   §36 Markdown Enhancements   (highlights, task lists, math/KaTeX, Mermaid via Pele)
    §37 Announcement Modal      (微光玻璃浮島)
    §38 Display Script Toggle   (繁／簡切換按鈕、首次自動切換提示)
    ================================================================ */
@@ -6624,8 +6624,16 @@ mark.obsidian-highlight,
   padding: 0 2px;
 }
 
-/* Mermaid containers */
+/* Mermaid 語法圖表（Pele 渲染）：顏色對應目前主題的變數，切換主題即時生效 */
 .markdown-body .mermaid-container {
+  --pele-bg: var(--bg-primary);
+  --pele-fg: var(--text-primary);
+  --pele-muted: var(--text-muted);
+  --pele-line: var(--text-secondary);
+  --pele-surface: var(--bg-tertiary);
+  --pele-surface-alt: var(--bg-elevated);
+  --pele-border: var(--border);
+  --pele-accent: var(--accent);
   display: flex;
   justify-content: center;
   margin: 1.5em 0;
