@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.11.2 | 最後更新：2026-10
+> 版本：v3.12.0 | 最後更新：2026-10
 
 ---
 
@@ -105,7 +105,7 @@ flowchart TD
 - **原生 CommonJS 模組化**：`server.js` 為乾淨路由入口，職責解耦至 `lib/` 模組（無 Express/第三方依賴）
 - **雙 Worker Thread Pool**：CPU 密集型工作（Markdown 渲染、Bigram 倒排索引）透過獨立 Worker Thread 池並行處理，主事件迴圈零阻塞
 - **全非同步 I/O**：所有磁碟存取與 Worker 呼叫均採用 Promise-based async/await
-- **零外部 CDN**：所有前端依賴（marked.js、KaTeX、mermaid、字型）均本地託管於專案內
+- **零外部 CDN**：所有前端依賴（marked.js、KaTeX、Pele（Mermaid 語法圖表）、字型）均本地託管於專案內
 - **集中防禦性儲存**：前端全面透過 `STORAGE_KEYS` 常數池與 `storage` 安全防拋錯物件管理 `localStorage`
 
 ---
@@ -967,7 +967,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.11.2'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1011,7 +1011,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 
 ### Render Worker Pool（`render-worker.js`）
 
-- **用途**：Markdown 解析與 HTML 渲染（含腳注錨點、Wikilink 轉換、KaTeX、Mermaid 佔位符）
+- **用途**：Markdown 解析與 HTML 渲染（含腳注錨點、Wikilink 轉換、KaTeX；Mermaid 程式碼區塊照常輸出為 `code.language-mermaid`，由前端以 Pele 渲染）
 - **工作模式**：job queue + callback map；主線程發送 `{jobId, body, filePath, lineOffset}`，Worker 回傳 `{jobId, html}`
 - **池大小**：`max(2, CPU - 1)`
 - **佇列長度上限（Backpressure）**：最大上限為 `POOL_SIZE * 8`，溢出時即時回應 HTTP 503 Service Unavailable，杜絕未飽和 Markdown 字串線性灌爆 RSS。

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.11.2
+   mdWebview — Application Logic (app.js) v3.12.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -4168,39 +4168,40 @@
     }
   }
 
+  // Mermaid 語法的圖表由 Pele（vendor/pele）渲染：同步回傳 SVG 字串，輸出不含
+  // script / 事件處理器 / HTML 標籤。顏色走 CSS 變數（style.css 對應各主題），
+  // 所以切換主題不必重畫。
+  const MERMAID_MIN_SCALE = 0.75;
+
   function renderMermaid(container) {
-    if (!container || !window.mermaid) return;
+    if (!container || !window.pele) return;
     const blocks = container.querySelectorAll('pre > code.language-mermaid');
     if (blocks.length === 0) return;
-    try {
-      const isDark = (document.documentElement.getAttribute('data-theme') || '').includes('dark');
-      window.mermaid.initialize({
-        startOnLoad: false,
-        theme: isDark ? 'dark' : 'default',
-        // 'strict' makes mermaid sanitize labels and disables click/callback
-        // directives; 'loose' let a diagram call arbitrary global functions.
-        securityLevel: 'strict'
-      });
-      blocks.forEach((codeEl, idx) => {
-        if (codeEl.dataset.mermaidRendered) return;
-        const pre = codeEl.closest('pre');
-        if (!pre) return;
-        const graphDefinition = codeEl.textContent.trim();
-        if (!graphDefinition) return;
-        codeEl.dataset.mermaidRendered = 'true';
+    blocks.forEach((codeEl, idx) => {
+      if (codeEl.dataset.mermaidRendered) return;
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const graphDefinition = codeEl.textContent.trim();
+      if (!graphDefinition) return;
+      codeEl.dataset.mermaidRendered = 'true';
+      try {
+        // idPrefix 讓同頁多張圖的 SVG 內部 id（marker、clipPath…）不互相衝突
+        const { svg, width } = window.pele.render(graphDefinition, {
+          idPrefix: 'pele-' + Date.now() + '-' + idx + '-'
+        });
         const containerDiv = document.createElement('div');
         containerDiv.className = 'mermaid-container';
-        const id = 'mermaid-svg-' + Date.now() + '-' + idx;
-        window.mermaid.render(id, graphDefinition).then(({ svg }) => {
-          containerDiv.innerHTML = svg;
-          if (pre.parentNode) pre.parentNode.replaceChild(containerDiv, pre);
-        }).catch(err => {
-          console.warn('[Mermaid render error]', err);
-        });
-      });
-    } catch (err) {
-      console.warn('[Mermaid init error]', err);
-    }
+        containerDiv.innerHTML = svg;
+        // 寬圖縮到容器寬時字會小到讀不了：最多縮到原寬的 MERMAID_MIN_SCALE，
+        // 再寬就交給 .mermaid-container 橫向捲動
+        const svgEl = containerDiv.firstElementChild;
+        if (svgEl && width) svgEl.style.minWidth = Math.round(width * MERMAID_MIN_SCALE) + 'px';
+        if (pre.parentNode) pre.parentNode.replaceChild(containerDiv, pre);
+      } catch (err) {
+        // 渲染失敗就保留原始程式碼區塊
+        console.warn('[Pele render error]', err);
+      }
+    });
   }
 
   function postProcessMarkdownDOM(container) {
@@ -7361,7 +7362,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9259,7 +9260,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9591,7 +9592,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',

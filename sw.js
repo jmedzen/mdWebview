@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v3.11.2';
+const CACHE_VERSION = 'v3.12.0';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -41,7 +41,7 @@ const SHELL_ASSETS = [
   '/vendor/katex/fonts/KaTeX_Math-Italic.woff2',
   '/vendor/katex/fonts/KaTeX_Size1-Regular.woff2',
   '/vendor/katex/fonts/KaTeX_AMS-Regular.woff2',
-  '/vendor/mermaid/mermaid.min.js'
+  '/vendor/pele/pele.global.js'
 ];
 
 const MAX_CONTENT_CACHE_ITEMS = 150;
