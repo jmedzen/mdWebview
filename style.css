@@ -6624,25 +6624,35 @@ mark.obsidian-highlight,
   padding: 0 2px;
 }
 
-/* Mermaid 語法圖表（Pele 渲染）：顏色對應目前主題的變數，切換主題即時生效 */
+/* Mermaid 語法圖表（Pele 渲染）：顏色對應目前主題的變數，切換主題即時生效。
+   邊框用 --text-muted：有些主題的 --border 與 --bg-elevated 同色，節點會看不到框；
+   次要文字（子圖標題、時序圖訊息）用 --text-secondary，淺色主題下才不會太淡。 */
 .markdown-body .mermaid-container {
   --pele-bg: var(--bg-primary);
   --pele-fg: var(--text-primary);
-  --pele-muted: var(--text-muted);
+  --pele-muted: var(--text-secondary);
   --pele-line: var(--text-secondary);
   --pele-surface: var(--bg-tertiary);
   --pele-surface-alt: var(--bg-elevated);
-  --pele-border: var(--border);
+  --pele-border: var(--text-muted);
   --pele-accent: var(--accent);
-  display: flex;
-  justify-content: center;
   margin: 1.5em 0;
   overflow-x: auto;
 }
 
+/* 寬圖最多縮到 renderMermaid() 設定的 min-width，再寬就橫向捲動；
+   用 margin 置中而非 flex，超出寬度時左側才不會被裁掉 */
 .markdown-body .mermaid-container svg {
+  display: block;
+  margin: 0 auto;
   max-width: 100%;
   height: auto;
+}
+
+/* 與 §3 html 的主題轉場同步，切換主題時圖表不會比頁面先換色 */
+.markdown-body .mermaid-container svg,
+.markdown-body .mermaid-container svg * {
+  transition: fill 0.4s ease, stroke 0.4s ease, color 0.4s ease;
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -4171,6 +4171,8 @@
   // Mermaid 語法的圖表由 Pele（vendor/pele）渲染：同步回傳 SVG 字串，輸出不含
   // script / 事件處理器 / HTML 標籤。顏色走 CSS 變數（style.css 對應各主題），
   // 所以切換主題不必重畫。
+  const MERMAID_MIN_SCALE = 0.75;
+
   function renderMermaid(container) {
     if (!container || !window.pele) return;
     const blocks = container.querySelectorAll('pre > code.language-mermaid');
@@ -4184,12 +4186,16 @@
       codeEl.dataset.mermaidRendered = 'true';
       try {
         // idPrefix 讓同頁多張圖的 SVG 內部 id（marker、clipPath…）不互相衝突
-        const { svg } = window.pele.render(graphDefinition, {
+        const { svg, width } = window.pele.render(graphDefinition, {
           idPrefix: 'pele-' + Date.now() + '-' + idx + '-'
         });
         const containerDiv = document.createElement('div');
         containerDiv.className = 'mermaid-container';
         containerDiv.innerHTML = svg;
+        // 寬圖縮到容器寬時字會小到讀不了：最多縮到原寬的 MERMAID_MIN_SCALE，
+        // 再寬就交給 .mermaid-container 橫向捲動
+        const svgEl = containerDiv.firstElementChild;
+        if (svgEl && width) svgEl.style.minWidth = Math.round(width * MERMAID_MIN_SCALE) + 'px';
         if (pre.parentNode) pre.parentNode.replaceChild(containerDiv, pre);
       } catch (err) {
         // 渲染失敗就保留原始程式碼區塊
