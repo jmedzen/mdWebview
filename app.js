@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.11.1
+   mdWebview — Application Logic (app.js) v3.11.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -5125,10 +5125,30 @@
   // §9 GLOBAL SEARCH (Bigram Full-Text & Filename Search)
   // ═══════════════════════════════════════════════════════════
 
+  /**
+   * 切換全文搜尋比對模式（寬鬆／精確）。搜尋面板的 ≈／= 按鈕與偏好設定的
+   * 「寬鬆比對」開關都經由這裡，兩邊保持同步。
+   * @param {'loose'|'strict'} mode
+   * @param {{rerun?: boolean}} [opts] - rerun 預設 true：有上次搜尋時以新模式重搜
+   */
+  function setSearchMode(mode, opts = {}) {
+    if (mode !== 'loose' && mode !== 'strict') return;
+    const changed = state.searchMode !== mode;
+    state.searchMode = mode;
+    storage.set(STORAGE_KEYS.SEARCH_MODE, mode);
+    updateSearchModeUI();
+    if (!changed || opts.rerun === false || !state.lastSearchData) return;
+    const inputVal = $('globalSearchInput') ? $('globalSearchInput').value.trim() : '';
+    const q = inputVal || state.lastSearchData.query || '';
+    if (q) performGlobalSearch(q);
+  }
+
   function updateSearchModeUI() {
+    const isLoose = state.searchMode === 'loose';
+    const looseChk = $('settingLooseSearchCheck');
+    if (looseChk) looseChk.checked = isLoose;
     const searchModeBtn = $('searchModeBtn');
     if (!searchModeBtn) return;
-    const isLoose = state.searchMode === 'loose';
     searchModeBtn.classList.toggle('active', isLoose);
     searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
     searchModeBtn.setAttribute('title', isLoose
@@ -7341,7 +7361,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -7441,9 +7461,7 @@
           applyAutoReadProgress(pref.autoReadProgress, true);
         }
         if (pref.searchMode === 'loose' || pref.searchMode === 'strict') {
-          state.searchMode = pref.searchMode;
-          storage.set(STORAGE_KEYS.SEARCH_MODE, state.searchMode);
-          updateSearchModeUI();
+          setSearchMode(pref.searchMode, { rerun: false });
         }
 
         // 2. 還原書籤最愛
@@ -8088,14 +8106,7 @@
     if (searchModeBtn) {
       updateSearchModeUI();
       searchModeBtn.addEventListener('click', () => {
-        state.searchMode = state.searchMode === 'loose' ? 'strict' : 'loose';
-        storage.set(STORAGE_KEYS.SEARCH_MODE, state.searchMode);
-        updateSearchModeUI();
-        if (state.lastSearchData) {
-          const inputVal = $('globalSearchInput') ? $('globalSearchInput').value.trim() : '';
-          const q = inputVal || state.lastSearchData.query || '';
-          if (q) performGlobalSearch(q);
-        }
+        setSearchMode(state.searchMode === 'loose' ? 'strict' : 'loose');
       });
     }
 
@@ -8778,6 +8789,11 @@
       autoProgressCheck.addEventListener('change', (e) => applyAutoReadProgress(e.target.checked));
     }
 
+    const looseSearchCheck = $('settingLooseSearchCheck');
+    if (looseSearchCheck) {
+      looseSearchCheck.addEventListener('change', (e) => setSearchMode(e.target.checked ? 'loose' : 'strict'));
+    }
+
     const autoS2TCheck = $('settingAutoS2TCheck');
     if (autoS2TCheck) {
       autoS2TCheck.addEventListener('change', (e) => applyAutoS2T(e.target.checked));
@@ -9238,11 +9254,12 @@
 
     const s2tChk = $('settingAutoS2TCheck');
     if (s2tChk) s2tChk.checked = !!state.autoS2T;
+    updateSearchModeUI();
     updateDisplayScriptUI();
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9574,7 +9591,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.11.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',

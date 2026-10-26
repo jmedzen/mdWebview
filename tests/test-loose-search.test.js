@@ -125,5 +125,20 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     assert.match(styleCss, /#searchModeBtn/, 'style.css 必須定義 #searchModeBtn 樣式');
     assert.match(styleCss, /#searchModeBtn\.active/, 'style.css 必須定義 #searchModeBtn.active 樣式');
   });
+
+  test('偏好設定的「寬鬆比對」開關與搜尋面板按鈕同步（共用 setSearchMode）', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const indexHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+    const appJs = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+
+    assert.match(indexHtml, /id="settingLooseSearchCheck"/, '偏好設定需有寬鬆比對開關');
+    assert.match(indexHtml, /id="settingAutoS2TCheck"/, '簡繁字形一併比對仍是獨立開關');
+    assert.match(appJs, /function setSearchMode\(mode, opts = \{\}\)/);
+    assert.match(appJs, /searchModeBtn\.addEventListener\('click'[\s\S]{0,120}setSearchMode\(/, '面板按鈕經 setSearchMode 切換');
+    assert.match(appJs, /settingLooseSearchCheck'\);\s*if \(looseSearchCheck\)[\s\S]{0,200}setSearchMode\(/, '設定開關經 setSearchMode 切換');
+    const ui = appJs.slice(appJs.indexOf('function updateSearchModeUI()'), appJs.indexOf('function updateSearchModeUI()') + 400);
+    assert.match(ui, /settingLooseSearchCheck/, 'updateSearchModeUI 需同步設定開關的勾選狀態');
+  });
 });
 
