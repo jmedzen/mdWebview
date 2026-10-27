@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.3'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.4'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -51,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#181825">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.3">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.3">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.3">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.12.3">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.3">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.4">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.4">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.4">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.12.4">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.4">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -77,9 +77,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.12.3">
+  <link rel="stylesheet" href="style.css?v=3.12.4">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=3.12.3"></script>
+  <script src="i18n/boot.js?v=3.12.4"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -440,7 +440,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.3</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.4</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -646,7 +646,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.12.3</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.12.4</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -683,7 +683,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.3</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.4</span>
       </div>
     </div>
   </div>
@@ -1043,7 +1043,7 @@
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
         <button type="button" class="admin-tab-btn" data-tab="seo" id="adminTabSeoBtn">🔍 搜尋優化</button>
         <button type="button" class="admin-tab-btn" data-tab="users" id="adminTabUsersBtn">👥 使用者</button>
-        <button type="button" class="admin-tab-btn" data-tab="accountsys" id="adminTabAccountSystemBtn">🔑 帳號系統</button>
+        <button type="button" class="admin-tab-btn" data-tab="accountsys" id="adminTabAccountSystemBtn">🔑 帳號系統<span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span></button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌</button>
       </div>
 
@@ -1861,49 +1861,120 @@
       <div class="admin-tab-pane" id="adminPaneAccountSystem" style="display: none;">
         <div id="adminAccountSysNotice" class="form-error" style="display: none;"></div>
         <div class="admin-config-grid">
-          <div class="config-card">
+          <div class="config-card full-width" id="adminSetupCard">
             <div class="config-card-header">
-              <span class="config-card-icon">🔑</span>
-              <h3 class="config-card-title">登入方式</h3>
+              <span class="config-card-icon">🚀</span>
+              <h3 class="config-card-title">開站設定</h3>
+              <span class="account-badge" id="adminSetupBadge"></span>
             </div>
             <div class="config-card-body">
-              <p class="field-hint">金鑰放在伺服器的環境變數（.env），這裡只顯示是否已設定。對外網址：<code id="adminPublicBaseUrl">—</code></p>
-              <div id="adminProviderList" class="account-list"></div>
+              <p class="field-hint">第一次啟用帳號功能時，照著下面的步驟在網頁上完成即可，不需要登入伺服器改設定檔。前三步完成後才能開放註冊；Turnstile 建議也設定，用來擋機器人註冊。</p>
+              <ol id="adminSetupSteps" class="setup-steps"></ol>
             </div>
           </div>
 
-          <div class="config-card">
+          <div class="config-card full-width" id="adminMailCard">
             <div class="config-card-header">
               <span class="config-card-icon">✉️</span>
-              <h3 class="config-card-title">寄信</h3>
+              <h3 class="config-card-title">寄信（驗證信、重設密碼信）</h3>
             </div>
             <div class="config-card-body">
-              <p class="field-hint">驗證信、重設密碼信都由這裡寄出。金鑰（MAIL_API_KEY）放在伺服器的環境變數，這裡只顯示是否已設定。</p>
-              <div id="adminMailStatus" class="account-list"></div>
-              <div class="account-inline-form">
-                <input type="email" id="adminMailTestTo" placeholder="收件 Email（預設寄給自己）" aria-label="測試收件 Email">
-                <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailTestBtn">寄測試信</button>
+              <details class="setup-howto" id="adminMailHowto">
+                <summary>怎麼取得 Resend 金鑰？（約 10 分鐘）</summary>
+                <ol>
+                  <li>到 <a href="https://resend.com/signup" target="_blank" rel="noopener">resend.com</a> 註冊（免費方案每月 3,000 封、每天 100 封）。</li>
+                  <li>左側 <strong>Domains</strong> → <strong>Add Domain</strong>，輸入你的網域（例如 <code>example.org</code>）。</li>
+                  <li>Resend 會列出幾筆 DNS 記錄，到你管理網域的地方（例如 Cloudflare 的 DNS 頁）照抄新增。下方的「寄件網域 DNS」會告訴你哪幾筆已經生效。</li>
+                  <li>左側 <strong>API Keys</strong> → <strong>Create API Key</strong>，權限選 <strong>Sending access</strong>，複製 <code>re_</code> 開頭的金鑰貼到下面。金鑰只會顯示一次。</li>
+                  <li>寄件 Email 填你網域底下的地址，例如 <code>noreply@example.org</code>（不需要真的有這個信箱）。</li>
+                </ol>
+              </details>
+              <div class="setup-form">
+                <label class="field-hint" for="adminMailProvider">寄信服務</label>
+                <select id="adminMailProvider">
+                  <option value="resend">Resend（正式寄信）</option>
+                  <option value="log">只寫進日誌（測試用，不會真的寄出）</option>
+                  <option value="">停用寄信</option>
+                </select>
+                <div class="setup-form" id="adminMailResendFields">
+                <label class="field-hint" for="adminMailApiKey">Resend API 金鑰</label>
+                <input type="password" id="adminMailApiKey" autocomplete="off" spellcheck="false" placeholder="re_ 開頭">
+                <div class="setup-form-row">
+                  <div>
+                    <label class="field-hint" for="adminMailFromName">寄件人名稱</label>
+                    <input type="text" id="adminMailFromName" placeholder="例如：mdWebview">
+                  </div>
+                  <div>
+                    <label class="field-hint" for="adminMailFromAddress">寄件 Email</label>
+                    <input type="email" id="adminMailFromAddress" placeholder="noreply@你的網域">
+                  </div>
+                </div>
+                </div>
+                <div id="adminMailLockNote" class="field-hint"></div>
+                <div class="account-inline-form">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminMailSaveBtn">儲存並檢查</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailClearKeyBtn" hidden>移除金鑰</button>
+                </div>
+                <div id="adminMailSaveResult" class="setup-result" style="display: none;"></div>
               </div>
+              <div id="adminMailStatus" class="account-list"></div>
               <div class="account-inline-form">
                 <strong class="field-hint">寄件網域 DNS</strong>
                 <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailDnsBtn">重新檢查</button>
               </div>
               <div id="adminMailDns" class="account-list"></div>
+              <div class="account-inline-form">
+                <input type="email" id="adminMailTestTo" placeholder="收件 Email（預設寄給自己）" aria-label="測試收件 Email">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailTestBtn">寄測試信</button>
+              </div>
             </div>
           </div>
 
-          <div class="config-card">
+          <div class="config-card full-width" id="adminTurnstileCard">
             <div class="config-card-header">
               <span class="config-card-icon">🛡️</span>
               <h3 class="config-card-title">Turnstile 人機驗證</h3>
             </div>
             <div class="config-card-body">
-              <p class="field-hint">Cloudflare Turnstile 用來擋機器人註冊。Site key 是公開的；secret（TURNSTILE_SECRET_KEY）放在伺服器的環境變數，這裡只顯示是否已設定。</p>
+              <details class="setup-howto" id="adminTurnstileHowto">
+                <summary>怎麼取得 Turnstile 金鑰？（約 3 分鐘，免費）</summary>
+                <ol>
+                  <li>登入 <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Cloudflare 後台</a>，左側選 <strong>Turnstile</strong> → <strong>Add widget</strong>。網域不必放在 Cloudflare 也能用。</li>
+                  <li><strong>Hostname</strong> 填 <code id="adminTurnstileHowtoHost">你的網域</code>，<strong>Widget mode</strong> 選 <strong>Managed</strong>。</li>
+                  <li>建立後複製 <strong>Site Key</strong> 和 <strong>Secret Key</strong>，貼到下面按「儲存並檢查」。</li>
+                  <li>最後按「開始實測」親自通過一次，確認網域設定正確，訪客才不會卡在註冊畫面。</li>
+                </ol>
+              </details>
+              <div class="setup-form">
+                <label class="field-hint" for="adminTurnstileSiteKey">Site key（公開）</label>
+                <input type="text" id="adminTurnstileSiteKey" autocomplete="off" spellcheck="false" placeholder="0x 開頭">
+                <label class="field-hint" for="adminTurnstileSecret">Secret key</label>
+                <input type="password" id="adminTurnstileSecret" autocomplete="off" spellcheck="false" placeholder="0x 開頭">
+                <div id="adminTurnstileLockNote" class="field-hint"></div>
+                <div class="account-inline-form">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminTurnstileSaveBtn">儲存並檢查</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileDisableBtn" hidden>停用 Turnstile</button>
+                </div>
+                <div id="adminTurnstileSaveResult" class="setup-result" style="display: none;"></div>
+              </div>
               <div id="adminTurnstileStatus" class="account-list"></div>
               <div class="account-inline-form">
-                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileCheckBtn">驗證 secret</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileLiveBtn">開始實測</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileCheckBtn">只檢查 secret</button>
                 <span id="adminTurnstileCheckResult" class="field-hint"></span>
               </div>
+              <div id="adminTurnstileLiveBox" class="setup-live-box" hidden></div>
+            </div>
+          </div>
+
+          <div class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">🔑</span>
+              <h3 class="config-card-title">登入方式</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">第三方登入的金鑰放在伺服器的環境變數（.env），這裡只顯示是否已設定。對外網址：<code id="adminPublicBaseUrl">—</code></p>
+              <div id="adminProviderList" class="account-list"></div>
             </div>
           </div>
 
@@ -2341,13 +2412,13 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=3.12.3" defer></script>
-  <script src="i18n/zh-TW.js?v=3.12.3" defer></script>
-  <script src="i18n/zh-CN.js?v=3.12.3" defer></script>
-  <script src="i18n/i18n.js?v=3.12.3" defer></script>
-  <script src="i18n/content-terms.js?v=3.12.3" defer></script>
-  <script src="i18n/display-script.js?v=3.12.3" defer></script>
-  <script src="i18n/search-variants.js?v=3.12.3" defer></script>
-  <script src="app.js?v=3.12.3" defer></script>
+  <script src="marked.min.js?v=3.12.4" defer></script>
+  <script src="i18n/zh-TW.js?v=3.12.4" defer></script>
+  <script src="i18n/zh-CN.js?v=3.12.4" defer></script>
+  <script src="i18n/i18n.js?v=3.12.4" defer></script>
+  <script src="i18n/content-terms.js?v=3.12.4" defer></script>
+  <script src="i18n/display-script.js?v=3.12.4" defer></script>
+  <script src="i18n/search-variants.js?v=3.12.4" defer></script>
+  <script src="app.js?v=3.12.4" defer></script>
 </body>
 </html>

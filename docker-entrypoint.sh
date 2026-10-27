@@ -29,7 +29,8 @@ if [ "$(id -u)" = "0" ]; then
   BACKUPS="${DB_BACKUP_DIR:-$(dirname "$DB_FILE")/backups}"
   mkdir -p "$(dirname "$DB_FILE")" "$BACKUPS" 2>/dev/null || true
   chown node:node "$(dirname "$DB_FILE")" 2>/dev/null || true
-  for f in "$DB_FILE" "$DB_FILE-wal" "$DB_FILE-shm"; do [ -e "$f" ] && chown node:node "$f" 2>/dev/null || true; done
+  # secrets.key：後台網頁填寫的寄信／Turnstile 金鑰的加密金鑰。
+  for f in "$DB_FILE" "$DB_FILE-wal" "$DB_FILE-shm" "$(dirname "$DB_FILE")/secrets.key"; do [ -e "$f" ] && chown node:node "$f" 2>/dev/null || true; done
   chown -R node:node "$BACKUPS" 2>/dev/null || true
 
   # su-exec execs the command directly (no intermediate shell or fork), so

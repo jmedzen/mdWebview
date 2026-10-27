@@ -430,6 +430,164 @@ describe('account HTTP API', () => {
     assert.ok(db.listEvents({ event: 'admin_turnstile_check', limit: 5 }).length >= 1);
   });
 
+  // 網頁設定的測試：先拿掉測試檔開頭設定的環境變數，結束時清掉網頁設定並還原。
+  async function withWebSettings(run) {
+    const integrations = require('../lib/integrations.js');
+    const names = ['MAIL_PROVIDER', 'MAIL_API_KEY', 'MAIL_FROM', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'];
+    const saved = Object.fromEntries(names.map(n => [n, process.env[n]]));
+    names.forEach(n => delete process.env[n]);
+    try {
+      await run(integrations);
+    } finally {
+      for (const n of names) { if (saved[n] === undefined) delete process.env[n]; else process.env[n] = saved[n]; }
+      const clear = { mailProvider: '', mailApiKey: '', mailFrom: '', turnstileSiteKey: '', turnstileSecret: '' };
+      const keep = Object.fromEntries(names.map(n => [n, process.env[n]]));
+      names.forEach(n => delete process.env[n]);
+      integrations.set(clear);
+      for (const n of names) { if (keep[n] !== undefined) process.env[n] = keep[n]; }
+    }
+  }
+
+  test('integrations: secrets are encrypted at rest and environment variables win', async () => {
+    await withWebSettings(async (integrations) => {
+      integrations.set({ mailApiKey: 're_secret_value_1234', mailFrom: 'Site <noreply@web.example>' });
+      const raw = db.getSetting('integrations.mail.apiKey');
+      assert.ok(raw.startsWith('v1:'), 'stored encrypted');
+      assert.ok(!raw.includes('re_secret_value_1234'));
+      assert.equal(integrations.get('mailApiKey'), 're_secret_value_1234');
+      const d = integrations.describe('mailApiKey');
+      assert.deepEqual([d.source, d.set, d.value, d.masked, d.locked], ['web', true, null, '••••1234', false]);
+      assert.equal(integrations.describe('mailFrom').value, 'Site <noreply@web.example>');
+
+      process.env.MAIL_FROM = 'Env <noreply@env.example>';
+      assert.equal(integrations.get('mailFrom'), 'Env <noreply@env.example>');
+      assert.equal(integrations.describe('mailFrom').locked, true);
+      assert.deepEqual(integrations.set({ mailFrom: 'x@y.example' }), [], 'env-locked field is not written');
+      delete process.env.MAIL_FROM;
+      assert.equal(integrations.get('mailFrom'), 'Site <noreply@web.example>');
+
+      // 被竄改或用別的金鑰加密的值：當作未設定，並標示需要重填。
+      db.setSetting('integrations.mail.apiKey', 'v1:AAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAA==:AAAA');
+      assert.equal(integrations.get('mailApiKey'), '');
+      assert.equal(integrations.describe('mailApiKey').unreadable, true);
+    });
+  });
+
+  test('admin can set up Resend on the web: key is checked, stored encrypted, never echoed', async () => {
+    await withWebSettings(async (integrations) => {
+      const adminCookie = await makeAdmin();
+      let resendReply = { status: 401, body: { name: 'validation_error', message: 'API key is invalid' } };
+      const sent = [];
+      globalThis.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u === 'https://api.resend.com/domains') {
+          return new Response(JSON.stringify(resendReply.body), { status: resendReply.status });
+        }
+        if (u === 'https://api.resend.com/emails') {
+          sent.push({ auth: opts.headers.Authorization, body: JSON.parse(opts.body) });
+          return new Response(JSON.stringify({ id: 'mail-1' }), { status: 200 });
+        }
+        return realFetch(url, opts);
+      };
+      const save = body => request('/api/admin/mail/settings', { method: 'POST', body, cookie: adminCookie });
+
+      const before = await request('/api/admin/accounts-overview', { cookie: adminCookie });
+      assert.equal(before.json.setup.steps.find(st => st.id === 'mail').done, false);
+
+      const badFrom = await save({ provider: 'resend', from: 'not an address', apiKey: 're_whatever_12345' });
+      assert.equal(badFrom.status, 400);
+      assert.equal(badFrom.json.code, 'INVALID_FROM');
+
+      const badKey = await save({ provider: 'resend', from: 'Reader <noreply@mail.example>', apiKey: 're_wrong_key_12345' });
+      assert.equal(badKey.status, 400);
+      assert.equal(badKey.json.code, 'INVALID_API_KEY');
+      assert.equal(integrations.get('mailApiKey'), '', 'rejected key is not saved');
+
+      resendReply = { status: 401, body: { name: 'restricted_api_key', message: 'This API key is restricted to only send emails' } };
+      const ok = await save({ provider: 'resend', from: 'Reader <noreply@mail.example>', apiKey: 're_good_key_abcd' });
+      assert.equal(ok.status, 200, ok.body);
+      assert.equal(ok.json.keyCheck.state, 'valid_send_only');
+      assert.equal(ok.json.mail.configured, true);
+      assert.equal(ok.json.mail.settings.apiKey.masked, '••••abcd');
+      assert.ok(!ok.body.includes('re_good_key_abcd'), 'key is never echoed');
+      assert.ok(!db.getSetting('integrations.mail.apiKey').includes('re_good_key_abcd'));
+      assert.equal(ok.json.setup.steps.find(st => st.id === 'mail').done, true);
+      assert.equal(ok.json.setup.steps.find(st => st.id === 'mailTest').done, false);
+
+      const mailStatus = await request('/api/admin/mail', { cookie: adminCookie });
+      assert.ok(!mailStatus.body.includes('re_good_key_abcd'));
+
+      const test = await request('/api/admin/mail/test', { method: 'POST', body: {}, cookie: adminCookie });
+      assert.equal(test.status, 200, test.body);
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0].auth, 'Bearer re_good_key_abcd');
+      assert.equal(sent[0].body.from, 'Reader <noreply@mail.example>');
+      assert.equal(test.json.setup.steps.find(st => st.id === 'mailTest').done, true);
+
+      // 完整權限金鑰：寄件網域沒驗證時提醒；換金鑰會讓「測試信」步驟重來。
+      resendReply = { status: 200, body: { data: [{ name: 'mail.example', status: 'pending', region: 'us-east-1' }] } };
+      const full = await save({ apiKey: 're_full_access_key_9999' });
+      assert.equal(full.json.keyCheck.state, 'valid');
+      assert.ok(full.json.warnings.some(w => w.includes('pending')));
+      assert.equal(full.json.setup.steps.find(st => st.id === 'mailTest').done, false);
+
+      const cleared = await save({ clearApiKey: true });
+      assert.equal(cleared.json.mail.apiKeySet, false);
+      assert.equal(cleared.json.mail.configured, false);
+
+      // 登入超過 10 分鐘：要先重新驗證身分。
+      const admin = db.getUserByEmail('boss@example.org');
+      db.getDb().prepare('UPDATE sessions SET created_at = ?, reauth_at = NULL WHERE user_id = ?').run(Date.now() - 60 * 60 * 1000, admin.id);
+      const stale = await save({ apiKey: 're_good_key_abcd' });
+      assert.equal(stale.status, 403);
+      assert.equal(stale.json.code, 'REAUTH_REQUIRED');
+    });
+  });
+
+  test('admin can set up Turnstile on the web and run a live check', async () => {
+    await withWebSettings(async (integrations) => {
+      const adminCookie = await makeAdmin();
+      let siteverify = { success: false, 'error-codes': ['invalid-input-secret'] };
+      globalThis.fetch = async (url, opts) => {
+        if (String(url).startsWith('https://challenges.cloudflare.com/')) {
+          return new Response(JSON.stringify(siteverify), { status: 200 });
+        }
+        return realFetch(url, opts);
+      };
+      const save = body => request('/api/admin/turnstile/settings', { method: 'POST', body, cookie: adminCookie });
+
+      const badSite = await save({ siteKey: 'nonsense', secret: '0x4AAAA-secret' });
+      assert.equal(badSite.json.code, 'INVALID_SITE_KEY');
+      const badSecret = await save({ siteKey: '0x4AAAAAAAwebsitekey', secret: '0x4AAAA-wrong-secret' });
+      assert.equal(badSecret.status, 400);
+      assert.equal(badSecret.json.code, 'INVALID_SECRET');
+      assert.equal(integrations.get('turnstileSiteKey'), '', 'nothing saved on a bad secret');
+
+      siteverify = { success: false, 'error-codes': ['invalid-input-response'] };
+      const ok = await save({ siteKey: '0x4AAAAAAAwebsitekey', secret: '0x4AAAA-right-secret' });
+      assert.equal(ok.status, 200, ok.body);
+      assert.equal(ok.json.info.configured, true);
+      assert.equal(ok.json.info.settings.secret.source, 'web');
+      assert.ok(!ok.body.includes('0x4AAAA-right-secret'));
+      const cfg = await request('/api/auth/config');
+      assert.equal(cfg.json.turnstileSiteKey, '0x4AAAAAAAwebsitekey', 'sign-up forms pick up the new site key');
+
+      siteverify = { success: true, hostname: 'other.example', action: 'admin-test' };
+      const wrongHost = await request('/api/admin/turnstile/verify', { method: 'POST', body: { token: 'tok' }, cookie: adminCookie });
+      assert.equal(wrongHost.json.ok, false);
+      assert.equal(wrongHost.json.reason, 'hostname-mismatch');
+
+      siteverify = { success: true, hostname: 'reader.example', action: 'admin-test' };
+      const live = await request('/api/admin/turnstile/verify', { method: 'POST', body: { token: 'tok' }, cookie: adminCookie });
+      assert.equal(live.json.ok, true);
+      assert.equal(live.json.setup.steps.find(st => st.id === 'turnstileTest').done, true);
+
+      const off = await save({ disable: true });
+      assert.equal(off.json.info.configured, false);
+      assert.equal((await request('/api/auth/config')).json.turnstileSiteKey, '');
+    });
+  });
+
   test('admin mail DNS check reports each required record', async () => {
     const adminCookie = await makeAdmin();
     const mailerMod = require('../lib/mailer.js');
