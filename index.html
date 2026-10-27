@@ -5,7 +5,7 @@
   ── 頁面結構索引（Section Map）─────────────────────────────────────────
   §HEAD       <head>：meta、favicon、PWA manifest、OG tags、CSS 載入
   §BODY       <body> 開始
-  §HEADER     .app-header：Logo、當前檔案指示器、按鈕列（搜尋/繁簡切換/辭典/設定）
+  §HEADER     .app-header：Logo、當前檔案指示器、按鈕列（搜尋/辭典/整合選單：帳號、繁簡、主題、設定）
   §SIDEBAR    <aside>.sidebar：側邊欄
                 #panelFiles  — 檔案瀏覽器（排序、收折、檔案樹）
                 #panelSearch — 全文搜尋（目錄篩選、輸入框、結果列表）
@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.8'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.9'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -51,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#181825">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.8">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.8">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.8">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.12.8">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.8">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.9">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.9">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.9">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.12.9">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.9">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -77,9 +77,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.12.8">
+  <link rel="stylesheet" href="style.css?v=3.12.9">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=3.12.8"></script>
+  <script src="i18n/boot.js?v=3.12.9"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -109,28 +109,75 @@
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
           </svg>
         </button>
-        <!-- 繁／簡顯示切換：文字顯示目前字形，點擊立即切換並記住 -->
-        <button id="displayScriptToggleBtn" class="control-btn display-script-btn" type="button" data-no-t2s
-                data-i18n-attr="title:script.toggle.title;aria-label:script.toggle.aria"
-                title="目前為繁體顯示，點擊切換為簡體" aria-label="切換繁體／簡體顯示（目前：繁體）">
-          <span class="display-script-glyph" data-i18n="script.toggle.label">繁</span>
-        </button>
         <button id="dictToggleBtn" class="control-btn dict-toggle-btn" title="辭典查詢" style="display:none">
           <svg width="18" height="18" viewBox="0 0 512 512" fill="currentColor">
             <path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20z"/>
           </svg>
         </button>
-        <button id="accountBtn" class="control-btn account-btn" type="button" title="登入" aria-label="登入" data-web-only hidden>
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-            <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1.5c-2.7 0-5.5 1.35-5.5 3.25V14h11v-1.25C13.5 10.85 10.7 9.5 8 9.5z"/>
-          </svg>
-          <span class="account-btn-initial" id="accountBtnInitial" hidden></span>
-        </button>
-        <button id="adminSettingsBtn" class="control-btn settings-btn" title="偏好設定與系統管理">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M9.405 1.02c-.252-.772-1.345-.772-1.597 0L7.54 2.18c-.287.882-1.258 1.285-2.03.856l-.993-.55c-.694-.383-1.467.39-1.085 1.085l.55.992c.429.773.026 1.744-.856 2.03l-1.16.267c-.772.252-.772 1.345 0 1.597l1.16.267c.882.287 1.285 1.258.856 2.03l-.55.993c-.383.694.39 1.467 1.085 1.085l.992-.55c.773-.429 1.744-.026 2.03.856l.267 1.16c.252.772 1.345.772 1.597 0l.267-1.16c.287-.882 1.258-1.285 2.03-.856l.993.55c.694.383 1.467-.39 1.085-1.085l-.55-.992c-.429-.773-.026-1.744.856-2.03l1.16-.267c.772-.252.772-1.345 0-1.597l-1.16-.267c-.882-.287-1.285-1.258-.856-2.03l.55-.993c.383-.694-.39-1.467-1.085-1.085l-.992.55c-.773.429-1.744.026-2.03-.856l-.267-1.16zM8 10a2 2 0 110-4 2 2 0 010 4z"/>
-          </svg>
-        </button>
+        <!--
+          右上角整合選單：帳號狀態、繁簡顯示、主題、偏好設定、我的帳號、後台、登出。
+          按鈕本身：已登入顯示名字首字；網頁版未登入顯示人形；單機版（沒有帳號）顯示齒輪。
+        -->
+        <div class="user-menu" id="userMenu">
+          <button id="userMenuBtn" class="control-btn user-menu-btn" type="button"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="userMenuPanel"
+                  title="選單：帳號、繁簡、主題與設定" aria-label="選單：帳號、繁簡、主題與設定">
+            <svg class="user-menu-icon user-menu-icon-person" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1.5c-2.7 0-5.5 1.35-5.5 3.25V14h11v-1.25C13.5 10.85 10.7 9.5 8 9.5z"/>
+            </svg>
+            <svg class="user-menu-icon user-menu-icon-gear" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M9.405 1.02c-.252-.772-1.345-.772-1.597 0L7.54 2.18c-.287.882-1.258 1.285-2.03.856l-.993-.55c-.694-.383-1.467.39-1.085 1.085l.55.992c.429.773.026 1.744-.856 2.03l-1.16.267c-.772.252-.772 1.345 0 1.597l1.16.267c.882.287 1.285 1.258.856 2.03l-.55.993c-.383.694.39 1.467 1.085 1.085l.992-.55c.773-.429 1.744-.026 2.03.856l.267 1.16c.252.772 1.345.772 1.597 0l.267-1.16c.287-.882 1.258-1.285 2.03-.856l.993.55c.694.383 1.467-.39 1.085-1.085l-.55-.992c-.429-.773-.026-1.744.856-2.03l1.16-.267c.772-.252.772-1.345 0-1.597l-1.16-.267c-.882-.287-1.285-1.258-.856-2.03l.55-.993c.383-.694-.39-1.467-1.085-1.085l-.992.55c-.773.429-1.744.026-2.03-.856l-.267-1.16zM8 10a2 2 0 110-4 2 2 0 010 4z"/>
+            </svg>
+            <span class="user-menu-initial" id="userMenuInitial" aria-hidden="true"></span>
+          </button>
+          <div class="user-menu-panel" id="userMenuPanel" role="menu" aria-label="選單" hidden>
+            <div class="user-menu-account" id="userMenuAccount" hidden>
+              <div class="user-menu-status">
+                <span class="user-menu-avatar" id="userMenuAvatar" aria-hidden="true"></span>
+                <div class="user-menu-who">
+                  <div class="user-menu-name"><span id="userMenuName">尚未登入</span><span class="user-menu-role" id="userMenuRole" hidden>管理員</span></div>
+                  <div class="user-menu-sub" id="userMenuSub">登入後可同步書籤與閱讀進度</div>
+                </div>
+              </div>
+              <div class="user-menu-auth" id="userMenuAuthRow">
+                <button type="button" class="user-menu-auth-btn primary" id="userMenuLoginBtn" role="menuitem">登入</button>
+                <button type="button" class="user-menu-auth-btn" id="userMenuRegisterBtn" role="menuitem">註冊</button>
+              </div>
+              <div class="user-menu-sep"></div>
+            </div>
+            <div class="user-menu-row">
+              <span class="user-menu-label" data-i18n="settings.displayScript.title">繁簡顯示</span>
+              <div class="user-menu-seg" id="userMenuScriptGroup" role="group" aria-label="繁簡顯示" data-no-t2s>
+                <button type="button" class="user-menu-seg-btn" data-value="hant" lang="zh-TW" role="menuitemradio" aria-checked="true">繁體</button>
+                <button type="button" class="user-menu-seg-btn" data-value="hans" lang="zh-Hans" role="menuitemradio" aria-checked="false">简体</button>
+              </div>
+            </div>
+            <div class="user-menu-row">
+              <span class="user-menu-label">主題</span>
+              <div class="user-menu-themes" id="userMenuThemeGroup" role="group" aria-label="閱讀主題">
+                <button type="button" class="user-menu-theme" data-value="obsidian-dark" role="menuitemradio" title="暗色 Dark" aria-label="暗色 Dark"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="obsidian-light" role="menuitemradio" title="亮色 Light" aria-label="亮色 Light"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="solarized" role="menuitemradio" title="Solarized" aria-label="Solarized"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="zen" role="menuitemradio" title="禪風 Zen" aria-label="禪風 Zen"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="gruvbox" role="menuitemradio" title="Gruvbox" aria-label="Gruvbox"><span class="swatch"></span></button>
+              </div>
+            </div>
+            <div class="user-menu-sep"></div>
+            <button type="button" class="user-menu-item" id="userMenuSettingsBtn" role="menuitem">
+              <span class="user-menu-item-icon" aria-hidden="true">⚙️</span><span>偏好設定</span><small>字級、書籤、閱讀紀錄</small>
+            </button>
+            <button type="button" class="user-menu-item" id="userMenuAccountBtn" role="menuitem" hidden>
+              <span class="user-menu-item-icon" aria-hidden="true">👤</span><span>我的帳號</span>
+            </button>
+            <button type="button" class="user-menu-item" id="userMenuAdminBtn" role="menuitem" hidden>
+              <span class="user-menu-item-icon" aria-hidden="true">🛠️</span><span id="userMenuAdminLabel">後台系統設定</span>
+            </button>
+            <div class="user-menu-sep" id="userMenuLogoutSep" hidden></div>
+            <button type="button" class="user-menu-item" id="userMenuLogoutBtn" role="menuitem" hidden>
+              <span class="user-menu-item-icon" aria-hidden="true">↪</span><span>登出</span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -440,7 +487,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.8</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.9</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -646,14 +693,14 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.12.8</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.12.9</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
-              <span id="adminStatusText">管理員登入狀態：檢查中…</span>
+              <span id="adminStatusText">登入狀態：檢查中…</span>
             </div>
             <div class="admin-action-buttons">
-              <button type="button" id="menuOpenAdminLoginBtn" class="modal-btn submit-btn" data-web-only>管理員登入</button>
+              <button type="button" id="menuOpenAdminLoginBtn" class="modal-btn submit-btn" data-web-only>登入</button>
               <button type="button" id="menuOpenVaultSettingsBtn" class="modal-btn submit-btn" style="display: none;">開啟後台系統設定</button>
             </div>
           </div>
@@ -683,7 +730,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.8</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.9</span>
       </div>
     </div>
   </div>
@@ -819,32 +866,6 @@
           知曉
         </button>
       </div>
-    </div>
-  </div>
-
-  <!-- 2. Admin Login Overlay -->
-  <div class="modal-overlay" id="adminLoginOverlay" style="display: none;">
-    <div class="modal-card">
-      <div class="modal-header">
-        <span class="modal-icon">🔒</span>
-        <h2>管理員登入</h2>
-      </div>
-      <p class="modal-desc">請輸入管理員的 Email（或帳號名稱）與密碼。綁定了 Google 等第三方登入的管理員，也可以從右上角的帳號按鈕登入。</p>
-      <form id="adminLoginForm" class="modal-form">
-        <div class="form-group">
-          <label for="loginUsername">Email 或帳號名稱</label>
-          <input type="text" id="loginUsername" placeholder="管理員 Email 或帳號名稱" required autocomplete="username" spellcheck="false">
-        </div>
-        <div class="form-group">
-          <label for="loginPassword">密碼</label>
-          <input type="password" id="loginPassword" placeholder="管理員密碼" required autocomplete="current-password">
-        </div>
-        <div id="loginErrorMsg" class="form-error" style="display: none;"></div>
-        <div class="modal-actions">
-          <button type="button" id="loginCancelBtn" class="modal-btn cancel-btn">取消</button>
-          <button type="submit" class="modal-btn submit-btn">登入</button>
-        </div>
-      </form>
     </div>
   </div>
 
@@ -2432,13 +2453,13 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=3.12.8" defer></script>
-  <script src="i18n/zh-TW.js?v=3.12.8" defer></script>
-  <script src="i18n/zh-CN.js?v=3.12.8" defer></script>
-  <script src="i18n/i18n.js?v=3.12.8" defer></script>
-  <script src="i18n/content-terms.js?v=3.12.8" defer></script>
-  <script src="i18n/display-script.js?v=3.12.8" defer></script>
-  <script src="i18n/search-variants.js?v=3.12.8" defer></script>
-  <script src="app.js?v=3.12.8" defer></script>
+  <script src="marked.min.js?v=3.12.9" defer></script>
+  <script src="i18n/zh-TW.js?v=3.12.9" defer></script>
+  <script src="i18n/zh-CN.js?v=3.12.9" defer></script>
+  <script src="i18n/i18n.js?v=3.12.9" defer></script>
+  <script src="i18n/content-terms.js?v=3.12.9" defer></script>
+  <script src="i18n/display-script.js?v=3.12.9" defer></script>
+  <script src="i18n/search-variants.js?v=3.12.9" defer></script>
+  <script src="app.js?v=3.12.9" defer></script>
 </body>
 </html>

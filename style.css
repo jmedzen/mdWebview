@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.12.8
+   mdWebview — Style System (style.css) v3.12.9
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -3667,16 +3667,14 @@ img.markdown-img:hover {
     align-items: stretch !important;
   }
 
-  /* 使用者設定、管理員登入與初始設定在手機端維持垂直置中與適度邊距，避免拉伸變形 */
+  /* 使用者設定與初始設定在手機端維持垂直置中與適度邊距，避免拉伸變形 */
   #userSettingsOverlay,
-  #adminLoginOverlay,
   #setupModalOverlay {
     padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(12px + env(safe-area-inset-bottom, 0px)) 10px !important;
     align-items: center !important;
     justify-content: center !important;
   }
 
-  #adminLoginOverlay .modal-card,
   #setupModalOverlay .modal-card {
     width: 95vw !important;
     max-width: 400px !important;
@@ -7961,43 +7959,279 @@ html[data-display-script="hans"] {
   --cjk-sans: 'Noto Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans TC';
 }
 
-.display-script-btn {
-  display: inline-flex;
+/* ================================================================
+   右上角整合選單：帳號狀態、繁簡、主題、偏好設定、我的帳號、後台、登出
+   只用主題變數，五個主題自動套用。
+   ================================================================ */
+.user-menu {
+  position: relative;
+  display: flex;
   align-items: center;
-  justify-content: center;
+}
+.user-menu-btn {
+  position: relative;
   width: 32px;
-  min-width: 32px;
-  height: 28px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 7px;
+}
+.user-menu-btn[aria-expanded="true"] {
+  background: var(--hover-bg);
   color: var(--text-primary);
 }
-.display-script-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.display-script-btn:focus-visible {
+.user-menu-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.display-script-glyph {
+/* 按鈕圖示：網頁版未登入 → 人形；單機版或沒有帳號系統 → 齒輪；已登入 → 名字首字 */
+.user-menu-icon-gear,
+.user-menu-btn.no-accounts .user-menu-icon-person,
+.user-menu-btn.signed-in .user-menu-icon {
+  display: none;
+}
+.user-menu-btn.no-accounts .user-menu-icon-gear {
   display: block;
-  font-family: 'Noto Serif TC', 'Noto Serif SC', 'Songti SC', serif;
-  font-size: calc(15px * var(--ui-font-scale, 1));
+}
+.user-menu-initial {
+  display: none;
+}
+.user-menu-btn.signed-in .user-menu-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
-  /* 墨跡置中偏移由 app.js centerDisplayScriptGlyph() 依實際字型量測後寫入 */
-  transform: translate(var(--glyph-shift-x, 0), var(--glyph-shift-y, 0));
-  pointer-events: none;
 }
-.display-script-btn.pulse {
-  animation: displayScriptPulse 1.2s ease-out 3;
+.user-menu-btn.pulse {
+  animation: userMenuPulse 1.2s ease-out 3;
 }
-@keyframes displayScriptPulse {
+@keyframes userMenuPulse {
   0%   { box-shadow: 0 0 0 0 var(--accent-dim); }
   70%  { box-shadow: 0 0 0 8px rgba(0, 0, 0, 0); }
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: -6px;
+  z-index: 950;
+  width: min(300px, calc(100vw - 16px));
+  max-height: calc(100vh - 70px);
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 0;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px var(--shadow-color);
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  user-select: none;
+}
+.user-menu-panel[hidden],
+.user-menu-panel [hidden] {
+  display: none !important;
+}
+.user-menu-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+.user-menu-avatar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-weight: 700;
+  font-size: 15px;
+}
+.user-menu-avatar.signed-out {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.user-menu-who {
+  min-width: 0;
+}
+.user-menu-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.user-menu-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-role {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+}
+.user-menu-sub {
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-auth {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+.user-menu-auth-btn {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.user-menu-auth-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-primary);
+}
+.user-menu-auth-btn:hover {
+  filter: brightness(1.08);
+}
+.user-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+.user-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+}
+.user-menu-label {
+  color: var(--text-primary);
+}
+.user-menu-seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.user-menu-seg-btn {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.user-menu-seg-btn + .user-menu-seg-btn {
+  border-left: 1px solid var(--border);
+}
+.user-menu-seg-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.user-menu-seg-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+.user-menu-themes {
+  display: flex;
+  gap: 6px;
+}
+.user-menu-theme {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.user-menu-theme .swatch {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+}
+/* 每個主題的代表色：左半為底色、右半為強調色（取自各主題的 --bg-primary 與 --accent） */
+.user-menu-theme[data-value="obsidian-dark"] .swatch { background: linear-gradient(135deg, #1e1e2e 50%, #cba6f7 50%); }
+.user-menu-theme[data-value="obsidian-light"] .swatch { background: linear-gradient(135deg, #eff1f5 50%, #7287fd 50%); }
+.user-menu-theme[data-value="solarized"] .swatch { background: linear-gradient(135deg, #073642 50%, #b58900 50%); }
+.user-menu-theme[data-value="zen"] .swatch { background: linear-gradient(135deg, #f5f0e8 50%, #7a6548 50%); }
+.user-menu-theme[data-value="gruvbox"] .swatch { background: linear-gradient(135deg, #282828 50%, #fe8019 50%); }
+.user-menu-theme:hover {
+  border-color: var(--border);
+}
+.user-menu-theme.active {
+  border-color: var(--accent);
+}
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.user-menu-item small {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+}
+.user-menu-item-icon {
+  width: 18px;
+  text-align: center;
+}
+.user-menu-item:hover,
+.user-menu-panel button:focus-visible {
+  background: var(--hover-bg);
+  outline: none;
+}
+.user-menu-panel .user-menu-seg-btn.active:focus-visible,
+.user-menu-panel .user-menu-auth-btn.primary:focus-visible {
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--bg-primary);
+}
+.user-menu-theme:focus-visible {
+  border-color: var(--text-primary);
+}
+@media (max-width: 520px) {
+  .user-menu-panel {
+    position: fixed;
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    right: 8px;
+  }
 }
 
 /* 首次依瀏覽器語言自動切換時的提示：固定在右上角、指向切換按鈕 */
@@ -8069,30 +8303,9 @@ html[data-display-script="hans"] {
 #reauthOverlay [hidden],
 #adminPaneUsers [hidden],
 #adminPaneAccountSystem [hidden],
-.account-btn[hidden],
 .welcome-legal-links [hidden],
 .welcome-legal-links[hidden] {
   display: none !important;
-}
-
-.account-btn {
-  position: relative;
-}
-.account-btn.signed-in svg {
-  display: none;
-}
-.account-btn-initial {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--bg-primary);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
 }
 
 .account-card,

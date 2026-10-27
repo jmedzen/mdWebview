@@ -494,13 +494,16 @@ describe('繁簡顯示 6：搜尋與偏好整合', () => {
 });
 
 describe('繁簡顯示 7：靜態資源與頁面結構', () => {
-  test('右上角切換按鈕：可及性屬性、不被轉換、位於 header-right', () => {
+  test('右上角選單內的繁簡切換：可及性屬性、不被轉換、位於 header-right', () => {
     const header = indexHtml.slice(indexHtml.indexOf('<div class="header-right">'), indexHtml.indexOf('</header>'));
-    assert.match(header, /id="displayScriptToggleBtn"/);
-    const btn = header.slice(header.indexOf('id="displayScriptToggleBtn"') - 10);
-    assert.match(btn, /data-no-t2s/);
-    assert.match(btn, /aria-label="/);
-    assert.match(btn, /title="/);
+    assert.match(header, /id="userMenuBtn"[^>]*aria-haspopup="menu"/);
+    assert.match(header, /id="userMenuBtn"[\s\S]*?aria-label="/);
+    const group = header.slice(header.indexOf('id="userMenuScriptGroup"') - 40);
+    assert.match(group.slice(0, group.indexOf('>')), /data-no-t2s/);
+    assert.match(group.slice(0, group.indexOf('>')), /aria-label="/);
+    assert.match(group, /data-value="hant"[^>]*lang="zh-TW"/);
+    assert.match(group, /data-value="hans"[^>]*lang="zh-Hans"/);
+    assert.doesNotMatch(indexHtml, /id="displayScriptToggleBtn"/, '獨立的繁簡按鈕已併入選單');
   });
 
   test('boot.js 在 <head> 同步載入；其餘 i18n 腳本在 app.js 之前 defer 載入', () => {

@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.12.8) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v3.12.9) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -22,8 +22,8 @@
   - 系統預設關閉，但若你的瀏覽器語言是簡體中文（`zh-CN`／`zh-Hans`／`zh-SG`），
     首次造訪會自動幫你開啟並記住。之後你仍可隨時在偏好設定裡關掉；
     一旦手動選擇過，系統就不會再更動你的設定。
-- 🀄 **繁體／簡體顯示**：右上角的「繁／简」按鈕可把整個網站（介面與經文）切換成簡體，再按一次切回繁體。
-  - 系統預設繁體；若你的瀏覽器語言是簡體中文，首次造訪會自動切成簡體，並跳出提示告訴你右上角可以切回。
+- 🀄 **繁體／簡體顯示**：點右上角的選單按鈕（頭像），在「繁簡顯示」選繁體或简体，就能把整個網站（介面與經文）切換成簡體或切回繁體。同一個選單也能換主題、登入、開偏好設定。
+  - 系統預設繁體；若你的瀏覽器語言是簡體中文，首次造訪會自動切成簡體，並跳出提示告訴你可從右上角選單切回。
   - 經文原文仍是繁體，簡體是在你的瀏覽器裡即時轉換的；簡體顯示時搜尋會一併比對簡繁字形，輸入簡體或繁體都找得到。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
@@ -117,7 +117,7 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **怎麼進入後台**
 
-在網站右上角點「偏好設定與系統管理」（齒輪圖示），登入後即可管理。第一次使用時，會請你先設定管理員的 Email（或帳號名稱）與密碼。網站設定存在 `config.json`，帳號存在同一個資料夾的 `users.db`。
+點網站右上角的選單按鈕（頭像）登入，再從選單點「後台系統設定」即可管理。第一次使用時，會請你先設定管理員的 Email（或帳號名稱）與密碼。網站設定存在 `config.json`，帳號存在同一個資料夾的 `users.db`。
 
 **讀者帳號（線上網站）**
 
@@ -184,7 +184,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.12.8）
+├── package.json        # 專案資訊（v3.12.9）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -230,7 +230,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.12.8) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v3.12.9) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -244,7 +244,7 @@ mdWebview/
 - 📱 **Adjust the layout**: Set the text size, line spacing, whether text is left-aligned or centered, and how wide each line is.
 - 🔤 **Match Simplified and Traditional forms**: When on, searches, dictionary look-ups and find-in-article treat Simplified and Traditional forms as the same character (后／後, 发／發／髮, 着／著), so Simplified-source files are found too. Always on in Simplified display.
   - Off by default, but if your browser language is Simplified Chinese (`zh-CN`, `zh-Hans`, `zh-SG`) it turns on automatically on your first visit and is remembered. You can switch it off any time in the settings; once you have chosen, the system will not change it for you.
-- 🀄 **Traditional / Simplified display**: The 繁／简 button at the top right switches the whole site (interface and texts) to Simplified Chinese; press it again to switch back.
+- 🀄 **Traditional / Simplified display**: Open the menu at the top right (the avatar button) and pick 繁體 or 简体 under 繁簡顯示 to switch the whole site (interface and texts). The same menu also changes the theme, signs you in, and opens preferences.
   - Traditional is the default. If your browser language is Simplified Chinese, your first visit switches to Simplified automatically and a notice points you to the button.
   - The texts themselves stay Traditional; Simplified is converted in your browser on the fly. In Simplified display, searches match Simplified and Traditional forms, so typing either finds the text.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
@@ -339,7 +339,7 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **How to reach the admin area**
 
-Click the gear icon in the top right of the site ("Preferences & System Administration") and sign in. The first time you use it, you will be asked to set the administrator's email (or a username) and password. Site settings are stored in `config.json`; accounts are stored in `users.db` in the same folder.
+Open the menu at the top right of the site (the avatar button), sign in, then choose "後台系統設定" (System administration). The first time you use it, you will be asked to set the administrator's email (or a username) and password. Site settings are stored in `config.json`; accounts are stored in `users.db` in the same folder.
 
 **Reader accounts (online site)**
 
@@ -401,7 +401,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.12.8)
+├── package.json        # Project information (v3.12.9)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers
