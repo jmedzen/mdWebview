@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.0.0
+   mdWebview — Style System (style.css) v4.0.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -86,6 +86,19 @@ body {
   bottom: 0;
   background-color: var(--header-bg);
   color: var(--text-primary);
+}
+
+/* 連結預設跟主題走；沒有專屬樣式的 <a>（對話框、提示、後台說明）不會變成瀏覽器預設的藍色底線。
+   :where() 讓權重為 0，任何既有的連結樣式都蓋得過它。 */
+:where(a) {
+  color: var(--link-color, var(--accent));
+  text-underline-offset: 2px;
+}
+:where(a:visited) {
+  color: var(--link-color, var(--accent));
+}
+:where(a:hover) {
+  color: var(--accent-hover, var(--accent));
 }
 
 /* ── §2 Theme Definitions ───────────────────────────────────── */
@@ -1723,7 +1736,7 @@ section.chunk.chunk-error {
 .install-card-btn.primary {
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--bg-primary);
   font-weight: 600;
 }
 
@@ -1797,7 +1810,7 @@ section.chunk.chunk-error {
   height: 24px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-primary);
   font-size: calc(13px * var(--ui-font-scale, 1));
   font-weight: 600;
   display: flex;
@@ -4910,8 +4923,8 @@ mark.search-keyword-highlight {
 }
 
 .list-item-del-btn:hover {
-  color: #f38ba8;
-  background: rgba(243, 139, 168, 0.15);
+  color: var(--danger);
+  background: var(--danger-bg);
 }
 
 .list-empty-hint {
@@ -4999,7 +5012,7 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 }
 
 .local-maintenance-status.is-error {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .admin-status-box {
@@ -5080,8 +5093,8 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 }
 
 .toast-notification.toast-success {
-  border-color: #2ecc71;
-  box-shadow: 0 4px 18px rgba(46, 204, 113, 0.25);
+  border-color: var(--success);
+  box-shadow: 0 4px 18px var(--success-bg);
 }
 
 .toast-notification.toast-warning {
@@ -5090,13 +5103,13 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 }
 
 .toast-notification.toast-error {
-  border-color: #e74c3c;
-  box-shadow: 0 4px 18px rgba(231, 76, 60, 0.25);
+  border-color: var(--danger);
+  box-shadow: 0 4px 18px var(--danger-bg);
 }
 
 .toast-notification.toast-loading {
-  border-color: #3498db;
-  box-shadow: 0 4px 18px rgba(52, 152, 219, 0.25);
+  border-color: var(--link-color);
+  box-shadow: 0 4px 18px var(--accent-dim);
 }
 
 /* ── §31 Admin Tabs & Log Viewer ────────────────────────────── */
@@ -5406,7 +5419,7 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 
 .analytics-range-btn.active {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--bg-primary);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
@@ -7496,7 +7509,7 @@ body.modal-open {
 
 .log-cat-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-primary);
   border-color: var(--accent);
   font-weight: 600;
 }
@@ -8815,8 +8828,18 @@ html[data-display-script="hans"] {
 }
 .account-consent a,
 .account-legal-links a,
-.welcome-legal-links a {
+.welcome-legal-links a,
+.modal-card a:not([class]) {
   color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 3px;
+}
+.account-consent a:hover,
+.account-legal-links a:hover,
+.welcome-legal-links a:hover,
+.modal-card a:not([class]):hover {
+  text-decoration-color: var(--accent);
 }
 
 .account-submit {
@@ -9110,7 +9133,7 @@ a.small-btn {
 .setup-step.done .setup-step-mark {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--bg-primary);
 }
 .setup-step-text {
   flex: 1;
@@ -9187,7 +9210,7 @@ a.small-btn {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #e17055;
+  background: var(--danger);
   margin-left: 5px;
   vertical-align: top;
 }

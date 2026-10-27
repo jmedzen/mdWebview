@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.0.0
+   mdWebview — Application Logic (app.js) v4.0.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7341,7 +7341,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9204,7 +9204,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9538,7 +9538,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10734,7 +10734,7 @@
                 <a href="${escHtml(fileUrl)}" target="_blank" class="table-action-link" title="在新分頁開啟閱讀此經文">📖 檢視 ↗</a>
               </div>
             </td>
-            <td style="text-align: right; font-weight: 700; color: #58a6ff;">${file.views.toLocaleString()}</td>
+            <td style="text-align: right; font-weight: 700; color: var(--link-color);">${file.views.toLocaleString()}</td>
             <td style="text-align: right; font-weight: 600;">${file.uniqueIps.toLocaleString()}</td>
             <td style="color: var(--text-secondary); font-size: 12px;">${escHtml(formattedTime)}</td>
           </tr>`;
@@ -10761,7 +10761,7 @@
         topSearchesTable.innerHTML = data.topSearches.map((item, idx) => `<tr>
           <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
           <td style="font-weight: 600;">${escHtml(item.query)}</td>
-          <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>
+          <td style="text-align: right; font-weight: 700; color: var(--accent);">${item.count.toLocaleString()}</td>
           <td style="text-align: center;">
             <button type="button" class="table-action-link analytics-replay-search" data-query="${escHtml(item.query)}" title="以這個關鍵字重新搜尋，重現使用者的搜尋結果">🔍 檢視</button>
           </td>
@@ -10789,7 +10789,7 @@
             <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
             <td style="font-weight: 600;">${escHtml(item.headword)}</td>
             <td style="color: var(--text-secondary);">${escHtml(item.fileName)}</td>
-            <td style="text-align: right; font-weight: 700; color: #58a6ff;">${item.count.toLocaleString()}</td>
+            <td style="text-align: right; font-weight: 700; color: var(--link-color);">${item.count.toLocaleString()}</td>
             <td style="color: var(--text-secondary); font-size: calc(12.5px * var(--ui-font-scale, 1));">${escHtml(formattedTime)}</td>
             <td style="text-align: center;">
               <button type="button" class="table-action-link analytics-replay-lookup" data-headword="${escHtml(item.headword)}" title="在辭典側欄重新查詢這個詞條，重現使用者的查閱結果">📖 檢視</button>
@@ -10819,7 +10819,7 @@
         topDictSearchesTable.innerHTML = data.topDictSearches.map((item, idx) => `<tr>
           <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
           <td style="font-weight: 600;">${escHtml(item.query)}</td>
-          <td style="text-align: right; font-weight: 700; color: #bc8cff;">${item.count.toLocaleString()}</td>
+          <td style="text-align: right; font-weight: 700; color: var(--accent);">${item.count.toLocaleString()}</td>
           <td style="text-align: center;">
             <button type="button" class="table-action-link analytics-replay-dictsearch" data-query="${escHtml(item.query)}" title="在辭典側欄重新搜尋這個關鍵字，重現使用者的搜尋結果">📖 檢視</button>
           </td>
@@ -10847,7 +10847,7 @@
         topIpsTable.innerHTML = data.ipDistribution.map((item, idx) => `<tr>
           <td style="text-align: center; font-weight: 600;">${idx + 1}</td>
           <td><span class="log-ip">${escHtml(item.ip)}</span></td>
-          <td style="text-align: right; font-weight: 700; color: #79c0ff;">${item.requests.toLocaleString()}</td>
+          <td style="text-align: right; font-weight: 700; color: var(--link-color);">${item.requests.toLocaleString()}</td>
         </tr>`).join('');
       }
     }

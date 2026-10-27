@@ -114,4 +114,11 @@ describe('CSS 樣式系統與 5 大主題完整性測試 (style.css)', () => {
     const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
     assert.ok(indexHtml.includes('settingAutoS2TCheck'), 'index.html 視覺排版中應具備 settingAutoS2TCheck');
   });
+  test('連結與對話框跟主題走，不出現瀏覽器預設藍色或寫死的白字', () => {
+    assert.match(cssContent, /:where\(a\)\s*\{[^}]*var\(--link-color/, '應有權重 0 的全域連結主題色');
+    assert.match(cssContent, /\.modal-card a:not\(\[class\]\)/, '對話框內的連結應有主題色');
+    // accent 底上的文字在深色主題（淡紫、淡黃 accent）用白色會看不清
+    const accentWhite = /background:\s*var\(--accent\);[^}]*color:\s*#fff/;
+    assert.doesNotMatch(cssContent, accentWhite, 'accent 底的文字應用 var(--bg-primary)');
+  });
 });
