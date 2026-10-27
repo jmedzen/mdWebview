@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.4
+   mdWebview — Application Logic (app.js) v3.12.5
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.4';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.5';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9276,7 +9276,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.4';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.5';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9606,7 +9606,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.4';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.5';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12793,10 +12793,23 @@
         ${rec.found.length ? `<br><span class="field-hint">目前：${escHtml(rec.found.join(' ； '))}</span>` : ''}</span>`;
       box.appendChild(row);
     }
-    const foot = document.createElement('div');
-    foot.className = 'field-hint';
-    foot.textContent = `檢查時間：${fmtDateTime(d.checkedAt)}。DNS 剛修改後可能要幾分鐘才會生效；Cloudflare 的記錄請設為「僅 DNS」（灰雲）。`;
-    box.appendChild(foot);
+    const resendText = {
+      known: d.resend && d.resend.domainStatus === 'verified' ? '✅ Resend 回報這個網域已驗證，可以寄信' : `⚠️ Resend 回報這個網域的狀態是「${d.resend && d.resend.domainStatus}」，驗證通過前寄不出信（DNS 剛改過的話，到 Resend 的 Domains 頁面按 Verify DNS Records）`,
+      domain_missing: `⚠️ Resend 帳號裡沒有 ${d.domain} 這個網域，請先在 Resend 的 Domains 新增`,
+      send_only: '這把金鑰只能寄信，查不到 Resend 上的驗證狀態；以上是 DNS 實際查到的結果。到 Resend 的 Domains 頁面看到 Verified 就代表可以寄信',
+      invalid: '⚠️ Resend 不接受目前的 API 金鑰，無法查詢網域狀態',
+      unreachable: '暫時連不上 Resend，無法查詢網域狀態'
+    };
+    const lines = [];
+    if (d.resend && resendText[d.resend.state]) lines.push(resendText[d.resend.state]);
+    if (d.note) lines.push(d.note);
+    lines.push(`檢查時間：${fmtDateTime(d.checkedAt)}。DNS 剛修改後可能要幾分鐘才會生效；Cloudflare 的記錄請設為「僅 DNS」（灰雲）。`);
+    for (const text of lines) {
+      const foot = document.createElement('div');
+      foot.className = 'field-hint';
+      foot.textContent = text;
+      box.appendChild(foot);
+    }
   }
 
   async function loadAdminTurnstile() {
