@@ -246,9 +246,12 @@ describe('B/C2. HTTP endpoints', () => {
 
   test('first-run setup requires the one-time setup token', async () => {
     const { config } = require('../lib/config.js');
+    const accountsDb = require('../lib/db.js');
     const savedAdmin = config.admin;
     const savedSiteUrl = config.settings.siteUrl;
     config.admin = null;
+    // 管理員存在帳號資料庫：先清空，模擬全新部署。
+    accountsDb.getDb().exec('DELETE FROM sessions; DELETE FROM users;');
     try {
       const setup = (extra) => request('/api/admin/setup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -258,12 +261,15 @@ describe('B/C2. HTTP endpoints', () => {
       assert.equal(missing.statusCode, 403);
       assert.equal(JSON.parse(missing.body).code, 'INVALID_SETUP_TOKEN');
       assert.equal((await setup({ setupToken: 'wrong-token' })).statusCode, 403);
-      assert.equal(config.admin, null, 'no admin may be created without the token');
+      assert.equal(accountsDb.countActiveAdmins(), 0, 'no admin may be created without the token');
 
       const ok = await setup({ setupToken: srv.getSetupToken() });
       assert.equal(ok.statusCode, 200);
-      assert.equal(config.admin.username, 'intruder');
+      assert.equal(accountsDb.getUserByUsername('intruder').role, 'admin');
+      assert.equal(config.admin, null, 'setup must not write credentials to config.json');
+      assert.equal((await setup({ setupToken: srv.getSetupToken() })).statusCode, 400, 'setup is one-time');
     } finally {
+      accountsDb.getDb().exec("DELETE FROM sessions; DELETE FROM users WHERE username = 'intruder';");
       config.admin = savedAdmin;
       config.settings.siteUrl = savedSiteUrl;
     }

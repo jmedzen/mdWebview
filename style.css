@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.12.1
+   mdWebview — Style System (style.css) v3.12.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -4255,6 +4255,7 @@ img.markdown-img:hover {
 .modal-card input[type="number"],
 .modal-card input[type="url"],
 .modal-card input[type="search"],
+.modal-card input[type="email"],
 .modal-card textarea,
 .admin-tab-pane input[type="text"],
 .admin-tab-pane input[type="password"],
@@ -4288,7 +4289,8 @@ img.markdown-img:hover {
 .admin-tab-pane input[type="password"],
 .admin-tab-pane input[type="number"],
 .admin-tab-pane input[type="url"],
-.admin-tab-pane input[type="search"] {
+.admin-tab-pane input[type="search"],
+.modal-card input[type="email"] {
   height: 38px;
   padding: 0 12px;
 }
@@ -7991,4 +7993,317 @@ html[data-display-script="hans"] {
 }
 .display-script-notice-dismiss:hover {
   background: var(--active-bg);
+}
+
+/* ================================================================
+   使用者帳號：登入／註冊卡片、我的帳號、後台使用者與帳號系統分頁
+   ================================================================ */
+.account-card [hidden],
+.account-settings-card [hidden],
+#reauthOverlay [hidden],
+#adminPaneUsers [hidden],
+#adminPaneAccountSystem [hidden],
+.account-btn[hidden],
+.welcome-legal-links [hidden],
+.welcome-legal-links[hidden] {
+  display: none !important;
+}
+
+.account-btn {
+  position: relative;
+}
+.account-btn.signed-in svg {
+  display: none;
+}
+.account-btn-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.account-card,
+.account-settings-card {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.account-settings-card {
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+}
+.account-settings-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.account-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.provider-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.account-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+}
+.account-divider::before,
+.account-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border-color);
+}
+
+/* 給機器人的陷阱欄位：移出畫面而非 display:none（有些機器人會跳過隱藏欄位） */
+.account-hp {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.account-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.account-consent input {
+  margin-top: 3px;
+}
+.account-consent a,
+.account-legal-links a,
+.welcome-legal-links a {
+  color: var(--accent);
+}
+
+.account-submit {
+  width: 100%;
+}
+.account-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin-top: 14px;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--accent);
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.account-legal-links,
+.welcome-legal-links {
+  text-align: center;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  margin-top: 12px;
+}
+.welcome-legal-links {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+}
+
+.account-turnstile {
+  min-height: 65px;
+}
+
+.account-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.account-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.account-section h3 {
+  margin: 0;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+.account-row {
+  display: flex;
+  gap: 10px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.account-label {
+  color: var(--text-secondary);
+  min-width: 64px;
+}
+.account-inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.account-inline-form input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.account-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border-color);
+  word-break: break-word;
+}
+.account-list-row:last-child {
+  border-bottom: none;
+}
+.account-list-row > button,
+.account-list-row > a {
+  flex-shrink: 0;
+}
+
+.account-badge {
+  display: inline-block;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.account-badge.danger {
+  background: rgba(243, 139, 168, 0.15);
+  color: #f38ba8;
+}
+
+.danger-btn {
+  background: rgba(243, 139, 168, 0.12);
+  border: 1px solid rgba(243, 139, 168, 0.35);
+  color: #f38ba8;
+}
+.danger-btn:hover {
+  background: rgba(243, 139, 168, 0.22);
+}
+a.small-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.admin-users-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-users-filters input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.admin-users-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+.admin-user-row {
+  cursor: pointer;
+}
+.admin-user-row:hover {
+  background: var(--hover-bg);
+}
+.admin-user-detail {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-primary);
+}
+.admin-user-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#adminPaneAccountSystem textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+#adminPaneUsers select,
+#adminPaneAccountSystem select {
+  height: 38px;
+  padding: 0 10px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .account-inline-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .account-inline-form input {
+    flex: none;
+  }
+  .account-list-row {
+    flex-wrap: wrap;
+  }
+}
+/* 重新驗證與條款同意可能從後台面板內叫出，要疊在所有面板之上 */
+#reauthOverlay,
+#consentOverlay {
+  z-index: 1100;
 }
