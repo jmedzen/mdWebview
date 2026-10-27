@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.9
+   mdWebview — Application Logic (app.js) v3.12.10
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1612,6 +1612,7 @@
 
     const adminLoginBtn = $('menuOpenAdminLoginBtn');
     if (adminLoginBtn) adminLoginBtn.style.display = single ? 'none' : '';
+    updateUserMenu();
 
     // The status line explains how this install is authorised.
     const statusText = $('adminStatusText');
@@ -1619,7 +1620,7 @@
       if (single) {
         statusText.textContent = '單機模式：本機免登入，可直接使用系統維護功能';
       } else if (!statusText.textContent || statusText.textContent.indexOf('檢查中') !== -1) {
-        statusText.textContent = '管理員登入狀態：未登入';
+        statusText.textContent = '登入狀態：尚未登入';
       }
     }
 
@@ -1679,6 +1680,7 @@
       // the server authorises loopback callers directly, so there is no token to
       // hold and nothing to clear.
       state.isAdmin = !state.isSingleUser && !!data.isAuthenticated;
+      updateUserMenu();
       // 舊版把管理員 token 存在 localStorage；改用 cookie 後一律清掉。
       storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
 
@@ -6533,6 +6535,7 @@
     if (select) select.value = theme;
     const settingSelect = $('settingThemeSelect');
     if (settingSelect) settingSelect.value = theme;
+    updateUserMenuTheme(theme);
 
     if (saveToLocalStorage) {
       storage.set(STORAGE_KEYS.THEME, theme);
@@ -6779,44 +6782,7 @@
         btn.classList.toggle('active', btn.getAttribute('data-value') === state.displayScript);
       });
     }
-    centerDisplayScriptGlyph();
-  }
-
-  /**
-   * 將切換鈕上的「繁／简」字形依實際墨跡置中。
-   *
-   * CSS 只能把字的 content area 置中，墨跡位置則取決於字型：繁由 Noto Serif TC
-   * 呈現，简不在該字型內，會退回各平台的系統字型（如 Songti SC），兩者的
-   * ascent/descent 與字面位置都不同，固定的 CSS 偏移無法同時兼顧。改以 canvas
-   * 量測墨跡外框，算出與字框中心的差距，以 em 為單位寫入 CSS 變數，介面字級
-   * 縮放時不必重算。
-   */
-  function centerDisplayScriptGlyph() {
-    const glyph = document.querySelector('#displayScriptToggleBtn .display-script-glyph');
-    const textNode = glyph && glyph.firstChild;
-    if (!textNode || textNode.nodeType !== Node.TEXT_NODE || !textNode.data) return;
-    const ctx = document.createElement('canvas').getContext('2d');
-    if (!ctx) return;
-    glyph.style.removeProperty('--glyph-shift-x');
-    glyph.style.removeProperty('--glyph-shift-y');
-    const cs = getComputedStyle(glyph);
-    const fontSize = parseFloat(cs.fontSize);
-    if (!fontSize) return;
-    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    const m = ctx.measureText(textNode.data);
-    if (!m.actualBoundingBoxAscent && !m.actualBoundingBoxDescent) return;
-    const range = document.createRange();
-    range.selectNodeContents(textNode);
-    const text = range.getBoundingClientRect();
-    const box = glyph.getBoundingClientRect();
-    if (!text.height || !box.height) return;
-    const baseline = text.top + m.fontBoundingBoxAscent;
-    const inkX = text.left + (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2;
-    const inkY = baseline + (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2;
-    const dx = (box.left + box.width / 2 - inkX) / fontSize;
-    const dy = (box.top + box.height / 2 - inkY) / fontSize;
-    glyph.style.setProperty('--glyph-shift-x', `${dx.toFixed(3)}em`);
-    glyph.style.setProperty('--glyph-shift-y', `${dy.toFixed(3)}em`);
+    updateUserMenuScript();
   }
 
   /**
@@ -6899,7 +6865,7 @@
 
   function dismissDisplayScriptNotice() {
     const el = document.getElementById('displayScriptNotice');
-    const btn = $('displayScriptToggleBtn');
+    const btn = $('userMenuBtn');
     if (btn) btn.classList.remove('pulse');
     if (!el) return;
     if (el._timer) clearTimeout(el._timer);
@@ -6908,11 +6874,11 @@
   }
 
   /**
-   * 首次依瀏覽器語言自動切換為簡體時，在右上角切換按鈕下方顯示提示，
+   * 首次依瀏覽器語言自動切換為簡體時，在右上角選單按鈕下方顯示提示，
    * 告訴使用者為何是簡體、以及如何切回。只在自動切換的那一次出現。
    */
   function showDisplayScriptNotice() {
-    const btn = $('displayScriptToggleBtn');
+    const btn = $('userMenuBtn');
     if (!btn || document.getElementById('displayScriptNotice')) return;
 
     const el = document.createElement('div');
@@ -6954,13 +6920,6 @@
   }
 
   function initDisplayScript() {
-    const btn = $('displayScriptToggleBtn');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        dismissDisplayScriptNotice();
-        applyDisplayScript(isHansDisplay() ? 'hant' : 'hans', true, { announce: true });
-      });
-    }
     const group = $('settingDisplayScriptGroup');
     if (group) {
       $$('.segment-btn', group).forEach(b => {
@@ -6975,11 +6934,6 @@
     }
 
     updateDisplayScriptUI();
-    // 網頁字型晚於首次量測載入時，字形與墨跡位置會改變，載入後重新置中
-    if (document.fonts && document.fonts.addEventListener) {
-      document.fonts.addEventListener('loadingdone', centerDisplayScriptGlyph);
-      document.fonts.ready.then(centerDisplayScriptGlyph).catch(() => {});
-    }
     if (isHansDisplay()) {
       applyDisplayScript('hans', false).then(ok => {
         if (ok && displayScriptAutoSelected) showDisplayScriptNotice();
@@ -7360,7 +7314,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.9';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.10';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8608,6 +8562,10 @@
     document.addEventListener('keydown', (e) => {
       // ESC key → Exit open modals / settings overlays / search bar
       if (e.key === 'Escape') {
+        if (isUserMenuOpen()) {
+          closeUserMenu(true);
+          return;
+        }
         const annOverlay = $('announcementModalOverlay');
         if (annOverlay && annOverlay.style.display !== 'none' && annOverlay.style.display !== '') {
           closeAnnouncementModal(true);
@@ -8621,11 +8579,6 @@
         const userOverlay = $('userSettingsOverlay');
         if (userOverlay && userOverlay.style.display !== 'none' && userOverlay.style.display !== '') {
           closeUserSettingsModal();
-          return;
-        }
-        const loginOverlay = $('adminLoginOverlay');
-        if (loginOverlay && loginOverlay.style.display !== 'none' && loginOverlay.style.display !== '') {
-          loginOverlay.style.display = 'none';
           return;
         }
         const setupOverlay = $('adminSetupOverlay');
@@ -8694,7 +8647,7 @@
     });
 
     // Modal backdrop click exit listener
-    ['userSettingsOverlay', 'adminSettingsOverlay', 'adminLoginOverlay', 'adminSetupOverlay'].forEach(id => {
+    ['userSettingsOverlay', 'adminSettingsOverlay', 'adminSetupOverlay'].forEach(id => {
       const el = $(id);
       if (el) {
         el.addEventListener('click', (evt) => {
@@ -8735,10 +8688,8 @@
     setupDictResizeHandle();
     setupSelectionPopup();
 
-    // ── User Settings Gear Button Click ──
-    $('adminSettingsBtn').addEventListener('click', () => {
-      openUserSettingsOverlay();
-    });
+    // ── 右上角整合選單 ──
+    setupUserMenu();
 
     // ── Setting Menu Tab Navigation ──
     $$('.settings-tab-btn', $('userSettingsTabsNav')).forEach(btn => {
@@ -8889,10 +8840,10 @@
       });
     }
 
-    // Menu Sub-Modals (Admin Login / Admin Vault Settings)
+    // Menu Sub-Modals (登入 / Admin Vault Settings)
     $('menuOpenAdminLoginBtn').addEventListener('click', () => {
-      $('userSettingsOverlay').style.display = 'none';
-      openLoginOverlay();
+      closeUserSettingsModal();
+      openAccountAuth('login');
     });
 
     const vaultBtn = $('menuOpenVaultSettingsBtn');
@@ -9044,60 +8995,6 @@
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
       }
-    });
-
-    // ── Login Form Submission ──
-    const submitLoginForm = async () => {
-      const identifier = $('loginUsername').value.trim();
-      const password = $('loginPassword').value;
-      const errorEl = $('loginErrorMsg');
-
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier, password })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || '登入失敗');
-        }
-        await refreshAccountMe();
-        if (!data.user || data.user.role !== 'admin') {
-          // 密碼正確但不是管理員：已用一般帳號登入，只是不能進後台。
-          $('adminLoginOverlay').style.display = 'none';
-          showToast('已登入，但這個帳號沒有管理權限', 'info', 3500);
-          return;
-        }
-        errorEl.style.display = 'none';
-        state.isAdmin = true;
-        $('loginPassword').value = '';
-        $('adminLoginOverlay').style.display = 'none';
-        showToast('🔑 管理員登入成功', 'success');
-        
-        // Open settings panel
-        await openSettingsOverlay();
-      } catch (err) {
-        errorEl.textContent = err.message;
-        errorEl.style.display = 'block';
-        showToast(`❌ 登入失敗：${err.message}`, 'error', 3500);
-      }
-    };
-
-    $('adminLoginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      await submitLoginForm();
-    });
-
-    $('loginPassword').addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        await submitLoginForm();
-      }
-    });
-
-    $('loginCancelBtn').addEventListener('click', () => {
-      $('adminLoginOverlay').style.display = 'none';
     });
 
     // ── Settings Form Toggle Interactions ──
@@ -9276,7 +9173,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.9';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.10';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9296,12 +9193,18 @@
       // In single-user mode the maintenance panel lives in this very tab, so the
       // "open admin settings" shortcut is redundant and stays hidden.
       if (vaultBtn) vaultBtn.style.display = 'none';
+    } else if (state.account.user) {
+      const u = state.account.user;
+      const who = u.displayName || u.email || u.username;
+      if (statusText) statusText.textContent = `目前登入：${who}${state.isAdmin ? '（管理員）' : ''}`;
+      if (loginBtn) loginBtn.style.display = 'none';
+      if (vaultBtn) vaultBtn.style.display = state.isAdmin ? 'inline-block' : 'none';
     } else if (state.isAdmin) {
-      if (statusText) statusText.textContent = '管理員登入狀態：已登入 ✅';
+      if (statusText) statusText.textContent = '登入狀態：管理員 ✅';
       if (loginBtn) loginBtn.style.display = 'none';
       if (vaultBtn) vaultBtn.style.display = 'inline-block';
     } else {
-      if (statusText) statusText.textContent = '管理員登入狀態：尚未登入';
+      if (statusText) statusText.textContent = '登入狀態：尚未登入';
       if (loginBtn) loginBtn.style.display = 'inline-block';
       if (vaultBtn) vaultBtn.style.display = 'none';
     }
@@ -9364,8 +9267,6 @@
 
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
-    const loginOverlay = $('adminLoginOverlay');
-    if (loginOverlay) loginOverlay.style.display = 'none';
     const setupOverlay = $('adminSetupOverlay');
     if (setupOverlay) setupOverlay.style.display = 'none';
     document.body.classList.remove('modal-open');
@@ -9606,7 +9507,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.9';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.10';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10477,11 +10378,9 @@
     }
   }
 
+  // 後台需要重新登入（逾期、還原資料庫後）：走同一套帳號登入，管理員登入後直接回到後台。
   function openLoginOverlay() {
-    $('loginUsername').value = '';
-    $('loginPassword').value = '';
-    $('loginErrorMsg').style.display = 'none';
-    $('adminLoginOverlay').style.display = 'flex';
+    openAccountAuth('login', { afterLogin: 'admin' });
   }
 
   // ── §21.5 Admin Logs & Analytics Reports ───────────────────────
@@ -11751,7 +11650,7 @@
   // ═══════════════════════════════════════════════════════════
   const PROVIDER_LABELS = { google: 'Google', facebook: 'Facebook', apple: 'Apple' };
   const ACCOUNT_URL_PARAMS = ['auth', 'token', 'status', 'mode', 'code'];
-  const authUi = { view: 'login', openedAt: 0, resetToken: '', turnstileWidget: null, turnstileToken: '', needTurnstile: false, pendingReauth: null };
+  const authUi = { view: 'login', openedAt: 0, resetToken: '', turnstileWidget: null, turnstileToken: '', needTurnstile: false, pendingReauth: null, afterLogin: '' };
 
   /** JSON 請求；回傳 { ok, status, data }，不丟出例外（網路錯誤時 status 為 0）。 */
   async function accountApi(url, { method = 'GET', body } = {}) {
@@ -11799,6 +11698,176 @@
     el.style.display = text ? 'block' : 'none';
   }
 
+  // ── 右上角整合選單：帳號狀態、繁簡、主題、偏好設定、我的帳號、後台、登出 ──
+  function accountsEnabled() {
+    return !state.isSingleUser && !!(state.account.config && state.account.config.accountsEnabled);
+  }
+
+  /** 依登入狀態與部署模式更新按鈕外觀與選單項目；任何時候呼叫都安全。 */
+  function updateUserMenu() {
+    const btn = $('userMenuBtn');
+    if (!btn) return;
+    const user = state.account.user;
+    const accounts = accountsEnabled();
+    const name = user ? String(user.displayName || user.email || user.username || '?') : '';
+    const initial = name ? Array.from(name)[0].toUpperCase() : '';
+
+    btn.classList.toggle('signed-in', !!user);
+    btn.classList.toggle('no-accounts', !accounts && !user);
+    const label = user ? `選單（${name}）：帳號、繁簡、主題與設定` : '選單：帳號、繁簡、主題與設定';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    if ($('userMenuInitial')) $('userMenuInitial').textContent = initial;
+
+    const accountBox = $('userMenuAccount');
+    if (accountBox) accountBox.hidden = !accounts && !user;
+    const avatar = $('userMenuAvatar');
+    if (avatar) {
+      avatar.textContent = initial || '👤';
+      avatar.classList.toggle('signed-out', !user);
+    }
+    if ($('userMenuName')) $('userMenuName').textContent = user ? name : '尚未登入';
+    if ($('userMenuRole')) $('userMenuRole').hidden = !(user && user.role === 'admin');
+    const sub = $('userMenuSub');
+    if (sub) {
+      const detail = user ? (user.email && user.email !== name ? user.email : (user.username && user.username !== name ? user.username : '')) : '登入後可同步書籤與閱讀進度';
+      sub.textContent = detail;
+      sub.hidden = !detail;
+    }
+    if ($('userMenuAuthRow')) $('userMenuAuthRow').hidden = !!user;
+    const cfg = state.account.config || {};
+    if ($('userMenuRegisterBtn')) $('userMenuRegisterBtn').hidden = cfg.registrationMode === 'closed';
+
+    if ($('userMenuAccountBtn')) $('userMenuAccountBtn').hidden = !user;
+    const showAdmin = state.isSingleUser || state.isAdmin;
+    if ($('userMenuAdminBtn')) $('userMenuAdminBtn').hidden = !showAdmin;
+    if ($('userMenuAdminLabel')) $('userMenuAdminLabel').textContent = state.isSingleUser ? '系統設定' : '後台系統設定';
+    if ($('userMenuLogoutBtn')) $('userMenuLogoutBtn').hidden = !user;
+    if ($('userMenuLogoutSep')) $('userMenuLogoutSep').hidden = !user;
+  }
+
+  function updateUserMenuScript() {
+    $$('#userMenuScriptGroup .user-menu-seg-btn').forEach(b => {
+      const on = b.getAttribute('data-value') === state.displayScript;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function updateUserMenuTheme(theme) {
+    $$('#userMenuThemeGroup .user-menu-theme').forEach(b => {
+      const on = b.getAttribute('data-value') === theme;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function isUserMenuOpen() {
+    const panel = $('userMenuPanel');
+    return !!panel && !panel.hidden;
+  }
+
+  function userMenuItems() {
+    return Array.from($$('#userMenuPanel button')).filter(b => !b.hidden && b.offsetParent !== null);
+  }
+
+  function openUserMenu() {
+    const panel = $('userMenuPanel');
+    if (!panel) return;
+    dismissDisplayScriptNotice();
+    updateUserMenu();
+    updateUserMenuScript();
+    updateUserMenuTheme(state.currentTheme || document.documentElement.getAttribute('data-theme'));
+    panel.hidden = false;
+    $('userMenuBtn').setAttribute('aria-expanded', 'true');
+    const items = userMenuItems();
+    const first = items.find(b => b.classList.contains('active')) || items[0];
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function closeUserMenu(returnFocus = false) {
+    const panel = $('userMenuPanel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    $('userMenuBtn').setAttribute('aria-expanded', 'false');
+    if (returnFocus) $('userMenuBtn').focus({ preventScroll: true });
+  }
+
+  /** 點選單項目：先關選單再做事，避免選單蓋在開出來的視窗上。 */
+  function userMenuAction(fn) {
+    return (e) => {
+      e.preventDefault();
+      closeUserMenu();
+      fn();
+    };
+  }
+
+  function setupUserMenu() {
+    const btn = $('userMenuBtn');
+    const panel = $('userMenuPanel');
+    if (!btn || !panel) return;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isUserMenuOpen()) closeUserMenu();
+      else openUserMenu();
+    });
+    document.addEventListener('click', (e) => {
+      if (isUserMenuOpen() && !e.target.closest('#userMenu')) closeUserMenu();
+    });
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeUserMenu(true);
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        const items = userMenuItems();
+        if (!items.length) return;
+        e.preventDefault();
+        const i = items.indexOf(document.activeElement);
+        let next;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = items.length - 1;
+        else if (e.key === 'ArrowDown') next = i < 0 ? 0 : (i + 1) % items.length;
+        else next = i <= 0 ? items.length - 1 : i - 1;
+        items[next].focus();
+      }
+    });
+    panel.addEventListener('focusout', (e) => {
+      if (e.relatedTarget && !e.relatedTarget.closest('#userMenu')) closeUserMenu();
+    });
+
+    // 繁簡與主題：在選單內直接切換，選單保持開著，看得到切換結果
+    $$('#userMenuScriptGroup .user-menu-seg-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        const v = normalizeDisplayScript(b.getAttribute('data-value'));
+        if (v && v !== state.displayScript) {
+          dismissDisplayScriptNotice();
+          applyDisplayScript(v, true, { announce: true });
+        }
+      });
+    });
+    $$('#userMenuThemeGroup .user-menu-theme').forEach(b => {
+      b.addEventListener('click', () => {
+        const theme = b.getAttribute('data-value');
+        if (theme && theme !== state.currentTheme) applyTheme(theme, true);
+      });
+    });
+
+    $('userMenuLoginBtn').addEventListener('click', userMenuAction(() => openAccountAuth('login')));
+    $('userMenuRegisterBtn').addEventListener('click', userMenuAction(() => openAccountAuth('register')));
+    $('userMenuSettingsBtn').addEventListener('click', userMenuAction(() => openUserSettingsOverlay()));
+    $('userMenuAccountBtn').addEventListener('click', userMenuAction(() => openAccountSettings()));
+    $('userMenuAdminBtn').addEventListener('click', userMenuAction(() => openSettingsOverlay()));
+    $('userMenuLogoutBtn').addEventListener('click', userMenuAction(() => accountLogout()));
+
+    updateUserMenu();
+    updateUserMenuScript();
+    updateUserMenuTheme(state.currentTheme || document.documentElement.getAttribute('data-theme'));
+  }
+
   // ── 啟動：讀設定、目前登入者、處理信件連結與第三方登入回來的網址 ──
   async function initAccounts() {
     // 先把網址上的 auth 參數拿下來並清掉，避免 token 留在瀏覽紀錄或被分享出去。
@@ -11821,8 +11890,7 @@
       return;
     }
     state.account.config = cfg.data;
-    const btn = $('accountBtn');
-    if (btn) btn.hidden = false;
+    updateUserMenu();
     updateLegalLinks();
     setupAccountEvents();
     await refreshAccountMe();
@@ -11850,19 +11918,7 @@
     state.account.user = user || null;
     if (user && user.role === 'admin') state.isAdmin = true;
     if (!user) state.isAdmin = false;
-    const btn = $('accountBtn');
-    const initial = $('accountBtnInitial');
-    if (btn) {
-      const label = user ? `我的帳號（${user.displayName || user.email || user.username}）` : '登入';
-      btn.title = label;
-      btn.setAttribute('aria-label', label);
-      btn.classList.toggle('signed-in', !!user);
-    }
-    if (initial) {
-      const name = user ? String(user.displayName || user.email || user.username || '?') : '';
-      initial.textContent = name ? Array.from(name)[0].toUpperCase() : '';
-      initial.hidden = !user;
-    }
+    updateUserMenu();
     if (user && user.needsConsent) openOverlay('consentOverlay');
   }
 
@@ -11940,7 +11996,8 @@
     reset: { title: '設定新密碼', submit: '更新密碼並登入' }
   };
 
-  function openAccountAuth(view = 'login') {
+  function openAccountAuth(view = 'login', opts = {}) {
+    authUi.afterLogin = opts.afterLogin || '';
     setAuthView(view);
     openOverlay('accountAuthOverlay');
     const first = view === 'reset' ? $('accountPassword') : $('accountEmail');
@@ -12131,6 +12188,11 @@
           closeOverlay('accountAuthOverlay');
           setAccountUser(r.data.user);
           showToast(`✅ 歡迎回來${r.data.user && r.data.user.displayName ? `，${r.data.user.displayName}` : ''}`, 'success');
+          if (authUi.afterLogin === 'admin') {
+            authUi.afterLogin = '';
+            if (state.isAdmin) await openSettingsOverlay();
+            else showToast('已登入，但這個帳號沒有管理權限', 'info', 3500);
+          }
           return;
         }
         if (r.data.code === 'TURNSTILE_REQUIRED') {
@@ -12304,10 +12366,6 @@
     if (accountEventsReady) return;
     accountEventsReady = true;
 
-    $('accountBtn').addEventListener('click', () => {
-      if (state.account.user) openAccountSettings();
-      else openAccountAuth('login');
-    });
     $('accountAuthCloseBtn').addEventListener('click', () => closeOverlay('accountAuthOverlay'));
     $('accountAuthForm').addEventListener('submit', (e) => { e.preventDefault(); submitAccountAuth(); });
     $$('#accountAuthOverlay [data-goto]').forEach(b => b.addEventListener('click', () => setAuthView(b.getAttribute('data-goto'))));

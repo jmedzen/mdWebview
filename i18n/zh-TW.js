@@ -10,11 +10,9 @@
   'use strict';
   const table = {
     'script.toggle.label': '繁',
-    'script.toggle.title': '目前為繁體顯示，點擊切換為簡體',
-    'script.toggle.aria': '切換繁體／簡體顯示（目前：繁體）',
     'script.switched': '已切換為繁體顯示',
     'script.autoNotice.title': '已切換為繁體顯示',
-    'script.autoNotice.body': '依瀏覽器語言自動切換。隨時可點右上角「{label}」按鈕切換繁體／簡體。',
+    'script.autoNotice.body': '依瀏覽器語言自動切換為「{label}」體。隨時可點右上角選單，在「繁簡顯示」切換繁體／簡體。',
     'script.autoNotice.dismiss': '知道了',
     'script.loadFailed': '簡體轉換元件載入失敗，暫以繁體顯示：{error}',
     'settings.displayScript.title': '繁簡顯示',
