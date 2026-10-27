@@ -6794,6 +6794,8 @@
    *
    * 搜尋高亮會把文字節點切開再組回去，新節點只拿得到簡體字，切回繁體時
    * 無法逐字還原。偵測到這種節點就重新渲染目前檔案，確保繁體與原文一致。
+   * 圖表（.mermaid-container 內的 Pele SVG）本來就不轉換，裡面的簡體字是原文，
+   * 不算數，否則圖表含簡體字時每次切回繁體都會整篇重渲染。
    */
   function contentHasUnrestorableText() {
     const ds = window.mdDisplayScript;
@@ -6804,7 +6806,7 @@
     let n;
     while ((n = walker.nextNode())) {
       if (ds.originalText(n) === n.data && sv.hasSimplified(n.data) &&
-          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid'))) {
+          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid, .mermaid-container, .pele'))) {
         return true;
       }
     }
