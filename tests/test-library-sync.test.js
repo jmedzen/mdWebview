@@ -170,6 +170,17 @@ describe('library sync over HTTP', () => {
     assert.equal((await push(cookie, {})).status, 200);
   });
 
+  test('bookmark progress syncs to another device', async () => {
+    const a = await signup('sync-bmprog@example.org');
+    const login = await request('/api/auth/login', { method: 'POST', body: { identifier: 'sync-bmprog@example.org', password: 'reader-pass-1' } });
+    const b = sessionCookie(login);
+    const t = Date.now();
+    assert.equal((await push(a, { bookmarks: [{ path: 'sutra/p.md', title: 'P', updatedAt: t, pct: 55, line: 321 }] })).status, 200);
+    const pull = await push(b, { cursor: 0 });
+    assert.equal(pull.json.bookmarks[0].pct, 55);
+    assert.equal(pull.json.bookmarks[0].line, 321);
+  });
+
   test('two devices converge: add, update, delete (tombstone), pull by cursor', async () => {
     const a = await signup('sync-two@example.org');
     const login = await request('/api/auth/login', { method: 'POST', body: { identifier: 'sync-two@example.org', password: 'reader-pass-1' } });
@@ -370,5 +381,16 @@ describe('client wiring (static checks)', () => {
   test('storage access is guarded (Safari private mode / blocked storage)', () => {
     const fn = app.slice(app.indexOf('function syncMeta()'), app.indexOf('function rebuildLibrarySnap'));
     assert.match(fn, /syncMetaMemory/);
+  });
+});
+
+describe('bookmark reading progress', () => {
+  test('keeps pct/line on bookmarks and treats missing progress as null', () => {
+    const b = sync.normalizeWireItem({ path: 'a.md', updatedAt: 5, pct: 37.4, line: 120 }, 'bookmark', NOW);
+    assert.equal(b.pct, 37);
+    assert.equal(b.line, 120);
+    const none = sync.normalizeWireItem({ path: 'a.md', updatedAt: 5, pct: null }, 'bookmark', NOW);
+    assert.equal(none.pct, null);
+    assert.equal(none.line, null);
   });
 });

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.1.2
+   mdWebview — Application Logic (app.js) v4.1.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7025,7 +7025,8 @@
     const tomb = (isB ? m.tb : m.th)[path] || 0;
     if (it && (it.ts || 0) >= tomb) {
       const w = { path, title: it.fileName || '', updatedAt: it.ts };
-      if (!isB) { w.pct = typeof it.pct === 'number' ? it.pct : null; w.line = it.line || null; }
+      w.pct = typeof it.pct === 'number' ? it.pct : null;
+      w.line = it.line || null;
       return w;
     }
     if (tomb) return { path, title: '', updatedAt: tomb, deleted: true };
@@ -7077,6 +7078,7 @@
     const base = { filePath: w.path, fileName: w.title || fallback, ts: w.updatedAt };
     if (isB) {
       base.time = new Date(w.updatedAt).toLocaleDateString(activeLocale());
+      if (typeof w.pct === 'number') { base.pct = w.pct; base.line = w.line || null; }
     } else {
       base.time = new Date(w.updatedAt).toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       if (typeof w.pct === 'number') { base.pct = w.pct; base.line = w.line || null; }
@@ -7296,6 +7298,14 @@
 
   /** 把目前讀到的位置（百分比、行號）記在最近閱讀那一筆上，給「書籤與歷程」顯示與跳回。 */
   function updateRecentProgress(filePath, pct, line) {
+    const bm = (state.bookmarks || []).find(i => i.filePath === filePath);
+    if (bm && !(bm.pct === pct && bm.line === (line || null))) {
+      bm.pct = pct;
+      bm.line = line || null;
+      bm.ts = Date.now();
+      persistLibrary('b');
+      if (isLibraryOpen() && libraryUi.tab === 'bookmarks') renderLibrary();
+    }
     const item = (state.recentFiles || []).find(i => i.filePath === filePath);
     if (!item) return;
     if (item.pct === pct && item.line === line) return;
@@ -7426,12 +7436,16 @@
       isBookmarked = false;
       showToast('🗑️ 已從書籤移除', 'success');
     } else {
-      list.unshift({
+      const seen = (state.recentFiles || []).find(r => r.filePath === filePath);
+      const entry = {
         filePath,
         fileName,
         time: new Date().toLocaleDateString(activeLocale()),
         ts: Date.now()
-      });
+      };
+      // 加書籤時帶入目前已讀的位置
+      if (seen && typeof seen.pct === 'number') { entry.pct = seen.pct; entry.line = seen.line || null; }
+      list.unshift(entry);
       isBookmarked = true;
       showToast('已新增至書籤', 'success');
     }
@@ -7584,7 +7598,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9406,7 +9420,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9740,7 +9754,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12228,10 +12242,13 @@
           if (!open) continue;
           for (const b of list) {
             const current = b.filePath === state.currentFile ? ' current' : '';
+            // 書籤自己記閱讀進度（隨帳號同步）；舊書籤還沒有時，借用歷程裡的進度
+            const prog = typeof b.pct === 'number' ? b : recent.find(r => r.filePath === b.filePath);
+            const progLine = prog && prog.line ? Number(prog.line) || 0 : 0;
             html += `<div class="library-item${current}">`
-              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}" title="${escHtml(b.filePath || '')}">`
+              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''} title="${escHtml(b.filePath || '')}">`
               + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
-              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
+              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}${prog && typeof prog.pct === 'number' ? ` · 讀到 ${prog.pct}%` : ''}</span>` : '')
               + `</button>`
               + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
               + `</div>`;
