@@ -1424,6 +1424,8 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 後台「🔑 帳號系統」的「開站設定」列出六步：對外網址、連接 Resend、寄測試信、設定 Turnstile、實際通過一次 Turnstile、開啟第三方登入（後兩步與 Turnstile 兩步是選用；`setupProgress()`，前三步是開放註冊的必要條件，未完成時分頁上亮紅點；第一次建立管理員後直接打開這個分頁）。`POST /api/admin/mail/settings` 先用 `GET https://api.resend.com/domains` 驗金鑰（200＝完整權限並比對寄件網域狀態、401 `restricted_api_key`＝只能寄信、其他 401／403＝拒絕儲存）；`POST /api/admin/turnstile/settings` 先送假 token 給 siteverify 驗 secret（`invalid-input-secret` 拒絕儲存）。兩者都要 10 分鐘內重新驗證過身分，連不上外部服務時照存並提醒。`POST /api/admin/turnstile/verify` 讓管理員在後台實際完成一次 Turnstile，伺服器以目前的金鑰驗證並比對網域。寄信卡片另有寄件網域的 DNS 檢查（`GET /api/admin/mail/dns`）：必要的是 DKIM（`resend._domainkey` TXT）與「寄信授權」（`send` 子網域有指向 `*.rmta.net` 的 CNAME，或舊版的 `v=spf1 include:amazonses.com` TXT，兩種都認），DMARC 選用。Resend 只開寄信時沒有 MX，所以不檢查 MX；有 `send` 的 CNAME 但缺 `rsend` 時只提醒。金鑰有完整權限時另外顯示 Resend 自己回報的網域驗證狀態，寄信專用金鑰查不到就只看 DNS。
 
+使用者的帳號設定畫面不提供「下載帳號資料」與「刪除帳號」按鈕（v3.12.9 移除）；要刪除帳號或取得資料的人，透過隱私權政策裡寫的聯絡方式提出，由管理員在後台「使用者」刪除。`GET /api/me/export` 與 `DELETE /api/me` 仍保留在伺服器端。
+
 隱私權政策與使用條款的文字存在資料庫的 `app_settings`（不放在程式碼），由後台「🔑 帳號系統」編輯，發布在 `/privacy` 與 `/terms`。勾選「重大變更」時，已註冊者下次登入要重新同意。
 
 ### 19.4 尚未包含（下一階段）
