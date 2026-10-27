@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.3
+   mdWebview — Application Logic (app.js) v3.12.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.4';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9034,10 +9034,12 @@
         errorEl.style.display = 'none';
         $('adminSetupOverlay').style.display = 'none';
 
-        // 建立完成即已登入（cookie），直接進後台。
+        // 建立完成即已登入（cookie），直接進後台的「帳號系統」分頁接著做開站設定（寄信、Turnstile）。
         state.isAdmin = true;
         await refreshAccountMe();
         await openSettingsOverlay();
+        const setupTab = $('adminTabAccountSystemBtn');
+        if (setupTab && !setupTab.hidden && setupTab.style.display !== 'none') setupTab.click();
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
@@ -9274,7 +9276,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9604,7 +9606,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.3';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.4';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10487,6 +10489,7 @@
 
   async function openSettingsOverlay() {
     setupAdminTabEvents();
+    if (!state.isSingleUser) refreshAdminSetupDot();
     const errorEl = $('settingsErrorMsg');
     const successEl = $('settingsSuccessMsg');
     errorEl.style.display = 'none';
@@ -12613,11 +12616,77 @@
     const o = ov.data;
     const notes = [];
     if (o.adminNeedsEmail) notes.push('你的管理員帳號還沒有 Email，忘記密碼時無法自行重設。請到右上角「我的帳號」補上。');
-    if (!o.publicBaseUrl) notes.push('尚未設定對外網址（PUBLIC_BASE_URL 或首頁權威 URL），驗證信與第三方登入無法使用。');
     adminNotice('adminAccountSysNotice', notes.join(' '));
     $('adminPublicBaseUrl').textContent = o.publicBaseUrl ? `${o.publicBaseUrl}${o.publicBaseUrlSource === 'env' ? '（環境變數）' : '（首頁權威 URL）'}` : '未設定';
     renderAdminDbStatus(o.database);
+    renderAdminSetup(o.setup);
     await Promise.all([loadAdminTurnstile(), loadAdminProviders(), loadAdminMail(), loadAdminMailDns(), loadAdminLegal(), loadAdminBackups()]);
+  }
+
+  // 開站設定：每一步對應一張卡片，按「前往」捲到那張卡片。
+  const ADMIN_SETUP_HINTS = {
+    baseUrl: '驗證信裡的連結要用網站的正式網址，在「系統設定」的「首頁權威 URL」填寫',
+    mail: '填入 Resend 的 API 金鑰與寄件 Email',
+    mailTest: '寄一封信給自己，確認收得到（也請看看是不是被當成垃圾信）',
+    turnstile: '填入 Cloudflare Turnstile 的 Site key 與 Secret key',
+    turnstileTest: '親自通過一次驗證，確認網域設定正確'
+  };
+  const ADMIN_SETUP_TARGETS = { baseUrl: 'config', mail: 'adminMailCard', mailTest: 'adminMailTestTo', turnstile: 'adminTurnstileCard', turnstileTest: 'adminTurnstileLiveBtn' };
+
+  function renderAdminSetup(setup) {
+    if (!setup) return;
+    updateAdminSetupDot(setup);
+    const list = $('adminSetupSteps');
+    list.innerHTML = '';
+    const current = setup.steps.find(st => !st.done);
+    setup.steps.forEach((st, i) => {
+      const li = document.createElement('li');
+      li.className = `setup-step${st.done ? ' done' : ''}${st === current ? ' current' : ''}`;
+      li.innerHTML = `<span class="setup-step-mark">${st.done ? '✓' : i + 1}</span>
+        <span class="setup-step-text"><strong>${escHtml(st.label)}</strong>${st.required ? '' : ' <span class="field-hint" style="display:inline">（建議）</span>'}
+        <span class="field-hint">${st.done && st.at ? `完成於 ${escHtml(fmtDateTime(st.at))}` : escHtml(ADMIN_SETUP_HINTS[st.id] || '')}</span></span>`;
+      if (!st.done) {
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.className = `modal-btn ${st === current ? 'submit-btn' : 'secondary-btn'} small-btn`;
+        go.textContent = '前往';
+        go.addEventListener('click', () => goToAdminSetupStep(st.id));
+        li.appendChild(go);
+      }
+      list.appendChild(li);
+    });
+    const badge = $('adminSetupBadge');
+    const done = setup.steps.filter(st => st.done).length;
+    badge.textContent = setup.complete ? '全部完成' : `${done} / ${setup.steps.length}`;
+    badge.classList.toggle('danger', !setup.requiredComplete);
+  }
+
+  function updateAdminSetupDot(setup) {
+    const dot = $('adminAccountSysDot');
+    if (dot) dot.hidden = !setup || setup.requiredComplete;
+  }
+
+  function goToAdminSetupStep(id) {
+    const target = ADMIN_SETUP_TARGETS[id];
+    if (target === 'config') {
+      $('adminTabConfigBtn').click();
+      setTimeout(() => { const el = $('settingsSiteUrl'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } }, 300);
+      return;
+    }
+    const el = $(target);
+    if (!el) return;
+    const card = el.closest('.config-card');
+    const howto = card && card.querySelector('details.setup-howto');
+    if (howto && (id === 'mail' || id === 'turnstile')) howto.open = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (el.tagName === 'INPUT' || el.tagName === 'BUTTON') setTimeout(() => el.focus(), 400);
+  }
+
+  /** 登入後台時檢查一次，開站設定沒完成就在「帳號系統」分頁上亮紅點。 */
+  async function refreshAdminSetupDot() {
+    const r = await accountApi('/api/admin/accounts-overview');
+    if (r.ok) updateAdminSetupDot(r.data.setup);
+    return r.ok ? r.data.setup : null;
   }
 
   async function loadAdminProviders() {
@@ -12639,17 +12708,64 @@
 
   async function loadAdminMail() {
     const r = await accountApi('/api/admin/mail');
-    if (r.ok) renderAdminMail(r.data);
+    if (r.ok) { renderAdminMail(r.data); fillAdminMailForm(r.data); }
+  }
+
+  function settingSourceText(d) {
+    if (!d || !d.source) return '未設定';
+    return d.source === 'env' ? `由環境變數 ${d.env} 設定` : '在網頁上設定';
+  }
+
+  function parseMailFrom(from) {
+    const m = String(from || '').trim().match(/^(?:(.*?)\s*<\s*([^\s<>@]+@[^\s<>@]+)\s*>|([^\s<>@]+@[^\s<>@]+))$/);
+    if (!m) return { name: '', address: '' };
+    return m[2] ? { name: m[1].replace(/^"|"$/g, '').trim(), address: m[2] } : { name: '', address: m[3] };
+  }
+
+  function fillAdminMailForm(m) {
+    const st = m.settings || {};
+    const provider = $('adminMailProvider');
+    provider.value = m.provider || (st.provider && st.provider.source ? '' : 'resend');
+    provider.disabled = !!(st.provider && st.provider.locked);
+    const key = $('adminMailApiKey');
+    key.value = '';
+    key.disabled = !!(st.apiKey && st.apiKey.locked);
+    key.placeholder = st.apiKey && st.apiKey.set ? `已設定（${st.apiKey.masked}），要更換才需要填` : 're_ 開頭';
+    const from = parseMailFrom(m.from);
+    $('adminMailFromName').value = from.name || (m.from ? '' : (($('settingsSiteName') || {}).value || 'mdWebview').trim());
+    $('adminMailFromAddress').value = from.address;
+    const fromLocked = !!(st.from && st.from.locked);
+    $('adminMailFromName').disabled = fromLocked;
+    $('adminMailFromAddress').disabled = fromLocked;
+    $('adminMailClearKeyBtn').hidden = !(st.apiKey && st.apiKey.source === 'web');
+    const locked = ['provider', 'apiKey', 'from'].filter(k => st[k] && st[k].locked).map(k => st[k].env);
+    const notes = [];
+    if (locked.length) notes.push(`${locked.join('、')} 已在伺服器的環境變數設定，優先於網頁設定，這裡不能修改。`);
+    if (st.apiKey && st.apiKey.unreadable) notes.push('之前存的金鑰無法解密（伺服器上的 secrets.key 可能遺失），請重新貼上金鑰。');
+    $('adminMailLockNote').textContent = notes.join(' ');
+    syncAdminMailFormState();
+  }
+
+  function syncAdminMailFormState() {
+    $('adminMailResendFields').hidden = $('adminMailProvider').value !== 'resend';
+  }
+
+  function showSetupResult(el, kind, lines) {
+    el.className = `setup-result${kind ? ` ${kind}` : ''}`;
+    el.textContent = lines.filter(Boolean).join('\n');
+    el.style.display = lines.some(Boolean) ? 'block' : 'none';
   }
 
   function renderAdminMail(m) {
-    const providerText = m.provider === 'resend' ? 'Resend' : m.provider === 'log' ? '只寫進日誌（測試用，不會真的寄出）' : '未設定';
-    const missing = (m.missingEnv || []).length ? `<div class="account-list-row"><span>缺少的環境變數</span><span class="account-badge danger">${escHtml(m.missingEnv.join('、'))}</span></div>` : '';
+    const st = m.settings || {};
+    const providerText = m.provider === 'resend' ? 'Resend' : m.provider === 'log' ? '只寫進日誌（測試用，不會真的寄出）' : '停用';
+    const missingLabels = { MAIL_PROVIDER: '寄信服務', MAIL_API_KEY: 'API 金鑰', MAIL_FROM: '寄件 Email' };
+    const missing = (m.missingEnv || []).length ? `<div class="account-list-row"><span>還缺</span><span class="account-badge danger">${escHtml(m.missingEnv.map(n => missingLabels[n] || n).join('、'))}</span></div>` : '';
     $('adminMailStatus').innerHTML = `
-      <div class="account-list-row"><span>寄信服務</span><strong>${escHtml(providerText)}</strong></div>
-      <div class="account-list-row"><span>寄件人</span><span>${escHtml(m.from || '未設定')}</span></div>
-      <div class="account-list-row"><span>寄件網域</span><span>${escHtml(m.senderDomain || '—')}</span></div>
-      <div class="account-list-row"><span>API 金鑰</span><span>${m.apiKeySet ? '<span class="account-badge">已設定</span>' : '<span class="account-badge danger">未設定</span>'}</span></div>
+      <div class="account-list-row"><span>狀態</span><span>${m.configured && m.provider === 'resend' ? '<span class="account-badge">可以寄信</span>' : m.provider === 'log' ? '<span class="account-badge danger">測試模式</span>' : '<span class="account-badge danger">無法寄信</span>'}</span></div>
+      <div class="account-list-row"><span>寄信服務</span><span>${escHtml(providerText)}<br><span class="field-hint">${escHtml(settingSourceText(st.provider))}</span></span></div>
+      <div class="account-list-row"><span>寄件人</span><span>${escHtml(m.from || '未設定')}${m.from ? `<br><span class="field-hint">${escHtml(settingSourceText(st.from))}</span>` : ''}</span></div>
+      <div class="account-list-row"><span>API 金鑰</span><span>${m.apiKeySet ? `<span class="account-badge">已設定 ${escHtml((st.apiKey && st.apiKey.masked) || '')}</span><br><span class="field-hint">${escHtml(settingSourceText(st.apiKey))}</span>` : '<span class="account-badge danger">未設定</span>'}</span></div>
       ${missing}
       <div class="account-list-row"><span>最近一次寄出</span><span>${m.lastSentAt ? escHtml(fmtDateTime(m.lastSentAt)) : '—'}</span></div>
       <div class="account-list-row"><span>24 小時內寄送失敗</span><span>${m.failures24h}</span></div>`;
@@ -12665,7 +12781,7 @@
 
   function renderAdminMailDns(d) {
     const box = $('adminMailDns');
-    if (!d.domain) { box.innerHTML = '<div class="field-hint">還沒有設定寄件人（MAIL_FROM），無法檢查 DNS。</div>'; return; }
+    if (!d.domain) { box.innerHTML = '<div class="field-hint">先在上面填好寄件 Email，才能檢查寄件網域的 DNS。</div>'; return; }
     box.innerHTML = '';
     for (const rec of d.records) {
       const badge = rec.ok ? '<span class="account-badge">正常</span>' : rec.required ? '<span class="account-badge danger">找不到</span>' : '<span class="account-badge danger">建議新增</span>';
@@ -12685,7 +12801,26 @@
 
   async function loadAdminTurnstile() {
     const r = await accountApi('/api/admin/turnstile');
-    if (r.ok) renderAdminTurnstile(r.data);
+    if (r.ok) { renderAdminTurnstile(r.data); fillAdminTurnstileForm(r.data); }
+  }
+
+  function fillAdminTurnstileForm(t) {
+    const st = t.settings || {};
+    const site = $('adminTurnstileSiteKey');
+    site.value = t.siteKey || '';
+    site.disabled = !!(st.siteKey && st.siteKey.locked);
+    const secret = $('adminTurnstileSecret');
+    secret.value = '';
+    secret.disabled = !!(st.secret && st.secret.locked);
+    secret.placeholder = st.secret && st.secret.set ? `已設定（${st.secret.masked}），要更換才需要填` : '0x 開頭';
+    $('adminTurnstileHowtoHost').textContent = t.expectedHostname || '你的網域';
+    $('adminTurnstileDisableBtn').hidden = !((st.siteKey && st.siteKey.source === 'web') || (st.secret && st.secret.source === 'web'));
+    const locked = ['siteKey', 'secret'].filter(k => st[k] && st[k].locked).map(k => st[k].env);
+    const notes = [];
+    if (locked.length) notes.push(`${locked.join('、')} 已在伺服器的環境變數設定，優先於網頁設定，這裡不能修改。`);
+    if (st.secret && st.secret.unreadable) notes.push('之前存的 secret 無法解密（伺服器上的 secrets.key 可能遺失），請重新貼上。');
+    $('adminTurnstileLockNote').textContent = notes.join(' ');
+    $('adminTurnstileLiveBtn').disabled = !t.configured;
   }
 
   function renderAdminTurnstile(t) {
@@ -12695,12 +12830,55 @@
     $('adminTurnstileStatus').innerHTML = `
       <div class="account-list-row"><span>狀態</span><span>${t.configured ? yes('已啟用') : no('未啟用')}</span></div>
       <div class="account-list-row"><span>Site key</span><span>${t.siteKey ? `<code>${escHtml(t.siteKey)}</code>` : no('未設定')}</span></div>
-      <div class="account-list-row"><span>Secret</span><span>${t.secretSet ? yes('已設定') : no('未設定')}</span></div>
+      <div class="account-list-row"><span>Secret</span><span>${t.secretSet ? yes(`已設定 ${escHtml((t.settings && t.settings.secret && t.settings.secret.masked) || '')}`) : no('未設定')}</span></div>
       ${t.usesTestKeys ? '<div class="account-list-row"><span>金鑰種類</span><span class="account-badge danger">Cloudflare 測試金鑰，正式網站請換掉</span></div>' : ''}
       <div class="account-list-row"><span>Cloudflare 上要允許的網域</span><span>${escHtml(t.expectedHostname || '—')}</span></div>
       <div class="account-list-row"><span>最近一次驗證</span><span>${last ? `${last.ok ? '通過' : `未通過 ${escHtml(last.reason || '')}`} · ${escHtml(fmtDateTime(last.at))}` : '—'}</span></div>
       <div class="account-list-row"><span>保護的動作</span><span>${escHtml((t.protects || []).join('、'))}</span></div>
-      ${t.configured ? '' : `<div class="field-hint">未啟用時，註冊與登入只靠隱藏欄位、停留時間與次數限制擋機器人。缺少：${escHtml((t.envVars || []).filter(v => !v.set).map(v => v.name).join('、'))}</div>`}`;
+      ${t.configured ? '' : '<div class="field-hint">未啟用時，註冊與登入只靠隱藏欄位、停留時間與次數限制擋機器人。</div>'}`;
+  }
+
+  const TURNSTILE_REASON_TEXT = {
+    'hostname-mismatch': '網域不符：Cloudflare 上這個 widget 的 Hostname 沒有包含目前的網站網域',
+    'invalid-input-secret': 'Secret 不對',
+    'invalid-input-response': '驗證碼無效或已過期，請再試一次',
+    'timeout-or-duplicate': '驗證碼已過期或用過了，請再試一次',
+    'missing-input-response': '沒有取得驗證碼'
+  };
+
+  let adminTurnstileWidget = null;
+  async function startAdminTurnstileLiveTest() {
+    const box = $('adminTurnstileLiveBox');
+    const out = $('adminTurnstileCheckResult');
+    const info = await accountApi('/api/admin/turnstile');
+    if (!info.ok || !info.data.configured) { out.textContent = '請先填好 Site key 與 Secret key'; return; }
+    box.hidden = false;
+    box.innerHTML = '';
+    out.textContent = '請完成下方的驗證…';
+    let ts;
+    try { ts = await loadTurnstile(); } catch (_) { out.textContent = '載入 Turnstile 失敗，請檢查網路或瀏覽器的擋廣告外掛'; return; }
+    if (adminTurnstileWidget !== null) { try { ts.remove(adminTurnstileWidget); } catch (_) {} }
+    adminTurnstileWidget = ts.render(box, {
+      sitekey: info.data.siteKey,
+      action: 'admin-test',
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+      callback: async (token) => {
+        out.textContent = '向 Cloudflare 確認中…';
+        const r = await accountApi('/api/admin/turnstile/verify', { method: 'POST', body: { token } });
+        if (!r.ok) { out.textContent = r.data.error || '驗證失敗'; return; }
+        out.textContent = r.data.ok
+          ? '✅ 實測通過，訪客可以正常註冊'
+          : `❌ ${TURNSTILE_REASON_TEXT[r.data.reason] || (r.data.unavailable ? '暫時連不上 Cloudflare' : r.data.reason || '未通過')}`;
+        renderAdminTurnstile(r.data.info);
+        renderAdminSetup(r.data.setup);
+      },
+      'error-callback': (code) => {
+        out.textContent = String(code).startsWith('110200')
+          ? '❌ 網域不符：請到 Cloudflare 的 Turnstile 設定，把目前的網域加進 Hostname'
+          : `❌ Turnstile 顯示失敗（${code}），請確認 Site key 是否正確`;
+        return true;
+      }
+    });
   }
 
   async function loadAdminLegal() {
@@ -12820,7 +12998,7 @@
 
     $('adminMailTestBtn').addEventListener('click', async () => {
       const r = await accountApi('/api/admin/mail/test', { method: 'POST', body: { to: $('adminMailTestTo').value.trim() } });
-      if (r.ok) { showToast(`✅ ${r.data.message}`, 'success', 3500); renderAdminMail(r.data.status); }
+      if (r.ok) { showToast(`✅ ${r.data.message}，請到信箱確認（也看看垃圾郵件匣）`, 'success', 5000); renderAdminMail(r.data.status); renderAdminSetup(r.data.setup); }
       else showToast(`❌ ${r.data.error || '寄信失敗'}`, 'error', 4000);
     });
 
@@ -12841,6 +13019,103 @@
       out.textContent = msg[r.data.state] || r.data.state;
       renderAdminTurnstile(r.data.info);
     });
+
+
+    $('adminMailProvider').addEventListener('change', syncAdminMailFormState);
+
+    $('adminMailSaveBtn').addEventListener('click', async () => {
+      const btn = $('adminMailSaveBtn');
+      const out = $('adminMailSaveResult');
+      const name = $('adminMailFromName').value.trim().replace(/[<>"]/g, '');
+      const address = $('adminMailFromAddress').value.trim();
+      const body = {};
+      if (!$('adminMailProvider').disabled) body.provider = $('adminMailProvider').value;
+      const resend = $('adminMailProvider').value === 'resend';
+      const key = resend ? $('adminMailApiKey').value.trim() : '';
+      if (resend) {
+        if (!key && !$('adminMailApiKey').disabled && !$('adminMailApiKey').placeholder.startsWith('已設定')) {
+          showSetupResult(out, 'error', ['請貼上 Resend 的 API 金鑰']);
+          return;
+        }
+        if (!$('adminMailFromAddress').disabled) {
+          if (!address) { showSetupResult(out, 'error', ['請填寄件 Email，例如 noreply@你的網域']); return; }
+          body.from = name ? `${name} <${address}>` : address;
+        }
+        if (key) body.apiKey = key;
+      }
+      btn.disabled = true;
+      showSetupResult(out, '', [key ? '向 Resend 確認金鑰中…' : '儲存中…']);
+      const r = await withReauth(() => accountApi('/api/admin/mail/settings', { method: 'POST', body }));
+      btn.disabled = false;
+      if (!r.ok) {
+        if (r.data.code === 'REAUTH_CANCELLED') { showSetupResult(out, '', []); return; }
+        showSetupResult(out, 'error', [`❌ ${r.data.error || '儲存失敗'}`]);
+        return;
+      }
+      const lines = ['✅ 已儲存'];
+      if (r.data.keyCheck && r.data.keyCheck.state === 'valid_send_only') lines.push('Resend 金鑰有效（只能寄信，這是建議的權限）');
+      if (r.data.keyCheck && r.data.keyCheck.state === 'valid') lines.push('Resend 金鑰有效（完整權限）');
+      (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
+      if (r.data.mail.configured && r.data.mail.provider === 'resend') lines.push('下一步：確認下方 DNS 都是「正常」，然後寄一封測試信給自己。');
+      showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      renderAdminMail(r.data.mail);
+      fillAdminMailForm(r.data.mail);
+      renderAdminSetup(r.data.setup);
+      loadAdminMailDns();
+      refreshAccountConfig();
+    });
+
+    $('adminMailClearKeyBtn').addEventListener('click', async () => {
+      if (!confirm('移除網頁上設定的 Resend 金鑰？移除後無法寄驗證信，註冊與忘記密碼會暫停。')) return;
+      const r = await withReauth(() => accountApi('/api/admin/mail/settings', { method: 'POST', body: { clearApiKey: true } }));
+      if (!r.ok) { if (r.data.code !== 'REAUTH_CANCELLED') showToast(`❌ ${r.data.error || '移除失敗'}`, 'error'); return; }
+      showSetupResult($('adminMailSaveResult'), '', ['已移除金鑰']);
+      renderAdminMail(r.data.mail);
+      fillAdminMailForm(r.data.mail);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    });
+
+    $('adminTurnstileSaveBtn').addEventListener('click', async () => {
+      const btn = $('adminTurnstileSaveBtn');
+      const out = $('adminTurnstileSaveResult');
+      const body = {};
+      if (!$('adminTurnstileSiteKey').disabled) body.siteKey = $('adminTurnstileSiteKey').value.trim();
+      const secret = $('adminTurnstileSecret').value.trim();
+      if (secret) body.secret = secret;
+      btn.disabled = true;
+      showSetupResult(out, '', [secret ? '向 Cloudflare 確認 secret 中…' : '儲存中…']);
+      const r = await withReauth(() => accountApi('/api/admin/turnstile/settings', { method: 'POST', body }));
+      btn.disabled = false;
+      if (!r.ok) {
+        if (r.data.code === 'REAUTH_CANCELLED') { showSetupResult(out, '', []); return; }
+        showSetupResult(out, 'error', [`❌ ${r.data.error || '儲存失敗'}`]);
+        return;
+      }
+      const lines = ['✅ 已儲存'];
+      if (r.data.secretCheck && r.data.secretCheck.state === 'valid') lines.push('Cloudflare 接受這個 secret');
+      (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
+      if (r.data.info.configured) lines.push('下一步：按「開始實測」親自通過一次驗證。');
+      showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      renderAdminTurnstile(r.data.info);
+      fillAdminTurnstileForm(r.data.info);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    });
+
+    $('adminTurnstileDisableBtn').addEventListener('click', async () => {
+      if (!confirm('停用 Turnstile？之後註冊只靠隱藏欄位與次數限制擋機器人。')) return;
+      const r = await withReauth(() => accountApi('/api/admin/turnstile/settings', { method: 'POST', body: { disable: true } }));
+      if (!r.ok) { if (r.data.code !== 'REAUTH_CANCELLED') showToast(`❌ ${r.data.error || '停用失敗'}`, 'error'); return; }
+      showSetupResult($('adminTurnstileSaveResult'), '', ['已停用 Turnstile']);
+      $('adminTurnstileLiveBox').hidden = true;
+      renderAdminTurnstile(r.data.info);
+      fillAdminTurnstileForm(r.data.info);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    });
+
+    $('adminTurnstileLiveBtn').addEventListener('click', startAdminTurnstileLiveTest);
 
     $('adminLegalSaveBtn').addEventListener('click', async () => {
       const major = $('adminLegalMajor').checked;
