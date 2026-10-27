@@ -588,49 +588,108 @@ describe('account HTTP API', () => {
     });
   });
 
-  test('admin mail DNS check reports each required record', async () => {
-    const adminCookie = await makeAdmin();
-    const mailerMod = require('../lib/mailer.js');
-    const dns = require('dns');
-    const saved = process.env.MAIL_FROM;
-    const realResolver = dns.promises.Resolver;
-    const records = {
-      txt: { 'send.mail.example': [['v=spf1 include:amazonses.com ~all']], 'resend._domainkey.mail.example': [['p=' + 'A'.repeat(60)]] },
-      mx: { 'send.mail.example': [{ priority: 10, exchange: 'feedback-smtp.us-east-1.amazonses.com' }] }
-    };
-    dns.promises.Resolver = class {
-      async resolveTxt(name) { if (records.txt[name]) return records.txt[name]; throw Object.assign(new Error('nodata'), { code: 'ENODATA' }); }
-      async resolveMx(name) { if (records.mx[name]) return records.mx[name]; throw Object.assign(new Error('nodata'), { code: 'ENODATA' }); }
-    };
-    try {
-      process.env.MAIL_FROM = 'mdWebview <noreply@mail.example>';
-      const res = await request('/api/admin/mail/dns', { cookie: adminCookie });
-      assert.equal(res.status, 200);
-      assert.equal(res.json.domain, 'mail.example');
-      const byId = Object.fromEntries(res.json.records.map(r => [r.id, r]));
-      assert.equal(byId.spf.ok, true);
-      assert.equal(byId.mx.ok, true);
-      assert.equal(byId.dkim.ok, true);
-      assert.equal(byId.dmarc.ok, false);
-      assert.equal(byId.dmarc.required, false);
-      assert.equal(byId.dmarc.name, '_dmarc.mail.example');
-      assert.ok(byId.dkim.found[0].length < 60, 'DKIM value is shortened');
+  test('admin mail DNS check accepts both Resend record styles and does not need MX', async () => {
+    await withWebSettings(async () => {
+      const adminCookie = await makeAdmin();
+      const mailerMod = require('../lib/mailer.js');
+      const dns = require('dns');
+      const realResolver = dns.promises.Resolver;
+      const nodata = () => Object.assign(new Error('nodata'), { code: 'ENODATA' });
+      const records = { txt: {}, cname: {} };
+      dns.promises.Resolver = class {
+        async resolveTxt(name) { if (records.txt[name]) return records.txt[name]; throw nodata(); }
+        async resolveCname(name) { if (records.cname[name]) return records.cname[name]; throw nodata(); }
+      };
+      try {
+        process.env.MAIL_FROM = 'mdWebview <noreply@dev.mail.example>';
+        const check = async () => {
+          const res = await request('/api/admin/mail/dns', { cookie: adminCookie });
+          assert.equal(res.status, 200);
+          return { json: res.json, byId: Object.fromEntries(res.json.records.map(r => [r.id, r])) };
+        };
 
-      records.txt['_dmarc.mail.example'] = [['v=DMARC1; p=none;']];
-      delete records.txt['send.mail.example'];
-      const again = (await request('/api/admin/mail/dns', { cookie: adminCookie })).json;
-      assert.equal(again.records.find(r => r.id === 'dmarc').ok, true);
-      assert.equal(again.records.find(r => r.id === 'spf').ok, false);
+        // 什麼都沒有
+        let r = await check();
+        assert.equal(r.json.domain, 'dev.mail.example');
+        assert.deepEqual(r.json.records.map(x => x.id), ['dkim', 'send', 'dmarc'], 'no MX row');
+        assert.ok(r.json.records.filter(x => x.required).every(x => !x.ok));
 
-      delete process.env.MAIL_FROM;
-      const none = (await request('/api/admin/mail/dns', { cookie: adminCookie })).json;
-      assert.equal(none.domain, null);
-      assert.deepEqual(none.records, []);
-      assert.equal(mailerMod.getSenderDomain(), '');
-    } finally {
-      dns.promises.Resolver = realResolver;
-      if (saved === undefined) delete process.env.MAIL_FROM; else process.env.MAIL_FROM = saved;
-    }
+        // 新版（只開寄件）：DKIM + send、rsend 兩筆 CNAME，沒有 MX，也沒有 TXT
+        records.txt['resend._domainkey.dev.mail.example'] = [['p=' + 'A'.repeat(60)]];
+        records.cname['send.dev.mail.example'] = ['send.forge.rmta.net'];
+        r = await check();
+        assert.equal(r.byId.dkim.ok, true);
+        assert.equal(r.byId.send.ok, true);
+        assert.equal(r.byId.send.required, true);
+        assert.ok(r.byId.send.found[0].startsWith('CNAME '), 'shows the CNAME found');
+        assert.match(r.json.note, /rsend\.dev\.mail\.example/, 'nudges about the missing rsend CNAME');
+        assert.equal(r.byId.dmarc.ok, false);
+        assert.equal(r.byId.dmarc.required, false);
+        assert.equal(r.byId.dmarc.name, '_dmarc.dev.mail.example');
+        assert.ok(r.byId.dkim.found[0].length < 60, 'DKIM value is shortened');
+
+        records.cname['rsend.dev.mail.example'] = ['rsend-apne1.forge.rmta.net'];
+        r = await check();
+        assert.equal(r.json.note, '');
+
+        // 舊版：send 的 SPF TXT
+        delete records.cname['send.dev.mail.example'];
+        delete records.cname['rsend.dev.mail.example'];
+        records.txt['send.dev.mail.example'] = [['v=spf1 include:amazonses.com ~all']];
+        r = await check();
+        assert.equal(r.byId.send.ok, true);
+
+        // 指到別處的 CNAME 不算
+        delete records.txt['send.dev.mail.example'];
+        records.cname['send.dev.mail.example'] = ['example.org'];
+        r = await check();
+        assert.equal(r.byId.send.ok, false);
+
+        records.txt['_dmarc.dev.mail.example'] = [['v=DMARC1; p=none;']];
+        assert.equal((await check()).byId.dmarc.ok, true);
+
+        delete process.env.MAIL_FROM;
+        const none = (await request('/api/admin/mail/dns', { cookie: adminCookie })).json;
+        assert.equal(none.domain, null);
+        assert.deepEqual(none.records, []);
+        assert.equal(mailerMod.getSenderDomain(), '');
+      } finally {
+        dns.promises.Resolver = realResolver;
+      }
+    });
+  });
+
+  test('admin mail DNS check also reports the status Resend itself gives the domain', async () => {
+    await withWebSettings(async (integrations) => {
+      const adminCookie = await makeAdmin();
+      const dns = require('dns');
+      const realResolver = dns.promises.Resolver;
+      dns.promises.Resolver = class {
+        async resolveTxt() { throw Object.assign(new Error('nodata'), { code: 'ENODATA' }); }
+        async resolveCname() { throw Object.assign(new Error('nodata'), { code: 'ENODATA' }); }
+      };
+      let reply = { status: 200, body: { data: [{ name: 'dev.mail.example', status: 'verified', region: 'ap-northeast-1' }] } };
+      globalThis.fetch = async (url, opts) => {
+        if (String(url) === 'https://api.resend.com/domains') return new Response(JSON.stringify(reply.body), { status: reply.status });
+        return realFetch(url, opts);
+      };
+      try {
+        integrations.set({ mailProvider: 'resend', mailApiKey: 're_full_key_1234', mailFrom: 'noreply@dev.mail.example' });
+        const get = async () => (await request('/api/admin/mail/dns', { cookie: adminCookie })).json;
+        assert.deepEqual((await get()).resend, { state: 'known', domainStatus: 'verified' });
+
+        reply = { status: 200, body: { data: [{ name: 'other.example', status: 'verified' }] } };
+        assert.equal((await get()).resend.state, 'domain_missing');
+
+        reply = { status: 401, body: { name: 'restricted_api_key', message: 'restricted' } };
+        assert.equal((await get()).resend.state, 'send_only');
+
+        integrations.set({ mailApiKey: '' });
+        assert.equal((await get()).resend, null, 'no key, no Resend lookup');
+      } finally {
+        dns.promises.Resolver = realResolver;
+      }
+    });
   });
 
   test('every admin account route has a matching call in the admin UI (app.js)', () => {

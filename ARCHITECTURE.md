@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.4 | 最後更新：2026-10
+> 版本：v3.12.5 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.4'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.5'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1397,7 +1397,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 ---
 
-## 19. 使用者帳號（v3.12.4）
+## 19. 使用者帳號（v3.12.5）
 
 線上網站（`MDW_DEPLOY_TARGET=web`）才有帳號；單機模式不開資料庫，維持本機免登入。
 
@@ -1420,7 +1420,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 寄信（`MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_FROM`）與 Turnstile（`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`）的值由 `lib/integrations.js` 提供：環境變數有值就用環境變數（後台顯示為鎖定），否則用後台網頁填寫、存在 `app_settings` 的 `integrations.*`。金鑰類以 AES-256-GCM 加密，金鑰檔是資料庫旁的 `secrets.key`（600，第一次儲存時產生；記憶體資料庫用行程內金鑰）；解不開時視為未設定並提示重填。API 只回傳末四碼。
 
-後台「🔑 帳號系統」的「開站設定」列出五步：對外網址、連接 Resend、寄測試信、設定 Turnstile、實際通過一次 Turnstile（`setupProgress()`，前三步是開放註冊的必要條件，未完成時分頁上亮紅點；第一次建立管理員後直接打開這個分頁）。`POST /api/admin/mail/settings` 先用 `GET https://api.resend.com/domains` 驗金鑰（200＝完整權限並比對寄件網域狀態、401 `restricted_api_key`＝只能寄信、其他 401／403＝拒絕儲存）；`POST /api/admin/turnstile/settings` 先送假 token 給 siteverify 驗 secret（`invalid-input-secret` 拒絕儲存）。兩者都要 10 分鐘內重新驗證過身分，連不上外部服務時照存並提醒。`POST /api/admin/turnstile/verify` 讓管理員在後台實際完成一次 Turnstile，伺服器以目前的金鑰驗證並比對網域。寄信卡片另有寄件網域的 DNS 檢查（`GET /api/admin/mail/dns`，只讀 SPF、退信 MX、DKIM、DMARC）。
+後台「🔑 帳號系統」的「開站設定」列出五步：對外網址、連接 Resend、寄測試信、設定 Turnstile、實際通過一次 Turnstile（`setupProgress()`，前三步是開放註冊的必要條件，未完成時分頁上亮紅點；第一次建立管理員後直接打開這個分頁）。`POST /api/admin/mail/settings` 先用 `GET https://api.resend.com/domains` 驗金鑰（200＝完整權限並比對寄件網域狀態、401 `restricted_api_key`＝只能寄信、其他 401／403＝拒絕儲存）；`POST /api/admin/turnstile/settings` 先送假 token 給 siteverify 驗 secret（`invalid-input-secret` 拒絕儲存）。兩者都要 10 分鐘內重新驗證過身分，連不上外部服務時照存並提醒。`POST /api/admin/turnstile/verify` 讓管理員在後台實際完成一次 Turnstile，伺服器以目前的金鑰驗證並比對網域。寄信卡片另有寄件網域的 DNS 檢查（`GET /api/admin/mail/dns`）：必要的是 DKIM（`resend._domainkey` TXT）與「寄信授權」（`send` 子網域有指向 `*.rmta.net` 的 CNAME，或舊版的 `v=spf1 include:amazonses.com` TXT，兩種都認），DMARC 選用。Resend 只開寄信時沒有 MX，所以不檢查 MX；有 `send` 的 CNAME 但缺 `rsend` 時只提醒。金鑰有完整權限時另外顯示 Resend 自己回報的網域驗證狀態，寄信專用金鑰查不到就只看 DNS。
 
 隱私權政策與使用條款的文字存在資料庫的 `app_settings`（不放在程式碼），由後台「🔑 帳號系統」編輯，發布在 `/privacy` 與 `/terms`。勾選「重大變更」時，已註冊者下次登入要重新同意。
 
