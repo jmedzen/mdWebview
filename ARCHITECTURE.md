@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.6 | 最後更新：2026-10
+> 版本：v3.12.7 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.6'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.7'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1431,3 +1431,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 書籤、閱讀進度與偏好的跨裝置同步（資料表已建立，API 尚未開放），以及登出時清除本機資料。
 - Apple 刪除帳號時的 token 撤銷。
 
+
+### 後台區塊狀態燈與收合（v3.12.7）
+
+後台每張 `.config-card[data-card]` 的標題前有一顆狀態燈（`.status-light`：綠 ok、黃 warn、紅 bad、灰 off＝沒有需要監控的狀態），標題旁有一行簡短說明（同時是燈的 tooltip），最右側有展開／收合箭頭，收合狀態存在 `localStorage['mdwebview.adminCollapsed']`。`enhanceAdminCards()` 補上這些元素；燈號由 `setAdminCardLight(key, level, text, part)` 設定，同一張卡片有多個 `part` 時取最嚴重的（例如「帳號資料庫與備份」同時看資料庫與備份）。「系統設定／搜尋優化」兩個分頁的燈從表單欄位即時計算（`refreshAdminConfigLights()`），「使用者」「帳號系統」兩個分頁的燈在各區塊載入或儲存後依 API 回傳的真實狀態更新。新增區塊時在 `index.html` 的 `.config-card` 加 `data-card="key"`，再於對應的載入函式呼叫 `setAdminCardLight`。

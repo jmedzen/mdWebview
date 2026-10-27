@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.6
+   mdWebview — Application Logic (app.js) v3.12.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9276,7 +9276,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9606,7 +9606,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.6';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.7';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10551,6 +10551,9 @@
         preloads.push(loadAdminAnalytics().catch(() => {}));
       }
       Promise.all(preloads);
+      enhanceAdminCards();
+      wireAdminConfigLights();
+      refreshAdminConfigLights();
     } catch (err) {
       console.error('Error fetching settings:', err);
       showToast('❌ 系統設定載入失敗', 'error');
@@ -12359,6 +12362,7 @@
   }
 
   async function loadAdminUsersTab() {
+    enhanceAdminCards();
     adminUsersState.page = 1;
     $('adminUserDetail').hidden = true;
     await Promise.all([loadAdminUsers(), loadAdminRegistration(), loadAdminInvites(), loadAdminBotStats(), loadAdminLockouts(), loadAdminEvents(true)]);
@@ -12384,6 +12388,7 @@
     adminNotice('adminUsersNotice', '');
     adminUsersState.total = r.data.total;
     $('adminUsersTotal').textContent = `共 ${r.data.total} 位`;
+    setAdminCardLight('users', 'ok', `共 ${r.data.total} 位使用者`);
     const pages = Math.max(1, Math.ceil(r.data.total / r.data.limit));
     $('adminUsersPageInfo').textContent = `第 ${r.data.page} / ${pages} 頁`;
     $('adminUsersPrev').disabled = r.data.page <= 1;
@@ -12507,6 +12512,8 @@
     $('adminRegCap').value = r.data.hourlyCap;
     $('adminRegDomains').value = (r.data.disposableDomains || []).join('\n');
     const blockers = (r.data.blockers || []).map(b => REG_BLOCKER_TEXT[b] || b);
+    setAdminCardLight('registration', blockers.length ? 'bad' : r.data.mode === 'closed' ? 'warn' : 'ok',
+      blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'closed' ? '已關閉註冊' : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
     showBox($('adminRegBlockers'), blockers.length ? `註冊與寄信類功能暫停中：${blockers.join('；')}` : '');
   }
 
@@ -12545,6 +12552,7 @@
     if (!r.ok) return;
     const b = r.data.blocked || {};
     const ts = r.data.turnstile || {};
+    setAdminCardLight('bots', r.data.capHitAt ? 'warn' : 'off', r.data.capHitAt ? `最近達到每小時註冊上限（${fmtDateTime(r.data.capHitAt)}）` : '');
     $('adminBotStats').innerHTML = `<div class="account-list">
       <div class="account-list-row"><span>人機驗證未通過</span><strong>${b.turnstile || 0}</strong></div>
       <div class="account-list-row"><span>隱藏欄位／填表太快</span><strong>${b.honeypot || 0}</strong></div>
@@ -12563,6 +12571,7 @@
   function renderAdminLockouts(data) {
     const list = $('adminLockoutList');
     list.innerHTML = '';
+    setAdminCardLight('lockouts', data.accounts.length + data.ips.length ? 'warn' : 'ok', data.accounts.length + data.ips.length ? `${data.accounts.length + data.ips.length} 個帳號或 IP 被鎖定中` : '沒有被鎖定的帳號或 IP');
     const rows = data.accounts.map(a => ({ key: a.key, text: `帳號 ${a.key}：失敗 ${a.fails} 次${a.lockedUntil ? `，鎖到 ${fmtDateTime(a.lockedUntil)}` : ''}` }))
       .concat(data.ips.map(i => ({ key: i.ip, text: `IP ${i.ip}：15 分鐘內失敗 ${i.fails} 次${i.locked ? '（暫停登入）' : ''}` })));
     if (!rows.length) { list.innerHTML = '<div class="field-hint">目前沒有被鎖定的帳號或 IP</div>'; return; }
@@ -12607,7 +12616,125 @@
   }
 
   // ── 後台：帳號系統分頁 ──
+  // ── 後台區塊狀態燈與收合 ──
+  // 每張 .config-card 標題前有紅綠燈（綠＝正常、黃＝需要注意、紅＝有問題、灰＝沒有需要監控的狀態），
+  // 右側有展開／收合箭頭；收合狀態記在 localStorage。燈號由各區塊載入時拿到的真實設定／健康資料決定。
+  const ADMIN_LIGHT_LABEL = { ok: '正常', warn: '注意', bad: '異常', off: '未啟用' };
+  const ADMIN_LIGHT_RANK = { off: 0, ok: 1, warn: 2, bad: 3 };
+  const ADMIN_COLLAPSE_KEY = 'mdwebview.adminCollapsed';
+  const adminLightParts = {};
+
+  function readAdminCollapsed() {
+    try { return JSON.parse(localStorage.getItem(ADMIN_COLLAPSE_KEY) || '{}') || {}; } catch (_) { return {}; }
+  }
+
+  function writeAdminCollapsed(map) {
+    try { localStorage.setItem(ADMIN_COLLAPSE_KEY, JSON.stringify(map)); } catch (_) {}
+  }
+
+  function setAdminCardCollapsed(card, collapsed, persist) {
+    card.classList.toggle('collapsed', collapsed);
+    const btn = card.querySelector('.config-card-toggle');
+    if (btn) {
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.title = collapsed ? '展開' : '收合';
+    }
+    if (persist && card.dataset.card) {
+      const map = readAdminCollapsed();
+      if (collapsed) map[card.dataset.card] = 1; else delete map[card.dataset.card];
+      writeAdminCollapsed(map);
+    }
+  }
+
+  /** 幫每張卡片補上狀態燈與收合箭頭（只做一次）。 */
+  function enhanceAdminCards() {
+    const saved = readAdminCollapsed();
+    document.querySelectorAll('.config-card[data-card]').forEach(card => {
+      if (card.dataset.lightsReady) return;
+      const header = card.querySelector('.config-card-header');
+      if (!header) return;
+      card.dataset.lightsReady = '1';
+      const light = document.createElement('span');
+      light.className = 'status-light off';
+      light.setAttribute('role', 'img');
+      light.setAttribute('aria-label', '狀態：未啟用');
+      light.title = '這個區塊沒有需要監控的狀態';
+      header.insertBefore(light, header.firstChild);
+      const text = document.createElement('span');
+      text.className = 'status-light-text';
+      header.insertBefore(text, header.querySelector('.config-card-title').nextSibling);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'config-card-toggle';
+      btn.setAttribute('aria-label', '展開或收合此區塊');
+      btn.textContent = '▾';
+      header.appendChild(btn);
+      header.classList.add('collapsible');
+      header.addEventListener('click', ev => {
+        if (ev.target.closest('button:not(.config-card-toggle), a, input, select, label')) return;
+        setAdminCardCollapsed(card, !card.classList.contains('collapsed'), true);
+      });
+      setAdminCardCollapsed(card, !!saved[card.dataset.card], false);
+      renderAdminCardLight(card.dataset.card);
+    });
+  }
+
+  function renderAdminCardLight(key) {
+    const card = document.querySelector(`.config-card[data-card="${key}"]`);
+    if (!card) return;
+    const parts = Object.values(adminLightParts[key] || {});
+    const worst = parts.reduce((a, b) => (ADMIN_LIGHT_RANK[b.level] > ADMIN_LIGHT_RANK[a.level] ? b : a), { level: 'off', text: '' });
+    const light = card.querySelector('.status-light');
+    const label = card.querySelector('.status-light-text');
+    if (!light) return;
+    light.className = `status-light ${worst.level}`;
+    const notable = parts.filter(p => p.level === worst.level).map(p => p.text).filter(Boolean).join('；');
+    const text = notable || (worst.level === 'off' ? '' : ADMIN_LIGHT_LABEL[worst.level]);
+    light.title = text || '這個區塊沒有需要監控的狀態';
+    light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[worst.level]}${text ? `，${text}` : ''}`);
+    label.textContent = worst.level === 'off' ? '' : text;
+  }
+
+  /** level: ok | warn | bad | off。同一張卡片可由多個 part 回報，取最嚴重的那個。 */
+  function setAdminCardLight(key, level, text, part) {
+    (adminLightParts[key] = adminLightParts[key] || {})[part || 'main'] = { level, text: text || '' };
+    renderAdminCardLight(key);
+  }
+
+  let adminLightsWired = false;
+  function wireAdminConfigLights() {
+    if (adminLightsWired) return;
+    adminLightsWired = true;
+    const onEdit = ev => { if (ev.target.closest && ev.target.closest('#adminPaneConfig, #adminPaneSeo')) refreshAdminConfigLights(); };
+    document.addEventListener('input', onEdit);
+    document.addEventListener('change', onEdit);
+  }
+
+  function refreshAdminConfigLights() {
+    const val = id => { const el = $(id); return el ? (el.type === 'checkbox' ? el.checked : String(el.value || '').trim()) : ''; };
+    const L = setAdminCardLight;
+    L('site', !val('settingsMdRoot') ? 'bad' : !val('settingsSiteUrl') ? 'warn' : 'ok',
+      !val('settingsMdRoot') ? '尚未設定經文目錄' : !val('settingsSiteUrl') ? '未設定首頁權威 URL（影響驗證信連結與 SEO）' : '經文目錄與網址都已設定');
+    L('reading', 'off');
+    const footerIssues = [];
+    if (val('settingsEnableDownload') && !val('settingsDownloadUrl')) footerIssues.push('已開啟離線下載但沒有填下載網址');
+    if (val('settingsEnableDictionary') && !val('settingsDictionaryPath')) footerIssues.push('已開啟辭典但沒有填辭典路徑');
+    L('footer', footerIssues.length ? 'warn' : 'ok', footerIssues.join('；'));
+    L('announce', !val('settingsEnableAnnouncement') ? 'off' : val('settingsAnnouncementMessage') ? 'ok' : 'warn',
+      !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
+    L('password', 'off');
+    L('cfgbackup', 'off');
+    const robots = val('seoRobotsIndex');
+    L('indexing', !robots ? 'warn' : val('seoSiteDescription') ? 'ok' : 'warn',
+      !robots ? '已禁止搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
+    L('og', val('seoOgImage') ? 'ok' : 'warn', val('seoOgImage') ? '已設定分享預覽圖' : '還沒有設定分享預覽圖');
+    const verified = ['googleSiteVerification', 'bingSiteVerification', 'baiduSiteVerification'].filter(id => val(id)).length;
+    L('webmaster', verified ? 'ok' : 'off', verified ? `已填 ${verified} 個驗證碼` : '');
+    L('schema', val('seoEnableSearchBox') ? 'ok' : 'off', val('seoEnableSearchBox') ? '已啟用站內搜尋框結構化資料' : '');
+  }
+
   async function loadAdminAccountSystemTab() {
+    enhanceAdminCards();
     const ov = await accountApi('/api/admin/accounts-overview');
     if (!ov.ok) {
       adminNotice('adminAccountSysNotice', ov.data.error || '帳號功能目前無法使用');
@@ -12658,6 +12785,8 @@
     });
     const badge = $('adminSetupBadge');
     const done = setup.steps.filter(st => st.done).length;
+    setAdminCardLight('setup', !setup.requiredComplete ? 'bad' : setup.complete ? 'ok' : 'warn',
+      !setup.requiredComplete ? `必要步驟尚未完成（${done} / ${setup.steps.length}）` : setup.complete ? '全部完成' : `必要步驟完成，還有建議步驟（${done} / ${setup.steps.length}）`);
     badge.textContent = setup.complete ? '全部完成' : `${done} / ${setup.steps.length}`;
     badge.classList.toggle('danger', !setup.requiredComplete);
   }
@@ -12719,6 +12848,9 @@
     if (!r.ok) return;
     const list = $('adminProviderList');
     list.innerHTML = '';
+    const active = r.data.providers.filter(p => p.active).length;
+    const idle = r.data.providers.filter(p => p.configured && !p.active).length;
+    setAdminCardLight('sso', active ? 'ok' : 'warn', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
     for (const p of r.data.providers) {
       const section = document.createElement('section');
       section.className = 'sso-provider';
@@ -12948,6 +13080,9 @@
 
   function renderAdminMail(m) {
     const st = m.settings || {};
+    const mailOk = m.configured && m.provider === 'resend';
+    setAdminCardLight('mail', mailOk ? (m.failures24h > 0 ? 'warn' : 'ok') : m.provider === 'log' ? 'warn' : 'bad',
+      mailOk ? (m.failures24h > 0 ? `24 小時內寄送失敗 ${m.failures24h} 封` : '可以寄信') : m.provider === 'log' ? '測試模式，信不會真的寄出' : '無法寄信，註冊與重設密碼信都寄不出去');
     const providerText = m.provider === 'resend' ? 'Resend' : m.provider === 'log' ? '只寫進日誌（測試用，不會真的寄出）' : '停用';
     const missingLabels = { MAIL_PROVIDER: '寄信服務', MAIL_API_KEY: 'API 金鑰', MAIL_FROM: '寄件 Email' };
     const missing = (m.missingEnv || []).length ? `<div class="account-list-row"><span>還缺</span><span class="account-badge danger">${escHtml(m.missingEnv.map(n => missingLabels[n] || n).join('、'))}</span></div>` : '';
@@ -13027,6 +13162,7 @@
   }
 
   function renderAdminTurnstile(t) {
+    setAdminCardLight('turnstile', t.configured ? 'ok' : 'warn', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
     const yes = text => `<span class="account-badge">${text}</span>`;
     const no = text => `<span class="account-badge danger">${text}</span>`;
     const last = t.lastResult;
@@ -13090,11 +13226,14 @@
     $('adminLegalPrivacy').value = r.data.privacy || '';
     $('adminLegalTerms').value = r.data.terms || '';
     $('adminLegalMajor').checked = false;
+    setAdminCardLight('legal', r.data.version ? 'ok' : 'warn', r.data.version ? `已發布第 ${r.data.version} 版` : '尚未發布，開放註冊前應先發布');
     $('adminLegalVersion').textContent = r.data.version ? `第 ${r.data.version} 版 · ${fmtDateTime(r.data.updatedAt)}` : '尚未發布';
   }
 
   function renderAdminDbStatus(d) {
     const box = $('adminDbStatus');
+    setAdminCardLight('db', !d || !d.available ? 'bad' : d.inMemory ? 'warn' : 'ok',
+      !d || !d.available ? '資料庫無法使用' : d.inMemory ? '記憶體資料庫，重啟後資料消失' : '資料庫正常', 'db');
     if (!d || !d.available) {
       box.innerHTML = `<div class="account-list-row"><span>資料庫</span><strong>無法使用</strong></div>${d && d.error ? `<div class="field-hint">${escHtml(d.error)}</div>` : ''}`;
       return;
@@ -13114,6 +13253,8 @@
     const list = $('adminBackupList');
     list.innerHTML = '';
     $('adminBackupNowBtn').disabled = !!(status && status.inMemory) || !(status && status.backupsEnabled);
+    setAdminCardLight('db', !(status && status.backupsEnabled) ? 'warn' : backups.length ? 'ok' : 'warn',
+      !(status && status.backupsEnabled) ? '自動備份未啟用' : backups.length ? '' : '還沒有任何備份', 'backups');
     if (!backups.length) { list.innerHTML = '<div class="field-hint">還沒有備份</div>'; return; }
     for (const b of backups) {
       const row = document.createElement('div');
