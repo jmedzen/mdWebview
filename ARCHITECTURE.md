@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.7 | 最後更新：2026-10
+> 版本：v3.12.8 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.7'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.8'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1435,3 +1435,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 ### 後台區塊狀態燈與收合（v3.12.7）
 
 後台每張 `.config-card[data-card]` 的標題前有一顆狀態燈（`.status-light`：綠 ok、黃 warn、紅 bad、灰 off＝沒有需要監控的狀態），標題旁有一行簡短說明（同時是燈的 tooltip），最右側有展開／收合箭頭，收合狀態存在 `localStorage['mdwebview.adminCollapsed']`。`enhanceAdminCards()` 補上這些元素；燈號由 `setAdminCardLight(key, level, text, part)` 設定，同一張卡片有多個 `part` 時取最嚴重的（例如「帳號資料庫與備份」同時看資料庫與備份）。「系統設定／搜尋優化」兩個分頁的燈從表單欄位即時計算（`refreshAdminConfigLights()`），「使用者」「帳號系統」兩個分頁的燈在各區塊載入或儲存後依 API 回傳的真實狀態更新。新增區塊時在 `index.html` 的 `.config-card` 加 `data-card="key"`，再於對應的載入函式呼叫 `setAdminCardLight`。
+
+### 成功／錯誤訊息的主題色（v3.12.8）
+
+每個主題都定義 `--success`、`--success-bg`、`--danger`、`--danger-bg`。`.form-success`、`.form-error`、`.diagnose-result`、`.setup-result.error`、`.danger-btn`、`.logout-btn` 都改用這組變數：訊息本文一律是 `--text-primary`，綠／紅只用在邊框、左側色條、圖示與短字，所以淺色、深色、禪意（米色）主題都看得清楚。註冊、重寄驗證信、忘記密碼送出後，登入卡片會整張換成 `#accountAuthDone`：寄到哪個信箱、接下來三個步驟、沒收到怎麼辦，以及「知道了／重寄驗證信／回到登入」。後台產生的邀請碼顯示在 `.invite-new`，大字等寬，附「複製」按鈕。

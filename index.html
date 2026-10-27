@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.7'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.8'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -51,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#181825">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.7">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.7">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.7">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.12.7">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.7">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.8">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.8">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.8">
+  <link rel="shortcut icon" href="/favicon.ico?v=3.12.8">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.8">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -77,9 +77,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.12.7">
+  <link rel="stylesheet" href="style.css?v=3.12.8">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=3.12.7"></script>
+  <script src="i18n/boot.js?v=3.12.8"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -440,7 +440,7 @@
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.7</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.8</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -646,7 +646,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.12.7</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v3.12.8</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -683,7 +683,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.7</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.8</span>
       </div>
     </div>
   </div>
@@ -909,6 +909,20 @@
       <p class="account-legal-links" id="accountLegalLinks" hidden>
         <a href="/privacy" target="_blank" rel="noopener">隱私權政策</a> · <a href="/terms" target="_blank" rel="noopener">使用條款</a>
       </p>
+
+      <!-- 寄出信件後的完整說明（取代表單，避免只剩一行小字） -->
+      <div class="account-done" id="accountAuthDone" hidden role="status" aria-live="polite">
+        <div class="account-done-icon" aria-hidden="true">✉️</div>
+        <h3 class="account-done-title" id="accountAuthDoneTitle"></h3>
+        <p class="account-done-email" id="accountAuthDoneEmail" hidden></p>
+        <ol class="account-done-steps" id="accountAuthDoneSteps"></ol>
+        <p class="account-done-note" id="accountAuthDoneNote"></p>
+        <div class="account-done-actions">
+          <button type="button" class="modal-btn submit-btn" id="accountAuthDoneOk">知道了</button>
+          <button type="button" class="link-btn" id="accountAuthDoneResend" hidden>沒收到？重寄驗證信</button>
+          <button type="button" class="link-btn" id="accountAuthDoneLogin">回到登入</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1810,7 +1824,13 @@
                 <input type="text" id="adminInviteNote" maxlength="200" placeholder="備註（給誰）" aria-label="備註">
                 <button type="button" class="modal-btn submit-btn small-btn" id="adminInviteCreateBtn">產生</button>
               </div>
-              <div id="adminInviteNew" class="form-success" style="display: none;"></div>
+              <div id="adminInviteNew" class="invite-new" hidden role="status">
+                <div class="invite-new-label">新的邀請碼（只會顯示這一次，請現在複製）</div>
+                <div class="invite-new-row">
+                  <code class="invite-new-code" id="adminInviteNewCode"></code>
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminInviteCopyBtn">複製</button>
+                </div>
+              </div>
               <div id="adminInviteList" class="account-list"></div>
             </div>
           </div>
@@ -2412,13 +2432,13 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=3.12.7" defer></script>
-  <script src="i18n/zh-TW.js?v=3.12.7" defer></script>
-  <script src="i18n/zh-CN.js?v=3.12.7" defer></script>
-  <script src="i18n/i18n.js?v=3.12.7" defer></script>
-  <script src="i18n/content-terms.js?v=3.12.7" defer></script>
-  <script src="i18n/display-script.js?v=3.12.7" defer></script>
-  <script src="i18n/search-variants.js?v=3.12.7" defer></script>
-  <script src="app.js?v=3.12.7" defer></script>
+  <script src="marked.min.js?v=3.12.8" defer></script>
+  <script src="i18n/zh-TW.js?v=3.12.8" defer></script>
+  <script src="i18n/zh-CN.js?v=3.12.8" defer></script>
+  <script src="i18n/i18n.js?v=3.12.8" defer></script>
+  <script src="i18n/content-terms.js?v=3.12.8" defer></script>
+  <script src="i18n/display-script.js?v=3.12.8" defer></script>
+  <script src="i18n/search-variants.js?v=3.12.8" defer></script>
+  <script src="app.js?v=3.12.8" defer></script>
 </body>
 </html>
