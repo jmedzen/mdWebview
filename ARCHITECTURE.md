@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.9 | 最後更新：2026-10
+> 版本：v3.12.10 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.9'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.10'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1442,6 +1442,6 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 每個主題都定義 `--success`、`--success-bg`、`--danger`、`--danger-bg`。`.form-success`、`.form-error`、`.diagnose-result`、`.setup-result.error`、`.danger-btn`、`.logout-btn` 都改用這組變數：訊息本文一律是 `--text-primary`，綠／紅只用在邊框、左側色條、圖示與短字，所以淺色、深色、禪意（米色）主題都看得清楚。註冊、重寄驗證信、忘記密碼送出後，登入卡片會整張換成 `#accountAuthDone`：寄到哪個信箱、接下來三個步驟、沒收到怎麼辦，以及「知道了／重寄驗證信／回到登入」。後台產生的邀請碼顯示在 `.invite-new`，大字等寬，附「複製」按鈕。
 
-### 右上角整合選單（v3.12.9）
+### 右上角整合選單（v3.12.10）
 
 原本右上角的「繁／简」、帳號、齒輪三顆按鈕合成一顆 `#userMenuBtn`，右上角只剩搜尋、辭典（有啟用時）與這顆選單。按鈕外觀：已登入顯示名字首字（`.signed-in`），網頁版未登入顯示人形，單機版或帳號系統不可用時顯示齒輪（`.no-accounts`）。點開 `#userMenuPanel`：帳號狀態（未登入有「登入／註冊」，登入後顯示名字、Email 與「管理員」標籤）、繁體／简体、五個主題色塊、偏好設定、我的帳號、後台系統設定（管理員；單機版顯示為「系統設定」）、登出。`updateUserMenu()` 在登入狀態或部署模式改變時更新選單，任何時候呼叫都安全；繁簡與主題分別由 `updateUserMenuScript()`、`updateUserMenuTheme()` 跟 `applyDisplayScript`／`applyTheme` 同步。Esc、點選單外面會關閉，上下鍵在項目間移動。舊的「管理員登入」視窗（`#adminLoginOverlay`）已移除：所有登入都走 `#accountAuthOverlay`；後台逾期或還原資料庫後呼叫 `openLoginOverlay()`，會以 `afterLogin: 'admin'` 開帳號登入，管理員登入後直接回到後台。`/api/admin/login` 仍保留給命令列工具。
