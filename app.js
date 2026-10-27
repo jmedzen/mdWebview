@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.7
+   mdWebview — Application Logic (app.js) v3.12.8
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.7';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.8';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9276,7 +9276,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.8';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9606,7 +9606,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.7';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.8';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11953,7 +11953,8 @@
     authUi.openedAt = Date.now();
     authUi.needTurnstile = false;
     const card = document.querySelector('#accountAuthOverlay .account-card');
-    if (card) card.setAttribute('data-view', view);
+    if (card) { card.setAttribute('data-view', view); card.classList.remove('is-done'); }
+    $('accountAuthDone').hidden = true;
     $$('#accountAuthOverlay [data-views]').forEach(el => {
       el.hidden = !el.getAttribute('data-views').split(' ').includes(view);
     });
@@ -12064,6 +12065,49 @@
     }
   }
 
+  // 寄出信件後，把整張卡片換成一份完整說明：信寄到哪、接下來怎麼做、沒收到怎麼辦。
+  // 伺服器的回覆刻意不透露信箱是否已註冊，所以標題只說「已送出」。
+  const AUTH_DONE = {
+    register: {
+      title: '註冊申請已送出',
+      steps: ['打開信箱，找一封來自本站的驗證信', '點信裡的驗證連結（24 小時內有效）', '驗證完成後，回到這裡登入'],
+      resend: true
+    },
+    resend: {
+      title: '驗證信已重新寄出',
+      steps: ['打開信箱，找最新的那一封驗證信', '點信裡的驗證連結（24 小時內有效）', '驗證完成後，回到這裡登入'],
+      resend: false
+    },
+    forgot: {
+      title: '重設密碼信已寄出',
+      steps: ['打開信箱，找一封重設密碼的信', '點信裡的連結（1 小時內有效）', '設定新密碼後就會自動登入'],
+      resend: false
+    }
+  };
+
+  function showAuthDone(view, email, message) {
+    const info = AUTH_DONE[view];
+    if (!info) return;
+    const card = document.querySelector('#accountAuthOverlay .account-card');
+    if (card) card.classList.add('is-done');
+    $('accountAuthDoneTitle').textContent = info.title;
+    const emailEl = $('accountAuthDoneEmail');
+    emailEl.textContent = email ? `寄到：${email}` : '';
+    emailEl.hidden = !email;
+    const steps = $('accountAuthDoneSteps');
+    steps.innerHTML = '';
+    for (const text of info.steps) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      steps.appendChild(li);
+    }
+    const note = message || '如果這個信箱可以使用，我們已寄出信件，請查收。';
+    $('accountAuthDoneNote').textContent = /垃圾郵件/.test(note) ? note : `${note}（也請看看垃圾郵件匣）`;
+    $('accountAuthDoneResend').hidden = !info.resend;
+    $('accountAuthDone').hidden = false;
+    setTimeout(() => $('accountAuthDoneOk').focus(), 30);
+  }
+
   async function submitAccountAuth() {
     const view = authUi.view;
     const errorEl = $('accountAuthError');
@@ -12118,8 +12162,8 @@
         }
       }
       if (r.ok) {
-        showBox(okEl, r.data.message || '已送出');
         $('accountPassword').value = '';
+        showAuthDone(view, email, r.data.message);
       } else {
         showBox(errorEl, r.data.error || '發生錯誤，請稍後再試');
       }
@@ -12267,6 +12311,9 @@
     $('accountAuthCloseBtn').addEventListener('click', () => closeOverlay('accountAuthOverlay'));
     $('accountAuthForm').addEventListener('submit', (e) => { e.preventDefault(); submitAccountAuth(); });
     $$('#accountAuthOverlay [data-goto]').forEach(b => b.addEventListener('click', () => setAuthView(b.getAttribute('data-goto'))));
+    $('accountAuthDoneOk').addEventListener('click', () => closeOverlay('accountAuthOverlay'));
+    $('accountAuthDoneLogin').addEventListener('click', () => setAuthView('login'));
+    $('accountAuthDoneResend').addEventListener('click', () => setAuthView('resend'));
 
     $('accountSettingsCloseBtn').addEventListener('click', () => closeOverlay('accountSettingsOverlay'));
     $('accountLogoutBtn').addEventListener('click', accountLogout);
@@ -13322,13 +13369,25 @@
       else showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error');
     });
 
+    $('adminInviteCopyBtn').addEventListener('click', async () => {
+      const code = $('adminInviteNewCode').textContent;
+      try { await navigator.clipboard.writeText(code); showToast('✅ 已複製邀請碼', 'success', 1800); }
+      catch (_) {
+        const range = document.createRange();
+        range.selectNodeContents($('adminInviteNewCode'));
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        showToast('請按 Ctrl+C／⌘C 複製已選取的邀請碼', 'info', 3000);
+      }
+    });
+
     $('adminInviteCreateBtn').addEventListener('click', async () => {
       const r = await accountApi('/api/admin/invites', {
         method: 'POST',
         body: { usesLeft: $('adminInviteUses').value, expiresInDays: $('adminInviteDays').value, note: $('adminInviteNote').value }
       });
       if (!r.ok) { showToast(`❌ ${r.data.error || '產生失敗'}`, 'error'); return; }
-      showBox($('adminInviteNew'), `新的邀請碼（只會顯示這一次）：${r.data.code}`);
+      $('adminInviteNewCode').textContent = r.data.code;
+      $('adminInviteNew').hidden = false;
       $('adminInviteNote').value = '';
       renderAdminInvites(r.data.invites);
     });
