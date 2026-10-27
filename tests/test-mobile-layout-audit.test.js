@@ -23,11 +23,11 @@ describe('手機版本排版與 RWD 審計自動化測試 (Mobile Layout & RWD A
     assert.match(cssContent, /\.compact-row\s+\.form-group\.half,\s*\.compact-row\s+\.form-group\.third\s*\{[^}]*width:\s*100%\s*!important;/, '雙欄在手機版必須佔滿 100% 寬度');
   });
 
-  test('3. 使用者設定書籤與近期閱讀清單防擠壓檢驗 (P0 級)', () => {
-    // 驗證時間戳 flex-shrink: 0 與 nowrap
-    assert.match(cssContent, /\.list-item-time\s*\{[^}]*flex-shrink:\s*0;[^}]*white-space:\s*nowrap;/, '清單時間標籤必須保持 flex-shrink: 0 與 white-space: nowrap');
-    // 驗證刪除按鈕具備足夠點擊熱區
-    assert.match(cssContent, /\.list-item-del-btn\s*\{[^}]*min-width:\s*28px;[^}]*min-height:\s*28px;/, '刪除按鈕必須具備至少 28px 觸控點擊區域');
+  test('3. 書籤與歷程抽屜清單防擠壓與觸控熱區檢驗 (P0 級)', () => {
+    // 標題過長以省略號截斷，不把刪除鈕擠出畫面
+    assert.match(cssContent, /\.library-open\s*\{[^}]*min-width:\s*0;/, '抽屜項目必須可收縮 (min-width: 0)');
+    // 刪除按鈕具備足夠點擊熱區
+    assert.match(cssContent, /\.library-del\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/, '刪除按鈕必須具備至少 30px 觸控點擊區域');
   });
 
   test('4. 系統管理與備份按鈕組在手機端垂直堆疊檢驗', () => {
