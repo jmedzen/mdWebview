@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.1.3
+   mdWebview — Application Logic (app.js) v4.1.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6794,6 +6794,8 @@
    *
    * 搜尋高亮會把文字節點切開再組回去，新節點只拿得到簡體字，切回繁體時
    * 無法逐字還原。偵測到這種節點就重新渲染目前檔案，確保繁體與原文一致。
+   * 圖表（.mermaid-container 內的 Pele SVG）本來就不轉換，裡面的簡體字是原文，
+   * 不算數，否則圖表含簡體字時每次切回繁體都會整篇重渲染。
    */
   function contentHasUnrestorableText() {
     const ds = window.mdDisplayScript;
@@ -6804,7 +6806,7 @@
     let n;
     while ((n = walker.nextNode())) {
       if (ds.originalText(n) === n.data && sv.hasSimplified(n.data) &&
-          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid'))) {
+          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid, .mermaid-container, .pele'))) {
         return true;
       }
     }
@@ -7598,7 +7600,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.4';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9420,7 +9422,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9754,7 +9756,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.4';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',

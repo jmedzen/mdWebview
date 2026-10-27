@@ -464,6 +464,41 @@ describe('繁簡顯示 6：搜尋與偏好整合', () => {
     }
   });
 
+  test('切回繁體判斷是否重渲染：程式碼、公式、圖表內的簡體原文不算', () => {
+    const fnBody = extractFunctionBody(appSource, 'function contentHasUnrestorableText()');
+    assert.ok(fnBody);
+    // 簡易 DOM：每個文字節點帶上祖先的 tag 與 class，closest() 以選擇器清單比對
+    const makeText = (data, ancestors) => ({
+      data,
+      parentElement: {
+        closest(sel) {
+          const parts = sel.split(',').map(x => x.trim());
+          return ancestors.some(a => parts.some(p => (p.startsWith('.') ? (a.cls || []).includes(p.slice(1)) : a.tag === p))) ? {} : null;
+        }
+      }
+    });
+    const run = (nodes) => {
+      const sandbox = {
+        NodeFilter: { SHOW_TEXT: 4 },
+        document: { createTreeWalker: () => { let i = 0; return { nextNode: () => nodes[i++] || null }; } },
+        $: (id) => (id === 'markdownBody' ? {} : null),
+        window: {
+          mdDisplayScript: { originalText: (n) => n.data },
+          mdSearchVariants: require('../i18n/search-variants.js')
+        }
+      };
+      vm.createContext(sandbox);
+      vm.runInContext(`function contentHasUnrestorableText() ${fnBody}\nglobalThis.__r = contentHasUnrestorableText();`, sandbox);
+      return sandbox.__r;
+    };
+    const diagram = [{ tag: 'div', cls: ['mermaid-container'] }, { tag: 'svg', cls: ['pele', 'pele-flowchart'] }];
+    assert.equal(run([makeText('经后', diagram)]), false, 'Pele 圖表內的簡體原文不觸發重渲染');
+    assert.equal(run([makeText('经后', [{ tag: 'g', cls: ['pele-node'] }, { tag: 'svg', cls: ['pele'] }])]), false, '.pele 本身也排除');
+    assert.equal(run([makeText('经后', [{ tag: 'code' }]), makeText('经后', [{ tag: 'span', cls: ['katex'] }])]), false);
+    assert.equal(run([makeText('經後', [{ tag: 'p' }])]), false, '繁體文字不觸發');
+    assert.equal(run([makeText('经后', diagram), makeText('经后', [{ tag: 'p' }])]), true, '一般段落的簡體殘留仍要重渲染');
+  });
+
   test('劃詞查詢送出還原後的繁體原文', () => {
     assert.match(appSource, /originalTextOfRange\(range\)/);
     assert.match(appSource, /activateSearchPanel\(rawSelected\)/);
