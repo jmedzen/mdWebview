@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.1 | 最後更新：2026-10
+> 版本：v4.0.0 | 最後更新：2026-10
 
 ---
 
@@ -40,6 +40,7 @@
     - [16.4 首頁垂直溢出防護](#164-首頁垂直溢出防護v3102)
 17. [PWA 安裝引導](#17-pwa-安裝引導v3101)
 18. [為何 app.js / server.js 不做模組化重構](#18-為何-appjs-serverjs-不做模組化重構)
+19. [使用者帳號](#19-使用者帳號v3122)
 
 ---
 
@@ -585,11 +586,11 @@ if (existing === 'true' || existing === 'false') return false;
 
 ### 7.4 繁／簡顯示切換（v3.10.7）
 
-全站預設以繁體顯示；右上角的 **繁／简** 按鈕可切換整個網站（介面與經文）為簡體。按鈕文字顯示目前字形，點擊立即切換並寫入 `DISPLAY_SCRIPT`；偏好設定「繁簡顯示」也有同一組選項。
+全站預設以繁體顯示；右上角整合選單（`#userMenuPanel`）的「繁簡顯示」可切換整個網站（介面與經文）為簡體，點擊立即切換並寫入 `DISPLAY_SCRIPT`；偏好設定「繁簡顯示」也有同一組選項。
 
 **首次造訪自動切換**
 
-`maybeAutoSelectDisplayScriptFromLocale()` 沿用 §7.3 的三條原則：在讀取 `userDisplayScript` 之前執行、絕不覆寫已存的 `'hant'`／`'hans'`、結果寫入 localStorage。只有「這一次是自動切換」時才在按鈕下方顯示提示（簡體撰寫，說明依瀏覽器語言切換、可點右上角按鈕切回），15 秒後或按「知道了」關閉；之後重新整理不再出現。
+`maybeAutoSelectDisplayScriptFromLocale()` 沿用 §7.3 的三條原則：在讀取 `userDisplayScript` 之前執行、絕不覆寫已存的 `'hant'`／`'hans'`、結果寫入 localStorage。只有「這一次是自動切換」時才在右上角選單按鈕下方顯示提示（簡體撰寫，說明依瀏覽器語言切換、可從右上角選單切回），15 秒後或按「知道了」關閉；之後重新整理不再出現。
 
 **轉換方式：瀏覽器端即時轉換，原文不動**
 
@@ -667,7 +668,14 @@ flowchart TD
 | `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
-| `lib/auth.js` | 身分安全與存取控制：PBKDF2 密碼雜湊、時序安全比對、6h Session 管理、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `sessions`, `SESSION_DURATION`, `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`, `generateSessionToken`, `verifySameOrigin`, `isAuthenticated`, `readJSONBody` |
+| `lib/auth.js` | 管理員權限閘門（讀 `lib/session.js` 的 session 並檢查 role=admin）、時序安全比對、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`（僅舊格式）, `verifySameOrigin`, `getAdminUser`, `isAuthenticated`, `isAuthorizedAdmin`, `requireAdmin`, `readJSONBody` |
+| `lib/db.js` | 帳號資料庫（`node:sqlite`，WAL）：結構遷移、所有 SQL、每日備份與還原、過期資料清理 | `open`, `close`, `isAvailable`, `getStatus`, 使用者／第三方綁定／信件 token／邀請碼／session／稽核紀錄／設定的存取函式, `backupNow`, `restoreBackup` |
+| `lib/password.js` | scrypt 密碼雜湊（PHC 格式字串）、舊 PBKDF2 相容與登入時自動升級、密碼規則 | `hashPassword`, `verifyPassword`, `needsRehash`, `validatePassword`, `legacyPbkdf2Hash` |
+| `lib/session.js` | Cookie session（`__Host-mdw_sid`／`mdw_sid`，HttpOnly、SameSite=Lax）、沒用才過期（一般 30 天、管理員 7 天）、重新驗證時窗 | `startSession`, `getSession`, `getUser`, `endSession`, `hasRecentReauth`, `markReauth`, `isSecureRequest` |
+| `lib/accounts.js` | 帳號路由：註冊、登入、驗證信、重設密碼、我的帳號、第三方登入回調、`/privacy` `/terms`、`/api/health`、後台帳號 API；登入限速與防機器人 | `init`, `handle`, `isAccountRoute`, `ADMIN_ROUTES`, `setupFirstAdmin`, `handleLegacyAdminLogin`, `handleLogout` |
+| `lib/oauth.js` | Google（OIDC + PKCE）、Facebook、Apple（form_post）登入流程 | `begin`, `complete`, `enabledProviders`, `getStatus` |
+| `lib/mailer.js` | 寄信（Resend HTTP API，或 `log` 模式只寫日誌） | `send`, `renderMail`, `getStatus`, `getOutbox` |
+| `lib/turnstile.js` | Cloudflare Turnstile 伺服器端驗證 | `verify`, `isConfigured`, `getSiteKey` |
 | `lib/worker-pool.js` | 背景 Worker Thread 池生命週期調度：Render Pool 與 Index Pool 管理、Backpressure 佇列上限、逾時熔斷重生、指數退避防 Crash Loop | `workerPool`, `indexWorkerPool`, `initWorkerPool`, `initIndexWorkerPool`, `renderWithWorker`, `executeIndexJob`, `runIndexWorkerPool`, `terminateWorkerPools` |
 | `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`（**getter**，見 §13.1）, `getLogFilePath`, `appendToPersistentLog`, `getAnalyticsEventId`, `assignAnalyticsEventSeq`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `queueAnalyticsStoreEntry`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `pruneAnalyticsLogEntry`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
 | `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝、**唯一 URL 解碼點** | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`, `debug`) |
@@ -967,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.0.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1386,3 +1394,63 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 ### 18.5 若日後仍需縮短檔案
 
 唯一可行路徑是**架構級重構**：把 20 多個全域狀態收進單一 `AppContext` 物件，再按功能切分模組。代價是改動幾乎整個 `server.js`、13 個 server 測試需重寫、風險集中於全站唯一入口。建議在有大規模功能變更時一併進行，而非單獨為「縮短檔案」而做。
+
+---
+
+## 19. 使用者帳號（v3.12.6）
+
+線上網站（`MDW_DEPLOY_TARGET=web`）才有帳號；單機模式不開資料庫，維持本機免登入。
+
+### 19.1 資料與 session
+
+- 帳號存在 `users.db`（預設與 `config.json` 同目錄，`USERS_DB_PATH` 可改），用 Node 內建 `node:sqlite`，不加依賴。結構版本記在 `PRAGMA user_version`，遷移只加不減，所以退回舊映像仍能啟動。
+- 密碼用 scrypt（N=2^17, r=8, p=1）存成 `$scrypt$ln=17,r=8,p=1$salt$hash`。舊 `config.json` 管理員的 PBKDF2 憑證在第一次登入時搬進 `users` 表並改存 scrypt；`config.json` 的 `admin` 欄位保留一個版本以便退版。
+- Session token 放 HttpOnly cookie，資料庫只存 SHA-256。一般使用者 30 天、管理員 7 天沒使用才過期，每 5 分鐘最多寫一次 `last_seen_at`。登入、重設密碼、改密碼都會換新 token 或登出其他裝置。
+- `X-Admin-Token` 標頭仍可帶 session token（`/api/admin/login` 的回應附 token），給命令列工具與測試用；帶標頭的請求不會被跨站偽造，沿用寬鬆同源規則。瀏覽器一律走 cookie，會改資料的 cookie 請求必須通過嚴格同源檢查並使用 JSON。
+
+### 19.2 防濫用
+
+| 項目 | 規則 |
+| :--- | :--- |
+| 登入 | 同一帳號連續失敗 5 次後鎖 1、2、4… 分鐘（最多 15）；同一 IP 15 分鐘 20 次失敗暫停；設定 Turnstile 時失敗 3 次後要人機驗證 |
+| 註冊 | 隱藏欄位、填表少於 2 秒、Turnstile、每 IP 每小時 3 次、全站每小時上限（後台可調）、拒絕的信箱網域 |
+| 寄信 | 每個信箱每小時 3 封、每 IP 每小時 10 封；回應一律相同，不洩露帳號是否存在 |
+
+### 19.3 條款頁面
+
+寄信（`MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_FROM`）與 Turnstile（`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`）的值由 `lib/integrations.js` 提供：環境變數有值就用環境變數（後台顯示為鎖定），否則用後台網頁填寫、存在 `app_settings` 的 `integrations.*`。金鑰類以 AES-256-GCM 加密，金鑰檔是資料庫旁的 `secrets.key`（600，第一次儲存時產生；記憶體資料庫用行程內金鑰）；解不開時視為未設定並提示重填。API 只回傳末四碼。
+
+第三方登入（`lib/oauth.js`）的金鑰也走同一套：Google（Client ID、secret）、Facebook（App ID、secret）、Apple（Services ID、Team ID、Key ID、私鑰）各欄位由 `integrations.get()` 取值（環境變數優先；Apple 私鑰另可用 `APPLE_PRIVATE_KEY_PATH` 指到檔案，優先順序為 環境變數內容 → 網頁設定 → 檔案）。每家另有開關 `oauth.<provider>.enabled`（沒設定過視為開啟，與舊行為一致）；登入畫面與入口只認「金鑰齊全且開關開著」（`oauth.isEnabled()`）。`POST /api/admin/auth-providers/settings` 先驗欄位格式（Google Client ID 結尾、Facebook App ID 純數字、Apple Team／Key ID 10 碼、私鑰必須是 EC 私鑰），再用「假授權碼換 token」向服務商確認金鑰（Google／Apple 回 `invalid_client` 拒絕儲存、`invalid_grant` 通過、`redirect_uri_mismatch` 提醒回調網址沒登記；Facebook 用 client_credentials），不會消耗任何真實登入；若會讓目前這位沒有密碼的管理員失去所有登入方式就拒絕（`WOULD_LOCK_OUT`）。`POST /api/admin/auth-providers/check` 用已存的金鑰再確認一次。
+
+後台「🔑 帳號系統」的「開站設定」列出六步：對外網址、連接 Resend、寄測試信、設定 Turnstile、實際通過一次 Turnstile、開啟第三方登入（後兩步與 Turnstile 兩步是選用；`setupProgress()`，前三步是開放註冊的必要條件，未完成時分頁上亮紅點；第一次建立管理員後直接打開這個分頁）。`POST /api/admin/mail/settings` 先用 `GET https://api.resend.com/domains` 驗金鑰（200＝完整權限並比對寄件網域狀態、401 `restricted_api_key`＝只能寄信、其他 401／403＝拒絕儲存）；`POST /api/admin/turnstile/settings` 先送假 token 給 siteverify 驗 secret（`invalid-input-secret` 拒絕儲存）。兩者都要 10 分鐘內重新驗證過身分，連不上外部服務時照存並提醒。`POST /api/admin/turnstile/verify` 讓管理員在後台實際完成一次 Turnstile，伺服器以目前的金鑰驗證並比對網域。寄信卡片另有寄件網域的 DNS 檢查（`GET /api/admin/mail/dns`）：必要的是 DKIM（`resend._domainkey` TXT）與「寄信授權」（`send` 子網域有指向 `*.rmta.net` 的 CNAME，或舊版的 `v=spf1 include:amazonses.com` TXT，兩種都認），DMARC 選用。Resend 只開寄信時沒有 MX，所以不檢查 MX；有 `send` 的 CNAME 但缺 `rsend` 時只提醒。金鑰有完整權限時另外顯示 Resend 自己回報的網域驗證狀態，寄信專用金鑰查不到就只看 DNS。
+
+使用者的帳號設定畫面不提供「下載帳號資料」與「刪除帳號」按鈕（v3.12.9 移除）；要刪除帳號或取得資料的人，透過隱私權政策裡寫的聯絡方式提出，由管理員在後台「使用者」刪除。`GET /api/me/export` 與 `DELETE /api/me` 仍保留在伺服器端。
+
+隱私權政策與使用條款的文字存在資料庫的 `app_settings`（不放在程式碼），由後台「🔑 帳號系統」編輯，發布在 `/privacy` 與 `/terms`。勾選「重大變更」時，已註冊者下次登入要重新同意。
+
+### 19.4 尚未包含（下一階段）
+
+- 書籤、閱讀進度與偏好的跨裝置同步（資料表已建立，API 尚未開放），以及登出時清除本機資料。
+- Apple 刪除帳號時的 token 撤銷。
+
+
+### 後台區塊狀態燈與收合（v3.12.7）
+
+後台每張 `.config-card[data-card]` 的標題前有一顆狀態燈（`.status-light`：綠 ok、黃 warn、紅 bad、灰 off＝沒有需要監控的狀態），標題旁有一行簡短說明（同時是燈的 tooltip），最右側有展開／收合箭頭，收合狀態存在 `localStorage['mdwebview.adminCollapsed']`。`enhanceAdminCards()` 補上這些元素；燈號由 `setAdminCardLight(key, level, text, part)` 設定，同一張卡片有多個 `part` 時取最嚴重的（例如「帳號資料庫與備份」同時看資料庫與備份）。「系統設定／搜尋優化」兩個分頁的燈從表單欄位即時計算（`refreshAdminConfigLights()`），「使用者」「帳號系統」兩個分頁的燈在各區塊載入或儲存後依 API 回傳的真實狀態更新。新增區塊時在 `index.html` 的 `.config-card` 加 `data-card="key"`，再於對應的載入函式呼叫 `setAdminCardLight`。
+
+### 成功／錯誤訊息的主題色（v3.12.8）
+
+每個主題都定義 `--success`、`--success-bg`、`--danger`、`--danger-bg`。`.form-success`、`.form-error`、`.diagnose-result`、`.setup-result.error`、`.danger-btn`、`.logout-btn` 都改用這組變數：訊息本文一律是 `--text-primary`，綠／紅只用在邊框、左側色條、圖示與短字，所以淺色、深色、禪意（米色）主題都看得清楚。註冊、重寄驗證信、忘記密碼送出後，登入卡片會整張換成 `#accountAuthDone`：寄到哪個信箱、接下來三個步驟、沒收到怎麼辦，以及「知道了／重寄驗證信／回到登入」。後台產生的邀請碼顯示在 `.invite-new`，大字等寬，附「複製」按鈕。
+
+### 右上角整合選單（v3.12.10）
+
+原本右上角的「繁／简」、帳號、齒輪三顆按鈕合成一顆 `#userMenuBtn`，右上角只剩搜尋、辭典（有啟用時）與這顆選單。按鈕外觀：已登入顯示名字首字（`.signed-in`），網頁版未登入顯示人形，單機版或帳號系統不可用時顯示齒輪（`.no-accounts`）。點開 `#userMenuPanel`：帳號狀態（未登入有「登入／註冊」，登入後顯示名字、Email 與「管理員」標籤）、繁體／简体、五個主題色塊、偏好設定、我的帳號、後台系統設定（管理員；單機版顯示為「系統設定」）、登出。`updateUserMenu()` 在登入狀態或部署模式改變時更新選單，任何時候呼叫都安全；繁簡與主題分別由 `updateUserMenuScript()`、`updateUserMenuTheme()` 跟 `applyDisplayScript`／`applyTheme` 同步。Esc、點選單外面會關閉，上下鍵在項目間移動。舊的「管理員登入」視窗（`#adminLoginOverlay`）已移除：所有登入都走 `#accountAuthOverlay`；後台逾期或還原資料庫後呼叫 `openLoginOverlay()`，會以 `afterLogin: 'admin'` 開帳號登入，管理員登入後直接回到後台。`/api/admin/login` 仍保留給命令列工具。
+
+### 書籤與最近抽屜（v3.12.12）
+
+右上角選單多了字級列（`#userMenuFontDec`／`#userMenuFontSize`／`#userMenuFontInc`，走 `applyFontSize()`，調整時選單不關）與「書籤與最近」（`#userMenuLibraryBtn`，右側顯示書籤數）。點了打開右側抽屜 `#libraryDrawer`（寬 `min(400px, 100vw)`，≤520px 全寬，z-index 960，遮罩 `#libraryScrim` 955）。抽屜有兩個分頁：
+
+- **書籤**：依資料夾分組（辭典條目歸「辭典」，根目錄檔案歸「根目錄」），資料夾可收合；可切換「最新加入／名稱 A→Z」排序；每筆有刪除鈕，刪除後同步側欄書籤清單。
+- **最近**：依「今天／昨天／更早」分組，每筆顯示閱讀進度條與百分比；頂端「繼續閱讀」按鈕呼叫 `restoreReadProgress(true)` 回到上次位置。
+
+兩個分頁共用頂端的篩選框（比對標題與路徑）。目前分頁、排序、收合的資料夾存在 `mdWebview-user-library`。`addRecentFile()` 會記 `ts`，並保留舊的 `pct`、`line`；`saveReadProgress()` 透過 `updateRecentProgress()` 寫入目前檔案的進度。舊紀錄沒有 `ts`，會放在「更早」且不顯示百分比。Esc、點遮罩或關閉鈕會關抽屜，Tab 鍵只在抽屜內循環；側欄書籤或最近清單改變時，若抽屜開著會一起重畫。

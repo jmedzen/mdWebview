@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 3.12.1
+ * @version 4.0.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -8,7 +8,7 @@
  *   - Markdown Worker Thread Pool（SSR 爬蟲預渲染）
  *   - Bigram 雙字元倒排索引（全文搜尋 + 辭典搜尋）
  *   - 90 天持久化 Analytics Log + 7 天修剪排程
- *   - 後台管理 API（PBKDF2 auth + session + 設定儲存）
+ *   - 使用者帳號（SQLite users.db、scrypt 密碼、cookie session、第三方登入）與後台管理 API
  *   - PWA 支援（動態 manifest.json、robots.txt、sitemap.xml）
  *
  * ── 段落索引（Section Map）────────────────────────────────────
@@ -86,12 +86,13 @@ const {
 } = require('./lib/config');
 
 const {
-  sessions, SESSION_DURATION, loginAttempts, MAX_ATTEMPTS, LOCK_DURATION,
-  MAX_LOGIN_ENTRIES,
-  apiRateLimits, checkApiRateLimit, timingSafeCompare, hashPassword,
-  generateSessionToken, verifySameOrigin, isAuthenticated, readJSONBody,
+  apiRateLimits, checkApiRateLimit, timingSafeCompare,
+  verifySameOrigin, isAuthenticated, getAdminUser, readJSONBody,
   isLoopbackRequest, isAuthorizedAdmin, requireAdmin
 } = require('./lib/auth');
+
+const accounts = require('./lib/accounts');
+const accountsDb = require('./lib/db');
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -4406,11 +4407,7 @@ async function getSystemHardwareStats() {
   const avgResponseTimeMs = httpMetrics.totalRequests > 0 ? parseFloat((httpMetrics.totalResponseTimeMs / httpMetrics.totalRequests).toFixed(1)) : 0;
   
   let activeSessions = 0;
-  for (const [_, session] of sessions.entries()) {
-    if (session && session.expiry > now) {
-      activeSessions++;
-    }
-  }
+  try { activeSessions = accountsDb.countActiveSessions(); } catch (_) {}
 
   const totalSearchQueries = searchMetrics.totalQueries;
   const searchCacheHits = searchMetrics.cacheHits;
@@ -4578,50 +4575,12 @@ async function handleAdminPassword(req, res) {
     });
   }
   if (!requireAdmin(req, res, sendJSON)) return;
-  if (!config.admin) {
-    return sendJSON(res, 400, { error: 'Admin is not configured yet' });
-  }
-
+  // 管理員也是一般帳號：改密碼走帳號模組（驗證目前密碼、登出其他裝置、寫入稽核紀錄）。
   try {
-    const data = await readJSONBody(req);
-    const { currentPassword, newPassword } = data;
-    if (!currentPassword || !newPassword) {
-      return sendJSON(res, 400, { error: '請提供目前密碼與新密碼' });
-    }
-    if (typeof newPassword !== 'string' || newPassword.length < 8) {
-      return sendJSON(res, 400, { error: '新密碼長度至少需為 8 個字元' });
-    }
-
-    // Check current password
-    const hashedCurrent = await hashPassword(currentPassword, config.admin.salt, 100000).catch(() => null);
-    let isCurrentCorrect = hashedCurrent && timingSafeCompare(hashedCurrent.hash, config.admin.passwordHash);
-    if (!isCurrentCorrect) {
-      // Legacy fallback
-      const legacy = await hashPassword(currentPassword, config.admin.salt, 1000).catch(() => null);
-      isCurrentCorrect = legacy && timingSafeCompare(legacy.hash, config.admin.passwordHash);
-    }
-    if (!isCurrentCorrect) {
-      return sendJSON(res, 403, { error: '目前密碼不正確' });
-    }
-
-    // Generate new salt and hash with 100,000 iterations
-    const newCredentials = await hashPassword(newPassword);
-    config.admin.passwordHash = newCredentials.hash;
-    config.admin.salt = newCredentials.salt;
-    saveConfig();
-
-    // Revoke other session tokens, keeping current caller's session valid
-    const currentToken = req.headers['x-admin-token'];
-    for (const token of sessions.keys()) {
-      if (token !== currentToken) {
-        sessions.delete(token);
-      }
-    }
-
-    Logger.info('Admin', `Admin password changed successfully from ${getClientIP(req)}`, req);
-    return sendJSON(res, 200, { success: true, message: '管理員密碼已成功更新，已登出其他裝置。' });
+    return await accounts.handleChangePassword(req, res, { user: getAdminUser(req), session: require('./lib/session').getSession(req).session });
   } catch (err) {
-    return sendJSON(res, 500, { error: err.message });
+    Logger.error('Admin', 'Admin password change failed', err, req);
+    if (!res.headersSent) return sendJSON(res, 500, { error: 'Internal Server Error' });
   }
 }
 
@@ -4906,8 +4865,12 @@ function getSetupToken() {
   return setupTokenValue;
 }
 
+function isAdminSetup() {
+  return accounts.hasAdmin() || !!(config.admin && config.admin.username);
+}
+
 function announceSetupTokenIfNeeded() {
-  if (IS_SINGLE_USER || config.admin) return;
+  if (IS_SINGLE_USER || isAdminSetup()) return;
   const fromEnv = !!(process.env.ADMIN_SETUP_TOKEN || '').trim();
   const token = getSetupToken();
   console.log('  ⚠  No administrator configured yet.');
@@ -5057,6 +5020,18 @@ const server = http.createServer((req, res) => {
     return handleDictFiles(req, res);
   }
 
+  // 帳號、登入、/privacy、/terms 與帳號相關的後台 API（lib/accounts.js）。
+  // 不是帳號路由時交回下面的路由。
+  if (accounts.isAccountRoute(pathname)) {
+    accounts.handle(req, res, pathname, query).then(handled => {
+      if (!handled && !res.headersSent) sendJSON(res, 404, { error: 'Not found' });
+    }).catch(err => {
+      Logger.error('Auth', `Account route failed: ${req.method} ${pathname}`, err, req);
+      if (!res.headersSent) sendJSON(res, 500, { error: 'Internal Server Error' });
+    });
+    return;
+  }
+
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
     // Redact the absolute vault path (and any other filesystem-layout detail) from
@@ -5074,8 +5049,9 @@ const server = http.createServer((req, res) => {
     const authMode = IS_SINGLE_USER ? 'single-user' : 'admin';
     const authorized = isAuthorizedAdmin(req);
     return sendJSON(res, 200, {
-      isSetup: IS_SINGLE_USER ? true : !!config.admin,
+      isSetup: IS_SINGLE_USER ? true : isAdminSetup(),
       isAuthenticated: authorized,
+      accountsAvailable: !IS_SINGLE_USER && accountsDb.isAvailable(),
       authMode,
       deployTarget: DEPLOY_TARGET,
       isSingleUser: IS_SINGLE_USER,
@@ -5112,18 +5088,20 @@ const server = http.createServer((req, res) => {
         authMode: 'single-user'
       });
     }
-    if (config.admin) {
+    if (isAdminSetup()) {
       return sendJSON(res, 400, { error: 'Admin already configured' });
     }
     // First-run admin creation is reachable from the network, so it requires a
     // one-time setup token that only the operator can see (ADMIN_SETUP_TOKEN or
     // the token printed to the server console at boot). Without it, whoever
     // reached a fresh deployment first could claim the administrator account.
-    // Once configured, config.admin is persisted to disk and /api/admin/setup is permanently disabled.
-    return readJSONBody(req).then(data => {
+    // 管理員建立在 users.db（role=admin）；之後 /api/admin/setup 永久停用。
+    return readJSONBody(req).then(async data => {
       const { username, password } = data;
+      const email = typeof data.email === 'string' ? data.email.trim() : '';
       const siteUrl = (data.siteUrl || data.settingsSiteUrl || '').trim();
-      if (!username || !password || username.trim() === '' || password.trim() === '') {
+      const name = typeof username === 'string' ? username.trim() : '';
+      if ((!name && !email) || typeof password !== 'string' || password.trim() === '') {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
       if (!siteUrl) {
@@ -5143,100 +5121,36 @@ const server = http.createServer((req, res) => {
           code: 'INVALID_SETUP_TOKEN'
         });
       }
-      return hashPassword(password).then(({ salt, hash }) => {
-        config.admin = {
-          username: username.trim(),
-          passwordHash: hash,
-          salt: salt
-        };
-        config.settings.siteUrl = cleanSiteUrl;
-        cachedSitemapXml = null;
-        sitemapDirty = true;
-        saveConfig();
-        autoRebuildSitemapAsync().catch(() => {});
-        Logger.info('Admin', `Admin account "${username.trim()}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, req);
-        return sendJSON(res, 200, { success: true });
-      });
+      const result = await accounts.setupFirstAdmin(req, res, { username: name, email, password });
+      if (result.status !== 200) return sendJSON(res, result.status, result.body);
+      config.settings.siteUrl = cleanSiteUrl;
+      cachedSitemapXml = null;
+      sitemapDirty = true;
+      saveConfig();
+      autoRebuildSitemapAsync().catch(() => {});
+      Logger.info('Admin', `Admin account "${(name || email).slice(0, 100)}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, req);
+      return sendJSON(res, 200, result.body);
     }).catch(err => {
-      return sendJSON(res, 500, { error: err.message });
-    });
-  }
-  if (pathname === '/api/admin/login' && req.method === 'POST') {
-    if (!config.admin) {
-      return sendJSON(res, 400, { error: 'Admin not configured' });
-    }
-
-    const ip = getClientIP(req);
-    const attempt = loginAttempts.get(ip) || { attempts: 0, lockUntil: 0 };
-
-    if (Date.now() < attempt.lockUntil) {
-      const waitMinutes = Math.ceil((attempt.lockUntil - Date.now()) / 60000);
-      return sendJSON(res, 429, { error: `登入失敗次數過多，請於 ${waitMinutes} 分鐘後再試。` });
-    }
-
-    // Charge the attempt BEFORE the (async, ~100ms) password hash. Otherwise a
-    // burst of parallel requests all pass the lock check above while the first
-    // one is still hashing, and the 5-attempt limit becomes "as many as fit in
-    // one hash window". A successful login clears the counter below.
-    attempt.attempts += 1;
-    if (attempt.attempts >= MAX_ATTEMPTS) {
-      attempt.lockUntil = Date.now() + LOCK_DURATION;
-    }
-    loginAttempts.set(ip, attempt);
-    if (loginAttempts.size > MAX_LOGIN_ENTRIES) {
-      const oldestKey = loginAttempts.keys().next().value;
-      loginAttempts.delete(oldestKey);
-    }
-
-    return readJSONBody(req).then(data => {
-      const { username, password } = data;
-      if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
-        return sendJSON(res, 400, { error: 'Username and password are required' });
-      }
-
-      // Perform async hashing
-      return hashPassword(password, config.admin.salt, 100000).then(({ hash }) => {
-        if (timingSafeCompare(hash, config.admin.passwordHash)) {
-          return { hash };
-        }
-        // Fallback for legacy 1000 iterations
-        return hashPassword(password, config.admin.salt, 1000).then(legacy => {
-          return { hash: timingSafeCompare(legacy.hash, config.admin.passwordHash) ? legacy.hash : hash };
-        });
-      }).then(({ hash }) => {
-        const isUsernameCorrect = timingSafeCompare(username, config.admin.username);
-        const isPasswordCorrect = timingSafeCompare(hash, config.admin.passwordHash);
-
-        if (isUsernameCorrect && isPasswordCorrect) {
-          loginAttempts.delete(ip); // Clear attempts on success
-          const token = generateSessionToken();
-          sessions.set(token, { expiry: Date.now() + SESSION_DURATION });
-          // 僅記錄使用者名稱與 IP；絕不記錄密碼、雜湊、salt 或 session token (F10)。
-          Logger.info('Auth', `Admin login succeeded for user "${String(username).slice(0, 100)}"`, req);
-          return sendJSON(res, 200, { success: true, token });
-        } else {
-          // The attempt was already charged before hashing (see above).
-          // 每次失敗皆記錄，使第 1~4 次嘗試可見、可觀測憑證填充 (credential stuffing)。
-          Logger.warn('Auth', `Failed admin login attempt #${attempt.attempts} for user "${String(username).slice(0, 100)}"`, req);
-          if (attempt.attempts >= MAX_ATTEMPTS) {
-            Logger.warn('Auth', `IP locked out for 15 minutes due to ${MAX_ATTEMPTS} failed login attempts.`, req);
-          }
-          return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
-        }
-      });
-    }).catch(err => {
-      // 內部錯誤僅進日誌，回應客戶端通用訊息，避免洩漏內部細節。
-      Logger.error('Auth', 'Admin login processing failed', err, req);
+      Logger.error('Admin', 'First-run setup failed', err, req);
       return sendJSON(res, 500, { error: 'Internal Server Error' });
     });
   }
-  if (pathname === '/api/admin/logout' && req.method === 'POST') {
-    const token = req.headers['x-admin-token'];
-    if (token) {
-      sessions.delete(token);
+  if (pathname === '/api/admin/login' && req.method === 'POST') {
+    // 舊的管理員登入端點（命令列工具、舊版前端）：同一套帳號登入流程，只接受管理員，
+    // 回應另附 token 供 X-Admin-Token 使用。限速、鎖定與 Auth 日誌都在 lib/accounts.js。
+    if (IS_SINGLE_USER) {
+      return sendJSON(res, 403, { error: '單機模式不需要登入', authMode: 'single-user' });
     }
-    Logger.info('Auth', 'Admin logout', req);
-    return sendJSON(res, 200, { success: true });
+    if (!isAdminSetup()) {
+      return sendJSON(res, 400, { error: 'Admin not configured' });
+    }
+    return accounts.handleLegacyAdminLogin(req, res).catch(err => {
+      Logger.error('Auth', 'Admin login processing failed', err, req);
+      if (!res.headersSent) return sendJSON(res, 500, { error: 'Internal Server Error' });
+    });
+  }
+  if (pathname === '/api/admin/logout' && req.method === 'POST') {
+    return accounts.handleLogout(req, res);
   }
   if (pathname === '/api/admin/settings' && req.method === 'GET') {
     if (!requireAdmin(req, res, sendJSON)) return;
@@ -5564,6 +5478,14 @@ server.on('clientError', (err, socket) => {
 initWorkerPool();
 initIndexWorkerPool();
 
+// 帳號資料庫（單機模式不開）。失敗時網站照常運作，只是帳號功能停用並在後台顯示原因。
+{
+  const accountsInitError = accounts.init();
+  if (accountsInitError) {
+    Logger.error('Boot', `User accounts disabled: account database failed to open (${accountsInitError.message})`);
+  }
+}
+
 /**
  * 註冊優雅關機處理常式（僅於真正啟動伺服器時呼叫，模組被 require 時不會註冊）。
  * 收到 SIGTERM/SIGINT 時：記錄訊號原因、停止接受新連線、終止 worker pool 後結束。
@@ -5598,6 +5520,7 @@ function setupGracefulShutdown() {
         .then(() => terminateWorkerPools())
         .catch(err => Logger.error('Boot', 'Error terminating worker pools during shutdown', err))
         .finally(() => {
+          try { accountsDb.close(); } catch (err) { Logger.error('Boot', 'Error closing account database during shutdown', err); }
           Logger.info('Boot', `Shutdown complete (${signal}).`);
           process.exit(0);
         });

@@ -5,7 +5,7 @@
   ── 頁面結構索引（Section Map）─────────────────────────────────────────
   §HEAD       <head>：meta、favicon、PWA manifest、OG tags、CSS 載入
   §BODY       <body> 開始
-  §HEADER     .app-header：Logo、當前檔案指示器、按鈕列（搜尋/繁簡切換/辭典/設定）
+  §HEADER     .app-header：Logo、當前檔案指示器、按鈕列（搜尋/辭典/整合選單：帳號、繁簡、主題、設定）
   §SIDEBAR    <aside>.sidebar：側邊欄
                 #panelFiles  — 檔案瀏覽器（排序、收折、檔案樹）
                 #panelSearch — 全文搜尋（目錄篩選、輸入框、結果列表）
@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v3.12.1'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.0.0'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -51,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#181825">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3.12.1">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3.12.1">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3.12.1">
-  <link rel="shortcut icon" href="/favicon.ico?v=3.12.1">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3.12.1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.0.0">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.0.0">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.0.0">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.0.0">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.0.0">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -77,9 +77,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=3.12.1">
+  <link rel="stylesheet" href="style.css?v=4.0.0">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=3.12.1"></script>
+  <script src="i18n/boot.js?v=4.0.0"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -109,22 +109,86 @@
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
           </svg>
         </button>
-        <!-- 繁／簡顯示切換：文字顯示目前字形，點擊立即切換並記住 -->
-        <button id="displayScriptToggleBtn" class="control-btn display-script-btn" type="button" data-no-t2s
-                data-i18n-attr="title:script.toggle.title;aria-label:script.toggle.aria"
-                title="目前為繁體顯示，點擊切換為簡體" aria-label="切換繁體／簡體顯示（目前：繁體）">
-          <span class="display-script-glyph" data-i18n="script.toggle.label">繁</span>
-        </button>
         <button id="dictToggleBtn" class="control-btn dict-toggle-btn" title="辭典查詢" style="display:none">
           <svg width="18" height="18" viewBox="0 0 512 512" fill="currentColor">
             <path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20z"/>
           </svg>
         </button>
-        <button id="adminSettingsBtn" class="control-btn settings-btn" title="偏好設定與系統管理">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M9.405 1.02c-.252-.772-1.345-.772-1.597 0L7.54 2.18c-.287.882-1.258 1.285-2.03.856l-.993-.55c-.694-.383-1.467.39-1.085 1.085l.55.992c.429.773.026 1.744-.856 2.03l-1.16.267c-.772.252-.772 1.345 0 1.597l1.16.267c.882.287 1.285 1.258.856 2.03l-.55.993c-.383.694.39 1.467 1.085 1.085l.992-.55c.773-.429 1.744-.026 2.03.856l.267 1.16c.252.772 1.345.772 1.597 0l.267-1.16c.287-.882 1.258-1.285 2.03-.856l.993.55c.694.383 1.467-.39 1.085-1.085l-.55-.992c-.429-.773-.026-1.744.856-2.03l1.16-.267c.772-.252.772-1.345 0-1.597l-1.16-.267c-.882-.287-1.285-1.258-.856-2.03l.55-.993c.383-.694-.39-1.467-1.085-1.085l-.992.55c-.773.429-1.744.026-2.03-.856l-.267-1.16zM8 10a2 2 0 110-4 2 2 0 010 4z"/>
-          </svg>
-        </button>
+        <!--
+          右上角整合選單：帳號狀態、繁簡顯示、主題、偏好設定、我的帳號、後台、登出。
+          按鈕本身：已登入顯示名字首字；網頁版未登入顯示人形；單機版（沒有帳號）顯示齒輪。
+        -->
+        <div class="user-menu" id="userMenu">
+          <button id="userMenuBtn" class="control-btn user-menu-btn" type="button"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="userMenuPanel"
+                  title="選單：帳號、繁簡、主題與設定" aria-label="選單：帳號、繁簡、主題與設定">
+            <svg class="user-menu-icon user-menu-icon-person" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1.5c-2.7 0-5.5 1.35-5.5 3.25V14h11v-1.25C13.5 10.85 10.7 9.5 8 9.5z"/>
+            </svg>
+            <svg class="user-menu-icon user-menu-icon-gear" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M9.405 1.02c-.252-.772-1.345-.772-1.597 0L7.54 2.18c-.287.882-1.258 1.285-2.03.856l-.993-.55c-.694-.383-1.467.39-1.085 1.085l.55.992c.429.773.026 1.744-.856 2.03l-1.16.267c-.772.252-.772 1.345 0 1.597l1.16.267c.882.287 1.285 1.258.856 2.03l-.55.993c-.383.694.39 1.467 1.085 1.085l.992-.55c.773-.429 1.744-.026 2.03.856l.267 1.16c.252.772 1.345.772 1.597 0l.267-1.16c.287-.882 1.258-1.285 2.03-.856l.993.55c.694.383 1.467-.39 1.085-1.085l-.55-.992c-.429-.773-.026-1.744.856-2.03l1.16-.267c.772-.252.772-1.345 0-1.597l-1.16-.267c-.882-.287-1.285-1.258-.856-2.03l.55-.993c.383-.694-.39-1.467-1.085-1.085l-.992.55c-.773.429-1.744.026-2.03-.856l-.267-1.16zM8 10a2 2 0 110-4 2 2 0 010 4z"/>
+            </svg>
+            <span class="user-menu-initial" id="userMenuInitial" aria-hidden="true"></span>
+          </button>
+          <div class="user-menu-panel" id="userMenuPanel" role="menu" aria-label="選單" hidden>
+            <div class="user-menu-account" id="userMenuAccount" hidden>
+              <div class="user-menu-status">
+                <span class="user-menu-avatar" id="userMenuAvatar" aria-hidden="true"></span>
+                <div class="user-menu-who">
+                  <div class="user-menu-name"><span id="userMenuName">尚未登入</span><span class="user-menu-role" id="userMenuRole" hidden>管理員</span></div>
+                  <div class="user-menu-sub" id="userMenuSub">登入後可同步書籤與閱讀進度</div>
+                </div>
+              </div>
+              <div class="user-menu-auth" id="userMenuAuthRow">
+                <button type="button" class="user-menu-auth-btn primary" id="userMenuLoginBtn" role="menuitem">登入</button>
+                <button type="button" class="user-menu-auth-btn" id="userMenuRegisterBtn" role="menuitem">註冊</button>
+              </div>
+              <div class="user-menu-sep"></div>
+            </div>
+            <div class="user-menu-row">
+              <span class="user-menu-label" data-i18n="settings.displayScript.title">繁簡顯示</span>
+              <div class="user-menu-seg" id="userMenuScriptGroup" role="group" aria-label="繁簡顯示" data-no-t2s>
+                <button type="button" class="user-menu-seg-btn" data-value="hant" lang="zh-TW" role="menuitemradio" aria-checked="true">繁體</button>
+                <button type="button" class="user-menu-seg-btn" data-value="hans" lang="zh-Hans" role="menuitemradio" aria-checked="false">简体</button>
+              </div>
+            </div>
+            <div class="user-menu-row">
+              <span class="user-menu-label">主題</span>
+              <div class="user-menu-themes" id="userMenuThemeGroup" role="group" aria-label="閱讀主題">
+                <button type="button" class="user-menu-theme" data-value="obsidian-dark" role="menuitemradio" title="暗色 Dark" aria-label="暗色 Dark"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="obsidian-light" role="menuitemradio" title="亮色 Light" aria-label="亮色 Light"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="solarized" role="menuitemradio" title="Solarized" aria-label="Solarized"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="zen" role="menuitemradio" title="禪風 Zen" aria-label="禪風 Zen"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="gruvbox" role="menuitemradio" title="Gruvbox" aria-label="Gruvbox"><span class="swatch"></span></button>
+              </div>
+            </div>
+            <div class="user-menu-row">
+              <span class="user-menu-label">字級</span>
+              <div class="user-menu-font">
+                <button type="button" class="user-menu-font-btn" id="userMenuFontDec" role="menuitem" aria-label="縮小字級" title="縮小字級 (Ctrl −)">A<span aria-hidden="true">−</span></button>
+                <span class="user-menu-font-size" id="userMenuFontSize" aria-live="polite">16</span>
+                <button type="button" class="user-menu-font-btn" id="userMenuFontInc" role="menuitem" aria-label="放大字級" title="放大字級 (Ctrl +)">A<span aria-hidden="true">+</span></button>
+              </div>
+            </div>
+            <div class="user-menu-sep"></div>
+            <button type="button" class="user-menu-item user-menu-item-library" id="userMenuLibraryBtn" role="menuitem" aria-haspopup="dialog" aria-controls="libraryDrawer">
+              <span class="user-menu-item-icon" aria-hidden="true">🔖</span><span>書籤與最近</span><span class="user-menu-count" id="userMenuLibraryCount"></span>
+            </button>
+            <button type="button" class="user-menu-item" id="userMenuSettingsBtn" role="menuitem">
+              <span class="user-menu-item-icon" aria-hidden="true">⚙️</span><span>偏好設定</span><small>排版、紀錄、備份</small>
+            </button>
+            <button type="button" class="user-menu-item" id="userMenuAccountBtn" role="menuitem" hidden>
+              <span class="user-menu-item-icon" aria-hidden="true">👤</span><span>我的帳號</span>
+            </button>
+            <button type="button" class="user-menu-item" id="userMenuAdminBtn" role="menuitem" hidden>
+              <span class="user-menu-item-icon" aria-hidden="true">🛠️</span><span id="userMenuAdminLabel">後台系統設定</span>
+            </button>
+            <div class="user-menu-sep" id="userMenuLogoutSep" hidden></div>
+            <button type="button" class="user-menu-item" id="userMenuLogoutBtn" role="menuitem" hidden>
+              <span class="user-menu-item-icon" aria-hidden="true">↪</span><span>登出</span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -284,6 +348,10 @@
             <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
           </div>
           <div class="welcome-footer" id="welcomeFooter" style="display: none;"></div>
+          <p class="welcome-legal-links" id="welcomeLegalLinks" hidden>
+            <a href="/privacy" id="welcomePrivacyLink" hidden>隱私權政策</a>
+            <a href="/terms" id="welcomeTermsLink" hidden>使用條款</a>
+          </p>
 
           <!--
             PWA 安裝引導卡片。
@@ -391,7 +459,7 @@
         <span class="modal-icon">🪷</span>
         <h2>設定管理員帳戶</h2>
       </div>
-      <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與首頁權威 URL。</p>
+      <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與首頁權威 URL。Email 與帳號名稱至少填一個。</p>
       <form id="adminSetupForm" class="modal-form">
         <div class="form-group">
           <label for="setupToken">一次性設定碼</label>
@@ -399,8 +467,12 @@
           <span class="field-hint">設定碼顯示於伺服器啟動日誌（如 <code>docker logs</code>），或由 ADMIN_SETUP_TOKEN 環境變數指定。</span>
         </div>
         <div class="form-group">
+          <label for="setupEmail">Email</label>
+          <input type="email" id="setupEmail" placeholder="管理員的 Email（建議填寫，忘記密碼時用）" autocomplete="email" spellcheck="false">
+        </div>
+        <div class="form-group">
           <label for="setupUsername">帳號名稱</label>
-          <input type="text" id="setupUsername" placeholder="輸入管理員帳號" required autocomplete="username">
+          <input type="text" id="setupUsername" placeholder="輸入管理員帳號（可不填，改用 Email 登入）" autocomplete="username">
         </div>
         <div class="form-group">
           <label for="setupPassword">密碼</label>
@@ -421,12 +493,38 @@
     </div>
   </div>
 
+  <!--
+    書籤與最近：從右上角選單打開的右側抽屜（手機上滿版）。
+    書籤依資料夾分組、可篩選與排序；最近依日期分組，顯示上次讀到的位置，可一鍵繼續閱讀。
+    資料沿用 localStorage 的 BOOKMARKS／RECENT_FILES／LAST_READ_PROGRESS。
+  -->
+  <div class="library-scrim" id="libraryScrim" hidden></div>
+  <aside class="library-drawer" id="libraryDrawer" role="dialog" aria-modal="true" aria-labelledby="libraryTitle" hidden>
+    <div class="library-head">
+      <h2 id="libraryTitle">書籤與最近</h2>
+      <button type="button" class="library-close" id="libraryCloseBtn" title="關閉" aria-label="關閉">✕</button>
+    </div>
+    <div class="library-tabs" role="tablist" aria-label="書籤與最近">
+      <button type="button" class="library-tab" role="tab" id="libraryTabBookmarks" data-tab="bookmarks" aria-selected="true" aria-controls="libraryList">書籤<small id="libraryCountBookmarks"></small></button>
+      <button type="button" class="library-tab" role="tab" id="libraryTabRecent" data-tab="recent" aria-selected="false" aria-controls="libraryList" tabindex="-1">最近<small id="libraryCountRecent"></small></button>
+    </div>
+    <div class="library-tools">
+      <input type="search" id="libraryFilter" class="library-filter" placeholder="篩選標題或資料夾" aria-label="篩選標題或資料夾" autocomplete="off" spellcheck="false">
+      <button type="button" class="library-sort" id="librarySortBtn" title="切換排序"></button>
+    </div>
+    <button type="button" class="library-resume" id="libraryResumeBtn" hidden>
+      <span class="library-resume-text">繼續閱讀　<b id="libraryResumeTitle"></b></span>
+      <small id="libraryResumePct"></small>
+    </button>
+    <div class="library-list" id="libraryList" role="tabpanel" aria-labelledby="libraryTabBookmarks"></div>
+  </aside>
+
   <!-- User Settings & Preferences Menu Modal -->
   <div class="modal-overlay" id="userSettingsOverlay" style="display: none;">
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v3.12.1</span></h2>
+        <h2>偏好設定與閱讀管理 <span class="user-settings-version-badge" id="userSettingsHeaderVersion">v4.0.0</span></h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -632,14 +730,14 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v3.12.1</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.0.0</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
-              <span id="adminStatusText">管理員登入狀態：檢查中…</span>
+              <span id="adminStatusText">登入狀態：檢查中…</span>
             </div>
             <div class="admin-action-buttons">
-              <button type="button" id="menuOpenAdminLoginBtn" class="modal-btn submit-btn" data-web-only>管理員登入</button>
+              <button type="button" id="menuOpenAdminLoginBtn" class="modal-btn submit-btn" data-web-only>登入</button>
               <button type="button" id="menuOpenVaultSettingsBtn" class="modal-btn submit-btn" style="display: none;">開啟後台系統設定</button>
             </div>
           </div>
@@ -669,7 +767,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v3.12.1</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.0.0</span>
       </div>
     </div>
   </div>
@@ -808,29 +906,185 @@
     </div>
   </div>
 
-  <!-- 2. Admin Login Overlay -->
-  <div class="modal-overlay" id="adminLoginOverlay" style="display: none;">
+  <!--
+    使用者帳號：登入／註冊／忘記密碼／設定新密碼。
+    同一張卡片依 data-view 切換畫面；第三方登入按鈕與人機驗證依 /api/auth/config 顯示。
+    website 欄位是給機器人的陷阱（真人看不到，填了就當機器人）。
+  -->
+  <div class="modal-overlay" id="accountAuthOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="accountAuthTitle">
+    <div class="modal-card account-card" data-view="login">
+      <div class="modal-header">
+        <span class="modal-icon">👤</span>
+        <h2 id="accountAuthTitle">登入</h2>
+        <button type="button" class="modal-close-btn" id="accountAuthCloseBtn" title="關閉" aria-label="關閉">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+        </button>
+      </div>
+      <p class="modal-desc" id="accountAuthDesc">登入後，管理員可以進入後台；之後的版本會在這裡同步你的書籤與閱讀進度。</p>
+
+      <div class="account-providers" id="accountProviders" hidden></div>
+      <div class="account-divider" id="accountProvidersDivider" hidden><span>或使用 Email</span></div>
+
+      <form id="accountAuthForm" class="modal-form" novalidate>
+        <div class="account-hp" aria-hidden="true">
+          <label for="accountWebsite">網站</label>
+          <input type="text" id="accountWebsite" name="website" tabindex="-1" autocomplete="off">
+        </div>
+        <div class="form-group" data-views="register">
+          <label for="accountDisplayName">名稱（可不填）</label>
+          <input type="text" id="accountDisplayName" maxlength="60" autocomplete="nickname" placeholder="其他人不會看到，只用在信件稱呼">
+        </div>
+        <div class="form-group" data-views="login register forgot resend">
+          <label for="accountEmail" id="accountEmailLabel">Email</label>
+          <input type="email" id="accountEmail" autocomplete="username" inputmode="email" spellcheck="false" placeholder="you@example.com">
+        </div>
+        <div class="form-group" data-views="login register reset">
+          <label for="accountPassword" id="accountPasswordLabel">密碼</label>
+          <input type="password" id="accountPassword" autocomplete="current-password" placeholder="至少 8 個字元">
+        </div>
+        <div class="form-group" data-views="register" id="accountInviteGroup" hidden>
+          <label for="accountInviteCode">邀請碼</label>
+          <input type="text" id="accountInviteCode" autocomplete="off" spellcheck="false">
+        </div>
+        <label class="account-consent" data-views="register" id="accountConsentRow" hidden>
+          <input type="checkbox" id="accountAgree">
+          <span>我已閱讀並同意 <a href="/privacy" target="_blank" rel="noopener">隱私權政策</a> 與 <a href="/terms" target="_blank" rel="noopener">使用條款</a></span>
+        </label>
+        <div class="account-turnstile" id="accountTurnstile" hidden></div>
+        <div id="accountAuthError" class="form-error" style="display: none;" role="alert"></div>
+        <div id="accountAuthSuccess" class="form-success" style="display: none;" role="status"></div>
+        <button type="submit" class="modal-btn submit-btn account-submit" id="accountAuthSubmit">登入</button>
+      </form>
+
+      <div class="account-links">
+        <button type="button" class="link-btn" data-goto="forgot" data-views="login">忘記密碼？</button>
+        <button type="button" class="link-btn" data-goto="register" data-views="login" id="accountGotoRegister">還沒有帳號？註冊</button>
+        <button type="button" class="link-btn" data-goto="login" data-views="register forgot resend reset">回到登入</button>
+        <button type="button" class="link-btn" data-goto="resend" data-views="login register">沒收到驗證信？</button>
+      </div>
+      <p class="account-legal-links" id="accountLegalLinks" hidden>
+        <a href="/privacy" target="_blank" rel="noopener">隱私權政策</a> · <a href="/terms" target="_blank" rel="noopener">使用條款</a>
+      </p>
+
+      <!-- 寄出信件後的完整說明（取代表單，避免只剩一行小字） -->
+      <div class="account-done" id="accountAuthDone" hidden role="status" aria-live="polite">
+        <div class="account-done-icon" aria-hidden="true">✉️</div>
+        <h3 class="account-done-title" id="accountAuthDoneTitle"></h3>
+        <p class="account-done-email" id="accountAuthDoneEmail" hidden></p>
+        <ol class="account-done-steps" id="accountAuthDoneSteps"></ol>
+        <p class="account-done-note" id="accountAuthDoneNote"></p>
+        <div class="account-done-actions">
+          <button type="button" class="modal-btn submit-btn" id="accountAuthDoneOk">知道了</button>
+          <button type="button" class="link-btn" id="accountAuthDoneResend" hidden>沒收到？重寄驗證信</button>
+          <button type="button" class="link-btn" id="accountAuthDoneLogin">回到登入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 我的帳號 -->
+  <div class="modal-overlay" id="accountSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="accountSettingsTitle">
+    <div class="modal-card account-settings-card">
+      <div class="modal-header">
+        <span class="modal-icon">👤</span>
+        <h2 id="accountSettingsTitle">我的帳號</h2>
+        <button type="button" class="modal-close-btn" id="accountSettingsCloseBtn" title="關閉" aria-label="關閉">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="account-settings-body">
+        <div id="accountSettingsMsg" class="form-success" style="display: none;" role="status"></div>
+        <div id="accountSettingsError" class="form-error" style="display: none;" role="alert"></div>
+
+        <section class="account-section">
+          <h3>基本資料</h3>
+          <div class="account-row"><span class="account-label">Email</span><span id="accountMeEmail">—</span></div>
+          <div class="account-row" id="accountMeUsernameRow" hidden><span class="account-label">帳號名稱</span><span id="accountMeUsername"></span></div>
+          <div class="account-inline-form">
+            <input type="text" id="accountMeName" maxlength="60" placeholder="名稱" aria-label="名稱">
+            <button type="button" class="modal-btn secondary-btn small-btn" id="accountSaveNameBtn">儲存名稱</button>
+          </div>
+          <div class="account-inline-form">
+            <input type="email" id="accountNewEmail" placeholder="新的 Email" aria-label="新的 Email" spellcheck="false">
+            <button type="button" class="modal-btn secondary-btn small-btn" id="accountChangeEmailBtn">變更 Email</button>
+          </div>
+          <div class="account-turnstile" id="accountEmailTurnstile" hidden></div>
+          <p class="field-hint">變更 Email 會寄確認信到新信箱，點了信中連結才生效。</p>
+        </section>
+
+        <section class="account-section">
+          <h3 id="accountPasswordTitle">密碼</h3>
+          <div class="account-inline-form" id="accountCurrentPasswordRow">
+            <input type="password" id="accountCurrentPassword" autocomplete="current-password" placeholder="目前密碼" aria-label="目前密碼">
+          </div>
+          <div class="account-inline-form">
+            <input type="password" id="accountNewPassword" autocomplete="new-password" placeholder="新密碼（至少 8 個字元）" aria-label="新密碼">
+            <button type="button" class="modal-btn secondary-btn small-btn" id="accountChangePasswordBtn">更新密碼</button>
+          </div>
+          <p class="field-hint">更新密碼後，其他裝置都會登出。</p>
+        </section>
+
+        <section class="account-section" id="accountProvidersSection" hidden>
+          <h3>登入方式</h3>
+          <div id="accountIdentityList" class="account-list"></div>
+        </section>
+
+        <section class="account-section">
+          <h3>登入中的裝置</h3>
+          <div id="accountSessionList" class="account-list"></div>
+          <button type="button" class="modal-btn secondary-btn small-btn" id="accountLogoutOthersBtn">登出其他所有裝置</button>
+        </section>
+
+        <section class="account-section">
+          <p class="account-legal-links"><a href="/privacy" target="_blank" rel="noopener">隱私權政策</a> · <a href="/terms" target="_blank" rel="noopener">使用條款</a></p>
+        </section>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn secondary-btn" id="accountAdminBtn" hidden>開啟後台系統設定</button>
+        <button type="button" class="modal-btn submit-btn" id="accountLogoutBtn">登出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重新驗證身分（敏感操作前；有密碼的人輸入密碼，否則用第三方登入） -->
+  <div class="modal-overlay" id="reauthOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="reauthTitle">
     <div class="modal-card">
       <div class="modal-header">
-        <span class="modal-icon">🔒</span>
-        <h2>管理員登入</h2>
+        <span class="modal-icon">🔐</span>
+        <h2 id="reauthTitle">請再確認一次身分</h2>
       </div>
-      <p class="modal-desc">請輸入管理員帳號與密碼以進入後台設定。</p>
-      <form id="adminLoginForm" class="modal-form">
-        <div class="form-group">
-          <label for="loginUsername">帳號</label>
-          <input type="text" id="loginUsername" placeholder="管理員帳號" required autocomplete="username">
+      <p class="modal-desc">這個操作比較敏感，請重新驗證（10 分鐘內不用再問）。</p>
+      <form id="reauthForm" class="modal-form">
+        <div class="form-group" id="reauthPasswordGroup">
+          <label for="reauthPassword">密碼</label>
+          <input type="password" id="reauthPassword" autocomplete="current-password">
         </div>
-        <div class="form-group">
-          <label for="loginPassword">密碼</label>
-          <input type="password" id="loginPassword" placeholder="管理員密碼" required autocomplete="current-password">
-        </div>
-        <div id="loginErrorMsg" class="form-error" style="display: none;"></div>
+        <div class="account-providers" id="reauthProviders"></div>
+        <div id="reauthError" class="form-error" style="display: none;" role="alert"></div>
         <div class="modal-actions">
-          <button type="button" id="loginCancelBtn" class="modal-btn cancel-btn">取消</button>
-          <button type="submit" class="modal-btn submit-btn">登入</button>
+          <button type="button" class="modal-btn cancel-btn" id="reauthCancelBtn">取消</button>
+          <button type="submit" class="modal-btn submit-btn" id="reauthSubmitBtn">確認</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- 條款有重大更新時，登入者要重新同意 -->
+  <div class="modal-overlay" id="consentOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-icon">📄</span>
+        <h2 id="consentTitle">條款已更新</h2>
+      </div>
+      <p class="modal-desc">我們更新了 <a href="/privacy" target="_blank" rel="noopener">隱私權政策</a> 與 <a href="/terms" target="_blank" rel="noopener">使用條款</a>。請看過後按「同意」繼續使用帳號；不同意可以登出，閱讀經文不受影響。</p>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn cancel-btn" id="consentLogoutBtn">登出</button>
+        <button type="button" class="modal-btn submit-btn" id="consentAcceptBtn">同意</button>
+      </div>
     </div>
   </div>
 
@@ -854,6 +1108,8 @@
         <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
         <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
         <button type="button" class="admin-tab-btn" data-tab="seo" id="adminTabSeoBtn">🔍 搜尋優化</button>
+        <button type="button" class="admin-tab-btn" data-tab="users" id="adminTabUsersBtn">👥 使用者</button>
+        <button type="button" class="admin-tab-btn" data-tab="accountsys" id="adminTabAccountSystemBtn">🔑 帳號系統<span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span></button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌</button>
       </div>
 
@@ -863,7 +1119,7 @@
           <div class="admin-config-grid">
             
             <!-- Card 1: Site & Vault -->
-            <div class="config-card">
+            <div data-card="site" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🌐</span>
                 <h3 class="config-card-title">網站標識與儲存庫</h3>
@@ -906,7 +1162,7 @@
             </div>
 
             <!-- Card 2: Reading & Search -->
-            <div class="config-card">
+            <div data-card="reading" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🎨</span>
                 <h3 class="config-card-title">閱讀體驗與搜尋引擎</h3>
@@ -951,7 +1207,7 @@
             </div>
 
             <!-- Card 3: Footer Settings -->
-            <div class="config-card">
+            <div data-card="footer" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📌</span>
                 <h3 class="config-card-title">首頁頁尾顯示與離線下載</h3>
@@ -999,7 +1255,7 @@
             </div>
 
             <!-- Card 4: Announcement Modal Settings -->
-            <div class="config-card">
+            <div data-card="announce" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📢</span>
                 <h3 class="config-card-title">開啟頁面訊息彈窗</h3>
@@ -1023,7 +1279,7 @@
             </div>
 
             <!-- Card 5: Admin Password Change -->
-            <div class="config-card">
+            <div data-card="password" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🔒</span>
                 <h3 class="config-card-title">管理員密碼修改 (Change Admin Password)</h3>
@@ -1051,7 +1307,7 @@
             </div>
 
             <!-- Card 6: Config Backup & Restore -->
-            <div class="config-card">
+            <div data-card="cfgbackup" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">💾</span>
                 <h3 class="config-card-title">設定備份與還原 (Config Backup & Restore)</h3>
@@ -1088,7 +1344,7 @@
           <div class="admin-config-grid">
             
             <!-- Card 1: Indexing & Crawlers (Left Top) -->
-            <div class="config-card">
+            <div data-card="indexing" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🌐</span>
                 <h3 class="config-card-title">全站收錄與爬蟲 (Indexing & Crawlers)</h3>
@@ -1136,7 +1392,7 @@
             </div>
 
             <!-- Card 2: Social Sharing & Live Preview (Right Top) -->
-            <div class="config-card">
+            <div data-card="og" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📱</span>
                 <h3 class="config-card-title">社群分享卡片與規則 (OpenGraph & Links)</h3>
@@ -1172,7 +1428,7 @@
             </div>
 
             <!-- Card 3: Webmaster Verification (Left Bottom) -->
-            <div class="config-card">
+            <div data-card="webmaster" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🏷️</span>
                 <h3 class="config-card-title">站長平台驗證 (Webmaster Verification)</h3>
@@ -1197,7 +1453,7 @@
             </div>
 
             <!-- Card 4: Structured Data & Homepage SSR (Right Bottom) -->
-            <div class="config-card">
+            <div data-card="schema" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🗺️</span>
                 <h3 class="config-card-title">結構化資料與爬蟲 SSR (Schema & SSR)</h3>
@@ -1530,6 +1786,304 @@
                   <span class="sub-val" id="hwActiveSessions">0 個</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: 使用者（帳號列表、註冊與邀請碼、機器人攔截、登入鎖定、登入紀錄） -->
+      <div class="admin-tab-pane" id="adminPaneUsers" style="display: none;">
+        <div id="adminUsersNotice" class="form-error" style="display: none;"></div>
+        <div class="admin-config-grid">
+          <div data-card="users" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">👥</span>
+              <h3 class="config-card-title">使用者</h3>
+              <span class="account-badge" id="adminUsersTotal"></span>
+            </div>
+            <div class="config-card-body">
+              <div class="admin-users-filters">
+                <input type="search" id="adminUsersSearch" placeholder="搜尋 Email、名稱或帳號名稱" aria-label="搜尋使用者">
+                <select id="adminUsersStatus" aria-label="狀態">
+                  <option value="">全部狀態</option>
+                  <option value="active">啟用中</option>
+                  <option value="disabled">已停用</option>
+                </select>
+                <select id="adminUsersRole" aria-label="角色">
+                  <option value="">全部角色</option>
+                  <option value="admin">管理員</option>
+                  <option value="user">一般使用者</option>
+                </select>
+                <select id="adminUsersProvider" aria-label="登入方式">
+                  <option value="">全部登入方式</option>
+                  <option value="password">密碼</option>
+                  <option value="google">Google</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="apple">Apple</option>
+                </select>
+                <select id="adminUsersVerified" aria-label="Email 驗證">
+                  <option value="">驗證不限</option>
+                  <option value="yes">已驗證</option>
+                  <option value="no">未驗證</option>
+                </select>
+              </div>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table admin-users-table">
+                  <thead><tr><th>帳號</th><th>登入方式</th><th>角色／狀態</th><th>註冊</th><th>最近登入</th></tr></thead>
+                  <tbody id="adminUsersTbody"><tr><td colspan="5" class="analytics-empty">載入中…</td></tr></tbody>
+                </table>
+              </div>
+              <div class="admin-users-pager">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminUsersPrev">上一頁</button>
+                <span id="adminUsersPageInfo"></span>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminUsersNext">下一頁</button>
+              </div>
+              <div class="admin-user-detail" id="adminUserDetail" hidden></div>
+            </div>
+          </div>
+
+          <div data-card="registration" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">📝</span>
+              <h3 class="config-card-title">註冊</h3>
+            </div>
+            <div class="config-card-body">
+              <div id="adminRegBlockers" class="form-error" style="display: none;"></div>
+              <label class="field-hint" for="adminRegMode">誰可以註冊</label>
+              <select id="adminRegMode">
+                <option value="open">開放：任何人都能註冊</option>
+                <option value="invite">邀請制：需要邀請碼</option>
+                <option value="closed">關閉：暫停新註冊</option>
+              </select>
+              <label class="field-hint" for="adminRegCap">每小時最多新註冊幾位（超過時暫停並記錄）</label>
+              <input type="number" id="adminRegCap" min="1" max="10000">
+              <label class="field-hint" for="adminRegDomains">不接受的信箱網域（一行一個，例如拋棄式信箱）</label>
+              <textarea id="adminRegDomains" rows="3" spellcheck="false" placeholder="mailinator.com"></textarea>
+              <button type="button" class="modal-btn submit-btn small-btn" id="adminRegSaveBtn">儲存註冊設定</button>
+            </div>
+          </div>
+
+          <div data-card="invites" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">🎟️</span>
+              <h3 class="config-card-title">邀請碼</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">依序填：可使用次數、幾天後失效（0 為不失效）、備註。產生的邀請碼只顯示一次。</p>
+              <div class="account-inline-form">
+                <input type="number" id="adminInviteUses" min="1" max="1000" value="1" aria-label="可使用次數" title="可使用次數">
+                <input type="number" id="adminInviteDays" min="0" max="365" value="14" aria-label="幾天後失效（0 為不失效）" title="幾天後失效（0 為不失效）">
+                <input type="text" id="adminInviteNote" maxlength="200" placeholder="備註（給誰）" aria-label="備註">
+                <button type="button" class="modal-btn submit-btn small-btn" id="adminInviteCreateBtn">產生</button>
+              </div>
+              <div id="adminInviteNew" class="invite-new" hidden role="status">
+                <div class="invite-new-label">新的邀請碼（只會顯示這一次，請現在複製）</div>
+                <div class="invite-new-row">
+                  <code class="invite-new-code" id="adminInviteNewCode"></code>
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminInviteCopyBtn">複製</button>
+                </div>
+              </div>
+              <div id="adminInviteList" class="account-list"></div>
+            </div>
+          </div>
+
+          <div data-card="bots" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">🤖</span>
+              <h3 class="config-card-title">機器人攔截（24 小時）</h3>
+            </div>
+            <div class="config-card-body" id="adminBotStats"></div>
+          </div>
+
+          <div data-card="lockouts" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">🚫</span>
+              <h3 class="config-card-title">登入鎖定</h3>
+            </div>
+            <div class="config-card-body">
+              <div id="adminLockoutList" class="account-list"></div>
+              <button type="button" class="modal-btn secondary-btn small-btn" id="adminLockoutClearAllBtn">全部解除</button>
+            </div>
+          </div>
+
+          <div data-card="events" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">🧾</span>
+              <h3 class="config-card-title">登入與帳號紀錄</h3>
+            </div>
+            <div class="config-card-body">
+              <div class="admin-users-filters">
+                <input type="text" id="adminEventsFilter" placeholder="事件開頭，例如 login、bot_、admin_" aria-label="事件類型">
+                <input type="text" id="adminEventsIp" placeholder="IP" aria-label="IP">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminEventsRefreshBtn">🔄 查詢</button>
+              </div>
+              <div class="analytics-table-wrapper">
+                <table class="analytics-table">
+                  <thead><tr><th>時間</th><th>事件</th><th>帳號</th><th>IP</th><th>說明</th></tr></thead>
+                  <tbody id="adminEventsTbody"></tbody>
+                </table>
+              </div>
+              <button type="button" class="modal-btn secondary-btn small-btn" id="adminEventsMoreBtn" hidden>載入更早的紀錄</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: 帳號系統（登入方式、寄信、條款頁面、資料庫備份） -->
+      <div class="admin-tab-pane" id="adminPaneAccountSystem" style="display: none;">
+        <div id="adminAccountSysNotice" class="form-error" style="display: none;"></div>
+        <div class="admin-config-grid">
+          <div data-card="setup" class="config-card full-width" id="adminSetupCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🚀</span>
+              <h3 class="config-card-title">開站設定</h3>
+              <span class="account-badge" id="adminSetupBadge"></span>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">第一次啟用帳號功能時，照著下面的步驟在網頁上完成即可，不需要登入伺服器改設定檔。前三步完成後才能開放註冊；Turnstile 建議也設定，用來擋機器人註冊。</p>
+              <ol id="adminSetupSteps" class="setup-steps"></ol>
+            </div>
+          </div>
+
+          <div data-card="mail" class="config-card full-width" id="adminMailCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">✉️</span>
+              <h3 class="config-card-title">寄信（驗證信、重設密碼信）</h3>
+            </div>
+            <div class="config-card-body">
+              <details class="setup-howto" id="adminMailHowto">
+                <summary>怎麼取得 Resend 金鑰？（約 10 分鐘）</summary>
+                <ol>
+                  <li>到 <a href="https://resend.com/signup" target="_blank" rel="noopener">resend.com</a> 註冊（免費方案每月 3,000 封、每天 100 封）。</li>
+                  <li>左側 <strong>Domains</strong> → <strong>Add Domain</strong>，輸入你的網域（例如 <code>example.org</code>）。</li>
+                  <li>Resend 會列出幾筆 DNS 記錄（DKIM 一筆，加上寄信用的 <code>send</code>、<code>rsend</code> 等記錄），到你管理網域的地方（例如 Cloudflare 的 DNS 頁）照抄新增，Cloudflare 的 Proxy 要選「DNS only」（灰雲）。Resend 只開寄信（Sending）的話沒有 MX，不用另外加。下方的「寄件網域 DNS」會告訴你哪幾筆已經生效。</li>
+                  <li>左側 <strong>API Keys</strong> → <strong>Create API Key</strong>，權限選 <strong>Sending access</strong>，複製 <code>re_</code> 開頭的金鑰貼到下面。金鑰只會顯示一次。</li>
+                  <li>寄件 Email 填你網域底下的地址，例如 <code>noreply@example.org</code>（不需要真的有這個信箱）。</li>
+                </ol>
+              </details>
+              <div class="setup-form">
+                <label class="field-hint" for="adminMailProvider">寄信服務</label>
+                <select id="adminMailProvider">
+                  <option value="resend">Resend（正式寄信）</option>
+                  <option value="log">只寫進日誌（測試用，不會真的寄出）</option>
+                  <option value="">停用寄信</option>
+                </select>
+                <div class="setup-form" id="adminMailResendFields">
+                <label class="field-hint" for="adminMailApiKey">Resend API 金鑰</label>
+                <input type="password" id="adminMailApiKey" autocomplete="off" spellcheck="false" placeholder="re_ 開頭">
+                <div class="setup-form-row">
+                  <div>
+                    <label class="field-hint" for="adminMailFromName">寄件人名稱</label>
+                    <input type="text" id="adminMailFromName" placeholder="例如：mdWebview">
+                  </div>
+                  <div>
+                    <label class="field-hint" for="adminMailFromAddress">寄件 Email</label>
+                    <input type="email" id="adminMailFromAddress" placeholder="noreply@你的網域">
+                  </div>
+                </div>
+                </div>
+                <div id="adminMailLockNote" class="field-hint"></div>
+                <div class="account-inline-form">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminMailSaveBtn">儲存並檢查</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailClearKeyBtn" hidden>移除金鑰</button>
+                </div>
+                <div id="adminMailSaveResult" class="setup-result" style="display: none;"></div>
+              </div>
+              <div id="adminMailStatus" class="account-list"></div>
+              <div class="account-inline-form">
+                <strong class="field-hint">寄件網域 DNS</strong>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailDnsBtn">重新檢查</button>
+              </div>
+              <div id="adminMailDns" class="account-list"></div>
+              <div class="account-inline-form">
+                <input type="email" id="adminMailTestTo" placeholder="收件 Email（預設寄給自己）" aria-label="測試收件 Email">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailTestBtn">寄測試信</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="turnstile" class="config-card full-width" id="adminTurnstileCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🛡️</span>
+              <h3 class="config-card-title">Turnstile 人機驗證</h3>
+            </div>
+            <div class="config-card-body">
+              <details class="setup-howto" id="adminTurnstileHowto">
+                <summary>怎麼取得 Turnstile 金鑰？（約 3 分鐘，免費）</summary>
+                <ol>
+                  <li>登入 <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Cloudflare 後台</a>，左側選 <strong>Turnstile</strong> → <strong>Add widget</strong>。網域不必放在 Cloudflare 也能用。</li>
+                  <li><strong>Hostname</strong> 填 <code id="adminTurnstileHowtoHost">你的網域</code>，<strong>Widget mode</strong> 選 <strong>Managed</strong>。</li>
+                  <li>建立後複製 <strong>Site Key</strong> 和 <strong>Secret Key</strong>，貼到下面按「儲存並檢查」。</li>
+                  <li>最後按「開始實測」親自通過一次，確認網域設定正確，訪客才不會卡在註冊畫面。</li>
+                </ol>
+              </details>
+              <div class="setup-form">
+                <label class="field-hint" for="adminTurnstileSiteKey">Site key（公開）</label>
+                <input type="text" id="adminTurnstileSiteKey" autocomplete="off" spellcheck="false" placeholder="0x 開頭">
+                <label class="field-hint" for="adminTurnstileSecret">Secret key</label>
+                <input type="password" id="adminTurnstileSecret" autocomplete="off" spellcheck="false" placeholder="0x 開頭">
+                <div id="adminTurnstileLockNote" class="field-hint"></div>
+                <div class="account-inline-form">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminTurnstileSaveBtn">儲存並檢查</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileDisableBtn" hidden>停用 Turnstile</button>
+                </div>
+                <div id="adminTurnstileSaveResult" class="setup-result" style="display: none;"></div>
+              </div>
+              <div id="adminTurnstileStatus" class="account-list"></div>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileLiveBtn">開始實測</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileCheckBtn">只檢查 secret</button>
+                <span id="adminTurnstileCheckResult" class="field-hint"></span>
+              </div>
+              <div id="adminTurnstileLiveBox" class="setup-live-box" hidden></div>
+            </div>
+          </div>
+
+          <div data-card="sso" class="config-card full-width" id="adminSsoCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🔑</span>
+              <h3 class="config-card-title">第三方登入（Google、Facebook、Apple）</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">讀者可以用這些帳號登入，不必另外設密碼。每一家都要先到它的後台申請金鑰，申請步驟在各區塊的說明裡。金鑰填好、檢查通過後，打開開關才會出現在登入畫面；關掉開關不會刪除金鑰。對外網址：<code id="adminPublicBaseUrl">—</code></p>
+              <div id="adminProviderList" class="sso-list"></div>
+            </div>
+          </div>
+
+          <div data-card="legal" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">📄</span>
+              <h3 class="config-card-title">隱私權政策與使用條款</h3>
+              <span class="account-badge" id="adminLegalVersion"></span>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">用 Markdown 撰寫，發布在 <a href="/privacy" target="_blank" rel="noopener">/privacy</a> 與 <a href="/terms" target="_blank" rel="noopener">/terms</a>。內容存在帳號資料庫，不在程式碼裡。兩份都空白時，註冊畫面不會出現同意勾選。</p>
+              <label class="field-hint" for="adminLegalPrivacy">隱私權政策</label>
+              <textarea id="adminLegalPrivacy" rows="8" spellcheck="false"></textarea>
+              <label class="field-hint" for="adminLegalTerms">使用條款</label>
+              <textarea id="adminLegalTerms" rows="8" spellcheck="false"></textarea>
+              <label class="account-consent">
+                <input type="checkbox" id="adminLegalMajor">
+                <span>重大變更：已註冊的人下次登入時要重新同意</span>
+              </label>
+              <button type="button" class="modal-btn submit-btn small-btn" id="adminLegalSaveBtn">發布</button>
+            </div>
+          </div>
+
+          <div data-card="db" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">🗄️</span>
+              <h3 class="config-card-title">帳號資料庫與備份</h3>
+            </div>
+            <div class="config-card-body">
+              <div id="adminDbStatus" class="account-list"></div>
+              <p class="field-hint">每天自動備份一次，保留 7 份。下載與還原需要重新驗證身分；還原前會先自動備份目前的資料庫。</p>
+              <div id="adminBackupList" class="account-list"></div>
+              <label class="account-consent">
+                <input type="checkbox" id="adminRestoreClearSessions" checked>
+                <span>還原後讓所有人重新登入</span>
+              </label>
+              <button type="button" class="modal-btn secondary-btn small-btn" id="adminBackupNowBtn">立即備份</button>
             </div>
           </div>
         </div>
@@ -1930,13 +2484,13 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=3.12.1" defer></script>
-  <script src="i18n/zh-TW.js?v=3.12.1" defer></script>
-  <script src="i18n/zh-CN.js?v=3.12.1" defer></script>
-  <script src="i18n/i18n.js?v=3.12.1" defer></script>
-  <script src="i18n/content-terms.js?v=3.12.1" defer></script>
-  <script src="i18n/display-script.js?v=3.12.1" defer></script>
-  <script src="i18n/search-variants.js?v=3.12.1" defer></script>
-  <script src="app.js?v=3.12.1" defer></script>
+  <script src="marked.min.js?v=4.0.0" defer></script>
+  <script src="i18n/zh-TW.js?v=4.0.0" defer></script>
+  <script src="i18n/zh-CN.js?v=4.0.0" defer></script>
+  <script src="i18n/i18n.js?v=4.0.0" defer></script>
+  <script src="i18n/content-terms.js?v=4.0.0" defer></script>
+  <script src="i18n/display-script.js?v=4.0.0" defer></script>
+  <script src="i18n/search-variants.js?v=4.0.0" defer></script>
+  <script src="app.js?v=4.0.0" defer></script>
 </body>
 </html>

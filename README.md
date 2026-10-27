@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.12.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.0.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -22,9 +22,10 @@
   - 系統預設關閉，但若你的瀏覽器語言是簡體中文（`zh-CN`／`zh-Hans`／`zh-SG`），
     首次造訪會自動幫你開啟並記住。之後你仍可隨時在偏好設定裡關掉；
     一旦手動選擇過，系統就不會再更動你的設定。
-- 🀄 **繁體／簡體顯示**：右上角的「繁／简」按鈕可把整個網站（介面與經文）切換成簡體，再按一次切回繁體。
-  - 系統預設繁體；若你的瀏覽器語言是簡體中文，首次造訪會自動切成簡體，並跳出提示告訴你右上角可以切回。
+- 🀄 **繁體／簡體顯示**：點右上角的選單按鈕（頭像），在「繁簡顯示」選繁體或简体，就能把整個網站（介面與經文）切換成簡體或切回繁體。同一個選單也能換主題、登入、開偏好設定。
+  - 系統預設繁體；若你的瀏覽器語言是簡體中文，首次造訪會自動切成簡體，並跳出提示告訴你可從右上角選單切回。
   - 經文原文仍是繁體，簡體是在你的瀏覽器裡即時轉換的；簡體顯示時搜尋會一併比對簡繁字形，輸入簡體或繁體都找得到。
+- 🔖 **書籤與最近**：右上角選單的「書籤與最近」會從右側滑出一個面板（手機上是全螢幕）。書籤依資料夾分組，可收合、排序、刪除；最近閱讀依今天／昨天／更早分組，並顯示每篇讀到幾成，按「繼續閱讀」回到上次的位置。同一個選單也能直接調整字級大小。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
 **搜尋**
@@ -117,7 +118,24 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **怎麼進入後台**
 
-在網站右上角點「偏好設定與系統管理」（齒輪圖示），登入後即可管理。第一次使用時，會請你先設定管理員帳號與密碼。所有設定都存在 `config.json`。
+點網站右上角的選單按鈕（頭像）登入，再從選單點「後台系統設定」即可管理。第一次使用時，會請你先設定管理員的 Email（或帳號名稱）與密碼。網站設定存在 `config.json`，帳號存在同一個資料夾的 `users.db`。
+
+**讀者帳號（線上網站）**
+
+讀者可以用 Email 註冊，或用 Google、Facebook、Apple 登入（金鑰填好、後台打開開關的才會出現）。帳號資料存在 `./data/users.db`，每天自動備份到 `./data/backups/`，請把整個 `./data` 資料夾一起備份。
+
+**寄信、Turnstile 與第三方登入都可以直接在網頁上設定。** 第一次建立管理員後，後台會自動打開「🔑 帳號系統」的「開站設定」，照步驟貼上 Resend 的 API 金鑰與寄件 Email、檢查 DNS、寄測試信，再填 Cloudflare Turnstile 的金鑰並實測一次即可，不需要登入伺服器。網頁上填的金鑰會加密後存在 `users.db`，加密用的 `./data/secrets.key` 請和資料庫一起備份（資料庫備份檔本身不含可用的金鑰）。 Google、Facebook、Apple 各有一個開關，區塊內有申請金鑰的步驟、要加到服務商後台的回調網址（可一鍵複製）、金鑰欄位與「檢查設定」；金鑰儲存前會先向服務商確認，Apple 的私鑰可以直接貼上或選 .p8 檔。關掉開關不會刪除金鑰，已綁定的帳號也保留。
+
+也可以改用環境變數，環境變數有設定時優先於網頁設定。金鑰不要寫進 `docker-compose.yml`：把 [.env.example](.env.example) 複製成 `.env` 填好，`docker compose` 會自動讀取。可用的變數：
+
+| 變數 | 用途 |
+| :--- | :--- |
+| `PUBLIC_BASE_URL` | 對外網址，驗證信與第三方登入的連結都用它（沒設時改用後台的首頁權威 URL） |
+| `MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_FROM` | 寄驗證信與重設密碼信（目前支援 Resend，也可在後台設定）。沒設定時註冊與忘記密碼會暫停 |
+| `TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY` | Cloudflare 人機驗證，防機器人註冊（可不設，也可在後台設定） |
+| `GOOGLE_*`、`FACEBOOK_*`、`APPLE_*` | 第三方登入（可不設，也可在後台設定）。Apple 私鑰可用 `APPLE_PRIVATE_KEY_PATH`（檔案路徑）或 `APPLE_PRIVATE_KEY`（.p8 內容） |
+
+後台的「👥 使用者」可以查帳號、停用、設管理員、管理註冊方式與邀請碼；「🔑 帳號系統」有開站設定步驟，可以設定寄信（Resend 金鑰、寄件人，並檢查 DKIM、寄信授權與 DMARC 的 DNS，只寄信不需要 MX）與 Turnstile 人機驗證（填金鑰、實際通過一次確認網域），看第三方登入狀態，並編輯隱私權政策與使用條款（發布在 `/privacy`、`/terms`）、備份與還原帳號資料庫。舊版存在 `config.json` 的管理員會在第一次登入時自動搬進帳號資料庫。
 
 **線上部署與單機離線部署**
 
@@ -167,7 +185,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.12.1）
+├── package.json        # 專案資訊（v4.0.0）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -213,7 +231,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.12.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.0.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -227,9 +245,10 @@ mdWebview/
 - 📱 **Adjust the layout**: Set the text size, line spacing, whether text is left-aligned or centered, and how wide each line is.
 - 🔤 **Match Simplified and Traditional forms**: When on, searches, dictionary look-ups and find-in-article treat Simplified and Traditional forms as the same character (后／後, 发／發／髮, 着／著), so Simplified-source files are found too. Always on in Simplified display.
   - Off by default, but if your browser language is Simplified Chinese (`zh-CN`, `zh-Hans`, `zh-SG`) it turns on automatically on your first visit and is remembered. You can switch it off any time in the settings; once you have chosen, the system will not change it for you.
-- 🀄 **Traditional / Simplified display**: The 繁／简 button at the top right switches the whole site (interface and texts) to Simplified Chinese; press it again to switch back.
+- 🀄 **Traditional / Simplified display**: Open the menu at the top right (the avatar button) and pick 繁體 or 简体 under 繁簡顯示 to switch the whole site (interface and texts). The same menu also changes the theme, signs you in, and opens preferences.
   - Traditional is the default. If your browser language is Simplified Chinese, your first visit switches to Simplified automatically and a notice points you to the button.
   - The texts themselves stay Traditional; Simplified is converted in your browser on the fly. In Simplified display, searches match Simplified and Traditional forms, so typing either finds the text.
+- 🔖 **Bookmarks & Recent**: 書籤與最近 in the top-right menu slides out a panel from the right (full screen on phones). Bookmarks are grouped by folder and can be collapsed, sorted and deleted; recent reading is grouped into today / yesterday / earlier with how far you read each one, and 繼續閱讀 takes you back to where you stopped. The same menu also adjusts the text size.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
 
 **Searching**
@@ -322,7 +341,24 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **How to reach the admin area**
 
-Click the gear icon in the top right of the site ("Preferences & System Administration") and sign in. The first time you use it, you will be asked to set an administrator account and password. All settings are stored in `config.json`.
+Open the menu at the top right of the site (the avatar button), sign in, then choose "後台系統設定" (System administration). The first time you use it, you will be asked to set the administrator's email (or a username) and password. Site settings are stored in `config.json`; accounts are stored in `users.db` in the same folder.
+
+**Reader accounts (online site)**
+
+Readers can sign up with an email address or sign in with Google, Facebook or Apple (only the ones you configure appear). Accounts live in `./data/users.db` and are backed up daily to `./data/backups/`, so back up the whole `./data` folder.
+
+**Mail, Turnstile and third-party sign-in can all be set up in the browser.** After you create the first administrator, the admin panel opens "🔑 Account system → Site setup": paste your Resend API key and sender address, check DNS, send a test email, then add your Cloudflare Turnstile keys and pass one live check. Keys entered on the web are encrypted in `users.db`; keep `./data/secrets.key` with your database backups (backup files alone do not contain usable keys).
+
+Environment variables still work and take precedence over web settings. Keep secrets out of `docker-compose.yml`: copy [.env.example](.env.example) to `.env` and fill it in; `docker compose` reads it automatically. Available variables:
+
+| Variable | Purpose |
+| :--- | :--- |
+| `PUBLIC_BASE_URL` | Public address used in verification emails and sign-in callbacks (falls back to the canonical URL in the admin panel) |
+| `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM` | Sends verification and password-reset emails (Resend is supported). Without it, sign-up and password reset are paused |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare bot check for sign-up (optional) |
+| `GOOGLE_*`, `FACEBOOK_*`, `APPLE_*` | Third-party sign-in (optional; can also be set in the admin panel). The Apple key is either a file path (`APPLE_PRIVATE_KEY_PATH`) or the `.p8` contents (`APPLE_PRIVATE_KEY`) |
+
+In the admin panel, "👥 Users" lists accounts and lets you disable them, grant admin, and manage sign-up mode and invite codes; "🔑 Account system" walks you through site setup (mail and Turnstile), shows sign-in status, edits the privacy policy and terms (published at `/privacy` and `/terms`), and backs up or restores the account database. An administrator stored in an older `config.json` is moved into the account database on first sign-in.
 
 **Online vs. single-user offline deployment**
 
@@ -367,7 +403,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.12.1)
+├── package.json        # Project information (v4.0.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

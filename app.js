@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.1
+   mdWebview — Application Logic (app.js) v4.0.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -34,6 +34,7 @@
        §21.4 硬體監控儀表板          loadHardwareStats, renderHardwareDashboard
        §21.5 日誌與流量報表          fetchAdminLogs, renderAdminAnalytics
        §21.6 設定表單與 SEO          setupAdminTabEvents, loadSeoSettings
+       §21.7 使用者帳號              initAccounts, 登入／註冊、我的帳號、後台使用者與帳號系統
    §22 Utilities                 escHtml, formatDate, helpers
    §23 Boot Entry                DOMContentLoaded → init()
    ================================================================ */
@@ -75,6 +76,7 @@
     LAST_READ_PROGRESS: 'mdWebview-last-read-progress',
     RECENT_FILES: 'mdWebview-user-recentfiles',
     BOOKMARKS: 'mdWebview-user-bookmarks',
+    LIBRARY_PREFS: 'mdWebview-user-library',
     ADMIN_TOKEN: 'mdWebview-admin-token',
     ADMIN_TZ: 'mdWebview-admin-tz',
     DICT_FILE_ORDER: 'mdWebview-dict-file-order',
@@ -367,7 +369,8 @@
    * @property {number|null}  dictPollTimer      - 辭典輪詢 timer ID（檢查辭典更新）
    *
    * ── 後台管理 ──────────────────────────────────────────────────
-   * @property {string|null}  adminToken         - 管理員 session token（持久化於 localStorage）
+   * @property {boolean}      isAdmin            - 目前登入者是否為管理員（session 在 HttpOnly cookie，前端不保存 token）
+   * @property {Object}       account            - 帳號狀態：config（/api/auth/config）、user（/api/me）
    *
    * ── 公告彈窗 ──────────────────────────────────────────────────
    * @property {Object|null}  _announcementModalContext  - 公告彈窗最後一次開啟時的資料快照（用於判斷是否需要重新顯示）
@@ -397,7 +400,8 @@
     scrollSpyResizeHandler: null,
     scrollSpyRaf: null,
     refreshScrollSpy: null,
-    adminToken: storage.get(STORAGE_KEYS.ADMIN_TOKEN),
+    isAdmin: false,
+    account: { config: null, user: null },
     // Deployment mode, confirmed by /api/admin/status. The injected config gives
     // an initial hint so the very first paint is already correct.
     isSingleUser: appConfig.isSingleUser === true || appConfig.authMode === 'single-user',
@@ -673,6 +677,8 @@
     updateWelcomeShortcuts();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
+    // 帳號：不等網路，避免拖慢第一次開啟經文。
+    initAccounts().catch(err => console.error('Account init failed:', err));
     if (isMobileBrowser() || window.innerWidth <= 768) {
       const sidebar = $('sidebar');
       if (sidebar) sidebar.classList.add('collapsed');
@@ -1607,6 +1613,7 @@
 
     const adminLoginBtn = $('menuOpenAdminLoginBtn');
     if (adminLoginBtn) adminLoginBtn.style.display = single ? 'none' : '';
+    updateUserMenu();
 
     // The status line explains how this install is authorised.
     const statusText = $('adminStatusText');
@@ -1614,12 +1621,12 @@
       if (single) {
         statusText.textContent = '單機模式：本機免登入，可直接使用系統維護功能';
       } else if (!statusText.textContent || statusText.textContent.indexOf('檢查中') !== -1) {
-        statusText.textContent = '管理員登入狀態：未登入';
+        statusText.textContent = '登入狀態：尚未登入';
       }
     }
 
     // Tabs that exist only for a public deployment.
-    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn'];
+    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn', 'adminTabUsersBtn', 'adminTabAccountSystemBtn'];
     for (const id of webOnlyTabs) {
       const btn = $(id);
       if (btn) btn.style.display = single ? 'none' : '';
@@ -1629,7 +1636,7 @@
     // configuration tab so the panel is never left showing an empty section.
     if (single) {
       const activePane = document.querySelector('.admin-tab-pane.active');
-      if (activePane && (activePane.id === 'adminPaneSeo' || activePane.id === 'adminPaneAnalytics')) {
+      if (activePane && ['adminPaneSeo', 'adminPaneAnalytics', 'adminPaneUsers', 'adminPaneAccountSystem'].includes(activePane.id)) {
         const configBtn = $('adminTabConfigBtn');
         if (configBtn) configBtn.click();
       }
@@ -1640,9 +1647,6 @@
   async function checkAdminStatus() {
     try {
       const headers = {};
-      if (state.adminToken) {
-        headers['X-Admin-Token'] = state.adminToken;
-      }
       const res = await fetch('/api/admin/status', { headers });
       if (!res.ok) throw new Error('Status check failed');
       const data = await res.json();
@@ -1676,13 +1680,10 @@
       // If token is invalid according to server, clear it. In single-user mode
       // the server authorises loopback callers directly, so there is no token to
       // hold and nothing to clear.
-      if (state.isSingleUser) {
-        state.adminToken = null;
-        storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
-      } else if (!data.isAuthenticated) {
-        state.adminToken = null;
-        storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
-      }
+      state.isAdmin = !state.isSingleUser && !!data.isAuthenticated;
+      updateUserMenu();
+      // 舊版把管理員 token 存在 localStorage；改用 cookie 後一律清掉。
+      storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
 
       // Clean legacy contaminated keys from older versions
       storage.remove('mdWebview-fontsize');
@@ -6535,6 +6536,7 @@
     if (select) select.value = theme;
     const settingSelect = $('settingThemeSelect');
     if (settingSelect) settingSelect.value = theme;
+    updateUserMenuTheme(theme);
 
     if (saveToLocalStorage) {
       storage.set(STORAGE_KEYS.THEME, theme);
@@ -6604,6 +6606,8 @@
 
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
+    const menuDisplay = $('userMenuFontSize');
+    if (menuDisplay) menuDisplay.textContent = size;
     if (saveToLocalStorage) {
       storage.set(STORAGE_KEYS.FONT_SIZE, size);
     }
@@ -6781,44 +6785,7 @@
         btn.classList.toggle('active', btn.getAttribute('data-value') === state.displayScript);
       });
     }
-    centerDisplayScriptGlyph();
-  }
-
-  /**
-   * 將切換鈕上的「繁／简」字形依實際墨跡置中。
-   *
-   * CSS 只能把字的 content area 置中，墨跡位置則取決於字型：繁由 Noto Serif TC
-   * 呈現，简不在該字型內，會退回各平台的系統字型（如 Songti SC），兩者的
-   * ascent/descent 與字面位置都不同，固定的 CSS 偏移無法同時兼顧。改以 canvas
-   * 量測墨跡外框，算出與字框中心的差距，以 em 為單位寫入 CSS 變數，介面字級
-   * 縮放時不必重算。
-   */
-  function centerDisplayScriptGlyph() {
-    const glyph = document.querySelector('#displayScriptToggleBtn .display-script-glyph');
-    const textNode = glyph && glyph.firstChild;
-    if (!textNode || textNode.nodeType !== Node.TEXT_NODE || !textNode.data) return;
-    const ctx = document.createElement('canvas').getContext('2d');
-    if (!ctx) return;
-    glyph.style.removeProperty('--glyph-shift-x');
-    glyph.style.removeProperty('--glyph-shift-y');
-    const cs = getComputedStyle(glyph);
-    const fontSize = parseFloat(cs.fontSize);
-    if (!fontSize) return;
-    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    const m = ctx.measureText(textNode.data);
-    if (!m.actualBoundingBoxAscent && !m.actualBoundingBoxDescent) return;
-    const range = document.createRange();
-    range.selectNodeContents(textNode);
-    const text = range.getBoundingClientRect();
-    const box = glyph.getBoundingClientRect();
-    if (!text.height || !box.height) return;
-    const baseline = text.top + m.fontBoundingBoxAscent;
-    const inkX = text.left + (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2;
-    const inkY = baseline + (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2;
-    const dx = (box.left + box.width / 2 - inkX) / fontSize;
-    const dy = (box.top + box.height / 2 - inkY) / fontSize;
-    glyph.style.setProperty('--glyph-shift-x', `${dx.toFixed(3)}em`);
-    glyph.style.setProperty('--glyph-shift-y', `${dy.toFixed(3)}em`);
+    updateUserMenuScript();
   }
 
   /**
@@ -6901,7 +6868,7 @@
 
   function dismissDisplayScriptNotice() {
     const el = document.getElementById('displayScriptNotice');
-    const btn = $('displayScriptToggleBtn');
+    const btn = $('userMenuBtn');
     if (btn) btn.classList.remove('pulse');
     if (!el) return;
     if (el._timer) clearTimeout(el._timer);
@@ -6910,11 +6877,11 @@
   }
 
   /**
-   * 首次依瀏覽器語言自動切換為簡體時，在右上角切換按鈕下方顯示提示，
+   * 首次依瀏覽器語言自動切換為簡體時，在右上角選單按鈕下方顯示提示，
    * 告訴使用者為何是簡體、以及如何切回。只在自動切換的那一次出現。
    */
   function showDisplayScriptNotice() {
-    const btn = $('displayScriptToggleBtn');
+    const btn = $('userMenuBtn');
     if (!btn || document.getElementById('displayScriptNotice')) return;
 
     const el = document.createElement('div');
@@ -6956,13 +6923,6 @@
   }
 
   function initDisplayScript() {
-    const btn = $('displayScriptToggleBtn');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        dismissDisplayScriptNotice();
-        applyDisplayScript(isHansDisplay() ? 'hant' : 'hans', true, { announce: true });
-      });
-    }
     const group = $('settingDisplayScriptGroup');
     if (group) {
       $$('.segment-btn', group).forEach(b => {
@@ -6977,11 +6937,6 @@
     }
 
     updateDisplayScriptUI();
-    // 網頁字型晚於首次量測載入時，字形與墨跡位置會改變，載入後重新置中
-    if (document.fonts && document.fonts.addEventListener) {
-      document.fonts.addEventListener('loadingdone', centerDisplayScriptGlyph);
-      document.fonts.ready.then(centerDisplayScriptGlyph).catch(() => {});
-    }
     if (isHansDisplay()) {
       applyDisplayScript('hans', false).then(ok => {
         if (ok && displayScriptAutoSelected) showDisplayScriptNotice();
@@ -6999,16 +6954,33 @@
     const cleanPath = filePath.startsWith('dict:') ? filePath.slice(5) : filePath;
     const fileName = title || cleanPath.split('/').pop().replace(/\.md$/, '');
     let list = state.recentFiles || [];
+    const prev = list.find(item => item.filePath === filePath);
     list = list.filter(item => item.filePath !== filePath);
-    list.unshift({
+    const entry = {
       filePath,
       fileName,
-      time: new Date().toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    });
+      time: new Date().toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      ts: Date.now()
+    };
+    // 沿用上次讀到的位置，直到這次捲動後由 saveReadProgress 更新
+    if (prev && typeof prev.pct === 'number') { entry.pct = prev.pct; entry.line = prev.line || null; }
+    list.unshift(entry);
     if (list.length > 20) list = list.slice(0, 20);
     state.recentFiles = list;
     storage.setJson(STORAGE_KEYS.RECENT_FILES, list);
     renderRecentFilesList();
+  }
+
+  /** 把目前讀到的位置（百分比、行號）記在最近閱讀那一筆上，給「書籤與最近」顯示與跳回。 */
+  function updateRecentProgress(filePath, pct, line) {
+    const item = (state.recentFiles || []).find(i => i.filePath === filePath);
+    if (!item) return;
+    if (item.pct === pct && item.line === line) return;
+    item.pct = pct;
+    item.line = line || null;
+    item.ts = Date.now();
+    storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+    if (isLibraryOpen() && libraryUi.tab === 'recent') renderLibrary();
   }
 
   function renderRecentFilesList() {
@@ -7016,6 +6988,7 @@
     if (!container) return;
 
     const list = state.recentFiles || [];
+    if (isLibraryOpen()) renderLibrary();
     if (list.length === 0) {
       container.innerHTML = `<div class="list-empty-hint">尚無最近開啟的經文檔案</div>`;
       return;
@@ -7204,6 +7177,8 @@
   }
 
   function renderBookmarksList() {
+    if (isLibraryOpen()) renderLibrary();
+    updateLibraryCount();
     const targets = [$('bookmarksList'), $('sidebarBookmarksList')].filter(Boolean);
     if (targets.length === 0) return;
 
@@ -7298,6 +7273,9 @@
         timestamp: Date.now()
       };
       storage.setJson(STORAGE_KEYS.LAST_READ_PROGRESS, progress);
+      const scrollable = content.scrollHeight - content.clientHeight;
+      const pct = scrollable > 0 ? Math.round(Math.min(1, Math.max(0, content.scrollTop / scrollable)) * 100) : 100;
+      updateRecentProgress(filePath, pct, currentLine);
     }, 250);
   }
 
@@ -7315,10 +7293,11 @@
    * 失效。延遲期間只要 token 變動或 currentFile 已非目標檔案即放棄捲動，且每次都
    * 重新查詢 #content（節點可能已被換掉）。
    *
+   * @param {boolean} [force=false] - 「繼續閱讀」按鈕：使用者主動要求，不受自動恢復開關限制
    * @returns {boolean} 是否已排入還原流程（沒有可還原資料或功能關閉時為 false）
    */
-  function restoreReadProgress() {
-    if (!state.autoReadProgress) return false;
+  function restoreReadProgress(force = false) {
+    if (!force && !state.autoReadProgress) return false;
     const data = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
     if (!data || !data.filePath) return false;
     try {
@@ -7362,7 +7341,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8610,6 +8589,14 @@
     document.addEventListener('keydown', (e) => {
       // ESC key → Exit open modals / settings overlays / search bar
       if (e.key === 'Escape') {
+        if (isUserMenuOpen()) {
+          closeUserMenu(true);
+          return;
+        }
+        if (isLibraryOpen()) {
+          closeLibrary();
+          return;
+        }
         const annOverlay = $('announcementModalOverlay');
         if (annOverlay && annOverlay.style.display !== 'none' && annOverlay.style.display !== '') {
           closeAnnouncementModal(true);
@@ -8623,11 +8610,6 @@
         const userOverlay = $('userSettingsOverlay');
         if (userOverlay && userOverlay.style.display !== 'none' && userOverlay.style.display !== '') {
           closeUserSettingsModal();
-          return;
-        }
-        const loginOverlay = $('adminLoginOverlay');
-        if (loginOverlay && loginOverlay.style.display !== 'none' && loginOverlay.style.display !== '') {
-          loginOverlay.style.display = 'none';
           return;
         }
         const setupOverlay = $('adminSetupOverlay');
@@ -8696,7 +8678,7 @@
     });
 
     // Modal backdrop click exit listener
-    ['userSettingsOverlay', 'adminSettingsOverlay', 'adminLoginOverlay', 'adminSetupOverlay'].forEach(id => {
+    ['userSettingsOverlay', 'adminSettingsOverlay', 'adminSetupOverlay'].forEach(id => {
       const el = $(id);
       if (el) {
         el.addEventListener('click', (evt) => {
@@ -8737,10 +8719,8 @@
     setupDictResizeHandle();
     setupSelectionPopup();
 
-    // ── User Settings Gear Button Click ──
-    $('adminSettingsBtn').addEventListener('click', () => {
-      openUserSettingsOverlay();
-    });
+    // ── 右上角整合選單 ──
+    setupUserMenu();
 
     // ── Setting Menu Tab Navigation ──
     $$('.settings-tab-btn', $('userSettingsTabsNav')).forEach(btn => {
@@ -8891,10 +8871,10 @@
       });
     }
 
-    // Menu Sub-Modals (Admin Login / Admin Vault Settings)
+    // Menu Sub-Modals (登入 / Admin Vault Settings)
     $('menuOpenAdminLoginBtn').addEventListener('click', () => {
-      $('userSettingsOverlay').style.display = 'none';
-      openLoginOverlay();
+      closeUserSettingsModal();
+      openAccountAuth('login');
     });
 
     const vaultBtn = $('menuOpenVaultSettingsBtn');
@@ -8985,12 +8965,19 @@
     // ── Setup Form Submission ──
     $('adminSetupForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const username = $('setupUsername').value;
+      const username = $('setupUsername').value.trim();
+      const email = ($('setupEmail') ? $('setupEmail').value : '').trim();
       const password = $('setupPassword').value;
       const confirm = $('setupPasswordConfirm').value;
       const siteUrl = ($('setupSiteUrl') ? $('setupSiteUrl').value : '').trim();
       const setupToken = ($('setupToken') ? $('setupToken').value : '').trim();
       const errorEl = $('setupErrorMsg');
+
+      if (!username && !email) {
+        errorEl.textContent = 'Email 與帳號名稱至少要填一個';
+        errorEl.style.display = 'block';
+        return;
+      }
 
       if (!setupToken) {
         errorEl.textContent = '請輸入伺服器日誌中的一次性設定碼';
@@ -9020,7 +9007,7 @@
         const res = await fetch('/api/admin/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, siteUrl, setupToken })
+          body: JSON.stringify({ username, email, password, siteUrl, setupToken })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -9028,60 +9015,17 @@
         }
         errorEl.style.display = 'none';
         $('adminSetupOverlay').style.display = 'none';
-        
-        // Show login overlay
-        openLoginOverlay();
-      } catch (err) {
-        errorEl.textContent = err.message;
-        errorEl.style.display = 'block';
-      }
-    });
 
-    // ── Login Form Submission ──
-    const submitLoginForm = async () => {
-      const username = $('loginUsername').value;
-      const password = $('loginPassword').value;
-      const errorEl = $('loginErrorMsg');
-
-      try {
-        const res = await fetch('/api/admin/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || '登入失敗');
-        }
-        errorEl.style.display = 'none';
-        state.adminToken = data.token;
-        storage.set(STORAGE_KEYS.ADMIN_TOKEN, data.token);
-        $('adminLoginOverlay').style.display = 'none';
-        showToast('🔑 管理員登入成功', 'success');
-        
-        // Open settings panel
+        // 建立完成即已登入（cookie），直接進後台的「帳號系統」分頁接著做開站設定（寄信、Turnstile）。
+        state.isAdmin = true;
+        await refreshAccountMe();
         await openSettingsOverlay();
+        const setupTab = $('adminTabAccountSystemBtn');
+        if (setupTab && !setupTab.hidden && setupTab.style.display !== 'none') setupTab.click();
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
-        showToast(`❌ 登入失敗：${err.message}`, 'error', 3500);
       }
-    };
-
-    $('adminLoginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      await submitLoginForm();
-    });
-
-    $('loginPassword').addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        await submitLoginForm();
-      }
-    });
-
-    $('loginCancelBtn').addEventListener('click', () => {
-      $('adminLoginOverlay').style.display = 'none';
     });
 
     // ── Settings Form Toggle Interactions ──
@@ -9120,8 +9064,7 @@
         const res = await fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 
-            'Content-Type': 'application/json',
-            'X-Admin-Token': state.adminToken
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             settings: {
@@ -9232,16 +9175,17 @@
     $('settingsLogoutBtn').addEventListener('click', async () => {
       let ok = true;
       try {
-        await fetch('/api/admin/logout', {
+        await fetch('/api/auth/logout', {
           method: 'POST',
-          headers: { 'X-Admin-Token': state.adminToken }
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
         });
       } catch (err) {
         console.error('Logout request failed:', err);
         ok = false;
       }
-      state.adminToken = null;
-      storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
+      state.isAdmin = false;
+      setAccountUser(null);
       closeAdminModal();
       showToast(ok ? '👋 管理員已順利登出' : '❌ 登出請求失敗，但本機已登出', ok ? 'info' : 'error');
     });
@@ -9260,7 +9204,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9280,12 +9224,18 @@
       // In single-user mode the maintenance panel lives in this very tab, so the
       // "open admin settings" shortcut is redundant and stays hidden.
       if (vaultBtn) vaultBtn.style.display = 'none';
-    } else if (state.adminToken) {
-      if (statusText) statusText.textContent = '管理員登入狀態：已登入 ✅';
+    } else if (state.account.user) {
+      const u = state.account.user;
+      const who = u.displayName || u.email || u.username;
+      if (statusText) statusText.textContent = `目前登入：${who}${state.isAdmin ? '（管理員）' : ''}`;
+      if (loginBtn) loginBtn.style.display = 'none';
+      if (vaultBtn) vaultBtn.style.display = state.isAdmin ? 'inline-block' : 'none';
+    } else if (state.isAdmin) {
+      if (statusText) statusText.textContent = '登入狀態：管理員 ✅';
       if (loginBtn) loginBtn.style.display = 'none';
       if (vaultBtn) vaultBtn.style.display = 'inline-block';
     } else {
-      if (statusText) statusText.textContent = '管理員登入狀態：尚未登入';
+      if (statusText) statusText.textContent = '登入狀態：尚未登入';
       if (loginBtn) loginBtn.style.display = 'inline-block';
       if (vaultBtn) vaultBtn.style.display = 'none';
     }
@@ -9348,8 +9298,6 @@
 
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
-    const loginOverlay = $('adminLoginOverlay');
-    if (loginOverlay) loginOverlay.style.display = 'none';
     const setupOverlay = $('adminSetupOverlay');
     if (setupOverlay) setupOverlay.style.display = 'none';
     document.body.classList.remove('modal-open');
@@ -9435,8 +9383,7 @@
         const res = await fetch('/api/admin/diagnose-path', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'X-Admin-Token': state.adminToken
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ targetPath, type })
         });
@@ -9547,8 +9494,7 @@
         const res = await fetch('/api/admin/password', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'X-Admin-Token': state.adminToken
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ currentPassword, newPassword })
         });
@@ -9588,11 +9534,11 @@
       exportBtn.addEventListener('click', async () => {
         try {
           const res = await fetch('/api/admin/settings', {
-            headers: { 'X-Admin-Token': state.adminToken }
+            headers: {}
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -9646,8 +9592,7 @@
           const res = await fetch('/api/admin/settings', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
-              'X-Admin-Token': state.adminToken
+              'Content-Type': 'application/json'
             },
             body: JSON.stringify({ settings: settingsToRestore })
           });
@@ -9677,7 +9622,7 @@
       try {
         const res = await fetch('/api/admin/clear-cache', {
           method: 'POST',
-          headers: { 'X-Admin-Token': state.adminToken }
+          headers: {}
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '清理失敗');
@@ -10017,7 +9962,7 @@
   async function loadHardwareStats() {
     try {
       const res = await fetch('/api/admin/hardware', {
-        headers: { 'X-Admin-Token': state.adminToken }
+        headers: {}
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -10291,7 +10236,7 @@
 
         const res = await fetch('/api/admin/rebuild-index', {
           method: 'POST',
-          headers: { 'X-Admin-Token': state.adminToken }
+          headers: {}
         });
 
         if (!res.ok) {
@@ -10312,7 +10257,7 @@
         indexRebuildPollingTimer = setInterval(async () => {
           try {
             const statsRes = await fetch('/api/admin/hardware', {
-              headers: { 'X-Admin-Token': state.adminToken }
+              headers: {}
             });
             if (!statsRes.ok) {
               // 輪詢端點失敗：無法再得知完成時間，收掉 Toast 並停止輪詢。
@@ -10374,7 +10319,7 @@
 
         const res = await fetch('/api/admin/rebuild-dict-index', {
           method: 'POST',
-          headers: { 'X-Admin-Token': state.adminToken }
+          headers: {}
         });
 
         if (!res.ok) {
@@ -10394,7 +10339,7 @@
         dictIndexRebuildPollingTimer = setInterval(async () => {
           try {
             const statsRes = await fetch('/api/admin/hardware', {
-              headers: { 'X-Admin-Token': state.adminToken }
+              headers: {}
             });
             if (!statsRes.ok) {
               clearInterval(dictIndexRebuildPollingTimer);
@@ -10464,11 +10409,9 @@
     }
   }
 
+  // 後台需要重新登入（逾期、還原資料庫後）：走同一套帳號登入，管理員登入後直接回到後台。
   function openLoginOverlay() {
-    $('loginUsername').value = '';
-    $('loginPassword').value = '';
-    $('loginErrorMsg').style.display = 'none';
-    $('adminLoginOverlay').style.display = 'flex';
+    openAccountAuth('login', { afterLogin: 'admin' });
   }
 
   // ── §21.5 Admin Logs & Analytics Reports ───────────────────────
@@ -10476,6 +10419,7 @@
 
   async function openSettingsOverlay() {
     setupAdminTabEvents();
+    if (!state.isSingleUser) refreshAdminSetupDot();
     const errorEl = $('settingsErrorMsg');
     const successEl = $('settingsSuccessMsg');
     errorEl.style.display = 'none';
@@ -10483,7 +10427,7 @@
 
     try {
       const res = await fetch('/api/admin/settings', {
-        headers: { 'X-Admin-Token': state.adminToken }
+        headers: {}
       });
       if (!res.ok) {
         // Token invalid/expired. Single-user mode has no login to fall back to,
@@ -10492,8 +10436,7 @@
           showToast('❌ 系統設定載入失敗', 'error');
           return;
         }
-        state.adminToken = null;
-        storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
+        state.isAdmin = false;
         closeAdminModal();
         openLoginOverlay();
         return;
@@ -10538,6 +10481,9 @@
         preloads.push(loadAdminAnalytics().catch(() => {}));
       }
       Promise.all(preloads);
+      enhanceAdminCards();
+      wireAdminConfigLights();
+      refreshAdminConfigLights();
     } catch (err) {
       console.error('Error fetching settings:', err);
       showToast('❌ 系統設定載入失敗', 'error');
@@ -10623,9 +10569,6 @@
     viewer.innerHTML = '<div class="search-loading"><div class="spinner"></div><span>載入日誌中…</span></div>';
     try {
       const headers = {};
-      if (state.adminToken) {
-        headers['X-Admin-Token'] = state.adminToken;
-      }
       const res = await fetch('/api/admin/logs', { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -10736,9 +10679,6 @@
     }
     try {
       const headers = {};
-      if (state.adminToken) {
-        headers['X-Admin-Token'] = state.adminToken;
-      }
       const tz = getEffectiveTimezone();
       const res = await fetch(`/api/admin/analytics?range=${stateAnalyticsRange}&tz=${encodeURIComponent(tz)}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -10961,6 +10901,10 @@
     const tabLogsBtn = $('adminTabLogsBtn');
     const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
     const tabSuggestBtn = $('adminTabSuggestBtn');
+    const tabUsersBtn = $('adminTabUsersBtn');
+    const tabAccountSystemBtn = $('adminTabAccountSystemBtn');
+    const paneUsers = $('adminPaneUsers');
+    const paneAccountSystem = $('adminPaneAccountSystem');
     const paneConfig = $('adminPaneConfig');
     const paneSeo = $('adminPaneSeo');
     const paneHardware = $('adminPaneHardware');
@@ -10976,8 +10920,8 @@
         clearInterval(hwAutoRefreshTimer);
         hwAutoRefreshTimer = null;
       }
-      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn].forEach(b => { if (b) b.classList.remove('active'); });
+      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest, paneUsers, paneAccountSystem].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn, tabUsersBtn, tabAccountSystemBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
     function activateTab(btn, pane, callback) {
@@ -11038,6 +10982,24 @@
       });
     }
 
+    if (tabUsersBtn) {
+      tabUsersBtn.addEventListener('click', () => {
+        activateTab(tabUsersBtn, paneUsers, () => {
+          setupAdminAccountEvents();
+          loadAdminUsersTab();
+        });
+      });
+    }
+
+    if (tabAccountSystemBtn) {
+      tabAccountSystemBtn.addEventListener('click', () => {
+        activateTab(tabAccountSystemBtn, paneAccountSystem, () => {
+          setupAdminAccountEvents();
+          loadAdminAccountSystemTab();
+        });
+      });
+    }
+
     if (settingsTzSelect) {
       settingsTzSelect.addEventListener('change', () => {
         const val = settingsTzSelect.value;
@@ -11069,7 +11031,7 @@
       const params = new URLSearchParams({ range: stateAnalyticsRange, format, tz });
       try {
         const response = await fetch(`/api/admin/analytics/export?${params}`, {
-          headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+          headers: {}
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
@@ -11264,7 +11226,7 @@
         try {
           const res = await fetch('/api/admin/rebuild-sitemap', {
             method: 'POST',
-            headers: { 'X-Admin-Token': state.adminToken }
+            headers: {}
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || '生成失敗');
@@ -11382,7 +11344,7 @@
       try {
         // Fetch current settings to preserve other fields
         const getRes = await fetch('/api/admin/settings', {
-          headers: { 'X-Admin-Token': state.adminToken }
+          headers: {}
         });
         if (!getRes.ok) throw new Error('Unable to load settings');
         const current = await getRes.json();
@@ -11391,8 +11353,7 @@
         const res = await fetch('/api/admin/settings', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'X-Admin-Token': state.adminToken
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             settings: {
@@ -11453,7 +11414,7 @@
       if (!settings) {
         try {
           const res = await fetch('/api/admin/settings', {
-            headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+            headers: {}
           });
           if (res.ok) {
             const data = await res.json();
@@ -11540,7 +11501,7 @@
       if (!settings) {
         try {
           const res = await fetch('/api/admin/settings', {
-            headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+            headers: {}
           });
           if (res.ok) {
             const data = await res.json();
@@ -11606,7 +11567,7 @@
   async function fetchSeoStats() {
     try {
       const res = await fetch('/api/admin/seo-stats', {
-        headers: state.adminToken ? { 'X-Admin-Token': state.adminToken } : {}
+        headers: {}
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -11681,8 +11642,7 @@
           const res = await fetch('/api/admin/settings', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
-              'X-Admin-Token': state.adminToken
+              'Content-Type': 'application/json'
             },
             body: JSON.stringify({ settings: payload })
           });
@@ -11710,6 +11670,2290 @@
           if (submitBtn) submitBtn.disabled = false;
         }
       });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §21.7 使用者帳號（登入、註冊、我的帳號、後台「使用者」與「帳號系統」分頁）
+  //
+  // Session 放在 HttpOnly cookie，前端不保存任何 token；state.account.user
+  // 只是畫面用的快照（/api/me）。單機模式沒有帳號，整段功能隱藏。
+  // ═══════════════════════════════════════════════════════════
+  const PROVIDER_LABELS = { google: 'Google', facebook: 'Facebook', apple: 'Apple' };
+  const ACCOUNT_URL_PARAMS = ['auth', 'token', 'status', 'mode', 'code'];
+  const authUi = { view: 'login', openedAt: 0, resetToken: '', turnstileWidget: null, turnstileToken: '', needTurnstile: false, pendingReauth: null, afterLogin: '' };
+
+  /** JSON 請求；回傳 { ok, status, data }，不丟出例外（網路錯誤時 status 為 0）。 */
+  async function accountApi(url, { method = 'GET', body } = {}) {
+    const opts = { method, headers: {}, credentials: 'same-origin' };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    try {
+      const res = await fetch(url, opts);
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      return { ok: res.ok, status: res.status, data };
+    } catch (_) {
+      return { ok: false, status: 0, data: { error: '網路連線失敗，請稍後再試' } };
+    }
+  }
+
+  /** 需要「10 分鐘內重新驗證」的操作：遇到 REAUTH_REQUIRED 就先請使用者驗證，再重試一次。 */
+  async function withReauth(run) {
+    const first = await run();
+    if (first.status !== 403 || !first.data || first.data.code !== 'REAUTH_REQUIRED') return first;
+    const passed = await openReauthOverlay();
+    if (!passed) return { ok: false, status: 403, data: { error: '已取消', code: 'REAUTH_CANCELLED' } };
+    return run();
+  }
+
+  function fmtDateTime(ms) {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function describeUserAgent(ua) {
+    const s = String(ua || '');
+    const browser = /Edg\//.test(s) ? 'Edge' : /Chrome\//.test(s) ? 'Chrome' : /Firefox\//.test(s) ? 'Firefox' : /Safari\//.test(s) ? 'Safari' : '瀏覽器';
+    const os = /iPhone|iPad/.test(s) ? 'iOS' : /Android/.test(s) ? 'Android' : /Mac OS X/.test(s) ? 'macOS' : /Windows/.test(s) ? 'Windows' : /Linux/.test(s) ? 'Linux' : '';
+    return os ? `${browser} · ${os}` : browser;
+  }
+
+  function showBox(el, text) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  // ── 右上角整合選單：帳號狀態、繁簡、主題、偏好設定、我的帳號、後台、登出 ──
+  function accountsEnabled() {
+    return !state.isSingleUser && !!(state.account.config && state.account.config.accountsEnabled);
+  }
+
+  /** 依登入狀態與部署模式更新按鈕外觀與選單項目；任何時候呼叫都安全。 */
+  function updateUserMenu() {
+    const btn = $('userMenuBtn');
+    if (!btn) return;
+    const user = state.account.user;
+    const accounts = accountsEnabled();
+    const name = user ? String(user.displayName || user.email || user.username || '?') : '';
+    const initial = name ? Array.from(name)[0].toUpperCase() : '';
+
+    btn.classList.toggle('signed-in', !!user);
+    btn.classList.toggle('no-accounts', !accounts && !user);
+    const label = user ? `選單（${name}）：帳號、繁簡、主題與設定` : '選單：帳號、繁簡、主題與設定';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    if ($('userMenuInitial')) $('userMenuInitial').textContent = initial;
+
+    const accountBox = $('userMenuAccount');
+    if (accountBox) accountBox.hidden = !accounts && !user;
+    const avatar = $('userMenuAvatar');
+    if (avatar) {
+      avatar.textContent = initial || '👤';
+      avatar.classList.toggle('signed-out', !user);
+    }
+    if ($('userMenuName')) $('userMenuName').textContent = user ? name : '尚未登入';
+    if ($('userMenuRole')) $('userMenuRole').hidden = !(user && user.role === 'admin');
+    const sub = $('userMenuSub');
+    if (sub) {
+      const detail = user ? (user.email && user.email !== name ? user.email : (user.username && user.username !== name ? user.username : '')) : '登入後可同步書籤與閱讀進度';
+      sub.textContent = detail;
+      sub.hidden = !detail;
+    }
+    if ($('userMenuAuthRow')) $('userMenuAuthRow').hidden = !!user;
+    const cfg = state.account.config || {};
+    if ($('userMenuRegisterBtn')) $('userMenuRegisterBtn').hidden = cfg.registrationMode === 'closed';
+
+    if ($('userMenuAccountBtn')) $('userMenuAccountBtn').hidden = !user;
+    const showAdmin = state.isSingleUser || state.isAdmin;
+    if ($('userMenuAdminBtn')) $('userMenuAdminBtn').hidden = !showAdmin;
+    if ($('userMenuAdminLabel')) $('userMenuAdminLabel').textContent = state.isSingleUser ? '系統設定' : '後台系統設定';
+    if ($('userMenuLogoutBtn')) $('userMenuLogoutBtn').hidden = !user;
+    if ($('userMenuLogoutSep')) $('userMenuLogoutSep').hidden = !user;
+    if ($('userMenuFontSize') && state.fontSize) $('userMenuFontSize').textContent = state.fontSize;
+    updateLibraryCount();
+  }
+
+  function updateUserMenuScript() {
+    $$('#userMenuScriptGroup .user-menu-seg-btn').forEach(b => {
+      const on = b.getAttribute('data-value') === state.displayScript;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function updateUserMenuTheme(theme) {
+    $$('#userMenuThemeGroup .user-menu-theme').forEach(b => {
+      const on = b.getAttribute('data-value') === theme;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+
+  function isUserMenuOpen() {
+    const panel = $('userMenuPanel');
+    return !!panel && !panel.hidden;
+  }
+
+  function userMenuItems() {
+    return Array.from($$('#userMenuPanel button')).filter(b => !b.hidden && b.offsetParent !== null);
+  }
+
+  function openUserMenu() {
+    const panel = $('userMenuPanel');
+    if (!panel) return;
+    dismissDisplayScriptNotice();
+    updateUserMenu();
+    updateUserMenuScript();
+    updateUserMenuTheme(state.currentTheme || document.documentElement.getAttribute('data-theme'));
+    panel.hidden = false;
+    $('userMenuBtn').setAttribute('aria-expanded', 'true');
+    const items = userMenuItems();
+    const first = items.find(b => b.classList.contains('active')) || items[0];
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function closeUserMenu(returnFocus = false) {
+    const panel = $('userMenuPanel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    $('userMenuBtn').setAttribute('aria-expanded', 'false');
+    if (returnFocus) $('userMenuBtn').focus({ preventScroll: true });
+  }
+
+  /** 點選單項目：先關選單再做事，避免選單蓋在開出來的視窗上。 */
+  function userMenuAction(fn) {
+    return (e) => {
+      e.preventDefault();
+      closeUserMenu();
+      fn();
+    };
+  }
+
+  function setupUserMenu() {
+    const btn = $('userMenuBtn');
+    const panel = $('userMenuPanel');
+    if (!btn || !panel) return;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isUserMenuOpen()) closeUserMenu();
+      else openUserMenu();
+    });
+    document.addEventListener('click', (e) => {
+      if (isUserMenuOpen() && !e.target.closest('#userMenu')) closeUserMenu();
+    });
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeUserMenu(true);
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        const items = userMenuItems();
+        if (!items.length) return;
+        e.preventDefault();
+        const i = items.indexOf(document.activeElement);
+        let next;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = items.length - 1;
+        else if (e.key === 'ArrowDown') next = i < 0 ? 0 : (i + 1) % items.length;
+        else next = i <= 0 ? items.length - 1 : i - 1;
+        items[next].focus();
+      }
+    });
+    panel.addEventListener('focusout', (e) => {
+      if (e.relatedTarget && !e.relatedTarget.closest('#userMenu')) closeUserMenu();
+    });
+
+    // 繁簡與主題：在選單內直接切換，選單保持開著，看得到切換結果
+    $$('#userMenuScriptGroup .user-menu-seg-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        const v = normalizeDisplayScript(b.getAttribute('data-value'));
+        if (v && v !== state.displayScript) {
+          dismissDisplayScriptNotice();
+          applyDisplayScript(v, true, { announce: true });
+        }
+      });
+    });
+    $$('#userMenuThemeGroup .user-menu-theme').forEach(b => {
+      b.addEventListener('click', () => {
+        const theme = b.getAttribute('data-value');
+        if (theme && theme !== state.currentTheme) applyTheme(theme, true);
+      });
+    });
+
+    // 字級：選單保持開著，看得到字變大變小
+    $('userMenuFontDec').addEventListener('click', () => applyFontSize(state.fontSize - 1));
+    $('userMenuFontInc').addEventListener('click', () => applyFontSize(state.fontSize + 1));
+    $('userMenuLibraryBtn').addEventListener('click', userMenuAction(() => openLibrary()));
+    setupLibrary();
+
+    $('userMenuLoginBtn').addEventListener('click', userMenuAction(() => openAccountAuth('login')));
+    $('userMenuRegisterBtn').addEventListener('click', userMenuAction(() => openAccountAuth('register')));
+    $('userMenuSettingsBtn').addEventListener('click', userMenuAction(() => openUserSettingsOverlay()));
+    $('userMenuAccountBtn').addEventListener('click', userMenuAction(() => openAccountSettings()));
+    $('userMenuAdminBtn').addEventListener('click', userMenuAction(() => openSettingsOverlay()));
+    $('userMenuLogoutBtn').addEventListener('click', userMenuAction(() => accountLogout()));
+
+    updateUserMenu();
+    updateUserMenuScript();
+    updateUserMenuTheme(state.currentTheme || document.documentElement.getAttribute('data-theme'));
+  }
+
+  // ── 書籤與最近：右側抽屜 ──
+  // 書籤依資料夾分組（可收合），可篩選、依加入順序或名稱排序；最近依日期分組，
+  // 顯示上次讀到的位置。分頁、排序、收合狀態只是個人便利，存在 localStorage。
+  const libraryUi = (() => {
+    const saved = storage.getJson(STORAGE_KEYS.LIBRARY_PREFS, null) || {};
+    return {
+      tab: saved.tab === 'recent' ? 'recent' : 'bookmarks',
+      sort: saved.sort === 'name' ? 'name' : 'new',
+      collapsed: (saved.collapsed && typeof saved.collapsed === 'object') ? saved.collapsed : {},
+      q: ''
+    };
+  })();
+  let libraryCloseTimer = null;
+
+  function saveLibraryPrefs() {
+    storage.setJson(STORAGE_KEYS.LIBRARY_PREFS, { tab: libraryUi.tab, sort: libraryUi.sort, collapsed: libraryUi.collapsed });
+  }
+
+  function isLibraryOpen() {
+    const d = $('libraryDrawer');
+    return !!d && d.classList.contains('open');
+  }
+
+  function updateLibraryCount() {
+    const el = $('userMenuLibraryCount');
+    if (!el) return;
+    const n = (state.bookmarks || []).length;
+    el.textContent = n ? `${n} 書籤` : '';
+  }
+
+  /** 書籤所在資料夾：辭典條目歸到「辭典」，主樹檔案取上層路徑。 */
+  function libraryFolderOf(filePath) {
+    if (!filePath) return '';
+    if (filePath.startsWith('dict:')) return '辭典';
+    const parts = filePath.split('/');
+    parts.pop();
+    return parts.length ? parts.join(' / ') : '根目錄';
+  }
+
+  function libraryTitleOf(item) {
+    if (item.fileName) return item.fileName;
+    const clean = (item.filePath || '').replace(/^dict:/, '');
+    return clean.split('/').pop().replace(/\.md$/i, '');
+  }
+
+  function libraryDayGroup(ts) {
+    if (typeof ts !== 'number') return 2;
+    const d = new Date(ts);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = today.getTime();
+    if (d.getTime() >= start) return 0;
+    if (d.getTime() >= start - 86400000) return 1;
+    return 2;
+  }
+
+  function libraryMatches(item, q) {
+    if (!q) return true;
+    const hay = `${libraryTitleOf(item)} ${item.filePath || ''}`.toLowerCase();
+    return hay.includes(q);
+  }
+
+  function renderLibrary() {
+    const listEl = $('libraryList');
+    if (!listEl) return;
+    const bookmarks = state.bookmarks || [];
+    const recent = state.recentFiles || [];
+    const isBm = libraryUi.tab === 'bookmarks';
+    $('libraryCountBookmarks').textContent = bookmarks.length;
+    $('libraryCountRecent').textContent = recent.length;
+    for (const [id, on] of [['libraryTabBookmarks', isBm], ['libraryTabRecent', !isBm]]) {
+      const t = $(id);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+    }
+    listEl.setAttribute('aria-labelledby', isBm ? 'libraryTabBookmarks' : 'libraryTabRecent');
+
+    const sortBtn = $('librarySortBtn');
+    sortBtn.hidden = !isBm;
+    sortBtn.textContent = libraryUi.sort === 'name' ? '名稱 A→Z' : '最新優先';
+
+    // 繼續閱讀：上次讀到的檔案與位置
+    const resume = $('libraryResumeBtn');
+    const last = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null);
+    const showResume = !isBm && !!(last && last.filePath);
+    resume.hidden = !showResume;
+    if (showResume) {
+      const r = recent.find(i => i.filePath === last.filePath);
+      $('libraryResumeTitle').textContent = r ? libraryTitleOf(r) : libraryTitleOf({ filePath: last.filePath });
+      $('libraryResumePct').textContent = r && typeof r.pct === 'number' ? `上次讀到 ${r.pct}%` : '';
+    }
+
+    const q = libraryUi.q.trim().toLowerCase();
+    let html = '';
+    if (isBm) {
+      const items = bookmarks.map((b, i) => ({ b, i })).filter(x => libraryMatches(x.b, q));
+      if (libraryUi.sort === 'name') {
+        items.sort((x, y) => libraryTitleOf(x.b).localeCompare(libraryTitleOf(y.b), 'zh-Hant'));
+      }
+      if (!items.length) {
+        html = bookmarks.length
+          ? `<div class="library-empty">沒有符合「${escHtml(libraryUi.q.trim())}」的書籤</div>`
+          : `<div class="library-empty">還沒有書籤。開啟經文後，點標題旁的 🔖 加書籤。</div>`;
+      } else {
+        const groups = new Map();
+        for (const x of items) {
+          const f = libraryFolderOf(x.b.filePath);
+          if (!groups.has(f)) groups.set(f, []);
+          groups.get(f).push(x.b);
+        }
+        for (const [folder, list] of groups) {
+          const open = !!q || !libraryUi.collapsed[folder];
+          html += `<button type="button" class="library-group" data-folder="${escHtml(folder)}" aria-expanded="${open}">`
+            + `<span class="library-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="library-group-name">${escHtml(folder)}</span>`
+            + `<span class="library-group-count">${list.length}</span></button>`;
+          if (!open) continue;
+          for (const b of list) {
+            const current = b.filePath === state.currentFile ? ' current' : '';
+            html += `<div class="library-item${current}">`
+              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}" title="${escHtml(b.filePath || '')}">`
+              + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
+              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
+              + `</button>`
+              + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
+              + `</div>`;
+          }
+        }
+      }
+    } else {
+      const items = recent.filter(r => libraryMatches(r, q));
+      if (!items.length) {
+        html = recent.length
+          ? `<div class="library-empty">沒有符合「${escHtml(libraryUi.q.trim())}」的紀錄</div>`
+          : `<div class="library-empty">還沒有閱讀紀錄。開啟過的經文會出現在這裡（最多 20 筆）。</div>`;
+      } else {
+        const labels = ['今天', '昨天', '更早'];
+        [0, 1, 2].forEach(g => {
+          const list = items.filter(r => libraryDayGroup(r.ts) === g);
+          if (!list.length) return;
+          html += `<div class="library-group static"><span class="library-group-name">${labels[g]}</span><span class="library-group-count">${list.length}</span></div>`;
+          for (const r of list) {
+            const hasPct = typeof r.pct === 'number';
+            const current = r.filePath === state.currentFile ? ' current' : '';
+            html += `<div class="library-item${current}">`
+              + `<button type="button" class="library-open" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath || '')}">`
+              + `<span class="library-item-title">${escHtml(libraryTitleOf(r))}</span>`
+              + `<span class="library-item-sub">${escHtml(libraryFolderOf(r.filePath))}${r.time ? ` · ${escHtml(r.time)}` : ''}</span>`
+              + (hasPct ? `<span class="library-bar" aria-hidden="true"><i style="width:${r.pct}%"></i></span>` : '')
+              + `</button>`
+              + (hasPct ? `<span class="library-pct" title="上次讀到的位置">${r.pct}%</span>` : '')
+              + `</div>`;
+          }
+        });
+      }
+    }
+    listEl.innerHTML = html;
+  }
+
+  function openLibrary(tab) {
+    const drawer = $('libraryDrawer');
+    const scrim = $('libraryScrim');
+    if (!drawer) return;
+    if (tab) libraryUi.tab = tab;
+    if (libraryCloseTimer) { clearTimeout(libraryCloseTimer); libraryCloseTimer = null; }
+    renderLibrary();
+    drawer.hidden = false;
+    scrim.hidden = false;
+    requestAnimationFrame(() => {
+      drawer.classList.add('open');
+      scrim.classList.add('open');
+    });
+    // 觸控裝置不自動聚焦篩選框，免得一打開就跳出鍵盤
+    const target = isMobileBrowser() ? $(libraryUi.tab === 'bookmarks' ? 'libraryTabBookmarks' : 'libraryTabRecent') : $('libraryFilter');
+    setTimeout(() => target && target.focus({ preventScroll: true }), 30);
+  }
+
+  function closeLibrary(returnFocus = true) {
+    const drawer = $('libraryDrawer');
+    const scrim = $('libraryScrim');
+    if (!drawer || drawer.hidden) return;
+    drawer.classList.remove('open');
+    scrim.classList.remove('open');
+    libraryCloseTimer = setTimeout(() => {
+      drawer.hidden = true;
+      scrim.hidden = true;
+      libraryCloseTimer = null;
+    }, 220);
+    if (returnFocus && $('userMenuBtn')) $('userMenuBtn').focus({ preventScroll: true });
+  }
+
+  function setLibraryTab(tab) {
+    if (libraryUi.tab === tab) return;
+    libraryUi.tab = tab;
+    saveLibraryPrefs();
+    renderLibrary();
+  }
+
+  function setupLibrary() {
+    const drawer = $('libraryDrawer');
+    if (!drawer) return;
+    $('libraryCloseBtn').addEventListener('click', () => closeLibrary());
+    $('libraryScrim').addEventListener('click', () => closeLibrary());
+    $$('.library-tab', drawer).forEach(t => {
+      t.addEventListener('click', () => setLibraryTab(t.getAttribute('data-tab')));
+      t.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        setLibraryTab(libraryUi.tab === 'bookmarks' ? 'recent' : 'bookmarks');
+        $(libraryUi.tab === 'bookmarks' ? 'libraryTabBookmarks' : 'libraryTabRecent').focus();
+      });
+    });
+    $('libraryFilter').addEventListener('input', (e) => {
+      libraryUi.q = e.target.value;
+      renderLibrary();
+    });
+    $('librarySortBtn').addEventListener('click', () => {
+      libraryUi.sort = libraryUi.sort === 'name' ? 'new' : 'name';
+      saveLibraryPrefs();
+      renderLibrary();
+    });
+    $('libraryResumeBtn').addEventListener('click', () => {
+      closeLibrary(false);
+      if (!restoreReadProgress(true)) showToast('沒有可以繼續的閱讀紀錄', 'info');
+    });
+    $('libraryList').addEventListener('click', (e) => {
+      const del = e.target.closest('[data-del-bookmark]');
+      if (del) {
+        const file = del.getAttribute('data-del-bookmark');
+        state.bookmarks = (state.bookmarks || []).filter(i => i.filePath !== file);
+        storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+        renderBookmarksList();
+        if (state.currentFile === file) updateBookmarkButtonUI(file);
+        showToast('🗑️ 已從書籤移除', 'success');
+        return;
+      }
+      const group = e.target.closest('[data-folder]');
+      if (group) {
+        if (libraryUi.q.trim()) return;
+        const f = group.getAttribute('data-folder');
+        if (libraryUi.collapsed[f]) delete libraryUi.collapsed[f];
+        else libraryUi.collapsed[f] = true;
+        saveLibraryPrefs();
+        renderLibrary();
+        return;
+      }
+      const open = e.target.closest('[data-file]');
+      if (open) {
+        const file = open.getAttribute('data-file');
+        const line = parseInt(open.getAttribute('data-line'), 10) || undefined;
+        closeLibrary(false);
+        openFile(file, line);
+      }
+    });
+    // 抽屜開著時，Tab 鍵只在抽屜裡循環
+    drawer.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const f = Array.from(drawer.querySelectorAll('button, input')).filter(el => !el.hidden && el.offsetParent !== null && el.tabIndex !== -1);
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+    updateLibraryCount();
+  }
+
+  // ── 啟動：讀設定、目前登入者、處理信件連結與第三方登入回來的網址 ──
+  async function initAccounts() {
+    // 先把網址上的 auth 參數拿下來並清掉，避免 token 留在瀏覽紀錄或被分享出去。
+    const params = new URLSearchParams(window.location.search);
+    const authAction = params.get('auth');
+    const authParams = {};
+    if (authAction) {
+      for (const k of ACCOUNT_URL_PARAMS) {
+        if (params.has(k)) authParams[k] = params.get(k);
+        params.delete(k);
+      }
+      const qs = params.toString();
+      history.replaceState(history.state, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+    }
+    if (state.isSingleUser) return;
+
+    const cfg = await accountApi('/api/auth/config');
+    if (!cfg.ok || !cfg.data.accountsEnabled) {
+      state.account.config = cfg.ok ? cfg.data : null;
+      return;
+    }
+    state.account.config = cfg.data;
+    updateUserMenu();
+    updateLegalLinks();
+    setupAccountEvents();
+    await refreshAccountMe();
+    if (authAction) await handleAuthLink(authAction, authParams);
+  }
+
+  function updateLegalLinks() {
+    const legal = (state.account.config && state.account.config.legal) || {};
+    const any = !!(legal.privacy || legal.terms);
+    const wrap = $('welcomeLegalLinks');
+    if (wrap) wrap.hidden = !any;
+    if ($('welcomePrivacyLink')) $('welcomePrivacyLink').hidden = !legal.privacy;
+    if ($('welcomeTermsLink')) $('welcomeTermsLink').hidden = !legal.terms;
+    if ($('accountLegalLinks')) $('accountLegalLinks').hidden = !any;
+  }
+
+  async function refreshAccountMe() {
+    if (state.isSingleUser) return null;
+    const r = await accountApi('/api/me');
+    setAccountUser(r.ok ? r.data.user : null);
+    return state.account.user;
+  }
+
+  function setAccountUser(user) {
+    state.account.user = user || null;
+    if (user && user.role === 'admin') state.isAdmin = true;
+    if (!user) state.isAdmin = false;
+    updateUserMenu();
+    if (user && user.needsConsent) openOverlay('consentOverlay');
+  }
+
+  function openOverlay(id) {
+    const el = $(id);
+    if (!el) return;
+    el.style.display = 'flex';
+    document.body.classList.add('modal-open');
+  }
+
+  function closeOverlay(id) {
+    const el = $(id);
+    if (!el) return;
+    el.style.display = 'none';
+    const anyOpen = Array.from(document.querySelectorAll('.modal-overlay')).some(o => o.style.display === 'flex');
+    if (!anyOpen) document.body.classList.remove('modal-open');
+  }
+
+  const OAUTH_ERRORS = {
+    DENIED: '你取消了第三方登入',
+    OAUTH_FAILED: '第三方登入失敗，請再試一次',
+    NO_BASE_URL: '網站尚未設定對外網址，暫時無法使用第三方登入',
+    LOGIN_REQUIRED: '請先登入',
+    IDENTITY_MISMATCH: '這不是你綁定的帳號',
+    IDENTITY_IN_USE: '這個第三方帳號已經綁定在別的帳號上',
+    ALREADY_LINKED: '你已經綁定了這家的另一個帳號',
+    EMAIL_IN_USE: '這個 Email 已有帳號。請先用密碼登入，再到「我的帳號」綁定',
+    REGISTRATION_CLOSED: '目前暫停開放註冊',
+    INVITE_REQUIRED: '目前採邀請制，請用邀請碼以 Email 註冊',
+    RATE_LIMITED: '註冊人數過多，請稍後再試',
+    DISPOSABLE_EMAIL: '不接受這個信箱網域',
+    ACCOUNT_DISABLED: '這個帳號已被停用'
+  };
+
+  async function handleAuthLink(action, p) {
+    if (action === 'verify' || action === 'email') {
+      const url = action === 'verify' ? '/api/auth/verify' : '/api/auth/confirm-email';
+      const r = await accountApi(url, { method: 'POST', body: { token: p.token || '' } });
+      if (r.ok) {
+        if (r.data.user) setAccountUser(r.data.user);
+        else await refreshAccountMe();
+        showToast(`✅ ${r.data.message || '已完成'}`, 'success', 3500);
+      } else {
+        showToast(`❌ ${r.data.error || '連結無效或已過期'}`, 'error', 4000);
+      }
+    } else if (action === 'reset') {
+      authUi.resetToken = p.token || '';
+      openAccountAuth('reset');
+    } else if (action === 'login') {
+      if (!state.account.user) openAccountAuth('login');
+    } else if (action === 'oauth') {
+      if (p.status === 'ok') {
+        await refreshAccountMe();
+        if (p.mode === 'link') {
+          showToast('✅ 已綁定登入方式', 'success');
+          openAccountSettings();
+        } else if (p.mode === 'reauth') {
+          showToast('✅ 已重新驗證身分，請再執行一次剛才的操作', 'success', 4000);
+          openAccountSettings();
+        } else {
+          showToast('✅ 已登入', 'success');
+        }
+      } else {
+        showToast(`❌ ${OAUTH_ERRORS[p.code] || '第三方登入失敗'}`, 'error', 4500);
+      }
+    }
+  }
+
+  // ── 登入／註冊卡片 ──
+  const AUTH_VIEWS = {
+    login: { title: '登入', submit: '登入' },
+    register: { title: '註冊', submit: '建立帳號' },
+    forgot: { title: '忘記密碼', submit: '寄送重設連結' },
+    resend: { title: '重寄驗證信', submit: '重寄驗證信' },
+    reset: { title: '設定新密碼', submit: '更新密碼並登入' }
+  };
+
+  function openAccountAuth(view = 'login', opts = {}) {
+    authUi.afterLogin = opts.afterLogin || '';
+    setAuthView(view);
+    openOverlay('accountAuthOverlay');
+    const first = view === 'reset' ? $('accountPassword') : $('accountEmail');
+    if (first) setTimeout(() => first.focus(), 50);
+  }
+
+  function setAuthView(view) {
+    const cfg = state.account.config || {};
+    authUi.view = view;
+    authUi.openedAt = Date.now();
+    authUi.needTurnstile = false;
+    const card = document.querySelector('#accountAuthOverlay .account-card');
+    if (card) { card.setAttribute('data-view', view); card.classList.remove('is-done'); }
+    $('accountAuthDone').hidden = true;
+    $$('#accountAuthOverlay [data-views]').forEach(el => {
+      el.hidden = !el.getAttribute('data-views').split(' ').includes(view);
+    });
+    $('accountAuthTitle').textContent = AUTH_VIEWS[view].title;
+    $('accountAuthSubmit').textContent = AUTH_VIEWS[view].submit;
+    $('accountEmailLabel').textContent = view === 'login' ? 'Email 或帳號名稱' : 'Email';
+    $('accountEmail').type = view === 'login' ? 'text' : 'email';
+    const pw = $('accountPassword');
+    pw.value = '';
+    pw.autocomplete = view === 'login' ? 'current-password' : 'new-password';
+    $('accountPasswordLabel').textContent = view === 'login' ? '密碼' : '新密碼';
+    pw.placeholder = view === 'login' ? '' : `至少 ${cfg.passwordMinLength || 8} 個字元`;
+
+    const descs = {
+      login: '登入後，管理員可以進入後台；之後的版本會在這裡同步你的書籤與閱讀進度。',
+      register: cfg.registrationPaused ? '註冊功能尚未設定完成，請稍後再來。' : '用 Email 註冊，我們會寄一封驗證信給你。',
+      forgot: '輸入註冊時的 Email，我們會寄一封重設密碼的連結（1 小時內有效）。',
+      resend: '輸入註冊時的 Email，我們會再寄一次驗證信。',
+      reset: '請設定新的密碼。更新後，其他裝置都會登出。'
+    };
+    $('accountAuthDesc').textContent = descs[view];
+
+    const legal = cfg.legal || {};
+    const consentRow = $('accountConsentRow');
+    if (consentRow) consentRow.hidden = view !== 'register' || !(legal.privacy || legal.terms);
+    const invite = $('accountInviteGroup');
+    if (invite) invite.hidden = view !== 'register' || cfg.registrationMode !== 'invite';
+    const gotoRegister = $('accountGotoRegister');
+    if (gotoRegister && view === 'login') gotoRegister.hidden = cfg.registrationMode === 'closed';
+
+    renderProviderButtons($('accountProviders'), 'login', view === 'login' || view === 'register');
+    $('accountProvidersDivider').hidden = $('accountProviders').hidden;
+    showBox($('accountAuthError'), '');
+    showBox($('accountAuthSuccess'), '');
+    $('accountAuthSubmit').disabled = view === 'register' && (cfg.registrationPaused || cfg.registrationMode === 'closed');
+    updateTurnstile();
+  }
+
+  function renderProviderButtons(container, mode, visible = true) {
+    if (!container) return;
+    const providers = ((state.account.config && state.account.config.providers) || []);
+    container.innerHTML = '';
+    container.hidden = !visible || providers.length === 0;
+    for (const id of providers) {
+      const a = document.createElement('a');
+      a.className = `modal-btn secondary-btn provider-btn provider-${id}`;
+      a.href = `/api/auth/${id}?mode=${mode}`;
+      a.textContent = mode === 'reauth' ? `用 ${PROVIDER_LABELS[id] || id} 驗證` : `使用 ${PROVIDER_LABELS[id] || id} 繼續`;
+      container.appendChild(a);
+    }
+  }
+
+  // Turnstile：註冊、忘記密碼、重寄驗證信一定要；登入只在伺服器要求時（連續失敗後）才出現。
+  let turnstileLoading = null;
+  function loadTurnstile() {
+    if (window.turnstile) return Promise.resolve(window.turnstile);
+    if (turnstileLoading) return turnstileLoading;
+    turnstileLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      s.async = true;
+      s.onload = () => resolve(window.turnstile);
+      s.onerror = () => { turnstileLoading = null; reject(new Error('Turnstile load failed')); };
+      document.head.appendChild(s);
+    });
+    return turnstileLoading;
+  }
+
+  function mountTurnstile(container, action, onToken) {
+    const siteKey = state.account.config && state.account.config.turnstileSiteKey;
+    if (!container || !siteKey) return Promise.resolve(null);
+    container.hidden = false;
+    container.innerHTML = '';
+    return loadTurnstile().then(ts => ts.render(container, {
+      sitekey: siteKey,
+      action,
+      theme: document.documentElement.getAttribute('data-theme') === 'obsidian-light' ? 'light' : 'auto',
+      callback: (t) => onToken(t),
+      'expired-callback': () => onToken(''),
+      'error-callback': () => onToken('')
+    })).catch(() => {
+      container.textContent = '人機驗證載入失敗，請檢查網路後重新整理頁面。';
+      return null;
+    });
+  }
+
+  function updateTurnstile() {
+    const box = $('accountTurnstile');
+    const cfg = state.account.config || {};
+    const need = !!cfg.turnstileSiteKey && (['register', 'forgot', 'resend'].includes(authUi.view) || (authUi.view === 'login' && authUi.needTurnstile));
+    authUi.turnstileToken = '';
+    if (authUi.turnstileWidget !== null && window.turnstile) {
+      try { window.turnstile.remove(authUi.turnstileWidget); } catch (_) {}
+    }
+    authUi.turnstileWidget = null;
+    if (!need) {
+      if (box) { box.hidden = true; box.innerHTML = ''; }
+      return;
+    }
+    mountTurnstile(box, authUi.view, (t) => { authUi.turnstileToken = t; })
+      .then(id => { authUi.turnstileWidget = id; });
+  }
+
+  function resetTurnstile() {
+    authUi.turnstileToken = '';
+    if (authUi.turnstileWidget !== null && window.turnstile) {
+      try { window.turnstile.reset(authUi.turnstileWidget); } catch (_) {}
+    }
+  }
+
+  // 寄出信件後，把整張卡片換成一份完整說明：信寄到哪、接下來怎麼做、沒收到怎麼辦。
+  // 伺服器的回覆刻意不透露信箱是否已註冊，所以標題只說「已送出」。
+  const AUTH_DONE = {
+    register: {
+      title: '註冊申請已送出',
+      steps: ['打開信箱，找一封來自本站的驗證信', '點信裡的驗證連結（24 小時內有效）', '驗證完成後，回到這裡登入'],
+      resend: true
+    },
+    resend: {
+      title: '驗證信已重新寄出',
+      steps: ['打開信箱，找最新的那一封驗證信', '點信裡的驗證連結（24 小時內有效）', '驗證完成後，回到這裡登入'],
+      resend: false
+    },
+    forgot: {
+      title: '重設密碼信已寄出',
+      steps: ['打開信箱，找一封重設密碼的信', '點信裡的連結（1 小時內有效）', '設定新密碼後就會自動登入'],
+      resend: false
+    }
+  };
+
+  function showAuthDone(view, email, message) {
+    const info = AUTH_DONE[view];
+    if (!info) return;
+    const card = document.querySelector('#accountAuthOverlay .account-card');
+    if (card) card.classList.add('is-done');
+    $('accountAuthDoneTitle').textContent = info.title;
+    const emailEl = $('accountAuthDoneEmail');
+    emailEl.textContent = email ? `寄到：${email}` : '';
+    emailEl.hidden = !email;
+    const steps = $('accountAuthDoneSteps');
+    steps.innerHTML = '';
+    for (const text of info.steps) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      steps.appendChild(li);
+    }
+    const note = message || '如果這個信箱可以使用，我們已寄出信件，請查收。';
+    $('accountAuthDoneNote').textContent = /垃圾郵件/.test(note) ? note : `${note}（也請看看垃圾郵件匣）`;
+    $('accountAuthDoneResend').hidden = !info.resend;
+    $('accountAuthDone').hidden = false;
+    setTimeout(() => $('accountAuthDoneOk').focus(), 30);
+  }
+
+  async function submitAccountAuth() {
+    const view = authUi.view;
+    const errorEl = $('accountAuthError');
+    const okEl = $('accountAuthSuccess');
+    showBox(errorEl, '');
+    showBox(okEl, '');
+    const email = $('accountEmail').value.trim();
+    const password = $('accountPassword').value;
+    const antiBot = {
+      website: $('accountWebsite').value,
+      elapsedMs: Date.now() - authUi.openedAt,
+      turnstileToken: authUi.turnstileToken
+    };
+    const btn = $('accountAuthSubmit');
+    btn.disabled = true;
+    let r;
+    try {
+      if (view === 'login') {
+        r = await accountApi('/api/auth/login', { method: 'POST', body: { identifier: email, password, turnstileToken: authUi.turnstileToken } });
+        if (r.ok) {
+          closeOverlay('accountAuthOverlay');
+          setAccountUser(r.data.user);
+          showToast(`✅ 歡迎回來${r.data.user && r.data.user.displayName ? `，${r.data.user.displayName}` : ''}`, 'success');
+          if (authUi.afterLogin === 'admin') {
+            authUi.afterLogin = '';
+            if (state.isAdmin) await openSettingsOverlay();
+            else showToast('已登入，但這個帳號沒有管理權限', 'info', 3500);
+          }
+          return;
+        }
+        if (r.data.code === 'TURNSTILE_REQUIRED') {
+          authUi.needTurnstile = true;
+          updateTurnstile();
+        }
+      } else if (view === 'register') {
+        r = await accountApi('/api/auth/register', {
+          method: 'POST',
+          body: Object.assign({
+            email, password,
+            displayName: $('accountDisplayName').value.trim(),
+            inviteCode: $('accountInviteCode').value.trim(),
+            agree: $('accountAgree').checked
+          }, antiBot)
+        });
+      } else if (view === 'forgot') {
+        r = await accountApi('/api/auth/reset-request', { method: 'POST', body: Object.assign({ email }, antiBot) });
+      } else if (view === 'resend') {
+        r = await accountApi('/api/auth/resend-verification', { method: 'POST', body: Object.assign({ email }, antiBot) });
+      } else if (view === 'reset') {
+        r = await accountApi('/api/auth/reset', { method: 'POST', body: { token: authUi.resetToken, password } });
+        if (r.ok) {
+          authUi.resetToken = '';
+          closeOverlay('accountAuthOverlay');
+          setAccountUser(r.data.user);
+          showToast(`✅ ${r.data.message || '密碼已更新'}`, 'success', 3500);
+          return;
+        }
+      }
+      if (r.ok) {
+        $('accountPassword').value = '';
+        showAuthDone(view, email, r.data.message);
+      } else {
+        showBox(errorEl, r.data.error || '發生錯誤，請稍後再試');
+      }
+    } finally {
+      btn.disabled = false;
+      resetTurnstile();
+    }
+  }
+
+  // ── 我的帳號 ──
+  async function openAccountSettings() {
+    const user = await refreshAccountMe();
+    if (!user) {
+      openAccountAuth('login');
+      return;
+    }
+    showBox($('accountSettingsMsg'), '');
+    showBox($('accountSettingsError'), '');
+    renderAccountSettings(user);
+    openOverlay('accountSettingsOverlay');
+    loadMySessions();
+  }
+
+  function renderAccountSettings(user) {
+    $('accountMeEmail').textContent = user.email ? `${user.email}${user.emailVerified ? '' : '（尚未驗證）'}` : '尚未設定';
+    $('accountMeUsernameRow').hidden = !user.username;
+    $('accountMeUsername').textContent = user.username || '';
+    $('accountMeName').value = user.displayName || '';
+    $('accountNewEmail').value = '';
+    $('accountCurrentPassword').value = '';
+    $('accountNewPassword').value = '';
+    $('accountCurrentPasswordRow').hidden = !user.hasPassword;
+    $('accountPasswordTitle').textContent = user.hasPassword ? '密碼' : '設定密碼（目前只用第三方登入）';
+    $('accountAdminBtn').hidden = user.role !== 'admin';
+
+    const providers = (state.account.config && state.account.config.providers) || [];
+    const linked = new Map((user.identities || []).map(i => [i.provider, i]));
+    const section = $('accountProvidersSection');
+    section.hidden = providers.length === 0 && linked.size === 0;
+    const list = $('accountIdentityList');
+    list.innerHTML = '';
+    const ids = Array.from(new Set(providers.concat(Array.from(linked.keys()))));
+    for (const id of ids) {
+      const row = document.createElement('div');
+      row.className = 'account-list-row';
+      const info = linked.get(id);
+      row.innerHTML = `<span><strong>${escHtml(PROVIDER_LABELS[id] || id)}</strong> <span class="field-hint">${info ? `已綁定${info.email ? `（${escHtml(info.email)}）` : ''}` : '未綁定'}</span></span>`;
+      if (info) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'modal-btn secondary-btn small-btn';
+        b.textContent = '解除綁定';
+        b.addEventListener('click', async () => {
+          if (!confirm(`確定要解除 ${PROVIDER_LABELS[id] || id} 登入嗎？`)) return;
+          const r = await accountApi(`/api/me/identities/${id}`, { method: 'DELETE' });
+          if (r.ok) { setAccountUser(r.data.user); renderAccountSettings(r.data.user); showBox($('accountSettingsMsg'), '已解除綁定'); }
+          else showBox($('accountSettingsError'), r.data.error || '解除失敗');
+        });
+        row.appendChild(b);
+      } else if (providers.includes(id)) {
+        const a = document.createElement('a');
+        a.className = 'modal-btn secondary-btn small-btn';
+        a.href = `/api/auth/${id}?mode=link`;
+        a.textContent = '綁定';
+        row.appendChild(a);
+      }
+      list.appendChild(row);
+    }
+  }
+
+  async function loadMySessions() {
+    const list = $('accountSessionList');
+    list.innerHTML = '<div class="field-hint">載入中…</div>';
+    const r = await accountApi('/api/me/sessions');
+    if (!r.ok) { list.innerHTML = `<div class="field-hint">${escHtml(r.data.error || '載入失敗')}</div>`; return; }
+    list.innerHTML = '';
+    for (const s of r.data.sessions) {
+      const row = document.createElement('div');
+      row.className = 'account-list-row';
+      row.innerHTML = `<span>${escHtml(describeUserAgent(s.userAgent))}${s.current ? ' <span class="account-badge">這台裝置</span>' : ''}<br><span class="field-hint">${escHtml(s.ip || '')} · 最近使用 ${escHtml(fmtDateTime(s.lastSeenAt))}</span></span>`;
+      if (!s.current) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'modal-btn secondary-btn small-btn';
+        b.textContent = '登出';
+        b.addEventListener('click', async () => {
+          const d = await accountApi(`/api/me/sessions/${s.id}`, { method: 'DELETE' });
+          if (d.ok) loadMySessions();
+          else showBox($('accountSettingsError'), d.data.error || '登出失敗');
+        });
+        row.appendChild(b);
+      }
+      list.appendChild(row);
+    }
+  }
+
+  async function accountLogout() {
+    await accountApi('/api/auth/logout', { method: 'POST', body: {} });
+    setAccountUser(null);
+    closeOverlay('accountSettingsOverlay');
+    closeOverlay('consentOverlay');
+    showToast('👋 已登出', 'info');
+  }
+
+  // 重新驗證：有密碼的人輸入密碼；只用第三方登入的人跳去該家驗證（回來後要再按一次）。
+  function openReauthOverlay() {
+    const user = state.account.user;
+    if (!user) return Promise.resolve(false);
+    $('reauthPassword').value = '';
+    $('reauthPasswordGroup').hidden = !user.hasPassword;
+    $('reauthSubmitBtn').hidden = !user.hasPassword;
+    const providers = (user.providers || []).filter(p => ((state.account.config && state.account.config.providers) || []).includes(p));
+    const box = $('reauthProviders');
+    box.innerHTML = '';
+    box.hidden = providers.length === 0;
+    for (const id of providers) {
+      const a = document.createElement('a');
+      a.className = `modal-btn secondary-btn provider-btn provider-${id}`;
+      a.href = `/api/auth/${id}?mode=reauth`;
+      a.textContent = `用 ${PROVIDER_LABELS[id] || id} 驗證`;
+      box.appendChild(a);
+    }
+    showBox($('reauthError'), '');
+    openOverlay('reauthOverlay');
+    if (user.hasPassword) setTimeout(() => $('reauthPassword').focus(), 50);
+    return new Promise(resolve => { authUi.pendingReauth = resolve; });
+  }
+
+  function finishReauth(ok) {
+    closeOverlay('reauthOverlay');
+    const resolve = authUi.pendingReauth;
+    authUi.pendingReauth = null;
+    if (resolve) resolve(ok);
+  }
+
+  let accountEventsReady = false;
+  function setupAccountEvents() {
+    if (accountEventsReady) return;
+    accountEventsReady = true;
+
+    $('accountAuthCloseBtn').addEventListener('click', () => closeOverlay('accountAuthOverlay'));
+    $('accountAuthForm').addEventListener('submit', (e) => { e.preventDefault(); submitAccountAuth(); });
+    $$('#accountAuthOverlay [data-goto]').forEach(b => b.addEventListener('click', () => setAuthView(b.getAttribute('data-goto'))));
+    $('accountAuthDoneOk').addEventListener('click', () => closeOverlay('accountAuthOverlay'));
+    $('accountAuthDoneLogin').addEventListener('click', () => setAuthView('login'));
+    $('accountAuthDoneResend').addEventListener('click', () => setAuthView('resend'));
+
+    $('accountSettingsCloseBtn').addEventListener('click', () => closeOverlay('accountSettingsOverlay'));
+    $('accountLogoutBtn').addEventListener('click', accountLogout);
+    $('accountAdminBtn').addEventListener('click', async () => {
+      closeOverlay('accountSettingsOverlay');
+      state.isAdmin = true;
+      await openSettingsOverlay();
+    });
+    $('accountSaveNameBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/me', { method: 'PATCH', body: { displayName: $('accountMeName').value } });
+      if (r.ok) { setAccountUser(r.data.user); showBox($('accountSettingsError'), ''); showBox($('accountSettingsMsg'), '名稱已儲存'); }
+      else showBox($('accountSettingsError'), r.data.error || '儲存失敗');
+    });
+
+    let emailTurnstileToken = '';
+    let emailTurnstileShown = false;
+    let emailTurnstileWidget = null;
+    $('accountChangeEmailBtn').addEventListener('click', async () => {
+      const cfg = state.account.config || {};
+      if (cfg.turnstileSiteKey && !emailTurnstileToken) {
+        if (!emailTurnstileShown) {
+          emailTurnstileShown = true;
+          mountTurnstile($('accountEmailTurnstile'), 'change_email', (t) => { emailTurnstileToken = t; })
+            .then(id => { emailTurnstileWidget = id; });
+        }
+        showBox($('accountSettingsError'), '請先完成下方的人機驗證，再按一次「變更 Email」');
+        return;
+      }
+      const r = await accountApi('/api/me/email', { method: 'POST', body: { newEmail: $('accountNewEmail').value.trim(), turnstileToken: emailTurnstileToken } });
+      emailTurnstileToken = '';
+      if (window.turnstile && emailTurnstileWidget !== null) { try { window.turnstile.reset(emailTurnstileWidget); } catch (_) {} }
+      if (r.ok) { showBox($('accountSettingsError'), ''); showBox($('accountSettingsMsg'), r.data.message); $('accountNewEmail').value = ''; }
+      else showBox($('accountSettingsError'), r.data.error || '變更失敗');
+    });
+
+    $('accountChangePasswordBtn').addEventListener('click', async () => {
+      const body = { currentPassword: $('accountCurrentPassword').value, newPassword: $('accountNewPassword').value };
+      const r = await withReauth(() => accountApi('/api/auth/password', { method: 'POST', body }));
+      if (r.ok) {
+        showBox($('accountSettingsError'), '');
+        showBox($('accountSettingsMsg'), r.data.message || '密碼已更新');
+        await refreshAccountMe();
+        renderAccountSettings(state.account.user);
+        loadMySessions();
+      } else if (r.data.code !== 'REAUTH_CANCELLED') {
+        showBox($('accountSettingsError'), r.data.error || '更新失敗');
+      }
+    });
+
+    $('accountLogoutOthersBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/me/sessions', { method: 'DELETE' });
+      if (r.ok) { showBox($('accountSettingsMsg'), `已登出 ${r.data.removed} 個其他裝置`); loadMySessions(); }
+      else showBox($('accountSettingsError'), r.data.error || '登出失敗');
+    });
+
+    $('reauthCancelBtn').addEventListener('click', () => finishReauth(false));
+    $('reauthForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const r = await accountApi('/api/auth/reauth', { method: 'POST', body: { password: $('reauthPassword').value } });
+      if (r.ok) finishReauth(true);
+      else showBox($('reauthError'), r.data.error || '驗證失敗');
+    });
+
+    $('consentAcceptBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/auth/accept-terms', { method: 'POST', body: {} });
+      closeOverlay('consentOverlay');
+      if (r.ok) setAccountUser(r.data.user);
+    });
+    $('consentLogoutBtn').addEventListener('click', accountLogout);
+  }
+
+  // ── 後台：使用者分頁 ──
+  const adminUsersState = { page: 1, limit: 50, total: 0, eventsBefore: null };
+
+  function adminNotice(id, text) {
+    showBox($(id), text);
+  }
+
+  async function loadAdminUsersTab() {
+    enhanceAdminCards();
+    adminUsersState.page = 1;
+    $('adminUserDetail').hidden = true;
+    await Promise.all([loadAdminUsers(), loadAdminRegistration(), loadAdminInvites(), loadAdminBotStats(), loadAdminLockouts(), loadAdminEvents(true)]);
+  }
+
+  async function loadAdminUsers() {
+    const q = new URLSearchParams({
+      q: $('adminUsersSearch').value.trim(),
+      status: $('adminUsersStatus').value,
+      role: $('adminUsersRole').value,
+      provider: $('adminUsersProvider').value,
+      verified: $('adminUsersVerified').value,
+      page: String(adminUsersState.page),
+      limit: String(adminUsersState.limit)
+    });
+    const r = await accountApi(`/api/admin/users?${q}`);
+    const tbody = $('adminUsersTbody');
+    if (!r.ok) {
+      adminNotice('adminUsersNotice', r.data.error || '載入使用者失敗');
+      tbody.innerHTML = '';
+      return;
+    }
+    adminNotice('adminUsersNotice', '');
+    adminUsersState.total = r.data.total;
+    $('adminUsersTotal').textContent = `共 ${r.data.total} 位`;
+    setAdminCardLight('users', 'ok', `共 ${r.data.total} 位使用者`);
+    const pages = Math.max(1, Math.ceil(r.data.total / r.data.limit));
+    $('adminUsersPageInfo').textContent = `第 ${r.data.page} / ${pages} 頁`;
+    $('adminUsersPrev').disabled = r.data.page <= 1;
+    $('adminUsersNext').disabled = r.data.page >= pages;
+    if (!r.data.users.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="analytics-empty">沒有符合的使用者</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    for (const u of r.data.users) {
+      const tr = document.createElement('tr');
+      tr.className = 'admin-user-row';
+      const methods = [u.has_password ? '密碼' : ''].concat(String(u.providers || '').split(',').filter(Boolean).map(p => PROVIDER_LABELS[p] || p)).filter(Boolean).join('、') || '—';
+      tr.innerHTML = `<td><strong>${escHtml(u.display_name || '')}</strong><br><span class="field-hint">${escHtml(u.email || u.username || '')}${u.email && !u.email_verified_at ? '（未驗證）' : ''}</span></td>
+        <td>${escHtml(methods)}</td>
+        <td>${u.role === 'admin' ? '管理員' : '使用者'}${u.status === 'disabled' ? ' · <span class="account-badge danger">停用</span>' : ''}</td>
+        <td>${escHtml(fmtDateTime(u.created_at))}</td>
+        <td>${escHtml(fmtDateTime(u.last_login_at))}</td>`;
+      tr.addEventListener('click', () => loadAdminUserDetail(u.id));
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function loadAdminUserDetail(id) {
+    const box = $('adminUserDetail');
+    const r = await accountApi(`/api/admin/users/${id}`);
+    if (!r.ok) { adminNotice('adminUsersNotice', r.data.error || '載入失敗'); return; }
+    renderAdminUserDetail(r.data.user);
+    box.hidden = false;
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function renderAdminUserDetail(u) {
+    const box = $('adminUserDetail');
+    const me = state.account.user;
+    box.innerHTML = `<div class="admin-user-detail-head"><strong>${escHtml(u.displayName || u.email || u.username)}</strong>
+      <span class="field-hint">#${u.id} · ${escHtml(u.email || '沒有 Email')}${u.username ? ` · 帳號名稱 ${escHtml(u.username)}` : ''}</span></div>
+      <div class="field-hint">註冊 ${escHtml(fmtDateTime(u.createdAt))} · 最近登入 ${escHtml(fmtDateTime(u.lastLoginAt))} · 登入中的裝置 ${u.sessions.length} 個 · 同意條款版本 ${escHtml(u.termsVersion || '—')}</div>
+      <div class="admin-user-actions"></div>
+      <details><summary>最近紀錄</summary><div class="account-list">${u.recentEvents.map(e => `<div class="account-list-row"><span>${escHtml(fmtDateTime(e.at))} · ${escHtml(e.event)}${e.detail ? ` · ${escHtml(e.detail)}` : ''}</span><span class="field-hint">${escHtml(e.ip || '')}</span></div>`).join('') || '<div class="field-hint">沒有紀錄</div>'}</div></details>`;
+    const actions = box.querySelector('.admin-user-actions');
+    const add = (label, handler, cls = 'secondary-btn') => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `modal-btn ${cls} small-btn`;
+      b.textContent = label;
+      b.addEventListener('click', handler);
+      actions.appendChild(b);
+    };
+    const done = async (r, msg) => {
+      if (r.ok) {
+        showToast(`✅ ${msg}`, 'success');
+        if (r.data.user) renderAdminUserDetail(r.data.user);
+        else box.hidden = true;
+        loadAdminUsers();
+      } else if (r.data.code !== 'REAUTH_CANCELLED') {
+        showToast(`❌ ${r.data.error || '操作失敗'}`, 'error', 3500);
+      }
+    };
+    const isSelf = me && me.id === u.id;
+    if (u.status === 'active') {
+      if (!isSelf) add('停用', async () => {
+        if (!confirm('停用後這個帳號會立即登出且無法登入。確定嗎？')) return;
+        done(await accountApi(`/api/admin/users/${u.id}/status`, { method: 'POST', body: { status: 'disabled' } }), '已停用');
+      });
+    } else {
+      add('啟用', async () => done(await accountApi(`/api/admin/users/${u.id}/status`, { method: 'POST', body: { status: 'active' } }), '已啟用'));
+    }
+    if (u.role === 'admin') {
+      if (!isSelf) add('取消管理員', async () => {
+        done(await withReauth(() => accountApi(`/api/admin/users/${u.id}/role`, { method: 'POST', body: { role: 'user' } })), '已改為一般使用者');
+      });
+    } else {
+      add('設為管理員', async () => {
+        if (!confirm('管理員可以修改網站設定與管理所有帳號。確定嗎？')) return;
+        done(await withReauth(() => accountApi(`/api/admin/users/${u.id}/role`, { method: 'POST', body: { role: 'admin' } })), '已設為管理員');
+      });
+    }
+    if (u.sessions.length) add('強制登出', async () => done(await accountApi(`/api/admin/users/${u.id}/logout`, { method: 'POST', body: {} }), '已登出所有裝置'));
+    if (u.email && !u.emailVerified) add('重寄驗證信', async () => done(await accountApi(`/api/admin/users/${u.id}/resend-verification`, { method: 'POST', body: {} }), '已寄出驗證信'));
+    if (u.email) add('寄重設密碼信', async () => done(await accountApi(`/api/admin/users/${u.id}/send-reset`, { method: 'POST', body: {} }), '已寄出重設密碼信'));
+    for (const p of u.providers || []) {
+      add(`解除 ${PROVIDER_LABELS[p] || p}`, async () => {
+        if (!confirm(`解除這個帳號的 ${PROVIDER_LABELS[p] || p} 登入？`)) return;
+        done(await accountApi(`/api/admin/users/${u.id}/unlink`, { method: 'POST', body: { provider: p } }), '已解除綁定');
+      });
+    }
+    add('匯出資料', async () => {
+      const r = await accountApi(`/api/admin/users/${u.id}/export`);
+      if (!r.ok) { showToast(`❌ ${r.data.error || '匯出失敗'}`, 'error'); return; }
+      downloadJson(r.data, `account-${u.id}.json`);
+    });
+    if (!isSelf) add('刪除帳號', async () => {
+      if (!confirm(`確定要刪除「${u.email || u.username || u.id}」？帳號與同步資料會立即刪除，無法復原。`)) return;
+      done(await withReauth(() => accountApi(`/api/admin/users/${u.id}`, { method: 'DELETE' })), '帳號已刪除');
+    }, 'danger-btn');
+  }
+
+  function downloadJson(data, filename) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    downloadBlob(blob, filename);
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定對外網址（PUBLIC_BASE_URL 或首頁權威 URL）', MAIL: '尚未設定寄信（MAIL_PROVIDER、MAIL_API_KEY、MAIL_FROM）' };
+
+  async function loadAdminRegistration() {
+    const r = await accountApi('/api/admin/registration');
+    if (!r.ok) return;
+    $('adminRegMode').value = r.data.mode;
+    $('adminRegCap').value = r.data.hourlyCap;
+    $('adminRegDomains').value = (r.data.disposableDomains || []).join('\n');
+    const blockers = (r.data.blockers || []).map(b => REG_BLOCKER_TEXT[b] || b);
+    setAdminCardLight('registration', blockers.length ? 'bad' : r.data.mode === 'closed' ? 'warn' : 'ok',
+      blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'closed' ? '已關閉註冊' : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    showBox($('adminRegBlockers'), blockers.length ? `註冊與寄信類功能暫停中：${blockers.join('；')}` : '');
+  }
+
+  async function loadAdminInvites() {
+    const r = await accountApi('/api/admin/invites');
+    if (r.ok) renderAdminInvites(r.data.invites);
+  }
+
+  function renderAdminInvites(invites) {
+    const list = $('adminInviteList');
+    list.innerHTML = '';
+    if (!invites.length) { list.innerHTML = '<div class="field-hint">還沒有邀請碼</div>'; return; }
+    for (const inv of invites) {
+      const expired = inv.expires_at && inv.expires_at < Date.now();
+      const state_ = inv.revoked_at ? '已作廢' : expired ? '已過期' : inv.uses_left <= 0 ? '已用完' : `剩 ${inv.uses_left} 次`;
+      const row = document.createElement('div');
+      row.className = 'account-list-row';
+      row.innerHTML = `<span><code>…${escHtml(inv.code_hint || '')}</code> ${escHtml(inv.note || '')}<br><span class="field-hint">${escHtml(state_)} · 已用 ${inv.uses_count} 次 · ${inv.expires_at ? `到 ${escHtml(fmtDateTime(inv.expires_at))}` : '不過期'}</span></span>`;
+      if (!inv.revoked_at && !expired && inv.uses_left > 0) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'modal-btn secondary-btn small-btn';
+        b.textContent = '作廢';
+        b.addEventListener('click', async () => {
+          const d = await accountApi(`/api/admin/invites/${inv.id}/revoke`, { method: 'POST', body: {} });
+          if (d.ok) renderAdminInvites(d.data.invites);
+        });
+        row.appendChild(b);
+      }
+      list.appendChild(row);
+    }
+  }
+
+  async function loadAdminBotStats() {
+    const r = await accountApi('/api/admin/bot-stats');
+    if (!r.ok) return;
+    const b = r.data.blocked || {};
+    const ts = r.data.turnstile || {};
+    setAdminCardLight('bots', r.data.capHitAt ? 'warn' : 'off', r.data.capHitAt ? `最近達到每小時註冊上限（${fmtDateTime(r.data.capHitAt)}）` : '');
+    $('adminBotStats').innerHTML = `<div class="account-list">
+      <div class="account-list-row"><span>人機驗證未通過</span><strong>${b.turnstile || 0}</strong></div>
+      <div class="account-list-row"><span>隱藏欄位／填表太快</span><strong>${b.honeypot || 0}</strong></div>
+      <div class="account-list-row"><span>超過註冊次數限制</span><strong>${b.ratelimit || 0}</strong></div>
+      <div class="account-list-row"><span>拒絕的信箱網域</span><strong>${b.disposable || 0}</strong></div>
+      <div class="account-list-row"><span>新註冊（24 小時／最近 1 小時）</span><strong>${r.data.signups24h} / ${r.data.signupsLastHour}</strong></div>
+    </div>
+    <div class="field-hint">Turnstile：${ts.configured ? '已啟用' : '未設定（只靠隱藏欄位與限速）'}${r.data.capHitAt ? ` · 最近一次達到每小時上限：${escHtml(fmtDateTime(r.data.capHitAt))}` : ''}</div>`;
+  }
+
+  async function loadAdminLockouts() {
+    const r = await accountApi('/api/admin/lockouts');
+    if (r.ok) renderAdminLockouts(r.data);
+  }
+
+  function renderAdminLockouts(data) {
+    const list = $('adminLockoutList');
+    list.innerHTML = '';
+    setAdminCardLight('lockouts', data.accounts.length + data.ips.length ? 'warn' : 'ok', data.accounts.length + data.ips.length ? `${data.accounts.length + data.ips.length} 個帳號或 IP 被鎖定中` : '沒有被鎖定的帳號或 IP');
+    const rows = data.accounts.map(a => ({ key: a.key, text: `帳號 ${a.key}：失敗 ${a.fails} 次${a.lockedUntil ? `，鎖到 ${fmtDateTime(a.lockedUntil)}` : ''}` }))
+      .concat(data.ips.map(i => ({ key: i.ip, text: `IP ${i.ip}：15 分鐘內失敗 ${i.fails} 次${i.locked ? '（暫停登入）' : ''}` })));
+    if (!rows.length) { list.innerHTML = '<div class="field-hint">目前沒有被鎖定的帳號或 IP</div>'; return; }
+    for (const row of rows) {
+      const el = document.createElement('div');
+      el.className = 'account-list-row';
+      el.innerHTML = `<span>${escHtml(row.text)}</span>`;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'modal-btn secondary-btn small-btn';
+      b.textContent = '解除';
+      b.addEventListener('click', async () => {
+        const d = await accountApi('/api/admin/lockouts/clear', { method: 'POST', body: { key: row.key } });
+        if (d.ok) renderAdminLockouts(d.data);
+      });
+      el.appendChild(b);
+      list.appendChild(el);
+    }
+  }
+
+  async function loadAdminEvents(reset) {
+    if (reset) adminUsersState.eventsBefore = null;
+    const q = new URLSearchParams({ limit: '100' });
+    const ev = $('adminEventsFilter').value.trim();
+    const ip = $('adminEventsIp').value.trim();
+    if (ev) q.set('event', ev);
+    if (ip) q.set('ip', ip);
+    if (adminUsersState.eventsBefore) q.set('before', String(adminUsersState.eventsBefore));
+    const r = await accountApi(`/api/admin/auth-events?${q}`);
+    const tbody = $('adminEventsTbody');
+    if (!r.ok) return;
+    if (reset) tbody.innerHTML = '';
+    for (const e of r.data.events) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${escHtml(fmtDateTime(e.at))}</td><td>${escHtml(e.event)}</td><td>${escHtml(e.user_label || (e.user_id ? `#${e.user_id}` : '—'))}${e.actor_label ? `<br><span class="field-hint">由 ${escHtml(e.actor_label)}</span>` : ''}</td><td>${escHtml(e.ip || '')}</td><td>${escHtml(e.detail || '')}</td>`;
+      tbody.appendChild(tr);
+    }
+    if (reset && !r.data.events.length) tbody.innerHTML = '<tr><td colspan="5" class="analytics-empty">沒有紀錄</td></tr>';
+    const last = r.data.events[r.data.events.length - 1];
+    adminUsersState.eventsBefore = last ? last.id : null;
+    $('adminEventsMoreBtn').hidden = r.data.events.length < 100;
+  }
+
+  // ── 後台：帳號系統分頁 ──
+  // ── 後台區塊狀態燈與收合 ──
+  // 每張 .config-card 標題前有紅綠燈（綠＝正常、黃＝需要注意、紅＝有問題、灰＝沒有需要監控的狀態），
+  // 右側有展開／收合箭頭；收合狀態記在 localStorage。燈號由各區塊載入時拿到的真實設定／健康資料決定。
+  const ADMIN_LIGHT_LABEL = { ok: '正常', warn: '注意', bad: '異常', off: '未啟用' };
+  const ADMIN_LIGHT_RANK = { off: 0, ok: 1, warn: 2, bad: 3 };
+  const ADMIN_COLLAPSE_KEY = 'mdwebview.adminCollapsed';
+  const adminLightParts = {};
+
+  function readAdminCollapsed() {
+    try { return JSON.parse(localStorage.getItem(ADMIN_COLLAPSE_KEY) || '{}') || {}; } catch (_) { return {}; }
+  }
+
+  function writeAdminCollapsed(map) {
+    try { localStorage.setItem(ADMIN_COLLAPSE_KEY, JSON.stringify(map)); } catch (_) {}
+  }
+
+  function setAdminCardCollapsed(card, collapsed, persist) {
+    card.classList.toggle('collapsed', collapsed);
+    const btn = card.querySelector('.config-card-toggle');
+    if (btn) {
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.title = collapsed ? '展開' : '收合';
+    }
+    if (persist && card.dataset.card) {
+      const map = readAdminCollapsed();
+      if (collapsed) map[card.dataset.card] = 1; else delete map[card.dataset.card];
+      writeAdminCollapsed(map);
+    }
+  }
+
+  /** 幫每張卡片補上狀態燈與收合箭頭（只做一次）。 */
+  function enhanceAdminCards() {
+    const saved = readAdminCollapsed();
+    document.querySelectorAll('.config-card[data-card]').forEach(card => {
+      if (card.dataset.lightsReady) return;
+      const header = card.querySelector('.config-card-header');
+      if (!header) return;
+      card.dataset.lightsReady = '1';
+      const light = document.createElement('span');
+      light.className = 'status-light off';
+      light.setAttribute('role', 'img');
+      light.setAttribute('aria-label', '狀態：未啟用');
+      light.title = '這個區塊沒有需要監控的狀態';
+      header.insertBefore(light, header.firstChild);
+      const text = document.createElement('span');
+      text.className = 'status-light-text';
+      header.insertBefore(text, header.querySelector('.config-card-title').nextSibling);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'config-card-toggle';
+      btn.setAttribute('aria-label', '展開或收合此區塊');
+      btn.textContent = '▾';
+      header.appendChild(btn);
+      header.classList.add('collapsible');
+      header.addEventListener('click', ev => {
+        if (ev.target.closest('button:not(.config-card-toggle), a, input, select, label')) return;
+        setAdminCardCollapsed(card, !card.classList.contains('collapsed'), true);
+      });
+      setAdminCardCollapsed(card, !!saved[card.dataset.card], false);
+      renderAdminCardLight(card.dataset.card);
+    });
+  }
+
+  function renderAdminCardLight(key) {
+    const card = document.querySelector(`.config-card[data-card="${key}"]`);
+    if (!card) return;
+    const parts = Object.values(adminLightParts[key] || {});
+    const worst = parts.reduce((a, b) => (ADMIN_LIGHT_RANK[b.level] > ADMIN_LIGHT_RANK[a.level] ? b : a), { level: 'off', text: '' });
+    const light = card.querySelector('.status-light');
+    const label = card.querySelector('.status-light-text');
+    if (!light) return;
+    light.className = `status-light ${worst.level}`;
+    const notable = parts.filter(p => p.level === worst.level).map(p => p.text).filter(Boolean).join('；');
+    const text = notable || (worst.level === 'off' ? '' : ADMIN_LIGHT_LABEL[worst.level]);
+    light.title = text || '這個區塊沒有需要監控的狀態';
+    light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[worst.level]}${text ? `，${text}` : ''}`);
+    label.textContent = worst.level === 'off' ? '' : text;
+  }
+
+  /** level: ok | warn | bad | off。同一張卡片可由多個 part 回報，取最嚴重的那個。 */
+  function setAdminCardLight(key, level, text, part) {
+    (adminLightParts[key] = adminLightParts[key] || {})[part || 'main'] = { level, text: text || '' };
+    renderAdminCardLight(key);
+  }
+
+  let adminLightsWired = false;
+  function wireAdminConfigLights() {
+    if (adminLightsWired) return;
+    adminLightsWired = true;
+    const onEdit = ev => { if (ev.target.closest && ev.target.closest('#adminPaneConfig, #adminPaneSeo')) refreshAdminConfigLights(); };
+    document.addEventListener('input', onEdit);
+    document.addEventListener('change', onEdit);
+  }
+
+  function refreshAdminConfigLights() {
+    const val = id => { const el = $(id); return el ? (el.type === 'checkbox' ? el.checked : String(el.value || '').trim()) : ''; };
+    const L = setAdminCardLight;
+    L('site', !val('settingsMdRoot') ? 'bad' : !val('settingsSiteUrl') ? 'warn' : 'ok',
+      !val('settingsMdRoot') ? '尚未設定經文目錄' : !val('settingsSiteUrl') ? '未設定首頁權威 URL（影響驗證信連結與 SEO）' : '經文目錄與網址都已設定');
+    L('reading', 'off');
+    const footerIssues = [];
+    if (val('settingsEnableDownload') && !val('settingsDownloadUrl')) footerIssues.push('已開啟離線下載但沒有填下載網址');
+    if (val('settingsEnableDictionary') && !val('settingsDictionaryPath')) footerIssues.push('已開啟辭典但沒有填辭典路徑');
+    L('footer', footerIssues.length ? 'warn' : 'ok', footerIssues.join('；'));
+    L('announce', !val('settingsEnableAnnouncement') ? 'off' : val('settingsAnnouncementMessage') ? 'ok' : 'warn',
+      !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
+    L('password', 'off');
+    L('cfgbackup', 'off');
+    const robots = val('seoRobotsIndex');
+    L('indexing', !robots ? 'warn' : val('seoSiteDescription') ? 'ok' : 'warn',
+      !robots ? '已禁止搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
+    L('og', val('seoOgImage') ? 'ok' : 'warn', val('seoOgImage') ? '已設定分享預覽圖' : '還沒有設定分享預覽圖');
+    const verified = ['googleSiteVerification', 'bingSiteVerification', 'baiduSiteVerification'].filter(id => val(id)).length;
+    L('webmaster', verified ? 'ok' : 'off', verified ? `已填 ${verified} 個驗證碼` : '');
+    L('schema', val('seoEnableSearchBox') ? 'ok' : 'off', val('seoEnableSearchBox') ? '已啟用站內搜尋框結構化資料' : '');
+  }
+
+  async function loadAdminAccountSystemTab() {
+    enhanceAdminCards();
+    const ov = await accountApi('/api/admin/accounts-overview');
+    if (!ov.ok) {
+      adminNotice('adminAccountSysNotice', ov.data.error || '帳號功能目前無法使用');
+      return;
+    }
+    const o = ov.data;
+    const notes = [];
+    if (o.adminNeedsEmail) notes.push('你的管理員帳號還沒有 Email，忘記密碼時無法自行重設。請到右上角「我的帳號」補上。');
+    adminNotice('adminAccountSysNotice', notes.join(' '));
+    $('adminPublicBaseUrl').textContent = o.publicBaseUrl ? `${o.publicBaseUrl}${o.publicBaseUrlSource === 'env' ? '（環境變數）' : '（首頁權威 URL）'}` : '未設定';
+    renderAdminDbStatus(o.database);
+    renderAdminSetup(o.setup);
+    await Promise.all([loadAdminTurnstile(), loadAdminProviders(), loadAdminMail(), loadAdminMailDns(), loadAdminLegal(), loadAdminBackups()]);
+  }
+
+  // 開站設定：每一步對應一張卡片，按「前往」捲到那張卡片。
+  const ADMIN_SETUP_HINTS = {
+    baseUrl: '驗證信裡的連結要用網站的正式網址，在「系統設定」的「首頁權威 URL」填寫',
+    mail: '填入 Resend 的 API 金鑰與寄件 Email',
+    mailTest: '寄一封信給自己，確認收得到（也請看看是不是被當成垃圾信）',
+    turnstile: '填入 Cloudflare Turnstile 的 Site key 與 Secret key',
+    turnstileTest: '親自通過一次驗證，確認網域設定正確',
+    sso: '在「第三方登入」填入金鑰並打開開關，讀者就能用 Google、Facebook、Apple 帳號登入'
+  };
+  const ADMIN_SETUP_TARGETS = { baseUrl: 'config', mail: 'adminMailCard', mailTest: 'adminMailTestTo', turnstile: 'adminTurnstileCard', turnstileTest: 'adminTurnstileLiveBtn', sso: 'adminSsoCard' };
+
+  function renderAdminSetup(setup) {
+    if (!setup) return;
+    updateAdminSetupDot(setup);
+    const list = $('adminSetupSteps');
+    list.innerHTML = '';
+    const current = setup.steps.find(st => !st.done);
+    setup.steps.forEach((st, i) => {
+      const li = document.createElement('li');
+      li.className = `setup-step${st.done ? ' done' : ''}${st === current ? ' current' : ''}`;
+      li.innerHTML = `<span class="setup-step-mark">${st.done ? '✓' : i + 1}</span>
+        <span class="setup-step-text"><strong>${escHtml(st.label)}</strong>${st.required ? '' : ' <span class="field-hint" style="display:inline">（建議）</span>'}
+        <span class="field-hint">${st.done && st.at ? `完成於 ${escHtml(fmtDateTime(st.at))}` : escHtml(ADMIN_SETUP_HINTS[st.id] || '')}</span></span>`;
+      if (!st.done) {
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.className = `modal-btn ${st === current ? 'submit-btn' : 'secondary-btn'} small-btn`;
+        go.textContent = '前往';
+        go.addEventListener('click', () => goToAdminSetupStep(st.id));
+        li.appendChild(go);
+      }
+      list.appendChild(li);
+    });
+    const badge = $('adminSetupBadge');
+    const done = setup.steps.filter(st => st.done).length;
+    setAdminCardLight('setup', !setup.requiredComplete ? 'bad' : setup.complete ? 'ok' : 'warn',
+      !setup.requiredComplete ? `必要步驟尚未完成（${done} / ${setup.steps.length}）` : setup.complete ? '全部完成' : `必要步驟完成，還有建議步驟（${done} / ${setup.steps.length}）`);
+    badge.textContent = setup.complete ? '全部完成' : `${done} / ${setup.steps.length}`;
+    badge.classList.toggle('danger', !setup.requiredComplete);
+  }
+
+  function updateAdminSetupDot(setup) {
+    const dot = $('adminAccountSysDot');
+    if (dot) dot.hidden = !setup || setup.requiredComplete;
+  }
+
+  function goToAdminSetupStep(id) {
+    const target = ADMIN_SETUP_TARGETS[id];
+    if (target === 'config') {
+      $('adminTabConfigBtn').click();
+      setTimeout(() => { const el = $('settingsSiteUrl'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } }, 300);
+      return;
+    }
+    const el = $(target);
+    if (!el) return;
+    const card = el.closest('.config-card');
+    const howto = card && card.querySelector('details.setup-howto');
+    if (howto && (id === 'mail' || id === 'turnstile')) howto.open = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (el.tagName === 'INPUT' || el.tagName === 'BUTTON') setTimeout(() => el.focus(), 400);
+  }
+
+  /** 登入後台時檢查一次，開站設定沒完成就在「帳號系統」分頁上亮紅點。 */
+  async function refreshAdminSetupDot() {
+    const r = await accountApi('/api/admin/accounts-overview');
+    if (r.ok) updateAdminSetupDot(r.data.setup);
+    return r.ok ? r.data.setup : null;
+  }
+
+  // ── 第三方登入（Google、Facebook、Apple）──
+  // 設定引導：依本站實際的對外網址產生要貼進服務商後台的值，每個值都有複製鈕。
+  function ssoValue(value) {
+    return '<span class="sso-val"><code>' + escHtml(value) + '</code><button type="button" class="sso-copy-val" data-copy="' + escHtml(value) + '">複製</button></span>';
+  }
+
+  function ssoHowto(id, p) {
+    let origin = '', host = '', parent = '';
+    try { const u = new URL(p.callbackUrl); origin = u.origin; host = u.hostname; } catch (_) { /* 還沒設對外網址 */ }
+    if (host && !/^\d+\.\d+\.\d+\.\d+$/.test(host)) parent = host.split('.').slice(-2).join('.');
+    const cb = p.callbackUrl;
+    const noUrl = '<strong>（還沒有對外網址：請先到「系統設定」填寫首頁權威 URL，這裡才會顯示要貼的值。）</strong>';
+    const v = (x) => x ? ssoValue(x) : noUrl;
+    const privacy = origin ? origin + '/privacy' : '';
+    const terms = origin ? origin + '/terms' : '';
+    if (id === 'google') return [
+      '<strong>建立專案。</strong>開 <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud 建立專案</a>，專案名稱隨意（例如本站名稱），按「建立」，然後確認畫面上方的專案選單選的是它。',
+      '<strong>設定「Google 驗證平台」（OAuth 同意畫面）。</strong>開 <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google 驗證平台</a>，按「開始使用」，依序填：<ul>' +
+        '<li>應用程式名稱：讀者在 Google 授權畫面上看到的名稱，建議用本站名稱。</li>' +
+        '<li>使用者支援電子郵件：選你自己的 Gmail。</li>' +
+        '<li>目標對象：選「外部」（只有 Google Workspace 組織內部使用才選「內部」）。</li>' +
+        '<li>聯絡資訊：填一個你收得到信的信箱。</li>' +
+        '<li>同意《Google API 服務使用者資料政策》後按「建立」。</li></ul>',
+      '<strong>品牌宣傳。</strong>到左側「品牌宣傳」，填「已授權網域」' + (parent ? '：' + ssoValue(parent) + '（只填主網域，不含 https:// 與子網域）' : '，填網站的主網域（例如 example.com，不含 https:// 與子網域）') + '，並填：<ul>' +
+        '<li>應用程式首頁：' + v(origin) + '</li>' +
+        '<li>應用程式隱私權政策連結：' + v(privacy) + '</li>' +
+        '<li>應用程式服務條款連結：' + v(terms) + '</li></ul>' +
+        '最下面按「儲存」。畫面出現「已儲存品牌宣傳變更！」就是成功。',
+      '<strong>資料存取（範圍）。</strong>到左側「資料存取」→「新增或移除範圍」，勾選 <code>.../auth/userinfo.email</code>、<code>.../auth/userinfo.profile</code> 與 <code>openid</code>，儲存。只用這三個「非機密」範圍，不需要送 Google 審查。',
+      '<strong>建立 OAuth 用戶端。</strong>到左側「用戶端」→「建立用戶端」（或 <a href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noopener">直接開這頁</a>），「應用程式類型」選「網頁應用程式」，名稱隨意，然後兩個欄位這樣填：<ul>' +
+        '<li><strong>已授權的 JavaScript 來源</strong>（必填，留空會顯示「來源無效：URI 不得留空」）：按「新增 URI」貼上 ' + v(origin) + '。這是網站的「來源」，只有 https://網域，<strong>後面不要加路徑、不要加結尾斜線</strong>。本站是伺服器端登入，這欄實際上用不到，但 Google 要求一定要填。</li>' +
+        '<li><strong>已授權的重新導向 URI</strong>：按「新增 URI」貼上 ' + v(cb) + '。這個要<strong>一字不差</strong>，包含 https、網域、路徑，結尾沒有斜線。</li></ul>' +
+        '「Use this client for an AI-powered agent」不要勾。按「建立」。',
+      '<strong>複製金鑰。</strong>建立後出現的視窗有「用戶端 ID」與「用戶端密鑰」，分別貼到下面對應欄位。密鑰之後只能在該用戶端頁面查看／新增，貼完再離開比較保險。',
+      '<strong>發布狀態。</strong>到「目標對象」：狀態是「測試中」時，只有你加入「測試使用者」名單的 Gmail（最多 100 個）能登入，其他人會看到「存取遭封鎖」。要開放給所有讀者，按「發布應用程式」改成「正式版」。只用上述三個範圍，不需要 Google 驗證審查；未驗證時畫面可能多出提示，不影響登入。',
+      '<strong>等待生效。</strong>Google 說明「設定可能需要 5 分鐘至數小時才會生效」。剛儲存就檢查若出現 redirect_uri_mismatch，先等幾分鐘再按「檢查設定」。',
+      '<strong>常見錯誤。</strong><ul>' +
+        '<li><code>redirect_uri_mismatch</code>（錯誤 400）：「已授權的重新導向 URI」與回調網址不是一字不差。常見原因：http／https 不同、有多餘斜線、網域有 www 或沒有、改了設定還沒生效。</li>' +
+        '<li><code>access_blocked</code>／「存取遭封鎖」：發布狀態仍是「測試中」而該 Gmail 不在測試使用者名單；到「目標對象」加入或改成「正式版」。</li>' +
+        '<li>「來源無效：URI 不得留空」：「已授權的 JavaScript 來源」沒填，貼上網站來源即可。</li>' +
+        '<li><code>invalid_client</code>：用戶端 ID 或密鑰貼錯，或貼到前後多了空白。</li>' +
+        '<li>授權畫面顯示的是舊名稱或不是本站：到「品牌宣傳」修改應用程式名稱。</li></ul>'
+    ];
+    if (id === 'facebook') return [
+      '<strong>建立應用程式。</strong>開 <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta for Developers</a>，用你的 Facebook 帳號登入並註冊為開發人員，按「建立應用程式」。名稱用本站名稱，聯絡電子郵件填你收得到信的信箱；用途選「驗證和要求用戶資料」（使用 Facebook 登入）；商家選「我還不想連結商家資產管理組合」即可。',
+      '<strong>加入 Facebook 登入。</strong>在應用程式面板的「使用案例」，點「驗證和要求用戶資料」→「自訂」，新增 <code>email</code> 權限（<code>public_profile</code> 預設就有）。這兩個是基本權限，不需要送 Meta 審核。',
+      '<strong>填登入設定。</strong>到「Facebook 登入」→「設定」，確認：<ul>' +
+        '<li>用戶端 OAuth 登入：開</li><li>網頁版 OAuth 登入：開</li><li>強制使用 HTTPS 進行 OAuth 重新導向：開</li>' +
+        '<li><strong>有效的 OAuth 重新導向 URI</strong>：貼上 ' + v(cb) + '（一字不差，結尾沒有斜線），按「儲存變更」。</li></ul>',
+      '<strong>基本資料。</strong>「應用程式設定」→「基本資料」，填：<ul>' +
+        '<li>應用程式網域：' + v(host) + '</li>' +
+        '<li>隱私權政策網址：' + v(privacy) + '</li>' +
+        '<li>服務條款網址：' + v(terms) + '</li>' +
+        '<li>使用者資料刪除：選「資料刪除說明網址」，填 ' + v(privacy) + '（本站隱私權政策已說明如何申請刪除）。</li>' +
+        '<li>類別：選「教育」或最接近的項目。</li></ul>按「儲存變更」。',
+      '<strong>複製金鑰。</strong>同一頁最上面有「應用程式編號」（App ID）與「應用程式密鑰」（按「顯示」，會要你輸入 Facebook 密碼），貼到下面對應欄位。',
+      '<strong>切換到「上線」。</strong>頁面最上方的應用程式模式開關從「開發中」切到「上線」。必須先填好隱私權政策網址與類別才能切換。開發中時，只有應用程式的管理員、開發人員與測試人員能登入，其他人會看到「此應用程式目前無法使用」。',
+      '<strong>常見錯誤。</strong><ul>' +
+        '<li>「URL 已遭封鎖：重新導向失敗」：回調網址沒加到「有效的 OAuth 重新導向 URI」，或「用戶端／網頁版 OAuth 登入」沒開。</li>' +
+        '<li>「無法載入網址：這個網址的網域未包含在應用程式網域中」：「基本資料」的應用程式網域沒填對。</li>' +
+        '<li>「此應用程式目前無法使用」：還在「開發中」模式。</li>' +
+        '<li>登入成功但沒有電子郵件：使用者的 Facebook 帳號沒有已驗證的信箱，或拒絕提供；這種情況本站不會自動合併到既有帳號。</li></ul>'
+    ];
+    return [
+      '<strong>前置條件。</strong>需要付費的 <a href="https://developer.apple.com/programs/" target="_blank" rel="noopener">Apple Developer Program</a> 會員（美金 99 元／年）。網站必須是 https，不能是 localhost 或 IP。以下都在 <a href="https://developer.apple.com/account/resources/identifiers/list" target="_blank" rel="noopener">Certificates, Identifiers &amp; Profiles</a>。',
+      '<strong>建立 App ID。</strong>Identifiers → 「+」→ App IDs → App → 填描述與 Bundle ID（例如 <code>' + escHtml(parent ? parent.split('.').reverse().join('.') + '.web' : 'com.example.web') + '</code>），Capabilities 勾選「Sign in with Apple」，Continue → Register。',
+      '<strong>建立 Services ID。</strong>Identifiers → 「+」→ Services IDs → 描述填本站名稱，Identifier 填例如 <code>' + escHtml(parent ? parent.split('.').reverse().join('.') + '.signin' : 'com.example.signin') + '</code>。這個 Identifier 就是下面的「Services ID」。Register 之後再點進去，勾選「Sign in with Apple」→ Configure：<ul>' +
+        '<li>Primary App ID：選上一步的 App ID。</li>' +
+        '<li>Domains and Subdomains：' + v(host) + '（不含 https://）。</li>' +
+        '<li>Return URLs：' + v(cb) + '（一字不差）。</li></ul>按 Next → Done → Continue → Save。',
+      '<strong>建立 Key。</strong>Keys → 「+」→ 名稱隨意，勾選「Sign in with Apple」→ Configure 選剛才的 App ID → Save → Continue → Register。<strong>Download 只能下載一次</strong>，請保存好 <code>.p8</code> 檔；頁面上的 Key ID（10 碼）貼到下面。',
+      '<strong>Team ID。</strong>在 <a href="https://developer.apple.com/account#MembershipDetailsCard" target="_blank" rel="noopener">會員資格詳細資料</a> 的 Team ID（10 碼英數字）。',
+      '<strong>貼私鑰。</strong>把 .p8 檔的完整內容（含 BEGIN／END PRIVATE KEY 那兩行）貼到私鑰欄位，或按「選擇檔案」載入。本站會自動產生 Apple 要求的 client secret，不需要自己算。',
+      '<strong>注意事項。</strong><ul>' +
+        '<li>Apple 只在使用者<strong>第一次</strong>授權時提供姓名；之後登入不會再給。</li>' +
+        '<li>使用者可選「隱藏我的電子郵件」，信箱會是 <code>@privaterelay.appleid.com</code>。要寄信給這類地址，須到 Services → Sign in with Apple for Email Communication 登記寄信網域與寄件信箱（Resend 的寄信網域）。</li>' +
+        '<li>Return URLs 必須是 https 的公開網址，Apple 會用跨站 POST 呼叫它。</li></ul>',
+      '<strong>常見錯誤。</strong><ul>' +
+        '<li><code>invalid_client</code>：Services ID、Team ID、Key ID 或私鑰其中之一不對；Services ID 要填 Services ID，不是 App ID。</li>' +
+        '<li><code>invalid_request</code>／Invalid redirect_uri：Return URLs 與回調網址不一致，或網域沒登記。</li>' +
+        '<li>登入後跳回本站出現錯誤：確認網站是 https 且反向代理沒有擋掉 POST 回調。</li></ul>'
+    ];
+  }
+
+  async function loadAdminProviders() {
+    const r = await accountApi('/api/admin/auth-providers');
+    if (!r.ok) return;
+    const list = $('adminProviderList');
+    list.innerHTML = '';
+    const active = r.data.providers.filter(p => p.active).length;
+    const idle = r.data.providers.filter(p => p.configured && !p.active).length;
+    setAdminCardLight('sso', active ? 'ok' : 'warn', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
+    for (const p of r.data.providers) {
+      const section = document.createElement('section');
+      section.className = 'sso-provider';
+      section.dataset.provider = p.id;
+      list.appendChild(section);
+      renderAdminProvider(section, p);
+    }
+  }
+
+  function ssoStatusBadge(p) {
+    if (p.active) return '<span class="account-badge">啟用中</span>';
+    if (p.configured) return '<span class="account-badge danger">已關閉</span>';
+    return '<span class="account-badge danger">未設定</span>';
+  }
+
+  function renderAdminProvider(section, p) {
+    const id = p.id;
+    const canToggle = p.configured;
+    const webSet = p.fields.filter(f => f.source === 'web');
+    const locked = p.fields.filter(f => f.locked);
+    section.innerHTML = `
+      <div class="sso-head">
+        <strong>${escHtml(p.label)}</strong>
+        <span class="sso-status">${ssoStatusBadge(p)}</span>
+        <label class="toggle-switch sso-toggle-wrap" title="${canToggle ? '在登入畫面顯示這個登入方式' : '金鑰填齊並通過檢查後才能開啟'}">
+          <input type="checkbox" class="sso-toggle" ${p.enabled && p.configured ? 'checked' : ''} ${canToggle ? '' : 'disabled'} aria-label="${escHtml(p.label)} 登入開關">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <details class="setup-howto"><summary>怎麼申請 ${escHtml(p.label)} 的金鑰？（完整逐步說明）</summary><ol class="sso-steps">${ssoHowto(id, p).map(t => `<li>${t}</li>`).join('')}</ol></details>
+      <div class="sso-callback">
+        <span class="field-hint">回調網址（加到 ${escHtml(p.label)} 後台的重新導向 URI）</span>
+        ${p.callbackUrl ? `<div class="account-inline-form"><input type="text" readonly class="sso-callback-input" value="${escHtml(p.callbackUrl)}" aria-label="${escHtml(p.label)} 回調網址"><button type="button" class="modal-btn secondary-btn small-btn sso-copy">複製</button></div>` : '<span class="field-hint">還沒有對外網址，請先到「系統設定」填寫首頁權威 URL。</span>'}
+      </div>
+      <div class="setup-form sso-fields"></div>
+      <div class="field-hint sso-lock-note"></div>
+      <div class="account-inline-form">
+        <button type="button" class="modal-btn submit-btn small-btn sso-save">儲存並檢查</button>
+        <button type="button" class="modal-btn secondary-btn small-btn sso-check" ${p.configured ? '' : 'hidden'}>檢查設定</button>
+        <button type="button" class="modal-btn secondary-btn small-btn sso-clear" ${webSet.length ? '' : 'hidden'}>清除網頁上設定的金鑰</button>
+      </div>
+      <div class="setup-result sso-result" style="display: none;"></div>`;
+
+    const fieldsBox = section.querySelector('.sso-fields');
+    const inputs = {};
+    for (const f of p.fields) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sso-field';
+      const inputId = `sso-${id}-${f.key}`;
+      const label = document.createElement('label');
+      label.className = 'field-hint';
+      label.htmlFor = inputId;
+      label.textContent = f.label;
+      const input = document.createElement(f.multiline ? 'textarea' : 'input');
+      input.id = inputId;
+      if (f.multiline) { input.rows = 4; } else { input.type = f.secret ? 'password' : 'text'; }
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.disabled = !!f.locked;
+      input.placeholder = f.set && f.secret ? (f.source === 'file' ? '已由伺服器上的私鑰檔設定' : `已設定（${f.masked}），要更換才需要填`) : (f.placeholder || '');
+      if (!f.secret && f.value) input.value = f.value;
+      inputs[f.key] = input;
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      if (f.locked) {
+        const note = document.createElement('span');
+        note.className = 'field-hint';
+        note.textContent = f.source === 'file' ? `由環境變數 ${p.keyFile ? p.keyFile.env : 'APPLE_PRIVATE_KEY_PATH'} 指定的檔案提供` : `由環境變數 ${f.env} 設定，優先於網頁設定`;
+        wrap.appendChild(note);
+      }
+      if (f.unreadable) {
+        const note = document.createElement('span');
+        note.className = 'field-hint';
+        note.textContent = '之前存的內容無法解密（伺服器上的 secrets.key 可能遺失），請重新填寫。';
+        wrap.appendChild(note);
+      }
+      if (f.multiline && !f.locked) {
+        const pick = document.createElement('input');
+        pick.type = 'file';
+        pick.accept = '.p8,.pem,.txt';
+        pick.className = 'sso-file';
+        pick.setAttribute('aria-label', '選擇 .p8 檔');
+        pick.addEventListener('change', async () => {
+          const file = pick.files && pick.files[0];
+          if (file) input.value = await file.text();
+        });
+        wrap.appendChild(pick);
+      }
+      fieldsBox.appendChild(wrap);
+    }
+    if (p.keyFile && !p.keyFile.readable) {
+      section.querySelector('.sso-lock-note').textContent = `環境變數 ${p.keyFile.env} 指向的私鑰檔讀不到，請確認路徑與權限，或改在網頁上貼私鑰。`;
+    } else if (locked.length && locked.some(f => f.source !== 'file')) {
+      section.querySelector('.sso-lock-note').textContent = '標示「由環境變數設定」的欄位優先於網頁設定，要改請改伺服器的 .env。';
+    }
+
+    const result = section.querySelector('.sso-result');
+    const messages = {
+      valid: '✅ 服務商接受這組金鑰',
+      invalid: '❌ 服務商不接受這組金鑰，請回到它的後台重新複製',
+      incomplete: '金鑰還沒填齊',
+      unreachable: '⚠️ 暫時連不上服務商，稍後再試',
+      uncertain: '⚠️ 服務商回了無法判斷的結果，請實際用這個方式登入一次確認',
+      redirect_mismatch: '⚠️ 金鑰正確，但回調網址還沒登記到服務商後台，請把上面的回調網址加進它的重新導向 URI（要一字不差），否則登入會失敗'
+    };
+    const refresh = (providers) => {
+      const fresh = providers.find(x => x.id === id);
+      if (fresh) renderAdminProvider(section, fresh);
+      return section.querySelector('.sso-result');
+    };
+    const afterSave = async (r, { toggle }) => {
+      if (!r.ok) {
+        if (r.data.code === 'REAUTH_CANCELLED') { if (toggle) refresh([p]); return; }
+        if (toggle) { const out = refresh([p]); showSetupResult(out, 'error', [`❌ ${r.data.error || '儲存失敗'}`]); }
+        else showSetupResult(result, 'error', [`❌ ${r.data.error || '儲存失敗'}`]);
+        return;
+      }
+      const out = refresh(r.data.providers);
+      const lines = [toggle ? '✅ 已更新' : '✅ 已儲存'];
+      if (r.data.check && r.data.check.state === 'valid') lines.push('服務商接受這組金鑰');
+      (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
+      const fresh = r.data.providers.find(x => x.id === id);
+      if (!toggle && fresh && fresh.configured && !fresh.enabled) lines.push('下一步：打開上方的開關，讀者就能在登入畫面看到這個登入方式。');
+      if (!toggle && fresh && fresh.configured && fresh.enabled) lines.push('已經顯示在登入畫面。建議用另一個瀏覽器實際登入一次確認回調網址有設對。');
+      showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    };
+
+    section.querySelector('.sso-toggle').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      e.target.disabled = true;
+      const r = await withReauth(() => accountApi('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: id, enabled } }));
+      await afterSave(r, { toggle: true });
+    });
+
+    section.querySelector('.sso-save').addEventListener('click', async () => {
+      const btn = section.querySelector('.sso-save');
+      const fields = {};
+      for (const f of p.fields) {
+        if (f.locked) continue;
+        fields[f.key] = inputs[f.key].value;
+      }
+      btn.disabled = true;
+      showSetupResult(result, '', ['向 ' + p.label + ' 確認金鑰中…']);
+      const r = await withReauth(() => accountApi('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: id, fields } }));
+      btn.disabled = false;
+      await afterSave(r, { toggle: false });
+    });
+
+    section.querySelector('.sso-check').addEventListener('click', async () => {
+      showSetupResult(result, '', ['向 ' + p.label + ' 確認金鑰中…']);
+      const r = await accountApi('/api/admin/auth-providers/check', { method: 'POST', body: { provider: id } });
+      if (!r.ok) { showSetupResult(result, 'error', [`❌ ${r.data.error || '檢查失敗'}`]); return; }
+      const st = r.data.check.state;
+      showSetupResult(result, st === 'valid' ? 'ok' : (st === 'invalid' ? 'error' : ''), [messages[st] || st, r.data.check.detail && st === 'invalid' ? r.data.check.detail : '']);
+    });
+
+    section.querySelector('.sso-clear').addEventListener('click', async () => {
+      if (!confirm(`清除網頁上設定的 ${p.label} 金鑰？清除後讀者無法再用 ${p.label} 登入，已綁定的帳號仍保留。`)) return;
+      const clear = p.fields.filter(f => f.source === 'web').map(f => f.key);
+      const r = await withReauth(() => accountApi('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: id, clear } }));
+      await afterSave(r, { toggle: true });
+    });
+
+    section.querySelectorAll('.sso-copy-val').forEach((b) => b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copy); showToast('✅ 已複製', 'success', 1500); }
+      catch (_) { showToast('複製失敗，請手動選取', 'info', 2500); }
+    }));
+    const copy = section.querySelector('.sso-copy');
+    if (copy) {
+      copy.addEventListener('click', async () => {
+        const input = section.querySelector('.sso-callback-input');
+        try { await navigator.clipboard.writeText(input.value); showToast('✅ 已複製回調網址', 'success', 1800); }
+        catch (_) { input.select(); document.execCommand('copy'); showToast('已選取，請按 Ctrl/⌘+C 複製', 'info', 2500); }
+      });
+    }
+  }
+
+  async function loadAdminMail() {
+    const r = await accountApi('/api/admin/mail');
+    if (r.ok) { renderAdminMail(r.data); fillAdminMailForm(r.data); }
+  }
+
+  function settingSourceText(d) {
+    if (!d || !d.source) return '未設定';
+    return d.source === 'env' ? `由環境變數 ${d.env} 設定` : '在網頁上設定';
+  }
+
+  function parseMailFrom(from) {
+    const m = String(from || '').trim().match(/^(?:(.*?)\s*<\s*([^\s<>@]+@[^\s<>@]+)\s*>|([^\s<>@]+@[^\s<>@]+))$/);
+    if (!m) return { name: '', address: '' };
+    return m[2] ? { name: m[1].replace(/^"|"$/g, '').trim(), address: m[2] } : { name: '', address: m[3] };
+  }
+
+  function fillAdminMailForm(m) {
+    const st = m.settings || {};
+    const provider = $('adminMailProvider');
+    provider.value = m.provider || (st.provider && st.provider.source ? '' : 'resend');
+    provider.disabled = !!(st.provider && st.provider.locked);
+    const key = $('adminMailApiKey');
+    key.value = '';
+    key.disabled = !!(st.apiKey && st.apiKey.locked);
+    key.placeholder = st.apiKey && st.apiKey.set ? `已設定（${st.apiKey.masked}），要更換才需要填` : 're_ 開頭';
+    const from = parseMailFrom(m.from);
+    $('adminMailFromName').value = from.name || (m.from ? '' : (($('settingsSiteName') || {}).value || 'mdWebview').trim());
+    $('adminMailFromAddress').value = from.address;
+    const fromLocked = !!(st.from && st.from.locked);
+    $('adminMailFromName').disabled = fromLocked;
+    $('adminMailFromAddress').disabled = fromLocked;
+    $('adminMailClearKeyBtn').hidden = !(st.apiKey && st.apiKey.source === 'web');
+    const locked = ['provider', 'apiKey', 'from'].filter(k => st[k] && st[k].locked).map(k => st[k].env);
+    const notes = [];
+    if (locked.length) notes.push(`${locked.join('、')} 已在伺服器的環境變數設定，優先於網頁設定，這裡不能修改。`);
+    if (st.apiKey && st.apiKey.unreadable) notes.push('之前存的金鑰無法解密（伺服器上的 secrets.key 可能遺失），請重新貼上金鑰。');
+    $('adminMailLockNote').textContent = notes.join(' ');
+    syncAdminMailFormState();
+  }
+
+  function syncAdminMailFormState() {
+    $('adminMailResendFields').hidden = $('adminMailProvider').value !== 'resend';
+  }
+
+  function showSetupResult(el, kind, lines) {
+    el.classList.add('setup-result');
+    el.classList.toggle('ok', kind === 'ok');
+    el.classList.toggle('error', kind === 'error');
+    el.textContent = lines.filter(Boolean).join('\n');
+    el.style.display = lines.some(Boolean) ? 'block' : 'none';
+  }
+
+  function renderAdminMail(m) {
+    const st = m.settings || {};
+    const mailOk = m.configured && m.provider === 'resend';
+    setAdminCardLight('mail', mailOk ? (m.failures24h > 0 ? 'warn' : 'ok') : m.provider === 'log' ? 'warn' : 'bad',
+      mailOk ? (m.failures24h > 0 ? `24 小時內寄送失敗 ${m.failures24h} 封` : '可以寄信') : m.provider === 'log' ? '測試模式，信不會真的寄出' : '無法寄信，註冊與重設密碼信都寄不出去');
+    const providerText = m.provider === 'resend' ? 'Resend' : m.provider === 'log' ? '只寫進日誌（測試用，不會真的寄出）' : '停用';
+    const missingLabels = { MAIL_PROVIDER: '寄信服務', MAIL_API_KEY: 'API 金鑰', MAIL_FROM: '寄件 Email' };
+    const missing = (m.missingEnv || []).length ? `<div class="account-list-row"><span>還缺</span><span class="account-badge danger">${escHtml(m.missingEnv.map(n => missingLabels[n] || n).join('、'))}</span></div>` : '';
+    $('adminMailStatus').innerHTML = `
+      <div class="account-list-row"><span>狀態</span><span>${m.configured && m.provider === 'resend' ? '<span class="account-badge">可以寄信</span>' : m.provider === 'log' ? '<span class="account-badge danger">測試模式</span>' : '<span class="account-badge danger">無法寄信</span>'}</span></div>
+      <div class="account-list-row"><span>寄信服務</span><span>${escHtml(providerText)}<br><span class="field-hint">${escHtml(settingSourceText(st.provider))}</span></span></div>
+      <div class="account-list-row"><span>寄件人</span><span>${escHtml(m.from || '未設定')}${m.from ? `<br><span class="field-hint">${escHtml(settingSourceText(st.from))}</span>` : ''}</span></div>
+      <div class="account-list-row"><span>API 金鑰</span><span>${m.apiKeySet ? `<span class="account-badge">已設定 ${escHtml((st.apiKey && st.apiKey.masked) || '')}</span><br><span class="field-hint">${escHtml(settingSourceText(st.apiKey))}</span>` : '<span class="account-badge danger">未設定</span>'}</span></div>
+      ${missing}
+      <div class="account-list-row"><span>最近一次寄出</span><span>${m.lastSentAt ? escHtml(fmtDateTime(m.lastSentAt)) : '—'}</span></div>
+      <div class="account-list-row"><span>24 小時內寄送失敗</span><span>${m.failures24h}</span></div>`;
+  }
+
+  async function loadAdminMailDns() {
+    const box = $('adminMailDns');
+    box.innerHTML = '<div class="field-hint">檢查中…</div>';
+    const r = await accountApi('/api/admin/mail/dns');
+    if (!r.ok) { box.innerHTML = `<div class="field-hint">${escHtml(r.data.error || '檢查失敗')}</div>`; return; }
+    renderAdminMailDns(r.data);
+  }
+
+  function renderAdminMailDns(d) {
+    const box = $('adminMailDns');
+    if (!d.domain) { box.innerHTML = '<div class="field-hint">先在上面填好寄件 Email，才能檢查寄件網域的 DNS。</div>'; return; }
+    box.innerHTML = '';
+    for (const rec of d.records) {
+      const badge = rec.ok ? '<span class="account-badge">正常</span>' : rec.required ? '<span class="account-badge danger">找不到</span>' : '<span class="account-badge danger">建議新增</span>';
+      const row = document.createElement('div');
+      row.className = 'account-list-row';
+      row.innerHTML = `<span><strong>${escHtml(rec.label)}</strong> ${badge}${rec.required ? '' : ' <span class="field-hint">（選用）</span>'}
+        <br><span class="field-hint">${escHtml(rec.type)} <code>${escHtml(rec.name)}</code></span>
+        ${rec.ok ? '' : `<br><span class="field-hint">${escHtml(rec.hint)}</span>`}
+        ${rec.found.length ? `<br><span class="field-hint">目前：${escHtml(rec.found.join(' ； '))}</span>` : ''}</span>`;
+      box.appendChild(row);
+    }
+    const resendText = {
+      known: d.resend && d.resend.domainStatus === 'verified' ? '✅ Resend 回報這個網域已驗證，可以寄信' : `⚠️ Resend 回報這個網域的狀態是「${d.resend && d.resend.domainStatus}」，驗證通過前寄不出信（DNS 剛改過的話，到 Resend 的 Domains 頁面按 Verify DNS Records）`,
+      domain_missing: `⚠️ Resend 帳號裡沒有 ${d.domain} 這個網域，請先在 Resend 的 Domains 新增`,
+      send_only: '這把金鑰只能寄信，查不到 Resend 上的驗證狀態；以上是 DNS 實際查到的結果。到 Resend 的 Domains 頁面看到 Verified 就代表可以寄信',
+      invalid: '⚠️ Resend 不接受目前的 API 金鑰，無法查詢網域狀態',
+      unreachable: '暫時連不上 Resend，無法查詢網域狀態'
+    };
+    const lines = [];
+    if (d.resend && resendText[d.resend.state]) lines.push(resendText[d.resend.state]);
+    if (d.note) lines.push(d.note);
+    lines.push(`檢查時間：${fmtDateTime(d.checkedAt)}。DNS 剛修改後可能要幾分鐘才會生效；Cloudflare 的記錄請設為「僅 DNS」（灰雲）。`);
+    for (const text of lines) {
+      const foot = document.createElement('div');
+      foot.className = 'field-hint';
+      foot.textContent = text;
+      box.appendChild(foot);
+    }
+  }
+
+  async function loadAdminTurnstile() {
+    const r = await accountApi('/api/admin/turnstile');
+    if (r.ok) { renderAdminTurnstile(r.data); fillAdminTurnstileForm(r.data); }
+  }
+
+  function fillAdminTurnstileForm(t) {
+    const st = t.settings || {};
+    const site = $('adminTurnstileSiteKey');
+    site.value = t.siteKey || '';
+    site.disabled = !!(st.siteKey && st.siteKey.locked);
+    const secret = $('adminTurnstileSecret');
+    secret.value = '';
+    secret.disabled = !!(st.secret && st.secret.locked);
+    secret.placeholder = st.secret && st.secret.set ? `已設定（${st.secret.masked}），要更換才需要填` : '0x 開頭';
+    $('adminTurnstileHowtoHost').textContent = t.expectedHostname || '你的網域';
+    $('adminTurnstileDisableBtn').hidden = !((st.siteKey && st.siteKey.source === 'web') || (st.secret && st.secret.source === 'web'));
+    const locked = ['siteKey', 'secret'].filter(k => st[k] && st[k].locked).map(k => st[k].env);
+    const notes = [];
+    if (locked.length) notes.push(`${locked.join('、')} 已在伺服器的環境變數設定，優先於網頁設定，這裡不能修改。`);
+    if (st.secret && st.secret.unreadable) notes.push('之前存的 secret 無法解密（伺服器上的 secrets.key 可能遺失），請重新貼上。');
+    $('adminTurnstileLockNote').textContent = notes.join(' ');
+    $('adminTurnstileLiveBtn').disabled = !t.configured;
+  }
+
+  function renderAdminTurnstile(t) {
+    setAdminCardLight('turnstile', t.configured ? 'ok' : 'warn', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
+    const yes = text => `<span class="account-badge">${text}</span>`;
+    const no = text => `<span class="account-badge danger">${text}</span>`;
+    const last = t.lastResult;
+    $('adminTurnstileStatus').innerHTML = `
+      <div class="account-list-row"><span>狀態</span><span>${t.configured ? yes('已啟用') : no('未啟用')}</span></div>
+      <div class="account-list-row"><span>Site key</span><span>${t.siteKey ? `<code>${escHtml(t.siteKey)}</code>` : no('未設定')}</span></div>
+      <div class="account-list-row"><span>Secret</span><span>${t.secretSet ? yes(`已設定 ${escHtml((t.settings && t.settings.secret && t.settings.secret.masked) || '')}`) : no('未設定')}</span></div>
+      ${t.usesTestKeys ? '<div class="account-list-row"><span>金鑰種類</span><span class="account-badge danger">Cloudflare 測試金鑰，正式網站請換掉</span></div>' : ''}
+      <div class="account-list-row"><span>Cloudflare 上要允許的網域</span><span>${escHtml(t.expectedHostname || '—')}</span></div>
+      <div class="account-list-row"><span>最近一次驗證</span><span>${last ? `${last.ok ? '通過' : `未通過 ${escHtml(last.reason || '')}`} · ${escHtml(fmtDateTime(last.at))}` : '—'}</span></div>
+      <div class="account-list-row"><span>保護的動作</span><span>${escHtml((t.protects || []).join('、'))}</span></div>
+      ${t.configured ? '' : '<div class="field-hint">未啟用時，註冊與登入只靠隱藏欄位、停留時間與次數限制擋機器人。</div>'}`;
+  }
+
+  const TURNSTILE_REASON_TEXT = {
+    'hostname-mismatch': '網域不符：Cloudflare 上這個 widget 的 Hostname 沒有包含目前的網站網域',
+    'invalid-input-secret': 'Secret 不對',
+    'invalid-input-response': '驗證碼無效或已過期，請再試一次',
+    'timeout-or-duplicate': '驗證碼已過期或用過了，請再試一次',
+    'missing-input-response': '沒有取得驗證碼'
+  };
+
+  let adminTurnstileWidget = null;
+  async function startAdminTurnstileLiveTest() {
+    const box = $('adminTurnstileLiveBox');
+    const out = $('adminTurnstileCheckResult');
+    const info = await accountApi('/api/admin/turnstile');
+    if (!info.ok || !info.data.configured) { out.textContent = '請先填好 Site key 與 Secret key'; return; }
+    box.hidden = false;
+    box.innerHTML = '';
+    out.textContent = '請完成下方的驗證…';
+    let ts;
+    try { ts = await loadTurnstile(); } catch (_) { out.textContent = '載入 Turnstile 失敗，請檢查網路或瀏覽器的擋廣告外掛'; return; }
+    if (adminTurnstileWidget !== null) { try { ts.remove(adminTurnstileWidget); } catch (_) {} }
+    adminTurnstileWidget = ts.render(box, {
+      sitekey: info.data.siteKey,
+      action: 'admin-test',
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+      callback: async (token) => {
+        out.textContent = '向 Cloudflare 確認中…';
+        const r = await accountApi('/api/admin/turnstile/verify', { method: 'POST', body: { token } });
+        if (!r.ok) { out.textContent = r.data.error || '驗證失敗'; return; }
+        out.textContent = r.data.ok
+          ? '✅ 實測通過，訪客可以正常註冊'
+          : `❌ ${TURNSTILE_REASON_TEXT[r.data.reason] || (r.data.unavailable ? '暫時連不上 Cloudflare' : r.data.reason || '未通過')}`;
+        renderAdminTurnstile(r.data.info);
+        renderAdminSetup(r.data.setup);
+      },
+      'error-callback': (code) => {
+        out.textContent = String(code).startsWith('110200')
+          ? '❌ 網域不符：請到 Cloudflare 的 Turnstile 設定，把目前的網域加進 Hostname'
+          : `❌ Turnstile 顯示失敗（${code}），請確認 Site key 是否正確`;
+        return true;
+      }
+    });
+  }
+
+  async function loadAdminLegal() {
+    const r = await accountApi('/api/admin/legal');
+    if (!r.ok) return;
+    $('adminLegalPrivacy').value = r.data.privacy || '';
+    $('adminLegalTerms').value = r.data.terms || '';
+    $('adminLegalMajor').checked = false;
+    setAdminCardLight('legal', r.data.version ? 'ok' : 'warn', r.data.version ? `已發布第 ${r.data.version} 版` : '尚未發布，開放註冊前應先發布');
+    $('adminLegalVersion').textContent = r.data.version ? `第 ${r.data.version} 版 · ${fmtDateTime(r.data.updatedAt)}` : '尚未發布';
+  }
+
+  function renderAdminDbStatus(d) {
+    const box = $('adminDbStatus');
+    setAdminCardLight('db', !d || !d.available ? 'bad' : d.inMemory ? 'warn' : 'ok',
+      !d || !d.available ? '資料庫無法使用' : d.inMemory ? '記憶體資料庫，重啟後資料消失' : '資料庫正常', 'db');
+    if (!d || !d.available) {
+      box.innerHTML = `<div class="account-list-row"><span>資料庫</span><strong>無法使用</strong></div>${d && d.error ? `<div class="field-hint">${escHtml(d.error)}</div>` : ''}`;
+      return;
+    }
+    box.innerHTML = `
+      <div class="account-list-row"><span>結構版本</span><span>${d.userVersion} / ${d.schemaVersion}${d.lastMigrationAt ? `（${escHtml(fmtDateTime(d.lastMigrationAt))} 升級）` : ''}</span></div>
+      <div class="account-list-row"><span>大小</span><span>${escHtml(formatBytes(d.size + d.walSize))}${d.inMemory ? '（記憶體資料庫，重啟後消失）' : ''}</span></div>
+      <div class="account-list-row"><span>帳號數</span><span>${d.users}</span></div>`;
+  }
+
+  async function loadAdminBackups() {
+    const r = await accountApi('/api/admin/db-backups');
+    if (r.ok) renderAdminBackups(r.data.backups, r.data.status);
+  }
+
+  function renderAdminBackups(backups, status) {
+    const list = $('adminBackupList');
+    list.innerHTML = '';
+    $('adminBackupNowBtn').disabled = !!(status && status.inMemory) || !(status && status.backupsEnabled);
+    setAdminCardLight('db', !(status && status.backupsEnabled) ? 'warn' : backups.length ? 'ok' : 'warn',
+      !(status && status.backupsEnabled) ? '自動備份未啟用' : backups.length ? '' : '還沒有任何備份', 'backups');
+    if (!backups.length) { list.innerHTML = '<div class="field-hint">還沒有備份</div>'; return; }
+    for (const b of backups) {
+      const row = document.createElement('div');
+      row.className = 'account-list-row';
+      row.innerHTML = `<span>${escHtml(b.name)}<br><span class="field-hint">${escHtml(fmtDateTime(b.mtime))} · ${escHtml(formatBytes(b.size))}</span></span>`;
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'modal-btn secondary-btn small-btn';
+      dl.textContent = '下載';
+      dl.addEventListener('click', async () => {
+        const fetchFile = async () => {
+          const res = await fetch(`/api/admin/db-backups/download?name=${encodeURIComponent(b.name)}`, { credentials: 'same-origin' });
+          if (res.ok) return { ok: true, status: 200, blob: await res.blob(), data: {} };
+          let data = {};
+          try { data = await res.json(); } catch (_) {}
+          return { ok: false, status: res.status, data };
+        };
+        const r = await withReauth(fetchFile);
+        if (r.ok) downloadBlob(r.blob, b.name);
+        else if (r.data.code !== 'REAUTH_CANCELLED') showToast(`❌ ${r.data.error || '下載失敗'}`, 'error');
+      });
+      const rs = document.createElement('button');
+      rs.type = 'button';
+      rs.className = 'modal-btn danger-btn small-btn';
+      rs.textContent = '還原';
+      rs.addEventListener('click', async () => {
+        if (!confirm(`用 ${b.name} 覆蓋目前的帳號資料庫？備份之後新增或修改的帳號會消失（還原前會先自動備份目前的資料庫）。`)) return;
+        const clearSessions = $('adminRestoreClearSessions').checked;
+        const r = await withReauth(() => accountApi('/api/admin/db-backups/restore', { method: 'POST', body: { name: b.name, clearSessions } }));
+        if (r.ok) {
+          showToast('✅ 已還原帳號資料庫', 'success', 3500);
+          if (clearSessions) {
+            setAccountUser(null);
+            closeAdminModal();
+            openLoginOverlay();
+            return;
+          }
+          loadAdminAccountSystemTab();
+        } else if (r.data.code !== 'REAUTH_CANCELLED') {
+          showToast(`❌ ${r.data.error || '還原失敗'}`, 'error', 4000);
+        }
+      });
+      row.appendChild(dl);
+      row.appendChild(rs);
+      list.appendChild(row);
+    }
+  }
+
+  let adminAccountEventsReady = false;
+  function setupAdminAccountEvents() {
+    if (adminAccountEventsReady) return;
+    adminAccountEventsReady = true;
+    const reload = () => { adminUsersState.page = 1; loadAdminUsers(); };
+    $('adminUsersSearch').addEventListener('input', debounce(reload, 300));
+    ['adminUsersStatus', 'adminUsersRole', 'adminUsersProvider', 'adminUsersVerified'].forEach(id => $(id).addEventListener('change', reload));
+    $('adminUsersPrev').addEventListener('click', () => { adminUsersState.page = Math.max(1, adminUsersState.page - 1); loadAdminUsers(); });
+    $('adminUsersNext').addEventListener('click', () => { adminUsersState.page += 1; loadAdminUsers(); });
+
+    $('adminRegSaveBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/admin/registration', {
+        method: 'POST',
+        body: { mode: $('adminRegMode').value, hourlyCap: $('adminRegCap').value, disposableDomains: $('adminRegDomains').value }
+      });
+      if (r.ok) { showToast('✅ 註冊設定已儲存', 'success'); loadAdminRegistration(); refreshAccountConfig(); }
+      else showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error');
+    });
+
+    $('adminInviteCopyBtn').addEventListener('click', async () => {
+      const code = $('adminInviteNewCode').textContent;
+      try { await navigator.clipboard.writeText(code); showToast('✅ 已複製邀請碼', 'success', 1800); }
+      catch (_) {
+        const range = document.createRange();
+        range.selectNodeContents($('adminInviteNewCode'));
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        showToast('請按 Ctrl+C／⌘C 複製已選取的邀請碼', 'info', 3000);
+      }
+    });
+
+    $('adminInviteCreateBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/admin/invites', {
+        method: 'POST',
+        body: { usesLeft: $('adminInviteUses').value, expiresInDays: $('adminInviteDays').value, note: $('adminInviteNote').value }
+      });
+      if (!r.ok) { showToast(`❌ ${r.data.error || '產生失敗'}`, 'error'); return; }
+      $('adminInviteNewCode').textContent = r.data.code;
+      $('adminInviteNew').hidden = false;
+      $('adminInviteNote').value = '';
+      renderAdminInvites(r.data.invites);
+    });
+
+    $('adminLockoutClearAllBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/admin/lockouts/clear', { method: 'POST', body: {} });
+      if (r.ok) renderAdminLockouts(r.data);
+    });
+    $('adminEventsRefreshBtn').addEventListener('click', () => loadAdminEvents(true));
+    $('adminEventsMoreBtn').addEventListener('click', () => loadAdminEvents(false));
+
+    $('adminMailTestBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/admin/mail/test', { method: 'POST', body: { to: $('adminMailTestTo').value.trim() } });
+      if (r.ok) { showToast(`✅ ${r.data.message}，請到信箱確認（也看看垃圾郵件匣）`, 'success', 5000); renderAdminMail(r.data.status); renderAdminSetup(r.data.setup); }
+      else showToast(`❌ ${r.data.error || '寄信失敗'}`, 'error', 4000);
+    });
+
+    $('adminMailDnsBtn').addEventListener('click', loadAdminMailDns);
+
+    $('adminTurnstileCheckBtn').addEventListener('click', async () => {
+      const out = $('adminTurnstileCheckResult');
+      out.textContent = '檢查中…';
+      const r = await accountApi('/api/admin/turnstile/test', { method: 'POST', body: {} });
+      if (!r.ok) { out.textContent = r.data.error || '檢查失敗'; return; }
+      const msg = {
+        not_set: 'Secret 尚未設定',
+        unreachable: `連不上 Cloudflare（${r.data.detail || ''}），請稍後再試`,
+        invalid_secret: '❌ Cloudflare 不接受這個 secret，請確認 TURNSTILE_SECRET_KEY',
+        test_secret: '⚠️ 這是 Cloudflare 測試 secret，任何人都會通過驗證',
+        valid: '✅ Cloudflare 接受這個 secret'
+      };
+      out.textContent = msg[r.data.state] || r.data.state;
+      renderAdminTurnstile(r.data.info);
+    });
+
+
+    $('adminMailProvider').addEventListener('change', syncAdminMailFormState);
+
+    $('adminMailSaveBtn').addEventListener('click', async () => {
+      const btn = $('adminMailSaveBtn');
+      const out = $('adminMailSaveResult');
+      const name = $('adminMailFromName').value.trim().replace(/[<>"]/g, '');
+      const address = $('adminMailFromAddress').value.trim();
+      const body = {};
+      if (!$('adminMailProvider').disabled) body.provider = $('adminMailProvider').value;
+      const resend = $('adminMailProvider').value === 'resend';
+      const key = resend ? $('adminMailApiKey').value.trim() : '';
+      if (resend) {
+        if (!key && !$('adminMailApiKey').disabled && !$('adminMailApiKey').placeholder.startsWith('已設定')) {
+          showSetupResult(out, 'error', ['請貼上 Resend 的 API 金鑰']);
+          return;
+        }
+        if (!$('adminMailFromAddress').disabled) {
+          if (!address) { showSetupResult(out, 'error', ['請填寄件 Email，例如 noreply@你的網域']); return; }
+          body.from = name ? `${name} <${address}>` : address;
+        }
+        if (key) body.apiKey = key;
+      }
+      btn.disabled = true;
+      showSetupResult(out, '', [key ? '向 Resend 確認金鑰中…' : '儲存中…']);
+      const r = await withReauth(() => accountApi('/api/admin/mail/settings', { method: 'POST', body }));
+      btn.disabled = false;
+      if (!r.ok) {
+        if (r.data.code === 'REAUTH_CANCELLED') { showSetupResult(out, '', []); return; }
+        showSetupResult(out, 'error', [`❌ ${r.data.error || '儲存失敗'}`]);
+        return;
+      }
+      const lines = ['✅ 已儲存'];
+      if (r.data.keyCheck && r.data.keyCheck.state === 'valid_send_only') lines.push('Resend 金鑰有效（只能寄信，這是建議的權限）');
+      if (r.data.keyCheck && r.data.keyCheck.state === 'valid') lines.push('Resend 金鑰有效（完整權限）');
+      (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
+      if (r.data.mail.configured && r.data.mail.provider === 'resend') lines.push('下一步：確認下方 DNS 都是「正常」，然後寄一封測試信給自己。');
+      showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      renderAdminMail(r.data.mail);
+      fillAdminMailForm(r.data.mail);
+      renderAdminSetup(r.data.setup);
+      loadAdminMailDns();
+      refreshAccountConfig();
+    });
+
+    $('adminMailClearKeyBtn').addEventListener('click', async () => {
+      if (!confirm('移除網頁上設定的 Resend 金鑰？移除後無法寄驗證信，註冊與忘記密碼會暫停。')) return;
+      const r = await withReauth(() => accountApi('/api/admin/mail/settings', { method: 'POST', body: { clearApiKey: true } }));
+      if (!r.ok) { if (r.data.code !== 'REAUTH_CANCELLED') showToast(`❌ ${r.data.error || '移除失敗'}`, 'error'); return; }
+      showSetupResult($('adminMailSaveResult'), '', ['已移除金鑰']);
+      renderAdminMail(r.data.mail);
+      fillAdminMailForm(r.data.mail);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    });
+
+    $('adminTurnstileSaveBtn').addEventListener('click', async () => {
+      const btn = $('adminTurnstileSaveBtn');
+      const out = $('adminTurnstileSaveResult');
+      const body = {};
+      if (!$('adminTurnstileSiteKey').disabled) body.siteKey = $('adminTurnstileSiteKey').value.trim();
+      const secret = $('adminTurnstileSecret').value.trim();
+      if (secret) body.secret = secret;
+      btn.disabled = true;
+      showSetupResult(out, '', [secret ? '向 Cloudflare 確認 secret 中…' : '儲存中…']);
+      const r = await withReauth(() => accountApi('/api/admin/turnstile/settings', { method: 'POST', body }));
+      btn.disabled = false;
+      if (!r.ok) {
+        if (r.data.code === 'REAUTH_CANCELLED') { showSetupResult(out, '', []); return; }
+        showSetupResult(out, 'error', [`❌ ${r.data.error || '儲存失敗'}`]);
+        return;
+      }
+      const lines = ['✅ 已儲存'];
+      if (r.data.secretCheck && r.data.secretCheck.state === 'valid') lines.push('Cloudflare 接受這個 secret');
+      (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
+      if (r.data.info.configured) lines.push('下一步：按「開始實測」親自通過一次驗證。');
+      showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      renderAdminTurnstile(r.data.info);
+      fillAdminTurnstileForm(r.data.info);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    });
+
+    $('adminTurnstileDisableBtn').addEventListener('click', async () => {
+      if (!confirm('停用 Turnstile？之後註冊只靠隱藏欄位與次數限制擋機器人。')) return;
+      const r = await withReauth(() => accountApi('/api/admin/turnstile/settings', { method: 'POST', body: { disable: true } }));
+      if (!r.ok) { if (r.data.code !== 'REAUTH_CANCELLED') showToast(`❌ ${r.data.error || '停用失敗'}`, 'error'); return; }
+      showSetupResult($('adminTurnstileSaveResult'), '', ['已停用 Turnstile']);
+      $('adminTurnstileLiveBox').hidden = true;
+      renderAdminTurnstile(r.data.info);
+      fillAdminTurnstileForm(r.data.info);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    });
+
+    $('adminTurnstileLiveBtn').addEventListener('click', startAdminTurnstileLiveTest);
+
+    $('adminLegalSaveBtn').addEventListener('click', async () => {
+      const major = $('adminLegalMajor').checked;
+      if (major && !confirm('勾選「重大變更」後，所有已註冊的人下次登入都要重新同意。確定發布嗎？')) return;
+      const r = await accountApi('/api/admin/legal', {
+        method: 'POST',
+        body: { privacy: $('adminLegalPrivacy').value, terms: $('adminLegalTerms').value, major }
+      });
+      if (r.ok) { showToast('✅ 已發布', 'success'); loadAdminLegal(); refreshAccountConfig(); }
+      else showToast(`❌ ${r.data.error || '發布失敗'}`, 'error');
+    });
+
+    $('adminBackupNowBtn').addEventListener('click', async () => {
+      const r = await accountApi('/api/admin/db-backups', { method: 'POST', body: {} });
+      if (r.ok) { showToast(`✅ 已備份 ${r.data.backup.name}`, 'success'); renderAdminBackups(r.data.backups, { backupsEnabled: true }); }
+      else showToast(`❌ ${r.data.error || '備份失敗'}`, 'error');
+    });
+  }
+
+  async function refreshAccountConfig() {
+    const cfg = await accountApi('/api/auth/config');
+    if (cfg.ok) {
+      state.account.config = cfg.data;
+      updateLegalLinks();
     }
   }
 
