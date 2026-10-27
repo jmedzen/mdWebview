@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.5
+   mdWebview — Application Logic (app.js) v3.12.6
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.5';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.6';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9276,7 +9276,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.5';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.6';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9606,7 +9606,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.5';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.6';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12629,9 +12629,10 @@
     mail: '填入 Resend 的 API 金鑰與寄件 Email',
     mailTest: '寄一封信給自己，確認收得到（也請看看是不是被當成垃圾信）',
     turnstile: '填入 Cloudflare Turnstile 的 Site key 與 Secret key',
-    turnstileTest: '親自通過一次驗證，確認網域設定正確'
+    turnstileTest: '親自通過一次驗證，確認網域設定正確',
+    sso: '在「第三方登入」填入金鑰並打開開關，讀者就能用 Google、Facebook、Apple 帳號登入'
   };
-  const ADMIN_SETUP_TARGETS = { baseUrl: 'config', mail: 'adminMailCard', mailTest: 'adminMailTestTo', turnstile: 'adminTurnstileCard', turnstileTest: 'adminTurnstileLiveBtn' };
+  const ADMIN_SETUP_TARGETS = { baseUrl: 'config', mail: 'adminMailCard', mailTest: 'adminMailTestTo', turnstile: 'adminTurnstileCard', turnstileTest: 'adminTurnstileLiveBtn', sso: 'adminSsoCard' };
 
   function renderAdminSetup(setup) {
     if (!setup) return;
@@ -12689,20 +12690,207 @@
     return r.ok ? r.data.setup : null;
   }
 
+  // ── 第三方登入（Google、Facebook、Apple）──
+  const SSO_HOWTO = {
+    google: [
+      '到 <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud 的「憑證」頁</a>，建立或選一個專案。',
+      '先設定「OAuth 同意畫面」：User type 選「外部」，填應用程式名稱與支援信箱，範圍只需要 <code>openid</code>、<code>email</code>、<code>profile</code>；發布狀態要改成「正式版」，否則只有測試使用者能登入。',
+      '「建立憑證」→「OAuth 用戶端 ID」，應用程式類型選「網頁應用程式」。',
+      '「已授權的重新導向 URI」貼上下面的回調網址，要一字不差。',
+      '建立後複製「用戶端 ID」與「用戶端密鑰」，貼到下面。'
+    ],
+    facebook: [
+      '到 <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta for Developers</a>，建立應用程式，用途選「使用 Facebook 登入驗證使用者」。',
+      '加入「Facebook 登入」產品，在設定裡的「有效的 OAuth 重新導向 URI」貼上下面的回調網址。',
+      '「應用程式設定 → 基本資料」複製應用程式編號（App ID）與應用程式密鑰（App secret，要按「顯示」）。同一頁填隱私權政策網址，可以用本站的 <code>/privacy</code>。',
+      '最後把應用程式模式切到「上線」，否則只有你自己的帳號能登入。'
+    ],
+    apple: [
+      '需要付費的 <a href="https://developer.apple.com/account/resources/identifiers/list" target="_blank" rel="noopener">Apple Developer 會員</a>。到 Certificates, Identifiers &amp; Profiles → Identifiers，先建立一個 App ID 並勾選 Sign in with Apple。',
+      '再建立 <strong>Services ID</strong>（這個就是下面的「Services ID」），勾選 Sign in with Apple，按 Configure：Domains 填網站網域（不含 https://），Return URLs 貼上下面的回調網址。網址必須是 https，不能是 localhost 或 IP。',
+      'Keys → 建立 Key，勾選 Sign in with Apple，選剛才的 App ID。建立後下載 <code>.p8</code> 檔（只能下載一次），畫面上的 Key ID 貼到下面。',
+      'Team ID 在 Apple Developer 網頁的「會員資格詳細資料」。',
+      '把 .p8 檔的內容貼到私鑰欄位，或按「選擇 .p8 檔」直接載入。'
+    ]
+  };
+
   async function loadAdminProviders() {
     const r = await accountApi('/api/admin/auth-providers');
     if (!r.ok) return;
     const list = $('adminProviderList');
     list.innerHTML = '';
     for (const p of r.data.providers) {
-      const missing = p.envVars.filter(v => !v.set).map(v => v.name);
-      const row = document.createElement('div');
-      row.className = 'account-list-row';
-      row.innerHTML = `<span><strong>${escHtml(p.label)}</strong> ${p.configured ? '<span class="account-badge">已啟用</span>' : '<span class="field-hint">未設定</span>'}
-        ${missing.length ? `<br><span class="field-hint">缺少：${escHtml(missing.join('、'))}</span>` : ''}
-        ${p.privateKeyReadable === false ? '<br><span class="field-hint">讀不到 Apple 私鑰檔</span>' : ''}
-        ${p.callbackUrl ? `<br><span class="field-hint">回調網址：<code>${escHtml(p.callbackUrl)}</code></span>` : ''}</span>`;
-      list.appendChild(row);
+      const section = document.createElement('section');
+      section.className = 'sso-provider';
+      section.dataset.provider = p.id;
+      list.appendChild(section);
+      renderAdminProvider(section, p);
+    }
+  }
+
+  function ssoStatusBadge(p) {
+    if (p.active) return '<span class="account-badge">啟用中</span>';
+    if (p.configured) return '<span class="account-badge danger">已關閉</span>';
+    return '<span class="account-badge danger">未設定</span>';
+  }
+
+  function renderAdminProvider(section, p) {
+    const id = p.id;
+    const canToggle = p.configured;
+    const webSet = p.fields.filter(f => f.source === 'web');
+    const locked = p.fields.filter(f => f.locked);
+    section.innerHTML = `
+      <div class="sso-head">
+        <strong>${escHtml(p.label)}</strong>
+        <span class="sso-status">${ssoStatusBadge(p)}</span>
+        <label class="toggle-switch sso-toggle-wrap" title="${canToggle ? '在登入畫面顯示這個登入方式' : '金鑰填齊並通過檢查後才能開啟'}">
+          <input type="checkbox" class="sso-toggle" ${p.enabled && p.configured ? 'checked' : ''} ${canToggle ? '' : 'disabled'} aria-label="${escHtml(p.label)} 登入開關">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <details class="setup-howto"><summary>怎麼申請 ${escHtml(p.label)} 的金鑰？</summary><ol>${(SSO_HOWTO[id] || []).map(t => `<li>${t}</li>`).join('')}</ol></details>
+      <div class="sso-callback">
+        <span class="field-hint">回調網址（加到 ${escHtml(p.label)} 後台的重新導向 URI）</span>
+        ${p.callbackUrl ? `<div class="account-inline-form"><input type="text" readonly class="sso-callback-input" value="${escHtml(p.callbackUrl)}" aria-label="${escHtml(p.label)} 回調網址"><button type="button" class="modal-btn secondary-btn small-btn sso-copy">複製</button></div>` : '<span class="field-hint">還沒有對外網址，請先到「系統設定」填寫首頁權威 URL。</span>'}
+      </div>
+      <div class="setup-form sso-fields"></div>
+      <div class="field-hint sso-lock-note"></div>
+      <div class="account-inline-form">
+        <button type="button" class="modal-btn submit-btn small-btn sso-save">儲存並檢查</button>
+        <button type="button" class="modal-btn secondary-btn small-btn sso-check" ${p.configured ? '' : 'hidden'}>檢查設定</button>
+        <button type="button" class="modal-btn secondary-btn small-btn sso-clear" ${webSet.length ? '' : 'hidden'}>清除網頁上設定的金鑰</button>
+      </div>
+      <div class="setup-result sso-result" style="display: none;"></div>`;
+
+    const fieldsBox = section.querySelector('.sso-fields');
+    const inputs = {};
+    for (const f of p.fields) {
+      const wrap = document.createElement('div');
+      wrap.className = 'sso-field';
+      const inputId = `sso-${id}-${f.key}`;
+      const label = document.createElement('label');
+      label.className = 'field-hint';
+      label.htmlFor = inputId;
+      label.textContent = f.label;
+      const input = document.createElement(f.multiline ? 'textarea' : 'input');
+      input.id = inputId;
+      if (f.multiline) { input.rows = 4; } else { input.type = f.secret ? 'password' : 'text'; }
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.disabled = !!f.locked;
+      input.placeholder = f.set && f.secret ? (f.source === 'file' ? '已由伺服器上的私鑰檔設定' : `已設定（${f.masked}），要更換才需要填`) : (f.placeholder || '');
+      if (!f.secret && f.value) input.value = f.value;
+      inputs[f.key] = input;
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      if (f.locked) {
+        const note = document.createElement('span');
+        note.className = 'field-hint';
+        note.textContent = f.source === 'file' ? `由環境變數 ${p.keyFile ? p.keyFile.env : 'APPLE_PRIVATE_KEY_PATH'} 指定的檔案提供` : `由環境變數 ${f.env} 設定，優先於網頁設定`;
+        wrap.appendChild(note);
+      }
+      if (f.unreadable) {
+        const note = document.createElement('span');
+        note.className = 'field-hint';
+        note.textContent = '之前存的內容無法解密（伺服器上的 secrets.key 可能遺失），請重新填寫。';
+        wrap.appendChild(note);
+      }
+      if (f.multiline && !f.locked) {
+        const pick = document.createElement('input');
+        pick.type = 'file';
+        pick.accept = '.p8,.pem,.txt';
+        pick.className = 'sso-file';
+        pick.setAttribute('aria-label', '選擇 .p8 檔');
+        pick.addEventListener('change', async () => {
+          const file = pick.files && pick.files[0];
+          if (file) input.value = await file.text();
+        });
+        wrap.appendChild(pick);
+      }
+      fieldsBox.appendChild(wrap);
+    }
+    if (p.keyFile && !p.keyFile.readable) {
+      section.querySelector('.sso-lock-note').textContent = `環境變數 ${p.keyFile.env} 指向的私鑰檔讀不到，請確認路徑與權限，或改在網頁上貼私鑰。`;
+    } else if (locked.length && locked.some(f => f.source !== 'file')) {
+      section.querySelector('.sso-lock-note').textContent = '標示「由環境變數設定」的欄位優先於網頁設定，要改請改伺服器的 .env。';
+    }
+
+    const result = section.querySelector('.sso-result');
+    const messages = {
+      valid: '✅ 服務商接受這組金鑰',
+      invalid: '❌ 服務商不接受這組金鑰，請回到它的後台重新複製',
+      incomplete: '金鑰還沒填齊',
+      unreachable: '⚠️ 暫時連不上服務商，稍後再試',
+      uncertain: '⚠️ 服務商回了無法判斷的結果，請實際用這個方式登入一次確認',
+      redirect_mismatch: '⚠️ 金鑰正確，但回調網址還沒登記到服務商後台，請把上面的回調網址加進它的重新導向 URI（要一字不差），否則登入會失敗'
+    };
+    const refresh = (providers) => {
+      const fresh = providers.find(x => x.id === id);
+      if (fresh) renderAdminProvider(section, fresh);
+      return section.querySelector('.sso-result');
+    };
+    const afterSave = async (r, { toggle }) => {
+      if (!r.ok) {
+        if (r.data.code === 'REAUTH_CANCELLED') { if (toggle) refresh([p]); return; }
+        if (toggle) { const out = refresh([p]); showSetupResult(out, 'error', [`❌ ${r.data.error || '儲存失敗'}`]); }
+        else showSetupResult(result, 'error', [`❌ ${r.data.error || '儲存失敗'}`]);
+        return;
+      }
+      const out = refresh(r.data.providers);
+      const lines = [toggle ? '✅ 已更新' : '✅ 已儲存'];
+      if (r.data.check && r.data.check.state === 'valid') lines.push('服務商接受這組金鑰');
+      (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
+      const fresh = r.data.providers.find(x => x.id === id);
+      if (!toggle && fresh && fresh.configured && !fresh.enabled) lines.push('下一步：打開上方的開關，讀者就能在登入畫面看到這個登入方式。');
+      if (!toggle && fresh && fresh.configured && fresh.enabled) lines.push('已經顯示在登入畫面。建議用另一個瀏覽器實際登入一次確認回調網址有設對。');
+      showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      renderAdminSetup(r.data.setup);
+      refreshAccountConfig();
+    };
+
+    section.querySelector('.sso-toggle').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      e.target.disabled = true;
+      const r = await withReauth(() => accountApi('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: id, enabled } }));
+      await afterSave(r, { toggle: true });
+    });
+
+    section.querySelector('.sso-save').addEventListener('click', async () => {
+      const btn = section.querySelector('.sso-save');
+      const fields = {};
+      for (const f of p.fields) {
+        if (f.locked) continue;
+        fields[f.key] = inputs[f.key].value;
+      }
+      btn.disabled = true;
+      showSetupResult(result, '', ['向 ' + p.label + ' 確認金鑰中…']);
+      const r = await withReauth(() => accountApi('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: id, fields } }));
+      btn.disabled = false;
+      await afterSave(r, { toggle: false });
+    });
+
+    section.querySelector('.sso-check').addEventListener('click', async () => {
+      showSetupResult(result, '', ['向 ' + p.label + ' 確認金鑰中…']);
+      const r = await accountApi('/api/admin/auth-providers/check', { method: 'POST', body: { provider: id } });
+      if (!r.ok) { showSetupResult(result, 'error', [`❌ ${r.data.error || '檢查失敗'}`]); return; }
+      const st = r.data.check.state;
+      showSetupResult(result, st === 'valid' ? 'ok' : (st === 'invalid' ? 'error' : ''), [messages[st] || st, r.data.check.detail && st === 'invalid' ? r.data.check.detail : '']);
+    });
+
+    section.querySelector('.sso-clear').addEventListener('click', async () => {
+      if (!confirm(`清除網頁上設定的 ${p.label} 金鑰？清除後讀者無法再用 ${p.label} 登入，已綁定的帳號仍保留。`)) return;
+      const clear = p.fields.filter(f => f.source === 'web').map(f => f.key);
+      const r = await withReauth(() => accountApi('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: id, clear } }));
+      await afterSave(r, { toggle: true });
+    });
+
+    const copy = section.querySelector('.sso-copy');
+    if (copy) {
+      copy.addEventListener('click', async () => {
+        const input = section.querySelector('.sso-callback-input');
+        try { await navigator.clipboard.writeText(input.value); showToast('✅ 已複製回調網址', 'success', 1800); }
+        catch (_) { input.select(); document.execCommand('copy'); showToast('已選取，請按 Ctrl/⌘+C 複製', 'info', 2500); }
+      });
     }
   }
 
@@ -12751,7 +12939,9 @@
   }
 
   function showSetupResult(el, kind, lines) {
-    el.className = `setup-result${kind ? ` ${kind}` : ''}`;
+    el.classList.add('setup-result');
+    el.classList.toggle('ok', kind === 'ok');
+    el.classList.toggle('error', kind === 'error');
     el.textContent = lines.filter(Boolean).join('\n');
     el.style.display = lines.some(Boolean) ? 'block' : 'none';
   }

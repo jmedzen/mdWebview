@@ -588,6 +588,216 @@ describe('account HTTP API', () => {
     });
   });
 
+  // 第三方登入設定的測試：清掉環境變數與網頁設定，結束時還原。
+  async function withSso(run) {
+    const integrations = require('../lib/integrations.js');
+    const names = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET', 'APPLE_CLIENT_ID', 'APPLE_TEAM_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY', 'APPLE_PRIVATE_KEY_PATH'];
+    const saved = Object.fromEntries(names.map(n => [n, process.env[n]]));
+    names.forEach(n => delete process.env[n]);
+    const clearWeb = () => {
+      integrations.set({ googleClientId: '', googleClientSecret: '', facebookAppId: '', facebookAppSecret: '', appleClientId: '', appleTeamId: '', appleKeyId: '', applePrivateKey: '' });
+      for (const id of ['google', 'facebook', 'apple']) db.setSetting(`oauth.${id}.enabled`, '');
+    };
+    clearWeb();
+    try {
+      await run(integrations);
+    } finally {
+      names.forEach(n => delete process.env[n]);
+      clearWeb();
+      for (const n of names) { if (saved[n] !== undefined) process.env[n] = saved[n]; }
+    }
+  }
+
+  test('admin can set up Google, Facebook and Apple sign-in on the web, with a switch for each', async () => {
+    await withSso(async (integrations) => {
+      const crypto = require('crypto');
+      const rq = (...args) => { require('../lib/auth.js').apiRateLimits.clear(); return request(...args); }; // 全站 30 req/s 限流
+      const adminCookie = await makeAdmin();
+      const userCookie = await registerAndVerify('sso-plain@example.org', 'plain-pass-123');
+      const post = (route, body, cookie = adminCookie) => rq(route, { method: 'POST', body, cookie });
+      const save = body => post('/api/admin/auth-providers/settings', body);
+      const providers = async () => (await rq('/api/admin/auth-providers', { cookie: adminCookie })).json.providers;
+      const find = (list, id) => list.find(p => p.id === id);
+
+      let google = { status: 400, body: { error: 'invalid_client', error_description: 'The OAuth client was not found.' } };
+      let facebook = { status: 400, body: { error: { message: 'Error validating client secret.' } } };
+      let apple = { status: 400, body: { error: 'invalid_client' } };
+      const seen = [];
+      globalThis.fetch = async (url, opts) => {
+        const u = String(url);
+        const reply = r => new Response(JSON.stringify(r.body), { status: r.status });
+        if (u === 'https://oauth2.googleapis.com/token') { seen.push(['google', new URLSearchParams(String(opts.body)).get('client_secret')]); return reply(google); }
+        if (u.startsWith('https://graph.facebook.com/oauth/access_token')) { seen.push(['facebook', new URL(u).searchParams.get('client_secret')]); return reply(facebook); }
+        if (u === 'https://appleid.apple.com/auth/token') { seen.push(['apple', new URLSearchParams(String(opts.body)).get('client_secret')]); return reply(apple); }
+        return realFetch(url, opts);
+      };
+
+      // 只有管理員能看、能改
+      for (const [method, route] of [['GET', '/api/admin/auth-providers'], ['POST', '/api/admin/auth-providers/settings'], ['POST', '/api/admin/auth-providers/check']]) {
+        const anon = await rq(route, { method, body: method === 'POST' ? {} : undefined });
+        assert.ok([401, 403].includes(anon.status), `${route} anonymous`);
+        const plain = await rq(route, { method, body: method === 'POST' ? {} : undefined, cookie: userCookie });
+        assert.ok([401, 403].includes(plain.status), `${route} normal user`);
+      }
+
+      // 一開始三家都沒設定，登入畫面沒有任何第三方登入
+      let list = await providers();
+      assert.deepEqual(list.map(p => [p.id, p.configured, p.active]), [['google', false, false], ['facebook', false, false], ['apple', false, false]]);
+      assert.deepEqual((await rq('/api/auth/config')).json.providers, []);
+      assert.equal((await post('/api/admin/auth-providers/settings', { provider: 'nope' })).json.code, 'UNKNOWN_PROVIDER');
+
+      // Google：格式不對、金鑰被拒絕都不會存；通過才存，且不會原樣回傳
+      assert.equal((await save({ provider: 'google', fields: { clientId: 'abc', clientSecret: 'GOCSPX-secret-value-1' } })).json.code, 'INVALID_FIELD');
+      const rejected = await save({ provider: 'google', fields: { clientId: '123-abc.apps.googleusercontent.com', clientSecret: 'GOCSPX-wrong-secret' } });
+      assert.equal(rejected.status, 400);
+      assert.equal(rejected.json.code, 'INVALID_CREDENTIALS');
+      assert.equal(integrations.get('googleClientId'), '', 'nothing saved when the provider rejects the key');
+      google = { status: 400, body: { error: 'invalid_grant', error_description: 'Malformed auth code.' } };
+      const okGoogle = await save({ provider: 'google', fields: { clientId: '123-abc.apps.googleusercontent.com', clientSecret: 'GOCSPX-secret-value-1' } });
+      assert.equal(okGoogle.status, 200, okGoogle.body);
+      assert.equal(okGoogle.json.check.state, 'valid');
+      assert.equal(seen[seen.length - 1][1], 'GOCSPX-secret-value-1', 'the candidate secret is what gets checked');
+      assert.ok(!okGoogle.body.includes('GOCSPX-secret-value-1'), 'secret is never echoed');
+      assert.ok(!db.getSetting('integrations.google.clientSecret').includes('GOCSPX-secret-value-1'), 'stored encrypted');
+      google = find(okGoogle.json.providers, 'google');
+      assert.deepEqual([google.configured, google.enabled, google.active], [true, true, true]);
+      assert.equal(google.fields.find(f => f.key === 'clientId').value, '123-abc.apps.googleusercontent.com');
+      assert.equal(google.fields.find(f => f.key === 'clientSecret').value, null);
+      assert.equal(google.callbackUrl, 'https://reader.example/api/auth/google/callback');
+      assert.deepEqual((await rq('/api/auth/config')).json.providers, ['google']);
+      assert.equal(okGoogle.json.setup.steps.find(st => st.id === 'sso').done, true);
+
+      // 開關：關掉後登入畫面不再出現，入口回 404；金鑰還在
+      const off = await save({ provider: 'google', enabled: false });
+      assert.equal(find(off.json.providers, 'google').enabled, false);
+      assert.equal(find(off.json.providers, 'google').configured, true);
+      assert.deepEqual((await rq('/api/auth/config')).json.providers, []);
+      assert.equal((await rq('/api/auth/google')).status, 404);
+      assert.equal(off.json.setup.steps.find(st => st.id === 'sso').done, false);
+      const on = await save({ provider: 'google', enabled: true });
+      assert.equal(find(on.json.providers, 'google').active, true);
+      assert.equal((await rq('/api/auth/google', { headers: {} })).status, 302);
+
+      // 沒設定的不能開
+      assert.equal((await save({ provider: 'facebook', enabled: true })).json.code, 'NOT_CONFIGURED');
+
+      // Facebook
+      assert.equal((await save({ provider: 'facebook', fields: { appId: 'abc', appSecret: 'x'.repeat(32) } })).json.code, 'INVALID_FIELD');
+      assert.equal((await save({ provider: 'facebook', fields: { appId: '1234567890', appSecret: 'bad'.repeat(10) } })).json.code, 'INVALID_CREDENTIALS');
+      facebook = { status: 200, body: { access_token: '1234567890|app-token', token_type: 'bearer' } };
+      const okFb = await save({ provider: 'facebook', fields: { appId: '1234567890', appSecret: 'f'.repeat(32) } });
+      assert.equal(okFb.status, 200, okFb.body);
+      assert.equal(find(okFb.json.providers, 'facebook').active, true);
+      assert.ok(!okFb.body.includes('f'.repeat(32)));
+
+      // Apple：私鑰格式不對被擋；真的 EC 私鑰可以，回應與資料庫都沒有私鑰內容
+      const apple1 = { provider: 'apple', fields: { clientId: 'co.example.web', teamId: 'ABCDE12345', keyId: 'KEY1234567', privateKey: 'not a key' } };
+      assert.equal((await save(apple1)).json.code, 'INVALID_FIELD');
+      assert.equal((await save({ provider: 'apple', fields: { clientId: 'co.example.web', teamId: 'short', keyId: 'KEY1234567' } })).json.code, 'INVALID_FIELD');
+      const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+      const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+      apple = { status: 400, body: { error: 'invalid_grant' } };
+      const okApple = await save({ provider: 'apple', fields: { clientId: 'co.example.web', teamId: 'ABCDE12345', keyId: 'KEY1234567', privateKey: pem } });
+      assert.equal(okApple.status, 200, okApple.body);
+      assert.equal(okApple.json.check.state, 'valid');
+      const jwt = seen[seen.length - 1][1];
+      assert.equal(jwt.split('.').length, 3, 'Apple client secret is a signed JWT');
+      const pemBody = pem.split('\n').filter(l => l && !l.startsWith('-----'))[1];
+      assert.ok(!okApple.body.includes(pemBody) && !db.getSetting('integrations.apple.privateKey').includes(pemBody), 'private key is not echoed or stored in clear');
+      const appleStatus = find(okApple.json.providers, 'apple');
+      assert.equal(appleStatus.active, true);
+      assert.equal(appleStatus.fields.find(f => f.key === 'privateKey').masked, '••••');
+      assert.deepEqual((await rq('/api/auth/config')).json.providers.sort(), ['apple', 'facebook', 'google']);
+
+      // 「檢查設定」用已存的金鑰再問一次服務商
+      apple = { status: 400, body: { error: 'invalid_client' } };
+      const recheck = await post('/api/admin/auth-providers/check', { provider: 'apple' });
+      assert.equal(recheck.json.check.state, 'invalid');
+
+      // 金鑰對、但回調網址沒登記：照存，並提醒
+      google = { status: 400, body: { error: 'redirect_uri_mismatch' } };
+      const mismatch = await post('/api/admin/auth-providers/check', { provider: 'google' });
+      assert.equal(mismatch.json.check.state, 'redirect_mismatch');
+
+      // 只換一個欄位時，其他金鑰留空代表不改
+      google = { status: 400, body: { error: 'invalid_grant' } };
+      const keep = await save({ provider: 'google', fields: { clientId: '999-zzz.apps.googleusercontent.com', clientSecret: '' } });
+      assert.equal(keep.status, 200, keep.body);
+      assert.equal(integrations.get('googleClientSecret'), 'GOCSPX-secret-value-1');
+      assert.equal(integrations.get('googleClientId'), '999-zzz.apps.googleusercontent.com');
+
+      // 環境變數優先：鎖定、網頁改不動
+      process.env.GOOGLE_CLIENT_ID = '777-env.apps.googleusercontent.com';
+      const locked = find(await providers(), 'google').fields.find(f => f.key === 'clientId');
+      assert.deepEqual([locked.locked, locked.source, locked.value], [true, 'env', '777-env.apps.googleusercontent.com']);
+      await save({ provider: 'google', fields: { clientId: '555-web.apps.googleusercontent.com' } });
+      assert.equal(integrations.get('googleClientId'), '777-env.apps.googleusercontent.com');
+      delete process.env.GOOGLE_CLIENT_ID;
+
+      // 清掉網頁上設定的金鑰
+      const cleared = await save({ provider: 'facebook', clear: ['appId', 'appSecret'] });
+      assert.equal(find(cleared.json.providers, 'facebook').configured, false);
+      assert.ok(!(await rq('/api/auth/config')).json.providers.includes('facebook'));
+
+      // 登入超過 10 分鐘：要先重新驗證身分
+      const admin = db.getUserByEmail('boss@example.org');
+      db.getDb().prepare('UPDATE sessions SET created_at = ?, reauth_at = NULL WHERE user_id = ?').run(Date.now() - 60 * 60 * 1000, admin.id);
+      const stale = await save({ provider: 'google', enabled: false });
+      assert.equal(stale.status, 403);
+      assert.equal(stale.json.code, 'REAUTH_REQUIRED');
+    });
+  });
+
+  test('turning off a sign-in method cannot lock the admin out', async () => {
+    await withSso(async (integrations) => {
+      const adminCookie = await makeAdmin();
+      const admin = db.getUserByEmail('boss@example.org');
+      integrations.set({ googleClientId: '123-abc.apps.googleusercontent.com', googleClientSecret: 'GOCSPX-secret-value-1' });
+      db.linkIdentity(admin.id, 'google', 'google-sub-boss', 'boss@example.org');
+      const savedHash = db.getUserById(admin.id).password_hash;
+      try {
+        db.updateUser(admin.id, { passwordHash: null });
+        const off = await request('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: 'google', enabled: false }, cookie: adminCookie });
+        assert.equal(off.status, 400);
+        assert.equal(off.json.code, 'WOULD_LOCK_OUT');
+        assert.equal(require('../lib/oauth.js').isEnabled('google'), true, 'still enabled');
+        const clear = await request('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: 'google', clear: ['clientSecret'] }, cookie: adminCookie });
+        assert.equal(clear.json.code, 'WOULD_LOCK_OUT');
+        db.updateUser(admin.id, { passwordHash: savedHash });
+        const ok = await request('/api/admin/auth-providers/settings', { method: 'POST', body: { provider: 'google', enabled: false }, cookie: adminCookie });
+        assert.equal(ok.status, 200, ok.body);
+      } finally {
+        db.updateUser(admin.id, { passwordHash: savedHash });
+        db.unlinkIdentity(admin.id, 'google');
+      }
+    });
+  });
+
+  test('Apple private key can still come from APPLE_PRIVATE_KEY_PATH', async () => {
+    await withSso(async (integrations) => {
+      const crypto = require('crypto');
+      const os = require('os');
+      const adminCookie = await makeAdmin();
+      const file = path.join(os.tmpdir(), `mdw-apple-${process.pid}.p8`);
+      fs.writeFileSync(file, crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }));
+      process.env.APPLE_PRIVATE_KEY_PATH = file;
+      try {
+        integrations.set({ appleClientId: 'co.example.web', appleTeamId: 'ABCDE12345', appleKeyId: 'KEY1234567' });
+        const apple = (await request('/api/admin/auth-providers', { cookie: adminCookie })).json.providers.find(p => p.id === 'apple');
+        const pk = apple.fields.find(f => f.key === 'privateKey');
+        assert.deepEqual([apple.configured, pk.source, pk.locked, pk.set], [true, 'file', true, true]);
+        assert.equal(apple.keyFile.readable, true);
+        fs.rmSync(file);
+        const gone = (await request('/api/admin/auth-providers', { cookie: adminCookie })).json.providers.find(p => p.id === 'apple');
+        assert.equal(gone.configured, false);
+        assert.equal(gone.keyFile.readable, false);
+      } finally {
+        fs.rmSync(file, { force: true });
+        delete process.env.APPLE_PRIVATE_KEY_PATH;
+      }
+    });
+  });
+
   test('admin mail DNS check accepts both Resend record styles and does not need MX', async () => {
     await withWebSettings(async () => {
       const adminCookie = await makeAdmin();

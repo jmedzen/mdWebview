@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.12.5) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v3.12.6) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -121,9 +121,9 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **讀者帳號（線上網站）**
 
-讀者可以用 Email 註冊，或用 Google、Facebook、Apple 登入（有設定金鑰的才會出現）。帳號資料存在 `./data/users.db`，每天自動備份到 `./data/backups/`，請把整個 `./data` 資料夾一起備份。
+讀者可以用 Email 註冊，或用 Google、Facebook、Apple 登入（金鑰填好、後台打開開關的才會出現）。帳號資料存在 `./data/users.db`，每天自動備份到 `./data/backups/`，請把整個 `./data` 資料夾一起備份。
 
-**寄信與 Turnstile 可以直接在網頁上設定。** 第一次建立管理員後，後台會自動打開「🔑 帳號系統」的「開站設定」，照步驟貼上 Resend 的 API 金鑰與寄件 Email、檢查 DNS、寄測試信，再填 Cloudflare Turnstile 的金鑰並實測一次即可，不需要登入伺服器。網頁上填的金鑰會加密後存在 `users.db`，加密用的 `./data/secrets.key` 請和資料庫一起備份（資料庫備份檔本身不含可用的金鑰）。
+**寄信、Turnstile 與第三方登入都可以直接在網頁上設定。** 第一次建立管理員後，後台會自動打開「🔑 帳號系統」的「開站設定」，照步驟貼上 Resend 的 API 金鑰與寄件 Email、檢查 DNS、寄測試信，再填 Cloudflare Turnstile 的金鑰並實測一次即可，不需要登入伺服器。網頁上填的金鑰會加密後存在 `users.db`，加密用的 `./data/secrets.key` 請和資料庫一起備份（資料庫備份檔本身不含可用的金鑰）。 Google、Facebook、Apple 各有一個開關，區塊內有申請金鑰的步驟、要加到服務商後台的回調網址（可一鍵複製）、金鑰欄位與「檢查設定」；金鑰儲存前會先向服務商確認，Apple 的私鑰可以直接貼上或選 .p8 檔。關掉開關不會刪除金鑰，已綁定的帳號也保留。
 
 也可以改用環境變數，環境變數有設定時優先於網頁設定。金鑰不要寫進 `docker-compose.yml`：把 [.env.example](.env.example) 複製成 `.env` 填好，`docker compose` 會自動讀取。可用的變數：
 
@@ -132,7 +132,7 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 | `PUBLIC_BASE_URL` | 對外網址，驗證信與第三方登入的連結都用它（沒設時改用後台的首頁權威 URL） |
 | `MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_FROM` | 寄驗證信與重設密碼信（目前支援 Resend，也可在後台設定）。沒設定時註冊與忘記密碼會暫停 |
 | `TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY` | Cloudflare 人機驗證，防機器人註冊（可不設，也可在後台設定） |
-| `GOOGLE_*`、`FACEBOOK_*`、`APPLE_*` | 第三方登入（可不設） |
+| `GOOGLE_*`、`FACEBOOK_*`、`APPLE_*` | 第三方登入（可不設，也可在後台設定）。Apple 私鑰可用 `APPLE_PRIVATE_KEY_PATH`（檔案路徑）或 `APPLE_PRIVATE_KEY`（.p8 內容） |
 
 後台的「👥 使用者」可以查帳號、停用、設管理員、管理註冊方式與邀請碼；「🔑 帳號系統」有開站設定步驟，可以設定寄信（Resend 金鑰、寄件人，並檢查 DKIM、寄信授權與 DMARC 的 DNS，只寄信不需要 MX）與 Turnstile 人機驗證（填金鑰、實際通過一次確認網域），看第三方登入狀態，並編輯隱私權政策與使用條款（發布在 `/privacy`、`/terms`）、備份與還原帳號資料庫。舊版存在 `config.json` 的管理員會在第一次登入時自動搬進帳號資料庫。
 
@@ -184,7 +184,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.12.5）
+├── package.json        # 專案資訊（v3.12.6）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -230,7 +230,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.12.5) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v3.12.6) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -345,7 +345,7 @@ Click the gear icon in the top right of the site ("Preferences & System Administ
 
 Readers can sign up with an email address or sign in with Google, Facebook or Apple (only the ones you configure appear). Accounts live in `./data/users.db` and are backed up daily to `./data/backups/`, so back up the whole `./data` folder.
 
-**Mail and Turnstile can be set up in the browser.** After you create the first administrator, the admin panel opens "🔑 Account system → Site setup": paste your Resend API key and sender address, check DNS, send a test email, then add your Cloudflare Turnstile keys and pass one live check. Keys entered on the web are encrypted in `users.db`; keep `./data/secrets.key` with your database backups (backup files alone do not contain usable keys).
+**Mail, Turnstile and third-party sign-in can all be set up in the browser.** After you create the first administrator, the admin panel opens "🔑 Account system → Site setup": paste your Resend API key and sender address, check DNS, send a test email, then add your Cloudflare Turnstile keys and pass one live check. Keys entered on the web are encrypted in `users.db`; keep `./data/secrets.key` with your database backups (backup files alone do not contain usable keys).
 
 Environment variables still work and take precedence over web settings. Keep secrets out of `docker-compose.yml`: copy [.env.example](.env.example) to `.env` and fill it in; `docker compose` reads it automatically. Available variables:
 
@@ -354,7 +354,7 @@ Environment variables still work and take precedence over web settings. Keep sec
 | `PUBLIC_BASE_URL` | Public address used in verification emails and sign-in callbacks (falls back to the canonical URL in the admin panel) |
 | `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM` | Sends verification and password-reset emails (Resend is supported). Without it, sign-up and password reset are paused |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare bot check for sign-up (optional) |
-| `GOOGLE_*`, `FACEBOOK_*`, `APPLE_*` | Third-party sign-in (optional) |
+| `GOOGLE_*`, `FACEBOOK_*`, `APPLE_*` | Third-party sign-in (optional; can also be set in the admin panel). The Apple key is either a file path (`APPLE_PRIVATE_KEY_PATH`) or the `.p8` contents (`APPLE_PRIVATE_KEY`) |
 
 In the admin panel, "👥 Users" lists accounts and lets you disable them, grant admin, and manage sign-up mode and invite codes; "🔑 Account system" walks you through site setup (mail and Turnstile), shows sign-in status, edits the privacy policy and terms (published at `/privacy` and `/terms`), and backs up or restores the account database. An administrator stored in an older `config.json` is moved into the account database on first sign-in.
 
@@ -401,7 +401,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.12.5)
+├── package.json        # Project information (v3.12.6)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

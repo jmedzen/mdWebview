@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.12.5
+   mdWebview — Style System (style.css) v3.12.6
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -8277,6 +8277,65 @@ a.small-btn {
 #adminPaneAccountSystem textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
+}
+
+/* 第三方登入設定 */
+.sso-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 10px;
+}
+.sso-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+.sso-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: calc(15px * var(--ui-font-scale, 1));
+}
+.sso-head .sso-status {
+  display: inline-flex;
+}
+.sso-head .sso-toggle-wrap {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.sso-callback {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sso-callback-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.sso-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sso-field textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 8px 12px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  resize: vertical;
+}
+.sso-file {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
 }
 
 /* 開站設定：步驟清單、說明、表單 */
