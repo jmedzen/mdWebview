@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.1 | 最後更新：2026-10
+> 版本：v3.12.2 | 最後更新：2026-10
 
 ---
 
@@ -40,6 +40,7 @@
     - [16.4 首頁垂直溢出防護](#164-首頁垂直溢出防護v3102)
 17. [PWA 安裝引導](#17-pwa-安裝引導v3101)
 18. [為何 app.js / server.js 不做模組化重構](#18-為何-appjs-serverjs-不做模組化重構)
+19. [使用者帳號](#19-使用者帳號v3122)
 
 ---
 
@@ -667,7 +668,14 @@ flowchart TD
 | `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
-| `lib/auth.js` | 身分安全與存取控制：PBKDF2 密碼雜湊、時序安全比對、6h Session 管理、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `sessions`, `SESSION_DURATION`, `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`, `generateSessionToken`, `verifySameOrigin`, `isAuthenticated`, `readJSONBody` |
+| `lib/auth.js` | 管理員權限閘門（讀 `lib/session.js` 的 session 並檢查 role=admin）、時序安全比對、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`（僅舊格式）, `verifySameOrigin`, `getAdminUser`, `isAuthenticated`, `isAuthorizedAdmin`, `requireAdmin`, `readJSONBody` |
+| `lib/db.js` | 帳號資料庫（`node:sqlite`，WAL）：結構遷移、所有 SQL、每日備份與還原、過期資料清理 | `open`, `close`, `isAvailable`, `getStatus`, 使用者／第三方綁定／信件 token／邀請碼／session／稽核紀錄／設定的存取函式, `backupNow`, `restoreBackup` |
+| `lib/password.js` | scrypt 密碼雜湊（PHC 格式字串）、舊 PBKDF2 相容與登入時自動升級、密碼規則 | `hashPassword`, `verifyPassword`, `needsRehash`, `validatePassword`, `legacyPbkdf2Hash` |
+| `lib/session.js` | Cookie session（`__Host-mdw_sid`／`mdw_sid`，HttpOnly、SameSite=Lax）、沒用才過期（一般 30 天、管理員 7 天）、重新驗證時窗 | `startSession`, `getSession`, `getUser`, `endSession`, `hasRecentReauth`, `markReauth`, `isSecureRequest` |
+| `lib/accounts.js` | 帳號路由：註冊、登入、驗證信、重設密碼、我的帳號、第三方登入回調、`/privacy` `/terms`、`/api/health`、後台帳號 API；登入限速與防機器人 | `init`, `handle`, `isAccountRoute`, `ADMIN_ROUTES`, `setupFirstAdmin`, `handleLegacyAdminLogin`, `handleLogout` |
+| `lib/oauth.js` | Google（OIDC + PKCE）、Facebook、Apple（form_post）登入流程 | `begin`, `complete`, `enabledProviders`, `getStatus` |
+| `lib/mailer.js` | 寄信（Resend HTTP API，或 `log` 模式只寫日誌） | `send`, `renderMail`, `getStatus`, `getOutbox` |
+| `lib/turnstile.js` | Cloudflare Turnstile 伺服器端驗證 | `verify`, `isConfigured`, `getSiteKey` |
 | `lib/worker-pool.js` | 背景 Worker Thread 池生命週期調度：Render Pool 與 Index Pool 管理、Backpressure 佇列上限、逾時熔斷重生、指數退避防 Crash Loop | `workerPool`, `indexWorkerPool`, `initWorkerPool`, `initIndexWorkerPool`, `renderWithWorker`, `executeIndexJob`, `runIndexWorkerPool`, `terminateWorkerPools` |
 | `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`（**getter**，見 §13.1）, `getLogFilePath`, `appendToPersistentLog`, `getAnalyticsEventId`, `assignAnalyticsEventSeq`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `queueAnalyticsStoreEntry`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `pruneAnalyticsLogEntry`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
 | `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝、**唯一 URL 解碼點** | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`, `debug`) |
@@ -967,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.2'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1386,3 +1394,34 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 ### 18.5 若日後仍需縮短檔案
 
 唯一可行路徑是**架構級重構**：把 20 多個全域狀態收進單一 `AppContext` 物件，再按功能切分模組。代價是改動幾乎整個 `server.js`、13 個 server 測試需重寫、風險集中於全站唯一入口。建議在有大規模功能變更時一併進行，而非單獨為「縮短檔案」而做。
+
+---
+
+## 19. 使用者帳號（v3.12.2）
+
+線上網站（`MDW_DEPLOY_TARGET=web`）才有帳號；單機模式不開資料庫，維持本機免登入。
+
+### 19.1 資料與 session
+
+- 帳號存在 `users.db`（預設與 `config.json` 同目錄，`USERS_DB_PATH` 可改），用 Node 內建 `node:sqlite`，不加依賴。結構版本記在 `PRAGMA user_version`，遷移只加不減，所以退回舊映像仍能啟動。
+- 密碼用 scrypt（N=2^17, r=8, p=1）存成 `$scrypt$ln=17,r=8,p=1$salt$hash`。舊 `config.json` 管理員的 PBKDF2 憑證在第一次登入時搬進 `users` 表並改存 scrypt；`config.json` 的 `admin` 欄位保留一個版本以便退版。
+- Session token 放 HttpOnly cookie，資料庫只存 SHA-256。一般使用者 30 天、管理員 7 天沒使用才過期，每 5 分鐘最多寫一次 `last_seen_at`。登入、重設密碼、改密碼都會換新 token 或登出其他裝置。
+- `X-Admin-Token` 標頭仍可帶 session token（`/api/admin/login` 的回應附 token），給命令列工具與測試用；帶標頭的請求不會被跨站偽造，沿用寬鬆同源規則。瀏覽器一律走 cookie，會改資料的 cookie 請求必須通過嚴格同源檢查並使用 JSON。
+
+### 19.2 防濫用
+
+| 項目 | 規則 |
+| :--- | :--- |
+| 登入 | 同一帳號連續失敗 5 次後鎖 1、2、4… 分鐘（最多 15）；同一 IP 15 分鐘 20 次失敗暫停；設定 Turnstile 時失敗 3 次後要人機驗證 |
+| 註冊 | 隱藏欄位、填表少於 2 秒、Turnstile、每 IP 每小時 3 次、全站每小時上限（後台可調）、拒絕的信箱網域 |
+| 寄信 | 每個信箱每小時 3 封、每 IP 每小時 10 封；回應一律相同，不洩露帳號是否存在 |
+
+### 19.3 條款頁面
+
+隱私權政策與使用條款的文字存在資料庫的 `app_settings`（不放在程式碼），由後台「🔑 帳號系統」編輯，發布在 `/privacy` 與 `/terms`。勾選「重大變更」時，已註冊者下次登入要重新同意。
+
+### 19.4 尚未包含（下一階段）
+
+- 書籤、閱讀進度與偏好的跨裝置同步（資料表已建立，API 尚未開放），以及登出時清除本機資料。
+- Apple 刪除帳號時的 token 撤銷。
+

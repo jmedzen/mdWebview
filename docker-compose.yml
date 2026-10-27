@@ -6,6 +6,10 @@ services:
     container_name: mdWebview
     ports:
       - "8330:8330"
+    # 金鑰（寄信、Turnstile、第三方登入）放在 .env，不要寫進這個檔案。範本見 .env.example。
+    env_file:
+      - path: .env
+        required: false
     environment:
       - PORT=8330
       - CONFIG_PATH=/data/config.json
@@ -13,9 +17,10 @@ services:
       - DICTIONARY_PATH=/data/dicts
       # Bigram 索引 .bin 快取約 650MB，建置峰值記憶體需 ≥ 索引大小之 2 倍。
       # 建議容器主機至少提供 4GB（建議 8GB）RAM。可透過 NODE_MAX_OLD_SPACE_MB 彈性調校 V8 heap 上限。
-      - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144}
+      - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144} --disable-warning=ExperimentalWarning
     volumes:
       # Mount local ./data folder for config persistence
+      # （也存放使用者帳號資料庫 users.db 與每日備份 backups/，請一併備份這個資料夾）
       - ./data:/data
       # Mount local ./logs folder for 90-day log persistence
       - ./logs:/data/logs

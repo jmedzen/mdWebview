@@ -27,16 +27,22 @@ RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
 # Container RAM is recommended to have at least 4GB (recommended 8GB).
 # TRUST_PROXY=true trusts X-Forwarded-For / CF-Connecting-IP only from loopback
 # and private peers (cloudflared, Docker bridge, a proxy on the same host).
+# 使用者帳號存在 /data/users.db（與 config.json 同一個目錄，已在 ./data 掛載點內），
+# 每日備份在 /data/backups。node:sqlite 仍標示為實驗性，關掉每次啟動的警告。
 ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
     LOG_DIR=/data/logs \
     MD_ROOT=/data/md \
     DICTIONARY_PATH=/data/dicts \
     TRUST_PROXY=true \
-    NODE_OPTIONS="--max-old-space-size=6144"
+    NODE_OPTIONS="--max-old-space-size=6144 --disable-warning=ExperimentalWarning"
 
 # Expose default port
 EXPOSE 8330
+
+# /api/health 會檢查帳號資料庫是否可用（失敗回 503）。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
 
 # Start server (the entrypoint drops root privileges before exec'ing node)
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

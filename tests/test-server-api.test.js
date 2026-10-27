@@ -2,7 +2,17 @@ const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const { server, terminateWorkerPools, resetTreeWatcher, resetDictWatcher, resetConfigWatcher, clearSitemapCache, SITEMAP_CACHE_TTL_MS } = require('../server.js');
-const { apiRateLimits, sessions } = require('../lib/auth.js');
+const { apiRateLimits } = require('../lib/auth.js');
+const accountsDb = require('../lib/db.js');
+
+// 在帳號資料庫建立一位管理員與一個 session，回傳可放進 X-Admin-Token 的 token 與清除函式。
+function createAdminSession(token) {
+  const username = `test-admin-${token}`;
+  const user = accountsDb.getUserByUsername(username) ||
+    accountsDb.createUser({ username, passwordHash: null, role: 'admin', displayName: username });
+  accountsDb.createSession(user.id, token, { ttlMs: 60000, ip: '127.0.0.1', userAgent: 'test' });
+  return () => accountsDb.deleteSessionByToken(token);
+}
 const { renderWithWorker } = require('../lib/worker-pool.js');
 
 let baseUrl = '';
@@ -210,7 +220,7 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
 
     // 建立臨時測試管理員 Session
     const testToken = 'test-token-sitemap-time';
-    sessions.set(testToken, { expiry: Date.now() + 60000 });
+    const dropSession = createAdminSession(testToken);
 
     try {
       // 1. 執行手動重建
@@ -232,7 +242,7 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
       const statsData = JSON.parse(statsRes.body);
       assert.equal(statsData.sitemapBuiltAt, rebuildData.sitemapBuiltAt, 'SEO 狀態中之 sitemapBuiltAt 必須與重建時間戳一致');
     } finally {
-      sessions.delete(testToken);
+      dropSession();
     }
   });
 
@@ -253,7 +263,7 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
 
   test('Analytics 匯出拒絕 query-string bearer token，並接受 header 認證', async () => {
     const testToken = 'test-token-analytics-export';
-    sessions.set(testToken, { expiry: Date.now() + 60000 });
+    const dropSession = createAdminSession(testToken);
     try {
       const queryTokenRes = await request(`/api/admin/analytics/export?range=7d&format=json&token=${testToken}`);
       assert.equal(queryTokenRes.statusCode, 401, 'query token must not authorize exports');
@@ -264,7 +274,7 @@ describe('HTTP 伺服器與 REST API 整合測試', () => {
       assert.equal(headerTokenRes.statusCode, 200, 'header-authenticated export remains available');
       assert.match(headerTokenRes.headers['content-disposition'], /analytics-report-7d\.json/);
     } finally {
-      sessions.delete(testToken);
+      dropSession();
     }
 
     const crossOriginRes = await request('/api/admin/analytics/export?range=7d&format=json', {

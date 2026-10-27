@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v3.12.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v3.12.2) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -117,7 +117,22 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **怎麼進入後台**
 
-在網站右上角點「偏好設定與系統管理」（齒輪圖示），登入後即可管理。第一次使用時，會請你先設定管理員帳號與密碼。所有設定都存在 `config.json`。
+在網站右上角點「偏好設定與系統管理」（齒輪圖示），登入後即可管理。第一次使用時，會請你先設定管理員的 Email（或帳號名稱）與密碼。網站設定存在 `config.json`，帳號存在同一個資料夾的 `users.db`。
+
+**讀者帳號（線上網站）**
+
+讀者可以用 Email 註冊，或用 Google、Facebook、Apple 登入（有設定金鑰的才會出現）。帳號資料存在 `./data/users.db`，每天自動備份到 `./data/backups/`，請把整個 `./data` 資料夾一起備份。
+
+金鑰不要寫進 `docker-compose.yml`：把 [.env.example](.env.example) 複製成 `.env` 填好，`docker compose` 會自動讀取。最少要設定：
+
+| 變數 | 用途 |
+| :--- | :--- |
+| `PUBLIC_BASE_URL` | 對外網址，驗證信與第三方登入的連結都用它（沒設時改用後台的首頁權威 URL） |
+| `MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_FROM` | 寄驗證信與重設密碼信（目前支援 Resend）。沒設定時註冊與忘記密碼會暫停 |
+| `TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY` | Cloudflare 人機驗證，防機器人註冊（可不設） |
+| `GOOGLE_*`、`FACEBOOK_*`、`APPLE_*` | 第三方登入（可不設） |
+
+後台的「👥 使用者」可以查帳號、停用、設管理員、管理註冊方式與邀請碼；「🔑 帳號系統」可以看登入方式與寄信狀態、編輯隱私權政策與使用條款（發布在 `/privacy`、`/terms`）、備份與還原帳號資料庫。舊版存在 `config.json` 的管理員會在第一次登入時自動搬進帳號資料庫。
 
 **線上部署與單機離線部署**
 
@@ -167,7 +182,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v3.12.1）
+├── package.json        # 專案資訊（v3.12.2）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -213,7 +228,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v3.12.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v3.12.2) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -322,7 +337,22 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 **How to reach the admin area**
 
-Click the gear icon in the top right of the site ("Preferences & System Administration") and sign in. The first time you use it, you will be asked to set an administrator account and password. All settings are stored in `config.json`.
+Click the gear icon in the top right of the site ("Preferences & System Administration") and sign in. The first time you use it, you will be asked to set the administrator's email (or a username) and password. Site settings are stored in `config.json`; accounts are stored in `users.db` in the same folder.
+
+**Reader accounts (online site)**
+
+Readers can sign up with an email address or sign in with Google, Facebook or Apple (only the ones you configure appear). Accounts live in `./data/users.db` and are backed up daily to `./data/backups/`, so back up the whole `./data` folder.
+
+Keep secrets out of `docker-compose.yml`: copy [.env.example](.env.example) to `.env` and fill it in; `docker compose` reads it automatically. At minimum:
+
+| Variable | Purpose |
+| :--- | :--- |
+| `PUBLIC_BASE_URL` | Public address used in verification emails and sign-in callbacks (falls back to the canonical URL in the admin panel) |
+| `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM` | Sends verification and password-reset emails (Resend is supported). Without it, sign-up and password reset are paused |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare bot check for sign-up (optional) |
+| `GOOGLE_*`, `FACEBOOK_*`, `APPLE_*` | Third-party sign-in (optional) |
+
+In the admin panel, "👥 Users" lists accounts and lets you disable them, grant admin, and manage sign-up mode and invite codes; "🔑 Account system" shows sign-in and mail status, edits the privacy policy and terms (published at `/privacy` and `/terms`), and backs up or restores the account database. An administrator stored in an older `config.json` is moved into the account database on first sign-in.
 
 **Online vs. single-user offline deployment**
 
@@ -367,7 +397,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v3.12.1)
+├── package.json        # Project information (v3.12.2)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

@@ -1,5 +1,10 @@
 node_modules
 config.json
+# 使用者帳號資料庫與備份、放金鑰的 .env（範本是 .env.example）
+users.db
+users.db-*
+backups/
+.env
 data/*
 !data/.gitkeep
 logs/*

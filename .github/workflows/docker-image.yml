@@ -44,6 +44,33 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
 
+      # 先建一份 amd64 映像在本機跑起來：確認帳號資料庫能建立（權限正確）、/api/health 回 200，
+      # 通過才推送。寄信用 log 模式，不需要任何金鑰。
+      - name: Smoke test image (accounts database and health check)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: mdwebview:smoke
+          cache-from: type=gha
+
+      - name: Run smoke test
+        run: |
+          mkdir -p smoke-data
+          docker run -d --name mdw-smoke -p 8330:8330 \
+            -e MAIL_PROVIDER=log -e PUBLIC_BASE_URL=http://127.0.0.1:8330 \
+            -v "$PWD/smoke-data:/data" mdwebview:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8330/api/health; then echo; break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8330/api/health | grep -q '"accounts":true'
+          curl -fsS http://127.0.0.1:8330/api/auth/config | grep -q '"accountsEnabled":true'
+          test -f smoke-data/users.db
+          docker logs mdw-smoke 2>&1 | tail -20
+          docker rm -f mdw-smoke
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:

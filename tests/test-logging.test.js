@@ -132,10 +132,14 @@ describe('F3 — Worker 重生訊息改走 logger 管線', () => {
 
 // ── F4：auth 事件記錄且不外洩機密 ───────────────────────────────────────────
 describe('F4 — Auth 事件記錄', () => {
+  // v3.13.0 起登入流程移到 lib/accounts.js（帳號資料庫），server.js 只轉接舊端點。
+  const authSources = () => ['server.js', 'lib/accounts.js']
+    .map(f => fs.readFileSync(path.join(ROOT_DIR, f), 'utf8')).join('\n');
+
   test('原始碼檢查：登入成功/失敗/鎖定與登出皆使用 Auth tag，且無裸 console.warn 鎖定', () => {
-    const src = fs.readFileSync(path.join(ROOT_DIR, 'server.js'), 'utf8');
+    const src = authSources();
     assert.match(src, /Logger\.info\('Auth',[^\n]*login succeeded/);
-    assert.match(src, /Logger\.warn\('Auth',[^\n]*Failed admin login attempt/);
+    assert.match(src, /Logger\.warn\('Auth',[^\n]*Failed login attempt/);
     assert.match(src, /Logger\.warn\('Auth',[^\n]*locked out/);
     assert.match(src, /Logger\.info\('Auth',[^\n]*logout/);
     assert.match(src, /Logger\.error\('Auth',[^\n]*login processing failed/);
@@ -153,7 +157,7 @@ describe('F4 — Auth 事件記錄', () => {
   });
 
   test('新增的 Auth 日誌行不含密碼、雜湊、salt 或 session token 欄位', () => {
-    const src = fs.readFileSync(path.join(ROOT_DIR, 'server.js'), 'utf8');
+    const src = authSources();
     const authLines = src.split('\n').filter(l => /Logger\.\w+\('Auth'/.test(l));
     assert.ok(authLines.length >= 4, '應有多筆 Auth 日誌');
     for (const line of authLines) {
@@ -368,7 +372,7 @@ describe('F4e2e — 登入處理常式端對端記錄', () => {
       const newEntries = systemLogBuffer.slice(before).filter(e => e.tag === 'Auth');
       for (const e of newEntries) authEntries.push(e);
 
-      assert.ok(authEntries.some(e => e.level === 'WARN' && /Failed admin login attempt/.test(e.message)), '應有失敗登入 WARN');
+      assert.ok(authEntries.some(e => e.level === 'WARN' && /Failed login attempt/.test(e.message)), '應有失敗登入 WARN');
       assert.ok(authEntries.some(e => e.level === 'INFO' && /login succeeded/.test(e.message)), '應有成功登入 INFO');
       assert.ok(authEntries.some(e => e.level === 'INFO' && /logout/.test(e.message)), '應有登出 INFO');
       assert.ok(authEntries.some(e => e.level === 'WARN' && /locked out/.test(e.message)), '應有鎖定 WARN');
