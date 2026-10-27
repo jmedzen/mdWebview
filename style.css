@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.1.3
+   mdWebview — Style System (style.css) v4.1.5
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -4524,6 +4524,11 @@ img.markdown-img:hover {
   padding: 3px 4px;
   animation: popupFadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: auto;
+  /* 點彈窗不應開始選字或叫出長按選單（手機） */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 
 .selection-share-popup.visible {
@@ -4565,6 +4570,12 @@ img.markdown-img:hover {
   opacity: 0.6;
   margin: 0 2px;
   flex-shrink: 0;
+}
+
+/* 觸控選字時按鈕加大，方便手指點按 */
+.selection-share-popup.touch button {
+  min-height: 40px;
+  padding: 8px 11px;
 }
 
 /* ── §28 Line Highlight ─────────────────────────────────────── */

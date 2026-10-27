@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.1.3
+   mdWebview — Application Logic (app.js) v4.1.5
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7598,7 +7598,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.5';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9420,7 +9420,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.5';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9754,7 +9754,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.5';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -14279,73 +14279,148 @@
     // 無法還原時保留畫面上的簡體字，由字組比對涵蓋。
     let currentSelectedText = '';
 
+    // 觸發來源：桌機滑鼠放開走 mouseup；手機長按選字、拖曳選取把手時頁面
+    // 收不到可靠的 mouseup（iOS 拖把手連 touch 事件都沒有），改由 selectionchange
+    // 去抖觸發，touchend 為備援。三者共用同一個計時器，不會重複計算。
+    const SELECTION_MOUSE_DELAY = 50;
+    const SELECTION_CHANGE_DELAY = 300;
+    const SELECTION_TOUCH_DELAY = 400;
+    let selectionTimer = null;
+    let mouseSelecting = false;      // 滑鼠按住拖曳中，交給 mouseup 處理
+    let lastInputWasTouch = false;   // 觸控時彈窗放在選取下方，避開系統選單
+    let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
+
+    const hidePopup = () => popup.classList.remove('visible');
+    const scheduleSelectionCheck = (delay) => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(updateSelectionPopup, delay);
+    };
+
+    function updateSelectionPopup() {
+      selectionTimer = null;
+      const selection = window.getSelection();
+      const text = selection ? selection.toString().trim() : '';
+
+      if (!text || !state.currentFile || selection.rangeCount === 0) {
+        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        return;
+      }
+
+      // Check if the selection is inside markdownBody
+      const range = selection.getRangeAt(0);
+      const container = $('markdownBody');
+      if (!container || !container.contains(range.commonAncestorContainer)) {
+        hidePopup();
+        return;
+      }
+
+      // Get the line number of the start of selection
+      const lineNum = getSelectionLineNumber(selection);
+      if (!lineNum) {
+        hidePopup();
+        return;
+      }
+
+      currentSelectedText = text;
+      const ds = window.mdDisplayScript;
+      if (isHansDisplay() && ds && ds.isActive()) {
+        const orig = ds.originalTextOfRange(range);
+        if (orig && orig.trim()) currentSelectedText = orig.trim();
+      }
+      currentLineNum = lineNum;
+
+      // Show popup
+      popup.classList.toggle('touch', lastInputWasTouch);
+      popup.classList.add('visible');
+
+      const popupWidth = popup.offsetWidth || 280;
+      const popupHeight = popup.offsetHeight || 34;
+      const rect = range.getBoundingClientRect();
+      const rects = range.getClientRects();
+      const firstRect = rects.length ? rects[0] : rect;
+      const lastRect = rects.length ? rects[rects.length - 1] : rect;
+
+      // 可見範圍以 visualViewport 為準（手機雙指放大時 innerWidth 不等於可見寬度）
+      const vv = window.visualViewport;
+      const viewLeft = vv ? vv.offsetLeft : 0;
+      const viewTop = vv ? vv.offsetTop : 0;
+      const viewWidth = vv ? vv.width : window.innerWidth;
+      const viewHeight = vv ? vv.height : window.innerHeight;
+
+      let top;
+      let left;
+      if (lastInputWasTouch) {
+        // iOS／Android 的原生選單都在選取上方，彈窗放在最後一行下方，
+        // 並留出選取把手的高度；下方不夠時才放到第一行上方。
+        const HANDLE_GAP = 28;
+        top = lastRect.bottom + HANDLE_GAP;
+        left = lastRect.left + lastRect.width / 2 - popupWidth / 2;
+        if (top + popupHeight > viewTop + viewHeight - 8) {
+          top = firstRect.top - popupHeight - HANDLE_GAP;
+        }
+      } else {
+        // Right above the selection; flip below when there is no room
+        top = rect.top - popupHeight - 8;
+        left = rect.left + rect.width / 2 - popupWidth / 2;
+        if (top < viewTop + 8) top = rect.bottom + 8;
+      }
+
+      if (left < viewLeft + 10) left = viewLeft + 10;
+      if (left + popupWidth > viewLeft + viewWidth - 10) {
+        left = Math.max(viewLeft + 10, viewLeft + viewWidth - popupWidth - 10);
+      }
+      top = Math.max(viewTop + 4, Math.min(top, viewTop + viewHeight - popupHeight - 4));
+
+      popup.style.top = `${Math.max(0, top + window.scrollY)}px`;
+      popup.style.left = `${Math.max(0, left + window.scrollX)}px`;
+
+      // Update share link using unencoded Chinese URL
+      const baseUrl = window.location.origin + window.location.pathname;
+      const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
+      currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
+
+      // Reset label
+      shareLabel.textContent = `分享第 ${lineNum} 行`;
+      shareBtn.classList.remove('copied');
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+      if (popup.contains(e.target)) return;
+      lastInputWasTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
+      mouseSelecting = e.pointerType === 'mouse' && e.button === 0;
+    }, true);
+
     document.addEventListener('mouseup', () => {
+      mouseSelecting = false;
       // Small timeout to let selection clear/update
-      setTimeout(() => {
-        const selection = window.getSelection();
-        const text = selection.toString().trim();
-        
-        if (!text || !state.currentFile) {
-          popup.classList.remove('visible');
-          return;
-        }
-
-        // Check if the selection is inside markdownBody
-        const range = selection.getRangeAt(0);
-        const container = $('markdownBody');
-        if (!container.contains(range.commonAncestorContainer)) {
-          popup.classList.remove('visible');
-          return;
-        }
-
-        // Get the line number of the start of selection
-        const lineNum = getSelectionLineNumber(selection);
-        if (!lineNum) {
-          popup.classList.remove('visible');
-          return;
-        }
-
-        currentSelectedText = text;
-        const ds = window.mdDisplayScript;
-        if (isHansDisplay() && ds && ds.isActive()) {
-          const orig = ds.originalTextOfRange(range);
-          if (orig && orig.trim()) currentSelectedText = orig.trim();
-        }
-        currentLineNum = lineNum;
-
-        // Calculate position: right above/right of the selection
-        const rect = range.getBoundingClientRect();
-        
-        // Show popup
-        popup.classList.add('visible');
-        
-        const popupWidth = popup.offsetWidth || 280;
-        const popupHeight = popup.offsetHeight || 34;
-        
-        let top = rect.top + window.scrollY - popupHeight - 8;
-        let left = rect.left + rect.width / 2 + window.scrollX - popupWidth / 2;
-
-        if (left < 10) left = 10;
-        if (left + popupWidth > window.innerWidth - 10) {
-          left = Math.max(10, window.innerWidth - popupWidth - 10);
-        }
-        if (top < window.scrollY + 8) {
-          top = rect.bottom + window.scrollY + 8;
-        }
-        
-        popup.style.top = `${Math.max(0, top)}px`;
-        popup.style.left = `${Math.max(0, left)}px`;
-
-        // Update share link using unencoded Chinese URL
-        const baseUrl = window.location.origin + window.location.pathname;
-        const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-        currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
-
-        // Reset label
-        shareLabel.textContent = `分享第 ${lineNum} 行`;
-        shareBtn.classList.remove('copied');
-      }, 50);
+      scheduleSelectionCheck(lastInputWasTouch ? SELECTION_TOUCH_DELAY : SELECTION_MOUSE_DELAY);
     });
+
+    document.addEventListener('touchend', (e) => {
+      if (popup.contains(e.target)) return;
+      lastInputWasTouch = true;
+      mouseSelecting = false;
+      scheduleSelectionCheck(SELECTION_TOUCH_DELAY);
+    }, { passive: true });
+
+    document.addEventListener('selectionchange', () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        clearTimeout(selectionTimer);
+        selectionTimer = null;
+        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        return;
+      }
+      if (mouseSelecting) return;
+      // 選取仍在變動（拖曳把手中）：先藏起來，停手後再依新位置顯示
+      if (!shareBtn.classList.contains('copied')) hidePopup();
+      scheduleSelectionCheck(SELECTION_CHANGE_DELAY);
+    });
+
+    // 觸碰彈窗按鈕時，系統可能在 click 前先清掉選取；暫緩隱藏讓 click 能送達
+    popup.addEventListener('touchstart', () => {
+      popupTouchGuardUntil = Date.now() + 800;
+    }, { passive: true });
 
     // Prevent selection from clearing when clicking the popup button
     popup.addEventListener('mousedown', (e) => {
