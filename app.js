@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.8
+   mdWebview — Application Logic (app.js) v3.12.9
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.8';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.9';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9276,7 +9276,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.8';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.9';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9606,7 +9606,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.8';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.9';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12367,22 +12367,6 @@
       const r = await accountApi('/api/me/sessions', { method: 'DELETE' });
       if (r.ok) { showBox($('accountSettingsMsg'), `已登出 ${r.data.removed} 個其他裝置`); loadMySessions(); }
       else showBox($('accountSettingsError'), r.data.error || '登出失敗');
-    });
-
-    $('accountExportBtn').addEventListener('click', () => {
-      window.location.href = '/api/me/export';
-    });
-
-    $('accountDeleteBtn').addEventListener('click', async () => {
-      if (!confirm('確定要刪除帳號嗎？帳號與同步資料會立即刪除，無法復原。')) return;
-      const r = await withReauth(() => accountApi('/api/me', { method: 'DELETE' }));
-      if (r.ok) {
-        setAccountUser(null);
-        closeOverlay('accountSettingsOverlay');
-        showToast('帳號已刪除', 'info', 3500);
-      } else if (r.data.code !== 'REAUTH_CANCELLED') {
-        showBox($('accountSettingsError'), r.data.error || '刪除失敗');
-      }
     });
 
     $('reauthCancelBtn').addEventListener('click', () => finishReauth(false));
