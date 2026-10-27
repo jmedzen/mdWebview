@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.11
+   mdWebview — Application Logic (app.js) v3.12.12
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7341,7 +7341,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.11';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.12';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9204,7 +9204,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.11';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.12';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9538,7 +9538,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.11';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.12';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13214,28 +13214,88 @@
   }
 
   // ── 第三方登入（Google、Facebook、Apple）──
-  const SSO_HOWTO = {
-    google: [
-      '到 <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud 的「憑證」頁</a>，建立或選一個專案。',
-      '先設定「OAuth 同意畫面」：User type 選「外部」，填應用程式名稱與支援信箱，範圍只需要 <code>openid</code>、<code>email</code>、<code>profile</code>；發布狀態要改成「正式版」，否則只有測試使用者能登入。',
-      '「建立憑證」→「OAuth 用戶端 ID」，應用程式類型選「網頁應用程式」。',
-      '「已授權的重新導向 URI」貼上下面的回調網址，要一字不差。',
-      '建立後複製「用戶端 ID」與「用戶端密鑰」，貼到下面。'
-    ],
-    facebook: [
-      '到 <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta for Developers</a>，建立應用程式，用途選「使用 Facebook 登入驗證使用者」。',
-      '加入「Facebook 登入」產品，在設定裡的「有效的 OAuth 重新導向 URI」貼上下面的回調網址。',
-      '「應用程式設定 → 基本資料」複製應用程式編號（App ID）與應用程式密鑰（App secret，要按「顯示」）。同一頁填隱私權政策網址，可以用本站的 <code>/privacy</code>。',
-      '最後把應用程式模式切到「上線」，否則只有你自己的帳號能登入。'
-    ],
-    apple: [
-      '需要付費的 <a href="https://developer.apple.com/account/resources/identifiers/list" target="_blank" rel="noopener">Apple Developer 會員</a>。到 Certificates, Identifiers &amp; Profiles → Identifiers，先建立一個 App ID 並勾選 Sign in with Apple。',
-      '再建立 <strong>Services ID</strong>（這個就是下面的「Services ID」），勾選 Sign in with Apple，按 Configure：Domains 填網站網域（不含 https://），Return URLs 貼上下面的回調網址。網址必須是 https，不能是 localhost 或 IP。',
-      'Keys → 建立 Key，勾選 Sign in with Apple，選剛才的 App ID。建立後下載 <code>.p8</code> 檔（只能下載一次），畫面上的 Key ID 貼到下面。',
-      'Team ID 在 Apple Developer 網頁的「會員資格詳細資料」。',
-      '把 .p8 檔的內容貼到私鑰欄位，或按「選擇 .p8 檔」直接載入。'
-    ]
-  };
+  // 設定引導：依本站實際的對外網址產生要貼進服務商後台的值，每個值都有複製鈕。
+  function ssoValue(value) {
+    return '<span class="sso-val"><code>' + escHtml(value) + '</code><button type="button" class="sso-copy-val" data-copy="' + escHtml(value) + '">複製</button></span>';
+  }
+
+  function ssoHowto(id, p) {
+    let origin = '', host = '', parent = '';
+    try { const u = new URL(p.callbackUrl); origin = u.origin; host = u.hostname; } catch (_) { /* 還沒設對外網址 */ }
+    if (host && !/^\d+\.\d+\.\d+\.\d+$/.test(host)) parent = host.split('.').slice(-2).join('.');
+    const cb = p.callbackUrl;
+    const noUrl = '<strong>（還沒有對外網址：請先到「系統設定」填寫首頁權威 URL，這裡才會顯示要貼的值。）</strong>';
+    const v = (x) => x ? ssoValue(x) : noUrl;
+    const privacy = origin ? origin + '/privacy' : '';
+    const terms = origin ? origin + '/terms' : '';
+    if (id === 'google') return [
+      '<strong>建立專案。</strong>開 <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud 建立專案</a>，專案名稱隨意（例如本站名稱），按「建立」，然後確認畫面上方的專案選單選的是它。',
+      '<strong>設定「Google 驗證平台」（OAuth 同意畫面）。</strong>開 <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google 驗證平台</a>，按「開始使用」，依序填：<ul>' +
+        '<li>應用程式名稱：讀者在 Google 授權畫面上看到的名稱，建議用本站名稱。</li>' +
+        '<li>使用者支援電子郵件：選你自己的 Gmail。</li>' +
+        '<li>目標對象：選「外部」（只有 Google Workspace 組織內部使用才選「內部」）。</li>' +
+        '<li>聯絡資訊：填一個你收得到信的信箱。</li>' +
+        '<li>同意《Google API 服務使用者資料政策》後按「建立」。</li></ul>',
+      '<strong>品牌宣傳。</strong>到左側「品牌宣傳」，填「已授權網域」' + (parent ? '：' + ssoValue(parent) + '（只填主網域，不含 https:// 與子網域）' : '，填網站的主網域（例如 example.com，不含 https:// 與子網域）') + '，並填：<ul>' +
+        '<li>應用程式首頁：' + v(origin) + '</li>' +
+        '<li>應用程式隱私權政策連結：' + v(privacy) + '</li>' +
+        '<li>應用程式服務條款連結：' + v(terms) + '</li></ul>' +
+        '最下面按「儲存」。畫面出現「已儲存品牌宣傳變更！」就是成功。',
+      '<strong>資料存取（範圍）。</strong>到左側「資料存取」→「新增或移除範圍」，勾選 <code>.../auth/userinfo.email</code>、<code>.../auth/userinfo.profile</code> 與 <code>openid</code>，儲存。只用這三個「非機密」範圍，不需要送 Google 審查。',
+      '<strong>建立 OAuth 用戶端。</strong>到左側「用戶端」→「建立用戶端」（或 <a href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noopener">直接開這頁</a>），「應用程式類型」選「網頁應用程式」，名稱隨意，然後兩個欄位這樣填：<ul>' +
+        '<li><strong>已授權的 JavaScript 來源</strong>（必填，留空會顯示「來源無效：URI 不得留空」）：按「新增 URI」貼上 ' + v(origin) + '。這是網站的「來源」，只有 https://網域，<strong>後面不要加路徑、不要加結尾斜線</strong>。本站是伺服器端登入，這欄實際上用不到，但 Google 要求一定要填。</li>' +
+        '<li><strong>已授權的重新導向 URI</strong>：按「新增 URI」貼上 ' + v(cb) + '。這個要<strong>一字不差</strong>，包含 https、網域、路徑，結尾沒有斜線。</li></ul>' +
+        '「Use this client for an AI-powered agent」不要勾。按「建立」。',
+      '<strong>複製金鑰。</strong>建立後出現的視窗有「用戶端 ID」與「用戶端密鑰」，分別貼到下面對應欄位。密鑰之後只能在該用戶端頁面查看／新增，貼完再離開比較保險。',
+      '<strong>發布狀態。</strong>到「目標對象」：狀態是「測試中」時，只有你加入「測試使用者」名單的 Gmail（最多 100 個）能登入，其他人會看到「存取遭封鎖」。要開放給所有讀者，按「發布應用程式」改成「正式版」。只用上述三個範圍，不需要 Google 驗證審查；未驗證時畫面可能多出提示，不影響登入。',
+      '<strong>等待生效。</strong>Google 說明「設定可能需要 5 分鐘至數小時才會生效」。剛儲存就檢查若出現 redirect_uri_mismatch，先等幾分鐘再按「檢查設定」。',
+      '<strong>常見錯誤。</strong><ul>' +
+        '<li><code>redirect_uri_mismatch</code>（錯誤 400）：「已授權的重新導向 URI」與回調網址不是一字不差。常見原因：http／https 不同、有多餘斜線、網域有 www 或沒有、改了設定還沒生效。</li>' +
+        '<li><code>access_blocked</code>／「存取遭封鎖」：發布狀態仍是「測試中」而該 Gmail 不在測試使用者名單；到「目標對象」加入或改成「正式版」。</li>' +
+        '<li>「來源無效：URI 不得留空」：「已授權的 JavaScript 來源」沒填，貼上網站來源即可。</li>' +
+        '<li><code>invalid_client</code>：用戶端 ID 或密鑰貼錯，或貼到前後多了空白。</li>' +
+        '<li>授權畫面顯示的是舊名稱或不是本站：到「品牌宣傳」修改應用程式名稱。</li></ul>'
+    ];
+    if (id === 'facebook') return [
+      '<strong>建立應用程式。</strong>開 <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">Meta for Developers</a>，用你的 Facebook 帳號登入並註冊為開發人員，按「建立應用程式」。名稱用本站名稱，聯絡電子郵件填你收得到信的信箱；用途選「驗證和要求用戶資料」（使用 Facebook 登入）；商家選「我還不想連結商家資產管理組合」即可。',
+      '<strong>加入 Facebook 登入。</strong>在應用程式面板的「使用案例」，點「驗證和要求用戶資料」→「自訂」，新增 <code>email</code> 權限（<code>public_profile</code> 預設就有）。這兩個是基本權限，不需要送 Meta 審核。',
+      '<strong>填登入設定。</strong>到「Facebook 登入」→「設定」，確認：<ul>' +
+        '<li>用戶端 OAuth 登入：開</li><li>網頁版 OAuth 登入：開</li><li>強制使用 HTTPS 進行 OAuth 重新導向：開</li>' +
+        '<li><strong>有效的 OAuth 重新導向 URI</strong>：貼上 ' + v(cb) + '（一字不差，結尾沒有斜線），按「儲存變更」。</li></ul>',
+      '<strong>基本資料。</strong>「應用程式設定」→「基本資料」，填：<ul>' +
+        '<li>應用程式網域：' + v(host) + '</li>' +
+        '<li>隱私權政策網址：' + v(privacy) + '</li>' +
+        '<li>服務條款網址：' + v(terms) + '</li>' +
+        '<li>使用者資料刪除：選「資料刪除說明網址」，填 ' + v(privacy) + '（本站隱私權政策已說明如何申請刪除）。</li>' +
+        '<li>類別：選「教育」或最接近的項目。</li></ul>按「儲存變更」。',
+      '<strong>複製金鑰。</strong>同一頁最上面有「應用程式編號」（App ID）與「應用程式密鑰」（按「顯示」，會要你輸入 Facebook 密碼），貼到下面對應欄位。',
+      '<strong>切換到「上線」。</strong>頁面最上方的應用程式模式開關從「開發中」切到「上線」。必須先填好隱私權政策網址與類別才能切換。開發中時，只有應用程式的管理員、開發人員與測試人員能登入，其他人會看到「此應用程式目前無法使用」。',
+      '<strong>常見錯誤。</strong><ul>' +
+        '<li>「URL 已遭封鎖：重新導向失敗」：回調網址沒加到「有效的 OAuth 重新導向 URI」，或「用戶端／網頁版 OAuth 登入」沒開。</li>' +
+        '<li>「無法載入網址：這個網址的網域未包含在應用程式網域中」：「基本資料」的應用程式網域沒填對。</li>' +
+        '<li>「此應用程式目前無法使用」：還在「開發中」模式。</li>' +
+        '<li>登入成功但沒有電子郵件：使用者的 Facebook 帳號沒有已驗證的信箱，或拒絕提供；這種情況本站不會自動合併到既有帳號。</li></ul>'
+    ];
+    return [
+      '<strong>前置條件。</strong>需要付費的 <a href="https://developer.apple.com/programs/" target="_blank" rel="noopener">Apple Developer Program</a> 會員（美金 99 元／年）。網站必須是 https，不能是 localhost 或 IP。以下都在 <a href="https://developer.apple.com/account/resources/identifiers/list" target="_blank" rel="noopener">Certificates, Identifiers &amp; Profiles</a>。',
+      '<strong>建立 App ID。</strong>Identifiers → 「+」→ App IDs → App → 填描述與 Bundle ID（例如 <code>' + escHtml(parent ? parent.split('.').reverse().join('.') + '.web' : 'com.example.web') + '</code>），Capabilities 勾選「Sign in with Apple」，Continue → Register。',
+      '<strong>建立 Services ID。</strong>Identifiers → 「+」→ Services IDs → 描述填本站名稱，Identifier 填例如 <code>' + escHtml(parent ? parent.split('.').reverse().join('.') + '.signin' : 'com.example.signin') + '</code>。這個 Identifier 就是下面的「Services ID」。Register 之後再點進去，勾選「Sign in with Apple」→ Configure：<ul>' +
+        '<li>Primary App ID：選上一步的 App ID。</li>' +
+        '<li>Domains and Subdomains：' + v(host) + '（不含 https://）。</li>' +
+        '<li>Return URLs：' + v(cb) + '（一字不差）。</li></ul>按 Next → Done → Continue → Save。',
+      '<strong>建立 Key。</strong>Keys → 「+」→ 名稱隨意，勾選「Sign in with Apple」→ Configure 選剛才的 App ID → Save → Continue → Register。<strong>Download 只能下載一次</strong>，請保存好 <code>.p8</code> 檔；頁面上的 Key ID（10 碼）貼到下面。',
+      '<strong>Team ID。</strong>在 <a href="https://developer.apple.com/account#MembershipDetailsCard" target="_blank" rel="noopener">會員資格詳細資料</a> 的 Team ID（10 碼英數字）。',
+      '<strong>貼私鑰。</strong>把 .p8 檔的完整內容（含 BEGIN／END PRIVATE KEY 那兩行）貼到私鑰欄位，或按「選擇檔案」載入。本站會自動產生 Apple 要求的 client secret，不需要自己算。',
+      '<strong>注意事項。</strong><ul>' +
+        '<li>Apple 只在使用者<strong>第一次</strong>授權時提供姓名；之後登入不會再給。</li>' +
+        '<li>使用者可選「隱藏我的電子郵件」，信箱會是 <code>@privaterelay.appleid.com</code>。要寄信給這類地址，須到 Services → Sign in with Apple for Email Communication 登記寄信網域與寄件信箱（Resend 的寄信網域）。</li>' +
+        '<li>Return URLs 必須是 https 的公開網址，Apple 會用跨站 POST 呼叫它。</li></ul>',
+      '<strong>常見錯誤。</strong><ul>' +
+        '<li><code>invalid_client</code>：Services ID、Team ID、Key ID 或私鑰其中之一不對；Services ID 要填 Services ID，不是 App ID。</li>' +
+        '<li><code>invalid_request</code>／Invalid redirect_uri：Return URLs 與回調網址不一致，或網域沒登記。</li>' +
+        '<li>登入後跳回本站出現錯誤：確認網站是 https 且反向代理沒有擋掉 POST 回調。</li></ul>'
+    ];
+  }
 
   async function loadAdminProviders() {
     const r = await accountApi('/api/admin/auth-providers');
@@ -13274,7 +13334,7 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
-      <details class="setup-howto"><summary>怎麼申請 ${escHtml(p.label)} 的金鑰？</summary><ol>${(SSO_HOWTO[id] || []).map(t => `<li>${t}</li>`).join('')}</ol></details>
+      <details class="setup-howto"><summary>怎麼申請 ${escHtml(p.label)} 的金鑰？（完整逐步說明）</summary><ol class="sso-steps">${ssoHowto(id, p).map(t => `<li>${t}</li>`).join('')}</ol></details>
       <div class="sso-callback">
         <span class="field-hint">回調網址（加到 ${escHtml(p.label)} 後台的重新導向 URI）</span>
         ${p.callbackUrl ? `<div class="account-inline-form"><input type="text" readonly class="sso-callback-input" value="${escHtml(p.callbackUrl)}" aria-label="${escHtml(p.label)} 回調網址"><button type="button" class="modal-btn secondary-btn small-btn sso-copy">複製</button></div>` : '<span class="field-hint">還沒有對外網址，請先到「系統設定」填寫首頁權威 URL。</span>'}
@@ -13410,6 +13470,10 @@
       await afterSave(r, { toggle: true });
     });
 
+    section.querySelectorAll('.sso-copy-val').forEach((b) => b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copy); showToast('✅ 已複製', 'success', 1500); }
+      catch (_) { showToast('複製失敗，請手動選取', 'info', 2500); }
+    }));
     const copy = section.querySelector('.sso-copy');
     if (copy) {
       copy.addEventListener('click', async () => {

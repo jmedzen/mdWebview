@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.12.11
+   mdWebview — Style System (style.css) v3.12.12
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -9032,6 +9032,19 @@ a.small-btn {
 .sso-callback-input {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
+}
+.sso-steps ul { margin: 4px 0; padding-left: 1.2em; }
+.sso-steps li { margin-bottom: 6px; }
+.sso-val { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; flex-wrap: wrap; }
+.sso-val code { word-break: break-all; }
+.sso-copy-val {
+  font-size: 12px;
+  padding: 1px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
 }
 .sso-field {
   display: flex;
