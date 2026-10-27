@@ -355,6 +355,126 @@ describe('account HTTP API', () => {
     assert.equal(db.getUserByEmail('leaver@example.org'), null);
   });
 
+  test('admin mail/Turnstile info: admin only, secrets never in responses', async () => {
+    const userCookie = await registerAndVerify('info-plain@example.org', 'plain-pass-123');
+    const adminCookie = await makeAdmin();
+    process.env.TURNSTILE_SITE_KEY = '0x4AAAAAAAsitekey';
+    process.env.TURNSTILE_SECRET_KEY = 'super-secret-turnstile-value';
+    const saved = { key: process.env.MAIL_API_KEY, from: process.env.MAIL_FROM };
+    process.env.MAIL_API_KEY = 'super-secret-mail-key';
+    process.env.MAIL_FROM = 'mdWebview <noreply@mail.example>';
+    try {
+      for (const [method, route] of [['GET', '/api/admin/mail/dns'], ['GET', '/api/admin/turnstile'], ['POST', '/api/admin/turnstile/test']]) {
+        const anon = await request(route, { method, body: method === 'POST' ? {} : undefined });
+        assert.ok([401, 403].includes(anon.status), `${route} anonymous -> ${anon.status}`);
+        const plain = await request(route, { method, body: method === 'POST' ? {} : undefined, cookie: userCookie });
+        assert.ok([401, 403].includes(plain.status), `${route} as normal user -> ${plain.status}`);
+      }
+
+      const ts = await request('/api/admin/turnstile', { cookie: adminCookie });
+      assert.equal(ts.status, 200);
+      assert.equal(ts.json.siteKey, '0x4AAAAAAAsitekey');
+      assert.equal(ts.json.secretSet, true);
+      assert.equal(ts.json.configured, true);
+      assert.equal(ts.json.usesTestKeys, false);
+      assert.deepEqual(ts.json.envVars, [{ name: 'TURNSTILE_SITE_KEY', set: true }, { name: 'TURNSTILE_SECRET_KEY', set: true }]);
+      assert.ok(ts.json.protects.length >= 4);
+
+      const mail = await request('/api/admin/mail', { cookie: adminCookie });
+      assert.equal(mail.json.senderDomain, 'mail.example');
+      assert.equal(mail.json.apiKeySet, true);
+      assert.deepEqual(mail.json.missingEnv, []);
+
+      const overview = await request('/api/admin/accounts-overview', { cookie: adminCookie });
+      for (const res of [ts, mail, overview]) {
+        assert.ok(!res.body.includes('super-secret-turnstile-value'), 'Turnstile secret leaked');
+        assert.ok(!res.body.includes('super-secret-mail-key'), 'mail API key leaked');
+      }
+      assert.equal(overview.json.turnstile.siteKey, '0x4AAAAAAAsitekey');
+    } finally {
+      for (const [k, v] of [['MAIL_API_KEY', saved.key], ['MAIL_FROM', saved.from]]) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+  });
+
+  test('admin Turnstile secret check tells a wrong secret from a right one', async () => {
+    const adminCookie = await makeAdmin();
+    const notSet = await request('/api/admin/turnstile/test', { method: 'POST', body: {}, cookie: adminCookie });
+    assert.equal(notSet.json.state, 'not_set');
+
+    process.env.TURNSTILE_SITE_KEY = '0x4AAAAAAAsitekey';
+    process.env.TURNSTILE_SECRET_KEY = 'secret-under-test';
+    let reply = { success: false, 'error-codes': ['invalid-input-response'] };
+    let seenSecret = null;
+    globalThis.fetch = async (url, opts) => {
+      if (String(url).startsWith('https://challenges.cloudflare.com/')) {
+        if (reply === 'down') throw Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+        seenSecret = new URLSearchParams(String(opts.body)).get('secret');
+        return new Response(JSON.stringify(reply), { status: 200 });
+      }
+      return realFetch(url, opts);
+    };
+    const check = async () => (await request('/api/admin/turnstile/test', { method: 'POST', body: {}, cookie: adminCookie })).json;
+
+    assert.equal((await check()).state, 'valid');
+    assert.equal(seenSecret, 'secret-under-test');
+    reply = { success: false, 'error-codes': ['invalid-input-secret'] };
+    assert.equal((await check()).state, 'invalid_secret');
+    reply = { success: true, 'error-codes': [] };
+    assert.equal((await check()).state, 'test_secret');
+    reply = 'down';
+    const down = await check();
+    assert.equal(down.state, 'unreachable');
+    assert.equal(down.detail, 'timeout');
+    assert.ok(db.listEvents({ event: 'admin_turnstile_check', limit: 5 }).length >= 1);
+  });
+
+  test('admin mail DNS check reports each required record', async () => {
+    const adminCookie = await makeAdmin();
+    const mailerMod = require('../lib/mailer.js');
+    const dns = require('dns');
+    const saved = process.env.MAIL_FROM;
+    const realResolver = dns.promises.Resolver;
+    const records = {
+      txt: { 'send.mail.example': [['v=spf1 include:amazonses.com ~all']], 'resend._domainkey.mail.example': [['p=' + 'A'.repeat(60)]] },
+      mx: { 'send.mail.example': [{ priority: 10, exchange: 'feedback-smtp.us-east-1.amazonses.com' }] }
+    };
+    dns.promises.Resolver = class {
+      async resolveTxt(name) { if (records.txt[name]) return records.txt[name]; throw Object.assign(new Error('nodata'), { code: 'ENODATA' }); }
+      async resolveMx(name) { if (records.mx[name]) return records.mx[name]; throw Object.assign(new Error('nodata'), { code: 'ENODATA' }); }
+    };
+    try {
+      process.env.MAIL_FROM = 'mdWebview <noreply@mail.example>';
+      const res = await request('/api/admin/mail/dns', { cookie: adminCookie });
+      assert.equal(res.status, 200);
+      assert.equal(res.json.domain, 'mail.example');
+      const byId = Object.fromEntries(res.json.records.map(r => [r.id, r]));
+      assert.equal(byId.spf.ok, true);
+      assert.equal(byId.mx.ok, true);
+      assert.equal(byId.dkim.ok, true);
+      assert.equal(byId.dmarc.ok, false);
+      assert.equal(byId.dmarc.required, false);
+      assert.equal(byId.dmarc.name, '_dmarc.mail.example');
+      assert.ok(byId.dkim.found[0].length < 60, 'DKIM value is shortened');
+
+      records.txt['_dmarc.mail.example'] = [['v=DMARC1; p=none;']];
+      delete records.txt['send.mail.example'];
+      const again = (await request('/api/admin/mail/dns', { cookie: adminCookie })).json;
+      assert.equal(again.records.find(r => r.id === 'dmarc').ok, true);
+      assert.equal(again.records.find(r => r.id === 'spf').ok, false);
+
+      delete process.env.MAIL_FROM;
+      const none = (await request('/api/admin/mail/dns', { cookie: adminCookie })).json;
+      assert.equal(none.domain, null);
+      assert.deepEqual(none.records, []);
+      assert.equal(mailerMod.getSenderDomain(), '');
+    } finally {
+      dns.promises.Resolver = realResolver;
+      if (saved === undefined) delete process.env.MAIL_FROM; else process.env.MAIL_FROM = saved;
+    }
+  });
+
   test('every admin account route has a matching call in the admin UI (app.js)', () => {
     const src = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
     for (const route of accounts.ADMIN_ROUTES) {

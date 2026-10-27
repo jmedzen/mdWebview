@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.2 | 最後更新：2026-10
+> 版本：v3.12.3 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.2'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.3'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1397,7 +1397,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 ---
 
-## 19. 使用者帳號（v3.12.2）
+## 19. 使用者帳號（v3.12.3）
 
 線上網站（`MDW_DEPLOY_TARGET=web`）才有帳號；單機模式不開資料庫，維持本機免登入。
 
@@ -1417,6 +1417,8 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 寄信 | 每個信箱每小時 3 封、每 IP 每小時 10 封；回應一律相同，不洩露帳號是否存在 |
 
 ### 19.3 條款頁面
+
+後台「🔑 帳號系統」的寄信卡片顯示寄件人、缺少的環境變數與寄件網域的 DNS 檢查（`GET /api/admin/mail/dns`，只讀 SPF、退信 MX、DKIM、DMARC）；Turnstile 卡片顯示 site key、secret 是否設定與是否為測試金鑰，「驗證 secret」（`POST /api/admin/turnstile/test`）送一個假 token 給 Cloudflare 判斷 secret 對不對。金鑰本身一律只在環境變數，API 只回報有沒有設定。
 
 隱私權政策與使用條款的文字存在資料庫的 `app_settings`（不放在程式碼），由後台「🔑 帳號系統」編輯，發布在 `/privacy` 與 `/terms`。勾選「重大變更」時，已註冊者下次登入要重新同意。
 

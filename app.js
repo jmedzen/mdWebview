@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.2
+   mdWebview — Application Logic (app.js) v3.12.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7360,7 +7360,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9274,7 +9274,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9604,7 +9604,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12617,10 +12617,7 @@
     adminNotice('adminAccountSysNotice', notes.join(' '));
     $('adminPublicBaseUrl').textContent = o.publicBaseUrl ? `${o.publicBaseUrl}${o.publicBaseUrlSource === 'env' ? '（環境變數）' : '（首頁權威 URL）'}` : '未設定';
     renderAdminDbStatus(o.database);
-    $('adminTurnstileStatus').textContent = o.turnstile.configured
-      ? `Turnstile 人機驗證：已啟用${o.turnstile.lastResult ? `（最近一次：${o.turnstile.lastResult.ok ? '通過' : `未通過 ${o.turnstile.lastResult.reason || ''}`}）` : ''}`
-      : 'Turnstile 人機驗證：未設定（TURNSTILE_SITE_KEY、TURNSTILE_SECRET_KEY）';
-    await Promise.all([loadAdminProviders(), loadAdminMail(), loadAdminLegal(), loadAdminBackups()]);
+    await Promise.all([loadAdminTurnstile(), loadAdminProviders(), loadAdminMail(), loadAdminMailDns(), loadAdminLegal(), loadAdminBackups()]);
   }
 
   async function loadAdminProviders() {
@@ -12646,12 +12643,64 @@
   }
 
   function renderAdminMail(m) {
-    const providerText = m.provider === 'resend' ? 'Resend' : m.provider === 'log' ? '只寫進日誌（測試用）' : '未設定';
+    const providerText = m.provider === 'resend' ? 'Resend' : m.provider === 'log' ? '只寫進日誌（測試用，不會真的寄出）' : '未設定';
+    const missing = (m.missingEnv || []).length ? `<div class="account-list-row"><span>缺少的環境變數</span><span class="account-badge danger">${escHtml(m.missingEnv.join('、'))}</span></div>` : '';
     $('adminMailStatus').innerHTML = `
       <div class="account-list-row"><span>寄信服務</span><strong>${escHtml(providerText)}</strong></div>
       <div class="account-list-row"><span>寄件人</span><span>${escHtml(m.from || '未設定')}</span></div>
-      <div class="account-list-row"><span>API 金鑰</span><span>${m.apiKeySet ? '已設定' : '未設定'}</span></div>
+      <div class="account-list-row"><span>寄件網域</span><span>${escHtml(m.senderDomain || '—')}</span></div>
+      <div class="account-list-row"><span>API 金鑰</span><span>${m.apiKeySet ? '<span class="account-badge">已設定</span>' : '<span class="account-badge danger">未設定</span>'}</span></div>
+      ${missing}
+      <div class="account-list-row"><span>最近一次寄出</span><span>${m.lastSentAt ? escHtml(fmtDateTime(m.lastSentAt)) : '—'}</span></div>
       <div class="account-list-row"><span>24 小時內寄送失敗</span><span>${m.failures24h}</span></div>`;
+  }
+
+  async function loadAdminMailDns() {
+    const box = $('adminMailDns');
+    box.innerHTML = '<div class="field-hint">檢查中…</div>';
+    const r = await accountApi('/api/admin/mail/dns');
+    if (!r.ok) { box.innerHTML = `<div class="field-hint">${escHtml(r.data.error || '檢查失敗')}</div>`; return; }
+    renderAdminMailDns(r.data);
+  }
+
+  function renderAdminMailDns(d) {
+    const box = $('adminMailDns');
+    if (!d.domain) { box.innerHTML = '<div class="field-hint">還沒有設定寄件人（MAIL_FROM），無法檢查 DNS。</div>'; return; }
+    box.innerHTML = '';
+    for (const rec of d.records) {
+      const badge = rec.ok ? '<span class="account-badge">正常</span>' : rec.required ? '<span class="account-badge danger">找不到</span>' : '<span class="account-badge danger">建議新增</span>';
+      const row = document.createElement('div');
+      row.className = 'account-list-row';
+      row.innerHTML = `<span><strong>${escHtml(rec.label)}</strong> ${badge}${rec.required ? '' : ' <span class="field-hint">（選用）</span>'}
+        <br><span class="field-hint">${escHtml(rec.type)} <code>${escHtml(rec.name)}</code></span>
+        ${rec.ok ? '' : `<br><span class="field-hint">${escHtml(rec.hint)}</span>`}
+        ${rec.found.length ? `<br><span class="field-hint">目前：${escHtml(rec.found.join(' ； '))}</span>` : ''}</span>`;
+      box.appendChild(row);
+    }
+    const foot = document.createElement('div');
+    foot.className = 'field-hint';
+    foot.textContent = `檢查時間：${fmtDateTime(d.checkedAt)}。DNS 剛修改後可能要幾分鐘才會生效；Cloudflare 的記錄請設為「僅 DNS」（灰雲）。`;
+    box.appendChild(foot);
+  }
+
+  async function loadAdminTurnstile() {
+    const r = await accountApi('/api/admin/turnstile');
+    if (r.ok) renderAdminTurnstile(r.data);
+  }
+
+  function renderAdminTurnstile(t) {
+    const yes = text => `<span class="account-badge">${text}</span>`;
+    const no = text => `<span class="account-badge danger">${text}</span>`;
+    const last = t.lastResult;
+    $('adminTurnstileStatus').innerHTML = `
+      <div class="account-list-row"><span>狀態</span><span>${t.configured ? yes('已啟用') : no('未啟用')}</span></div>
+      <div class="account-list-row"><span>Site key</span><span>${t.siteKey ? `<code>${escHtml(t.siteKey)}</code>` : no('未設定')}</span></div>
+      <div class="account-list-row"><span>Secret</span><span>${t.secretSet ? yes('已設定') : no('未設定')}</span></div>
+      ${t.usesTestKeys ? '<div class="account-list-row"><span>金鑰種類</span><span class="account-badge danger">Cloudflare 測試金鑰，正式網站請換掉</span></div>' : ''}
+      <div class="account-list-row"><span>Cloudflare 上要允許的網域</span><span>${escHtml(t.expectedHostname || '—')}</span></div>
+      <div class="account-list-row"><span>最近一次驗證</span><span>${last ? `${last.ok ? '通過' : `未通過 ${escHtml(last.reason || '')}`} · ${escHtml(fmtDateTime(last.at))}` : '—'}</span></div>
+      <div class="account-list-row"><span>保護的動作</span><span>${escHtml((t.protects || []).join('、'))}</span></div>
+      ${t.configured ? '' : `<div class="field-hint">未啟用時，註冊與登入只靠隱藏欄位、停留時間與次數限制擋機器人。缺少：${escHtml((t.envVars || []).filter(v => !v.set).map(v => v.name).join('、'))}</div>`}`;
   }
 
   async function loadAdminLegal() {
@@ -12773,6 +12822,24 @@
       const r = await accountApi('/api/admin/mail/test', { method: 'POST', body: { to: $('adminMailTestTo').value.trim() } });
       if (r.ok) { showToast(`✅ ${r.data.message}`, 'success', 3500); renderAdminMail(r.data.status); }
       else showToast(`❌ ${r.data.error || '寄信失敗'}`, 'error', 4000);
+    });
+
+    $('adminMailDnsBtn').addEventListener('click', loadAdminMailDns);
+
+    $('adminTurnstileCheckBtn').addEventListener('click', async () => {
+      const out = $('adminTurnstileCheckResult');
+      out.textContent = '檢查中…';
+      const r = await accountApi('/api/admin/turnstile/test', { method: 'POST', body: {} });
+      if (!r.ok) { out.textContent = r.data.error || '檢查失敗'; return; }
+      const msg = {
+        not_set: 'Secret 尚未設定',
+        unreachable: `連不上 Cloudflare（${r.data.detail || ''}），請稍後再試`,
+        invalid_secret: '❌ Cloudflare 不接受這個 secret，請確認 TURNSTILE_SECRET_KEY',
+        test_secret: '⚠️ 這是 Cloudflare 測試 secret，任何人都會通過驗證',
+        valid: '✅ Cloudflare 接受這個 secret'
+      };
+      out.textContent = msg[r.data.state] || r.data.state;
+      renderAdminTurnstile(r.data.info);
     });
 
     $('adminLegalSaveBtn').addEventListener('click', async () => {
