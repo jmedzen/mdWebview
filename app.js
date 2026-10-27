@@ -11908,7 +11908,7 @@
   }
 
   // ── 書籤與歷程：右側抽屜 ──
-  // 書籤依資料夾分組（可收合），可篩選、依加入順序或名稱排序；最近依日期分組，
+  // 書籤依資料夾分組（可收合），可篩選、依加入順序或名稱排序；歷程依日期分組，
   // 顯示上次讀到的位置。分頁、排序、收合狀態只是個人便利，存在 localStorage。
   const libraryUi = (() => {
     const saved = storage.getJson(STORAGE_KEYS.LIBRARY_PREFS, null) || {};

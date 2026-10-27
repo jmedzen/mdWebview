@@ -495,7 +495,7 @@
 
   <!--
     書籤與歷程：從右上角選單打開的右側抽屜（手機上滿版）。
-    書籤依資料夾分組、可篩選與排序；最近依日期分組，顯示上次讀到的位置，可一鍵繼續閱讀。
+    書籤依資料夾分組、可篩選與排序；歷程依日期分組，顯示上次讀到的位置，可一鍵繼續閱讀。
     資料沿用 localStorage 的 BOOKMARKS／RECENT_FILES／LAST_READ_PROGRESS。
   -->
   <div class="library-scrim" id="libraryScrim" hidden></div>
@@ -506,7 +506,7 @@
     </div>
     <div class="library-tabs" role="tablist" aria-label="書籤與歷程">
       <button type="button" class="library-tab" role="tab" id="libraryTabBookmarks" data-tab="bookmarks" aria-selected="true" aria-controls="libraryList">書籤<small id="libraryCountBookmarks"></small></button>
-      <button type="button" class="library-tab" role="tab" id="libraryTabRecent" data-tab="recent" aria-selected="false" aria-controls="libraryList" tabindex="-1">最近<small id="libraryCountRecent"></small></button>
+      <button type="button" class="library-tab" role="tab" id="libraryTabRecent" data-tab="recent" aria-selected="false" aria-controls="libraryList" tabindex="-1">歷程<small id="libraryCountRecent"></small></button>
     </div>
     <div class="library-tools">
       <input type="search" id="libraryFilter" class="library-filter" placeholder="篩選標題或資料夾" aria-label="篩選標題或資料夾" autocomplete="off" spellcheck="false">

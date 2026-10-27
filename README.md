@@ -25,7 +25,7 @@
 - 🀄 **繁體／簡體顯示**：點右上角的選單按鈕（頭像），在「繁簡顯示」選繁體或简体，就能把整個網站（介面與經文）切換成簡體或切回繁體。同一個選單也能換主題、登入、開偏好設定。
   - 系統預設繁體；若你的瀏覽器語言是簡體中文，首次造訪會自動切成簡體，並跳出提示告訴你可從右上角選單切回。
   - 經文原文仍是繁體，簡體是在你的瀏覽器裡即時轉換的；簡體顯示時搜尋會一併比對簡繁字形，輸入簡體或繁體都找得到。
-- 🔖 **書籤與歷程**：右上角選單的「書籤與歷程」會從右側滑出一個面板（手機上是全螢幕）。書籤依資料夾分組，可收合、排序、刪除；最近閱讀依今天／昨天／更早分組，並顯示每篇讀到幾成，按「繼續閱讀」回到上次的位置。同一個選單也能直接調整字級大小。
+- 🔖 **書籤與歷程**：右上角選單的「書籤與歷程」會從右側滑出一個面板（手機上是全螢幕）。書籤依資料夾分組，可收合、排序、刪除；歷程依今天／昨天／更早分組，並顯示每篇讀到幾成，按「繼續閱讀」回到上次的位置。同一個選單也能直接調整字級大小。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
 **搜尋**
@@ -248,7 +248,7 @@ mdWebview/
 - 🀄 **Traditional / Simplified display**: Open the menu at the top right (the avatar button) and pick 繁體 or 简体 under 繁簡顯示 to switch the whole site (interface and texts). The same menu also changes the theme, signs you in, and opens preferences.
   - Traditional is the default. If your browser language is Simplified Chinese, your first visit switches to Simplified automatically and a notice points you to the button.
   - The texts themselves stay Traditional; Simplified is converted in your browser on the fly. In Simplified display, searches match Simplified and Traditional forms, so typing either finds the text.
-- 🔖 **Bookmarks & Recent**: 書籤與歷程 in the top-right menu slides out a panel from the right (full screen on phones). Bookmarks are grouped by folder and can be collapsed, sorted and deleted; recent reading is grouped into today / yesterday / earlier with how far you read each one, and 繼續閱讀 takes you back to where you stopped. The same menu also adjusts the text size.
+- 🔖 **Bookmarks & History**: 書籤與歷程 in the top-right menu slides out a panel from the right (full screen on phones). Bookmarks are grouped by folder and can be collapsed, sorted and deleted; recent reading is grouped into today / yesterday / earlier with how far you read each one, and 繼續閱讀 takes you back to where you stopped. The same menu also adjusts the text size.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
 
 **Searching**

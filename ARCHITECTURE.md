@@ -1451,6 +1451,6 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 右上角選單多了字級列（`#userMenuFontDec`／`#userMenuFontSize`／`#userMenuFontInc`，走 `applyFontSize()`，調整時選單不關）與「書籤與歷程」（`#userMenuLibraryBtn`，右側顯示書籤數）。點了打開右側抽屜 `#libraryDrawer`（寬 `min(400px, 100vw)`，≤520px 全寬，z-index 960，遮罩 `#libraryScrim` 955）。抽屜有兩個分頁：
 
 - **書籤**：依資料夾分組（辭典條目歸「辭典」，根目錄檔案歸「根目錄」），資料夾可收合；可切換「最新加入／名稱 A→Z」排序；每筆有刪除鈕，刪除後同步側欄書籤清單。
-- **最近**：依「今天／昨天／更早」分組，每筆顯示閱讀進度條與百分比；頂端「繼續閱讀」按鈕呼叫 `restoreReadProgress(true)` 回到上次位置。
+- **歷程**：依「今天／昨天／更早」分組，每筆顯示閱讀進度條與百分比；頂端「繼續閱讀」按鈕呼叫 `restoreReadProgress(true)` 回到上次位置。
 
 兩個分頁共用頂端的篩選框（比對標題與路徑）。目前分頁、排序、收合的資料夾存在 `mdWebview-user-library`。`addRecentFile()` 會記 `ts`，並保留舊的 `pct`、`line`；`saveReadProgress()` 透過 `updateRecentProgress()` 寫入目前檔案的進度。舊紀錄沒有 `ts`，會放在「更早」且不顯示百分比。Esc、點遮罩或關閉鈕會關抽屜，Tab 鍵只在抽屜內循環；側欄書籤或最近清單改變時，若抽屜開著會一起重畫。
