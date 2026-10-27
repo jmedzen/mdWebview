@@ -5,7 +5,7 @@
  * 帶刪除時間）。同一路徑在各處的版本中，時間戳最大者勝（last-write-wins），
  * 與裝置、順序、重送次數都無關，因此多次合併的結果一致（可交換、冪等）。
  *
- * 線上格式：{ path, title, updatedAt, deleted?, pct?, line? }
+ * 線上格式：{ path, title, updatedAt, deleted?, pct?, line? }（書籤與歷程都帶閱讀進度 pct、line）
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -47,10 +47,10 @@
     if (!path || !updatedAt) return null;
     const item = { path, updatedAt, deleted: raw.deleted === true };
     item.title = typeof raw.title === 'string' ? raw.title.slice(0, LIMITS.maxTitleLength) : '';
-    if (kind === 'history') {
-      const pct = Number(raw.pct);
+    {
+      const pct = raw.pct == null ? NaN : Number(raw.pct);
       item.pct = Number.isFinite(pct) ? Math.max(0, Math.min(100, Math.round(pct))) : null;
-      const line = Number(raw.line);
+      const line = raw.line == null ? NaN : Number(raw.line);
       item.line = Number.isFinite(line) && line > 0 ? Math.floor(line) : null;
     }
     return item;

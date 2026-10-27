@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.1.2 | 最後更新：2026-10
+> 版本：v4.1.3 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.1.2'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.1.3'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1456,6 +1456,8 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 兩個分頁共用頂端的篩選框（比對標題與路徑）。目前分頁、排序、收合的資料夾存在 `mdWebview-user-library`。`addRecentFile()` 會記 `ts`，並保留舊的 `pct`、`line`；`saveReadProgress()` 透過 `updateRecentProgress()` 寫入目前檔案的進度。舊紀錄沒有 `ts`，會放在「更早」且不顯示百分比。Esc、點遮罩或關閉鈕會關抽屜，Tab 鍵只在抽屜內循環；側欄書籤或最近清單改變時，若抽屜開著會一起重畫。
 
 ### 書籤與歷程同步（v4.1.0）
+
+> v4.1.3：書籤也記閱讀進度（`pct`、`line`，資料庫遷移 v3 於 `bookmarks` 加 `position`、`line`），隨同步送出；從書籤開啟時跳回該行。舊書籤沒有進度時借用歷程的進度。
 
 登入後，書籤與歷程（最近 20 筆）會跨裝置、跨瀏覽器同步。localStorage 仍是第一手資料，離線照常使用；沒登入或單機模式不同步。
 
