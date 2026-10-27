@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v3.12.10 | 最後更新：2026-10
+> 版本：v3.12.11 | 最後更新：2026-10
 
 ---
 
@@ -975,7 +975,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'3.12.10'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'3.12.11'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1445,3 +1445,12 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 ### 右上角整合選單（v3.12.10）
 
 原本右上角的「繁／简」、帳號、齒輪三顆按鈕合成一顆 `#userMenuBtn`，右上角只剩搜尋、辭典（有啟用時）與這顆選單。按鈕外觀：已登入顯示名字首字（`.signed-in`），網頁版未登入顯示人形，單機版或帳號系統不可用時顯示齒輪（`.no-accounts`）。點開 `#userMenuPanel`：帳號狀態（未登入有「登入／註冊」，登入後顯示名字、Email 與「管理員」標籤）、繁體／简体、五個主題色塊、偏好設定、我的帳號、後台系統設定（管理員；單機版顯示為「系統設定」）、登出。`updateUserMenu()` 在登入狀態或部署模式改變時更新選單，任何時候呼叫都安全；繁簡與主題分別由 `updateUserMenuScript()`、`updateUserMenuTheme()` 跟 `applyDisplayScript`／`applyTheme` 同步。Esc、點選單外面會關閉，上下鍵在項目間移動。舊的「管理員登入」視窗（`#adminLoginOverlay`）已移除：所有登入都走 `#accountAuthOverlay`；後台逾期或還原資料庫後呼叫 `openLoginOverlay()`，會以 `afterLogin: 'admin'` 開帳號登入，管理員登入後直接回到後台。`/api/admin/login` 仍保留給命令列工具。
+
+### 書籤與最近抽屜（v3.12.11）
+
+右上角選單多了字級列（`#userMenuFontDec`／`#userMenuFontSize`／`#userMenuFontInc`，走 `applyFontSize()`，調整時選單不關）與「書籤與最近」（`#userMenuLibraryBtn`，右側顯示書籤數）。點了打開右側抽屜 `#libraryDrawer`（寬 `min(400px, 100vw)`，≤520px 全寬，z-index 960，遮罩 `#libraryScrim` 955）。抽屜有兩個分頁：
+
+- **書籤**：依資料夾分組（辭典條目歸「辭典」，根目錄檔案歸「根目錄」），資料夾可收合；可切換「最新加入／名稱 A→Z」排序；每筆有刪除鈕，刪除後同步側欄書籤清單。
+- **最近**：依「今天／昨天／更早」分組，每筆顯示閱讀進度條與百分比；頂端「繼續閱讀」按鈕呼叫 `restoreReadProgress(true)` 回到上次位置。
+
+兩個分頁共用頂端的篩選框（比對標題與路徑）。目前分頁、排序、收合的資料夾存在 `mdWebview-user-library`。`addRecentFile()` 會記 `ts`，並保留舊的 `pct`、`line`；`saveReadProgress()` 透過 `updateRecentProgress()` 寫入目前檔案的進度。舊紀錄沒有 `ts`，會放在「更早」且不顯示百分比。Esc、點遮罩或關閉鈕會關抽屜，Tab 鍵只在抽屜內循環；側欄書籤或最近清單改變時，若抽屜開著會一起重畫。
