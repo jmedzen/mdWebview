@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.1.0
+   mdWebview — Application Logic (app.js) v4.1.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7306,47 +7306,9 @@
     if (isLibraryOpen() && libraryUi.tab === 'recent') renderLibrary();
   }
 
+  /** 歷程有變動時，若「書籤與歷程」抽屜開著就重畫。 */
   function renderRecentFilesList() {
-    const container = $('recentFilesList');
-    if (!container) return;
-
-    const list = state.recentFiles || [];
     if (isLibraryOpen()) renderLibrary();
-    if (list.length === 0) {
-      container.innerHTML = `<div class="list-empty-hint">尚無最近開啟的經文檔案</div>`;
-      return;
-    }
-
-    let html = '';
-    list.forEach(item => {
-      html += `
-        <div class="list-item-row" data-file="${escHtml(item.filePath)}">
-          <span class="list-item-title">${escHtml(item.fileName)}</span>
-          <span class="list-item-time">${escHtml(item.time || '')}</span>
-          <button type="button" class="list-item-del-btn" data-del-file="${escHtml(item.filePath)}" title="移除紀錄">✕</button>
-        </div>
-      `;
-    });
-    container.innerHTML = html;
-
-    $$('.list-item-row', container).forEach(row => {
-      row.addEventListener('click', (e) => {
-        const delBtn = e.target.closest('.list-item-del-btn');
-        if (delBtn) {
-          e.stopPropagation();
-          const targetFile = delBtn.getAttribute('data-del-file');
-          state.recentFiles = state.recentFiles.filter(i => i.filePath !== targetFile);
-          persistLibrary('h');
-          renderRecentFilesList();
-          return;
-        }
-        const file = row.getAttribute('data-file');
-        if (file) {
-          $('userSettingsOverlay').style.display = 'none';
-          openFile(file);
-        }
-      });
-    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -7500,53 +7462,10 @@
     }
   }
 
+  /** 書籤有變動時更新選單上的書籤數，抽屜開著就重畫。 */
   function renderBookmarksList() {
     if (isLibraryOpen()) renderLibrary();
     updateLibraryCount();
-    const targets = [$('bookmarksList'), $('sidebarBookmarksList')].filter(Boolean);
-    if (targets.length === 0) return;
-
-    const list = state.bookmarks || [];
-    targets.forEach(container => {
-      if (list.length === 0) {
-        container.innerHTML = `<div class="list-empty-hint">尚無收藏書籤。閱讀經文時點擊 🔖 按鈕即可新增。</div>`;
-        return;
-      }
-
-      let html = '';
-      list.forEach(item => {
-        const displayPath = item.filePath ? item.filePath.replace(/\.md$/i, '') : item.fileName;
-        html += `
-          <div class="list-item-row" data-file="${escHtml(item.filePath)}">
-            <span class="list-item-title">🔖 ${escHtml(displayPath)}</span>
-            <span class="list-item-time">${escHtml(item.time || '')}</span>
-            <button type="button" class="list-item-del-btn" data-del-bookmark="${escHtml(item.filePath)}" title="移除書籤">✕</button>
-          </div>
-        `;
-      });
-      container.innerHTML = html;
-
-      $$('.list-item-row', container).forEach(row => {
-        row.addEventListener('click', (e) => {
-          const delBtn = e.target.closest('.list-item-del-btn');
-          if (delBtn) {
-            e.stopPropagation();
-            const targetFile = delBtn.getAttribute('data-del-bookmark');
-            state.bookmarks = state.bookmarks.filter(i => i.filePath !== targetFile);
-            persistLibrary('b');
-            renderBookmarksList();
-            if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
-            showToast('🗑️ 已從書籤移除', 'success');
-            return;
-          }
-          const file = row.getAttribute('data-file');
-          if (file) {
-            if ($('userSettingsOverlay')) $('userSettingsOverlay').style.display = 'none';
-            openFile(file);
-          }
-        });
-      });
-    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -7665,7 +7584,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9104,45 +9023,6 @@
       autoS2TCheck.addEventListener('change', (e) => applyAutoS2T(e.target.checked));
     }
 
-    const clearRecentBtn = $('clearRecentFilesBtn');
-    if (clearRecentBtn) {
-      clearRecentBtn.addEventListener('click', () => {
-        if (confirm('確定要清除所有最近開啟的經文紀錄？')) {
-          state.recentFiles = [];
-          persistLibrary('h');
-          renderRecentFilesList();
-          showToast('🗑️ 已成功清除所有閱讀紀錄', 'success');
-        }
-      });
-    }
-
-    const addBkmHandler = () => {
-      if (state.currentFile) {
-        toggleBookmark(state.currentFile);
-      } else {
-        showToast('⚠️ 請先點擊開啟一本經文', 'warning');
-      }
-    };
-
-    const sidebarBkmBtn = $('sidebarAddBookmarkBtn');
-    if (sidebarBkmBtn) sidebarBkmBtn.addEventListener('click', addBkmHandler);
-
-    const menuBkmBtn = $('menuAddCurrentBookmarkBtn');
-    if (menuBkmBtn) menuBkmBtn.addEventListener('click', addBkmHandler);
-
-    const clearBkmBtn = $('clearBookmarksBtn');
-    if (clearBkmBtn) {
-      clearBkmBtn.addEventListener('click', () => {
-        if (confirm('確定要清除所有經文書籤與最愛？')) {
-          state.bookmarks = [];
-          persistLibrary('b');
-          renderBookmarksList();
-          if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
-          showToast('🗑️ 已清除所有書籤', 'success');
-        }
-      });
-    }
-
     $('userSettingsCloseBtn').addEventListener('click', () => {
       closeUserSettingsModal();
     });
@@ -9517,8 +9397,6 @@
 
   function openUserSettingsOverlay() {
     renderMaxWidthControl();
-    renderRecentFilesList();
-    renderBookmarksList();
     fetchSuggestList(false);
 
     const s2tChk = $('settingAutoS2TCheck');
@@ -9528,7 +9406,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9862,7 +9740,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12382,12 +12260,17 @@
               + (hasPct ? `<span class="library-bar" aria-hidden="true"><i style="width:${r.pct}%"></i></span>` : '')
               + `</button>`
               + (hasPct ? `<span class="library-pct" title="上次讀到的位置">${r.pct}%</span>` : '')
+              + `<button type="button" class="library-del" data-del-recent="${escHtml(r.filePath)}" title="移除紀錄" aria-label="移除紀錄：${escHtml(libraryTitleOf(r))}">✕</button>`
               + `</div>`;
           }
         });
       }
     }
     listEl.innerHTML = html;
+
+    const clearBtn = $('libraryClearBtn');
+    clearBtn.hidden = isBm ? !bookmarks.length : !recent.length;
+    clearBtn.textContent = isBm ? '清除全部書籤' : '清除全部歷程';
   }
 
   function openLibrary(tab) {
@@ -12456,7 +12339,31 @@
       closeLibrary(false);
       if (!restoreReadProgress(true)) showToast('沒有可以繼續的閱讀紀錄', 'info');
     });
+    $('libraryClearBtn').addEventListener('click', () => {
+      if (libraryUi.tab === 'bookmarks') {
+        if (!confirm('確定要清除所有書籤？')) return;
+        state.bookmarks = [];
+        persistLibrary('b');
+        renderBookmarksList();
+        if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+        showToast('🗑️ 已清除所有書籤', 'success');
+      } else {
+        if (!confirm('確定要清除所有閱讀歷程？')) return;
+        state.recentFiles = [];
+        persistLibrary('h');
+        renderRecentFilesList();
+        showToast('🗑️ 已成功清除所有閱讀紀錄', 'success');
+      }
+    });
     $('libraryList').addEventListener('click', (e) => {
+      const delRecent = e.target.closest('[data-del-recent]');
+      if (delRecent) {
+        const file = delRecent.getAttribute('data-del-recent');
+        state.recentFiles = (state.recentFiles || []).filter(i => i.filePath !== file);
+        persistLibrary('h');
+        renderRecentFilesList();
+        return;
+      }
       const del = e.target.closest('[data-del-bookmark]');
       if (del) {
         const file = del.getAttribute('data-del-bookmark');

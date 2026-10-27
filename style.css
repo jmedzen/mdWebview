@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.1.0
+   mdWebview — Style System (style.css) v4.1.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -3211,38 +3211,6 @@ img.markdown-img:hover {
     width: 100% !important;
   }
 
-  .recent-files-list,
-  .bookmarks-list {
-    max-height: 220px;
-    padding: 6px;
-    overflow-x: hidden;
-  }
-
-  .list-item-row {
-    padding: 8px 10px;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .list-item-time {
-    flex-shrink: 0;
-    white-space: nowrap;
-    font-size: calc(13px * var(--ui-font-scale, 1));
-    margin-left: auto;
-  }
-
-  .list-item-del-btn {
-    flex-shrink: 0;
-    min-width: 28px;
-    min-height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-left: 2px;
-    font-size: calc(13px * var(--ui-font-scale, 1));
-    padding: 2px 4px;
-  }
-
   .user-settings-version-footer {
     text-align: center;
     font-size: calc(13px * var(--ui-font-scale, 1));
@@ -3252,12 +3220,6 @@ img.markdown-img:hover {
   .setting-section-header {
     flex-wrap: wrap;
     gap: 6px;
-  }
-
-  .setting-section-actions {
-    display: flex;
-    gap: 6px;
-    align-items: center;
   }
 }
 
@@ -4867,66 +4829,6 @@ mark.search-keyword-highlight {
   text-decoration: underline;
 }
 
-.recent-files-list, .bookmarks-list {
-  max-height: 240px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 8px;
-}
-
-.list-item-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.list-item-row:hover {
-  background: var(--hover-bg);
-}
-
-.list-item-title {
-  font-size: calc(15px * var(--ui-font-scale, 1));
-  color: var(--text-primary);
-  font-weight: 500;
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  line-height: 1.4;
-  flex: 1;
-  min-width: 0;
-}
-
-.list-item-time {
-  font-size: calc(13px * var(--ui-font-scale, 1));
-  color: var(--text-muted);
-  margin-left: 10px;
-}
-
-.list-item-del-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: calc(13px * var(--ui-font-scale, 1));
-  cursor: pointer;
-  padding: 2px 6px;
-  margin-left: 8px;
-  border-radius: 4px;
-}
-
-.list-item-del-btn:hover {
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-
 .list-empty-hint {
   font-size: calc(13.5px * var(--ui-font-scale, 1));
   color: var(--text-muted);
@@ -5034,11 +4936,6 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 }
 
 .admin-action-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.setting-section-actions {
   display: flex;
   gap: 8px;
 }
@@ -8198,8 +8095,10 @@ html[data-display-script="hans"] {
 .user-menu-theme[data-value="solarized"] .swatch { background: linear-gradient(135deg, #073642 50%, #b58900 50%); }
 .user-menu-theme[data-value="zen"] .swatch { background: linear-gradient(135deg, #f5f0e8 50%, #7a6548 50%); }
 .user-menu-theme[data-value="gruvbox"] .swatch { background: linear-gradient(135deg, #282828 50%, #fe8019 50%); }
-.user-menu-theme:hover {
-  border-color: var(--border);
+@media (hover: hover) {
+  .user-menu-theme:hover {
+    border-color: var(--border);
+  }
 }
 .user-menu-theme.active {
   border-color: var(--accent);
@@ -8226,7 +8125,12 @@ html[data-display-script="hans"] {
   width: 18px;
   text-align: center;
 }
-.user-menu-item:hover,
+/* 只有真的能懸停的裝置才顯示 hover 底色；觸控裝置點完不會殘留高亮 */
+@media (hover: hover) {
+  .user-menu-item:hover {
+    background: var(--hover-bg);
+  }
+}
 .user-menu-panel button:focus-visible {
   background: var(--hover-bg);
   outline: none;
@@ -8265,18 +8169,17 @@ html[data-display-script="hans"] {
   font-weight: 600;
   cursor: pointer;
 }
-.user-menu-font-btn:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
+@media (hover: hover) {
+  .user-menu-font-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+  }
 }
 .user-menu-font-size {
   min-width: 22px;
   text-align: center;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-}
-.user-menu-item-library {
-  background: var(--accent-dim);
 }
 .user-menu-count {
   margin-left: auto;
@@ -8487,8 +8390,10 @@ html[data-display-script="hans"] {
   gap: 4px;
   border-radius: 8px;
 }
-.library-item:hover {
-  background: var(--hover-bg);
+@media (hover: hover) {
+  .library-item:hover {
+    background: var(--hover-bg);
+  }
 }
 .library-item.current .library-item-title {
   color: var(--accent);
@@ -8552,14 +8457,41 @@ html[data-display-script="hans"] {
   font-size: 14px;
   cursor: pointer;
 }
-.library-del:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
+@media (hover: hover) {
+  .library-del:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+  }
 }
 .library-empty {
   padding: 36px 16px;
   color: var(--text-secondary);
   text-align: center;
+}
+.library-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+.library-foot:has(> [hidden]) {
+  display: none;
+}
+.library-clear {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .library-clear:hover {
+    background: var(--danger-bg);
+    color: var(--text-primary);
+  }
 }
 .library-drawer button:focus-visible,
 .library-filter:focus-visible {
