@@ -902,6 +902,17 @@ describe('account HTTP API', () => {
     });
   });
 
+  test('every admin config card has a data-card key and the status-light code uses only known keys', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+    const cards = [...html.matchAll(/<div[^>]*class="config-card[ "][^>]*>/g)].map(m => m[0]);
+    assert.ok(cards.length >= 20);
+    const keys = cards.map(c => { const m = c.match(/data-card="([^"]+)"/); assert.ok(m, `config card without data-card: ${c}`); return m[1]; });
+    assert.equal(new Set(keys).size, keys.length, 'data-card keys must be unique');
+    const used = [...app.matchAll(/\b(?:setAdminCardLight|L)\('([a-z]+)'/g)].map(m => m[1]);
+    for (const k of used) assert.ok(keys.includes(k), `status light for unknown card ${k}`);
+  });
+
   test('every admin account route has a matching call in the admin UI (app.js)', () => {
     const src = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
     for (const route of accounts.ADMIN_ROUTES) {

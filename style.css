@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.12.6
+   mdWebview — Style System (style.css) v3.12.7
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -3448,6 +3448,46 @@ img.markdown-img:hover {
   color: var(--text-primary);
   margin: 0;
 }
+
+.config-card-header.collapsible { cursor: pointer; user-select: none; }
+
+.status-light {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #9aa0a6;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.06);
+}
+.status-light.ok { background: #2e9e5b; box-shadow: 0 0 0 2px rgba(46, 158, 91, 0.22); }
+.status-light.warn { background: #e0a100; box-shadow: 0 0 0 2px rgba(224, 161, 0, 0.25); }
+.status-light.bad { background: #d64545; box-shadow: 0 0 0 2px rgba(214, 69, 69, 0.25); }
+.status-light-text {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary, #777);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.config-card-header .account-badge { margin-left: auto; }
+.config-card-toggle {
+  margin-left: auto;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, #777);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+.config-card-header .account-badge + .config-card-toggle { margin-left: 6px; }
+.config-card.collapsed .config-card-toggle { transform: rotate(-90deg); }
+.config-card.collapsed .config-card-header { border-bottom-color: transparent; padding-bottom: 0; margin-bottom: 0; }
+.config-card.collapsed .config-card-body,
+.config-card.collapsed .config-card-header ~ :not(.config-card-header) { display: none; }
 
 .config-card-body {
   display: flex;
