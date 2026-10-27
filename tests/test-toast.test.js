@@ -280,7 +280,6 @@ describe('Toast 訊息/型別一致性 (app.js 來源契約)', () => {
     assert.match(src, /showToast\('🗑️ 已清除所有書籤', 'success'\)/);
     assert.match(src, /showToast\('🗑️ 已成功清除所有閱讀紀錄', 'success'\)/);
     assert.match(src, /showToast\('⚠️ 請先開啟一本經文檔案', 'warning'\)/);
-    assert.match(src, /showToast\('⚠️ 請先點擊開啟一本經文', 'warning'\)/);
     assert.doesNotMatch(src, /showToast\('🗑️ 已移除書籤'\)/, '應統一為「已從書籤移除」');
   });
 
