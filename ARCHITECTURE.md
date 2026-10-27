@@ -1446,9 +1446,9 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 原本右上角的「繁／简」、帳號、齒輪三顆按鈕合成一顆 `#userMenuBtn`，右上角只剩搜尋、辭典（有啟用時）與這顆選單。按鈕外觀：已登入顯示名字首字（`.signed-in`），網頁版未登入顯示人形，單機版或帳號系統不可用時顯示齒輪（`.no-accounts`）。點開 `#userMenuPanel`：帳號狀態（未登入有「登入／註冊」，登入後顯示名字、Email 與「管理員」標籤）、繁體／简体、五個主題色塊、偏好設定、我的帳號、後台系統設定（管理員；單機版顯示為「系統設定」）、登出。`updateUserMenu()` 在登入狀態或部署模式改變時更新選單，任何時候呼叫都安全；繁簡與主題分別由 `updateUserMenuScript()`、`updateUserMenuTheme()` 跟 `applyDisplayScript`／`applyTheme` 同步。Esc、點選單外面會關閉，上下鍵在項目間移動。舊的「管理員登入」視窗（`#adminLoginOverlay`）已移除：所有登入都走 `#accountAuthOverlay`；後台逾期或還原資料庫後呼叫 `openLoginOverlay()`，會以 `afterLogin: 'admin'` 開帳號登入，管理員登入後直接回到後台。`/api/admin/login` 仍保留給命令列工具。
 
-### 書籤與最近抽屜（v3.12.12）
+### 書籤與歷程抽屜（v3.12.12）
 
-右上角選單多了字級列（`#userMenuFontDec`／`#userMenuFontSize`／`#userMenuFontInc`，走 `applyFontSize()`，調整時選單不關）與「書籤與最近」（`#userMenuLibraryBtn`，右側顯示書籤數）。點了打開右側抽屜 `#libraryDrawer`（寬 `min(400px, 100vw)`，≤520px 全寬，z-index 960，遮罩 `#libraryScrim` 955）。抽屜有兩個分頁：
+右上角選單多了字級列（`#userMenuFontDec`／`#userMenuFontSize`／`#userMenuFontInc`，走 `applyFontSize()`，調整時選單不關）與「書籤與歷程」（`#userMenuLibraryBtn`，右側顯示書籤數）。點了打開右側抽屜 `#libraryDrawer`（寬 `min(400px, 100vw)`，≤520px 全寬，z-index 960，遮罩 `#libraryScrim` 955）。抽屜有兩個分頁：
 
 - **書籤**：依資料夾分組（辭典條目歸「辭典」，根目錄檔案歸「根目錄」），資料夾可收合；可切換「最新加入／名稱 A→Z」排序；每筆有刪除鈕，刪除後同步側欄書籤清單。
 - **最近**：依「今天／昨天／更早」分組，每筆顯示閱讀進度條與百分比；頂端「繼續閱讀」按鈕呼叫 `restoreReadProgress(true)` 回到上次位置。

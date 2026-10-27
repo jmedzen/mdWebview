@@ -6971,7 +6971,7 @@
     renderRecentFilesList();
   }
 
-  /** 把目前讀到的位置（百分比、行號）記在最近閱讀那一筆上，給「書籤與最近」顯示與跳回。 */
+  /** 把目前讀到的位置（百分比、行號）記在最近閱讀那一筆上，給「書籤與歷程」顯示與跳回。 */
   function updateRecentProgress(filePath, pct, line) {
     const item = (state.recentFiles || []).find(i => i.filePath === filePath);
     if (!item) return;
@@ -11907,7 +11907,7 @@
     updateUserMenuTheme(state.currentTheme || document.documentElement.getAttribute('data-theme'));
   }
 
-  // ── 書籤與最近：右側抽屜 ──
+  // ── 書籤與歷程：右側抽屜 ──
   // 書籤依資料夾分組（可收合），可篩選、依加入順序或名稱排序；最近依日期分組，
   // 顯示上次讀到的位置。分頁、排序、收合狀態只是個人便利，存在 localStorage。
   const libraryUi = (() => {

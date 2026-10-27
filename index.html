@@ -172,7 +172,7 @@
             </div>
             <div class="user-menu-sep"></div>
             <button type="button" class="user-menu-item user-menu-item-library" id="userMenuLibraryBtn" role="menuitem" aria-haspopup="dialog" aria-controls="libraryDrawer">
-              <span class="user-menu-item-icon" aria-hidden="true">🔖</span><span>書籤與最近</span><span class="user-menu-count" id="userMenuLibraryCount"></span>
+              <span class="user-menu-item-icon" aria-hidden="true">🔖</span><span>書籤與歷程</span><span class="user-menu-count" id="userMenuLibraryCount"></span>
             </button>
             <button type="button" class="user-menu-item" id="userMenuSettingsBtn" role="menuitem">
               <span class="user-menu-item-icon" aria-hidden="true">⚙️</span><span>偏好設定</span><small>排版、紀錄、備份</small>
@@ -494,17 +494,17 @@
   </div>
 
   <!--
-    書籤與最近：從右上角選單打開的右側抽屜（手機上滿版）。
+    書籤與歷程：從右上角選單打開的右側抽屜（手機上滿版）。
     書籤依資料夾分組、可篩選與排序；最近依日期分組，顯示上次讀到的位置，可一鍵繼續閱讀。
     資料沿用 localStorage 的 BOOKMARKS／RECENT_FILES／LAST_READ_PROGRESS。
   -->
   <div class="library-scrim" id="libraryScrim" hidden></div>
   <aside class="library-drawer" id="libraryDrawer" role="dialog" aria-modal="true" aria-labelledby="libraryTitle" hidden>
     <div class="library-head">
-      <h2 id="libraryTitle">書籤與最近</h2>
+      <h2 id="libraryTitle">書籤與歷程</h2>
       <button type="button" class="library-close" id="libraryCloseBtn" title="關閉" aria-label="關閉">✕</button>
     </div>
-    <div class="library-tabs" role="tablist" aria-label="書籤與最近">
+    <div class="library-tabs" role="tablist" aria-label="書籤與歷程">
       <button type="button" class="library-tab" role="tab" id="libraryTabBookmarks" data-tab="bookmarks" aria-selected="true" aria-controls="libraryList">書籤<small id="libraryCountBookmarks"></small></button>
       <button type="button" class="library-tab" role="tab" id="libraryTabRecent" data-tab="recent" aria-selected="false" aria-controls="libraryList" tabindex="-1">最近<small id="libraryCountRecent"></small></button>
     </div>
