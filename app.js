@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.1.2
+   mdWebview — Application Logic (app.js) v4.1.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7584,7 +7584,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9406,7 +9406,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9740,7 +9740,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12228,10 +12228,13 @@
           if (!open) continue;
           for (const b of list) {
             const current = b.filePath === state.currentFile ? ' current' : '';
+            // 閱讀進度記在歷程（隨帳號同步）；書籤開啟時沿用，跟從歷程開啟一樣回到上次讀到的位置
+            const prog = recent.find(r => r.filePath === b.filePath);
+            const progLine = prog && prog.line ? Number(prog.line) || 0 : 0;
             html += `<div class="library-item${current}">`
-              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}" title="${escHtml(b.filePath || '')}">`
+              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''} title="${escHtml(b.filePath || '')}">`
               + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
-              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
+              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}${prog && typeof prog.pct === 'number' ? ` · 讀到 ${prog.pct}%` : ''}</span>` : '')
               + `</button>`
               + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
               + `</div>`;
