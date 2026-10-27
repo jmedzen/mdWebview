@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.0.1
+   mdWebview — Application Logic (app.js) v4.1.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -87,7 +87,8 @@
     // 安裝引導狀態。DISMISSED 存「以後再說」的時間戳（用來算靜默期），
     // INSTALLED 存 '1'（一旦安裝就永久不再提）。
     INSTALL_DISMISSED: 'mdWebview-install-dismissed',
-    INSTALL_INSTALLED: 'mdWebview-install-done'
+    INSTALL_INSTALLED: 'mdWebview-install-done',
+    SYNC_META: 'mdWebview-sync-meta'
   };
 
   // ── 安全 LocalStorage 存取工具 (Safe Storage Helper) ───────
@@ -6947,6 +6948,324 @@
   }
 
   // ═══════════════════════════════════════════════════════════
+  // §14b LIBRARY SYNC（書籤與歷程跨裝置同步）
+  //
+  // 本機 localStorage 永遠是第一手資料（離線可用）。登入後，異動以「路徑 + 時間戳」
+  // 逐筆送到伺服器，並拉回其他裝置的異動；規則見 library-sync.js（時間戳大者勝，刪除留墓碑）。
+  // 中繼資料（meta）：uid 這份本機資料屬於誰、cursor 上次拉到的伺服器序號、
+  // tb/th 書籤／歷程的墓碑、db/dh 尚未送出的路徑。
+  // ═══════════════════════════════════════════════════════════
+  const SYNC_URL = '/api/me/sync';
+  const SYNC_PUSH_DELAY_MS = 4000;
+  const SYNC_PULL_MIN_GAP_MS = 20000;
+  const SYNC_POLL_MS = 90000;
+  const SYNC_BEACON_MAX_BYTES = 60000;
+  const LibSync = window.MdwLibrarySync;
+
+  const librarySnap = { b: new Map(), h: new Map() };
+  let syncMetaMemory = null; // localStorage 不能用（Safari 私密模式等）時的後備
+  const syncRt = { timer: null, inflight: null, lastPullAt: 0, user: null, status: 'local', retryAt: 0 };
+
+  function syncMeta() {
+    let m = storage.getJson(STORAGE_KEYS.SYNC_META, null) || syncMetaMemory;
+    if (!m || typeof m !== 'object') m = {};
+    m.tb = m.tb || {}; m.th = m.th || {}; m.db = m.db || {}; m.dh = m.dh || {};
+    m.cursor = Number(m.cursor) || 0;
+    m.uid = m.uid || null;
+    return m;
+  }
+
+  function saveSyncMeta(m) {
+    syncMetaMemory = m;
+    storage.setJson(STORAGE_KEYS.SYNC_META, m);
+  }
+
+  function rebuildLibrarySnap() {
+    librarySnap.b = new Map((state.bookmarks || []).map(i => [i.filePath, i.ts]));
+    librarySnap.h = new Map((state.recentFiles || []).map(i => [i.filePath, i.ts]));
+  }
+
+  /**
+   * 把 state.bookmarks（'b'）或 state.recentFiles（'h'）寫回 localStorage，並與上次的快照比對：
+   * 新增或時間戳變動的記為待送出，消失的記為墓碑。所有本機異動都經過這裡。
+   */
+  function persistLibrary(kind) {
+    const isB = kind === 'b';
+    const list = (isB ? state.bookmarks : state.recentFiles) || [];
+    const snap = librarySnap[kind];
+    const m = syncMeta();
+    const tombs = isB ? m.tb : m.th;
+    const dirty = isB ? m.db : m.dh;
+    const now = Date.now();
+    const seen = new Set();
+    for (const it of list) {
+      if (!it.ts) it.ts = now;
+      seen.add(it.filePath);
+      if (snap.get(it.filePath) !== it.ts) {
+        dirty[it.filePath] = 1;
+        delete tombs[it.filePath];
+      }
+      snap.set(it.filePath, it.ts);
+    }
+    for (const p of Array.from(snap.keys())) {
+      if (seen.has(p)) continue;
+      snap.delete(p);
+      tombs[p] = Math.max(now, (tombs[p] || 0) + 1);
+      dirty[p] = 1;
+    }
+    storage.setJson(isB ? STORAGE_KEYS.BOOKMARKS : STORAGE_KEYS.RECENT_FILES, list);
+    saveSyncMeta(m);
+    scheduleLibrarySync();
+  }
+
+  function wireFromLocal(kind, path, m) {
+    const isB = kind === 'b';
+    const list = (isB ? state.bookmarks : state.recentFiles) || [];
+    const it = list.find(i => i.filePath === path);
+    const tomb = (isB ? m.tb : m.th)[path] || 0;
+    if (it && (it.ts || 0) >= tomb) {
+      const w = { path, title: it.fileName || '', updatedAt: it.ts };
+      if (!isB) { w.pct = typeof it.pct === 'number' ? it.pct : null; w.line = it.line || null; }
+      return w;
+    }
+    if (tomb) return { path, title: '', updatedAt: tomb, deleted: true };
+    return null;
+  }
+
+  function buildSyncBody(m) {
+    const b = [], h = [];
+    for (const p of Object.keys(m.db)) { const w = wireFromLocal('b', p, m); if (w) b.push(w); }
+    for (const p of Object.keys(m.dh)) { const w = wireFromLocal('h', p, m); if (w) h.push(w); }
+    const cap = LibSync.LIMITS.maxItemsPerRequest;
+    return { cursor: m.cursor, bookmarks: b.slice(0, cap), history: h.slice(0, cap) };
+  }
+
+  function hasPendingSync() {
+    const m = syncMeta();
+    return Object.keys(m.db).length > 0 || Object.keys(m.dh).length > 0;
+  }
+
+  function scheduleLibrarySync(delay = SYNC_PUSH_DELAY_MS) {
+    if (!syncRt.user || syncRt.timer) return;
+    syncRt.timer = setTimeout(() => { syncRt.timer = null; runLibrarySync('push'); }, Math.max(delay, syncRt.retryAt - Date.now()));
+  }
+
+  function setSyncStatus(status) {
+    syncRt.status = status;
+    renderSyncStatus();
+  }
+
+  function renderSyncStatus() {
+    const el = $('librarySyncStatus');
+    if (!el) return;
+    const map = {
+      local: ['', false],
+      syncing: ['同步中…', true],
+      ok: ['已同步到你的帳號', true],
+      pending: ['離線中，連線後會自動同步', true],
+      error: ['同步暫時失敗，稍後會再試', true]
+    };
+    const [text, show] = map[syncRt.status] || ['', false];
+    el.hidden = !show;
+    el.textContent = text;
+    el.setAttribute('data-status', syncRt.status);
+  }
+
+  function libraryItemFromWire(kind, w) {
+    const isB = kind === 'b';
+    const fallback = w.path.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
+    const base = { filePath: w.path, fileName: w.title || fallback, ts: w.updatedAt };
+    if (isB) {
+      base.time = new Date(w.updatedAt).toLocaleDateString(activeLocale());
+    } else {
+      base.time = new Date(w.updatedAt).toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (typeof w.pct === 'number') { base.pct = w.pct; base.line = w.line || null; }
+    }
+    return base;
+  }
+
+  /** 把伺服器回傳的異動併入本機；回傳是否有變動。 */
+  function applyRemoteLibrary(res, m) {
+    const mb = LibSync.mergeRemote(state.bookmarks, m.tb, res.bookmarks, { make: w => libraryItemFromWire('b', w) });
+    const mh = LibSync.mergeRemote(state.recentFiles, m.th, res.history, { make: w => libraryItemFromWire('h', w), cap: 20 });
+    if (mb.changed) { state.bookmarks = mb.list; m.tb = mb.tombs; }
+    if (mh.changed) { state.recentFiles = mh.list; m.th = mh.tombs; }
+    return mb.changed || mh.changed;
+  }
+
+  /** 跨裝置的「繼續閱讀」：其他裝置讀得比較新時，以歷程第一筆為準（沒有捲動位置，用行號）。 */
+  function adoptNewestHistoryAsResume() {
+    const top = (state.recentFiles || [])[0];
+    if (!top) return;
+    const last = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null);
+    if (last && last.filePath === top.filePath) return;
+    if (last && (last.timestamp || 0) >= (top.ts || 0)) return;
+    storage.setJson(STORAGE_KEYS.LAST_READ_PROGRESS, { filePath: top.filePath, line: top.line || null, timestamp: top.ts || Date.now() });
+  }
+
+  function refreshLibraryUi() {
+    rebuildLibrarySnap();
+    renderBookmarksList();
+    renderRecentFilesList();
+    if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+  }
+
+  function runLibrarySync(reason) {
+    if (!syncRt.user) return Promise.resolve(false);
+    if (syncRt.inflight) return syncRt.inflight;
+    syncRt.inflight = (async () => {
+      try {
+        const m0 = syncMeta();
+        const body = buildSyncBody(m0);
+        const sent = {
+          b: Object.fromEntries(body.bookmarks.map(w => [w.path, w.updatedAt])),
+          h: Object.fromEntries(body.history.map(w => [w.path, w.updatedAt]))
+        };
+        setSyncStatus('syncing');
+        const r = await accountApi(SYNC_URL, { method: 'POST', body });
+        if (r.status === 401) { syncRt.user = null; setSyncStatus('local'); return false; }
+        if (r.status === 429) {
+          syncRt.retryAt = Date.now() + (Number(r.data.retryAfter) || 30) * 1000;
+          setSyncStatus('error');
+          scheduleLibrarySync(30000);
+          return false;
+        }
+        if (!r.ok) {
+          setSyncStatus(r.status === 0 ? 'pending' : 'error');
+          if (hasPendingSync()) scheduleLibrarySync(30000);
+          return false;
+        }
+        syncRt.retryAt = 0;
+        const m = syncMeta();
+        // 送出期間若又改過同一筆，保留待送出狀態
+        for (const [kind, dirty, tombs] of [['b', m.db, m.tb], ['h', m.dh, m.th]]) {
+          for (const p of Object.keys(sent[kind])) {
+            const cur = Math.max(librarySnap[kind].get(p) || 0, tombs[p] || 0);
+            if (cur === sent[kind][p]) delete dirty[p];
+          }
+        }
+        const changed = applyRemoteLibrary(r.data, m);
+        m.cursor = r.data.cursor;
+        m.uid = syncRt.user.id;
+        m.tb = LibSync.pruneTombs(m.tb, Date.now());
+        m.th = LibSync.pruneTombs(m.th, Date.now());
+        if (changed) {
+          storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+          storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+          adoptNewestHistoryAsResume();
+        }
+        saveSyncMeta(m);
+        if (changed) refreshLibraryUi();
+        syncRt.lastPullAt = Date.now();
+        setSyncStatus('ok');
+        if (hasPendingSync()) scheduleLibrarySync(SYNC_PUSH_DELAY_MS);
+        return true;
+      } catch (err) {
+        log.warn('library sync failed', err);
+        setSyncStatus('error');
+        return false;
+      } finally {
+        syncRt.inflight = null;
+      }
+    })();
+    return syncRt.inflight;
+  }
+
+  /** 頁面要被隱藏或關閉：用 sendBeacon（不行就 keepalive fetch）把待送出的異動送出去。 */
+  function flushLibrarySyncOnHide() {
+    if (!syncRt.user || !hasPendingSync()) return;
+    const payload = JSON.stringify(buildSyncBody(syncMeta()));
+    try {
+      if (navigator.sendBeacon && payload.length < SYNC_BEACON_MAX_BYTES) {
+        if (navigator.sendBeacon(SYNC_URL, new Blob([payload], { type: 'application/json' }))) return;
+      }
+    } catch (_) { /* 退回 fetch */ }
+    try {
+      if (payload.length < SYNC_BEACON_MAX_BYTES) {
+        fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, credentials: 'same-origin', keepalive: true }).catch(() => {});
+      }
+    } catch (_) { /* 放棄；下次開啟會再送 */ }
+  }
+
+  function pullLibraryIfStale() {
+    if (!syncRt.user || document.visibilityState === 'hidden') return;
+    if (Date.now() - syncRt.lastPullAt < SYNC_PULL_MIN_GAP_MS) return;
+    runLibrarySync('pull');
+  }
+
+  /** 登入狀態改變時由 setAccountUser 呼叫。 */
+  function onLibraryAccountChange(user) {
+    if (!LibSync) return;
+    const prev = syncRt.user;
+    syncRt.user = user && !state.isSingleUser ? user : null;
+    if (!syncRt.user) { setSyncStatus('local'); return; }
+    if (prev && prev.id === syncRt.user.id) return;
+    const m = syncMeta();
+    if (m.uid && m.uid !== syncRt.user.id) {
+      // 這份本機資料屬於別人（同一台電腦換帳號登入）：不可併進新帳號，直接清掉
+      clearLocalLibrary();
+    }
+    const m2 = syncMeta();
+    if (!m2.uid) {
+      // 第一次登入：把這台裝置原有的書籤與歷程全部標記為待送出，與帳號上的資料合併
+      m2.cursor = 0;
+      for (const i of state.bookmarks || []) { if (!i.ts) i.ts = Date.now(); m2.db[i.filePath] = 1; }
+      for (const i of state.recentFiles || []) { if (!i.ts) i.ts = Date.now(); m2.dh[i.filePath] = 1; }
+      storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+      storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+    }
+    m2.uid = syncRt.user.id;
+    saveSyncMeta(m2);
+    rebuildLibrarySnap();
+    runLibrarySync('login');
+  }
+
+  function clearLocalLibrary() {
+    state.bookmarks = [];
+    state.recentFiles = [];
+    storage.remove(STORAGE_KEYS.BOOKMARKS);
+    storage.remove(STORAGE_KEYS.RECENT_FILES);
+    storage.remove(STORAGE_KEYS.LAST_READ_PROGRESS);
+    storage.remove(STORAGE_KEYS.SYNC_META);
+    syncMetaMemory = null;
+    refreshLibraryUi();
+  }
+
+  /**
+   * 登出前：先把異動送上伺服器。成功才清掉本機的書籤與歷程（資料已安全在帳號上）；
+   * 送不出去就保留本機資料，不會遺失。回傳是否已清除。
+   */
+  async function finishLibrarySyncBeforeLogout() {
+    if (!syncRt.user) return false;
+    if (syncRt.timer) { clearTimeout(syncRt.timer); syncRt.timer = null; }
+    if (syncRt.inflight) await syncRt.inflight;
+    let ok = true;
+    if (hasPendingSync()) ok = await runLibrarySync('logout');
+    if (ok && hasPendingSync()) ok = false;
+    if (ok) clearLocalLibrary();
+    return ok;
+  }
+
+  function setupLibrarySync() {
+    rebuildLibrarySnap();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushLibrarySyncOnHide();
+      else pullLibraryIfStale();
+    });
+    window.addEventListener('pagehide', flushLibrarySyncOnHide);
+    window.addEventListener('online', () => runLibrarySync('online'));
+    window.addEventListener('offline', () => { if (syncRt.user && hasPendingSync()) setSyncStatus('pending'); });
+    setInterval(pullLibraryIfStale, SYNC_POLL_MS);
+    // 同一個瀏覽器的其他分頁改了資料：重新讀取並重畫（storage 事件只在「其他」分頁觸發）
+    window.addEventListener('storage', (e) => {
+      if (e.key !== null && ![STORAGE_KEYS.BOOKMARKS, STORAGE_KEYS.RECENT_FILES, STORAGE_KEYS.SYNC_META].includes(e.key)) return;
+      state.bookmarks = safeJsonParse(STORAGE_KEYS.BOOKMARKS, []);
+      state.recentFiles = safeJsonParse(STORAGE_KEYS.RECENT_FILES, []);
+      refreshLibraryUi();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // §15 RECENT FILES (Top 20)
   // ═══════════════════════════════════════════════════════════
   function addRecentFile(filePath, title) {
@@ -6965,9 +7284,13 @@
     // 沿用上次讀到的位置，直到這次捲動後由 saveReadProgress 更新
     if (prev && typeof prev.pct === 'number') { entry.pct = prev.pct; entry.line = prev.line || null; }
     list.unshift(entry);
-    if (list.length > 20) list = list.slice(0, 20);
+    if (list.length > 20) {
+      // 超過 20 筆被擠掉的舊紀錄不算「刪除」，不要同步成墓碑
+      for (const dropped of list.slice(20)) librarySnap.h.delete(dropped.filePath);
+      list = list.slice(0, 20);
+    }
     state.recentFiles = list;
-    storage.setJson(STORAGE_KEYS.RECENT_FILES, list);
+    persistLibrary('h');
     renderRecentFilesList();
   }
 
@@ -6979,7 +7302,7 @@
     item.pct = pct;
     item.line = line || null;
     item.ts = Date.now();
-    storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+    persistLibrary('h');
     if (isLibraryOpen() && libraryUi.tab === 'recent') renderLibrary();
   }
 
@@ -7013,7 +7336,7 @@
           e.stopPropagation();
           const targetFile = delBtn.getAttribute('data-del-file');
           state.recentFiles = state.recentFiles.filter(i => i.filePath !== targetFile);
-          storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+          persistLibrary('h');
           renderRecentFilesList();
           return;
         }
@@ -7144,14 +7467,15 @@
       list.unshift({
         filePath,
         fileName,
-        time: new Date().toLocaleDateString(activeLocale())
+        time: new Date().toLocaleDateString(activeLocale()),
+        ts: Date.now()
       });
       isBookmarked = true;
       showToast('已新增至書籤', 'success');
     }
 
     state.bookmarks = list;
-    storage.setJson(STORAGE_KEYS.BOOKMARKS, list);
+    persistLibrary('b');
     renderBookmarksList();
     updateBookmarkButtonUI(filePath);
     return isBookmarked;
@@ -7209,7 +7533,7 @@
             e.stopPropagation();
             const targetFile = delBtn.getAttribute('data-del-bookmark');
             state.bookmarks = state.bookmarks.filter(i => i.filePath !== targetFile);
-            storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+            persistLibrary('b');
             renderBookmarksList();
             if (state.currentFile === targetFile) updateBookmarkButtonUI(targetFile);
             showToast('🗑️ 已從書籤移除', 'success');
@@ -7341,7 +7665,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -7447,7 +7771,7 @@
         // 2. 還原書籤最愛
         if (Array.isArray(data.bookmarks)) {
           state.bookmarks = data.bookmarks;
-          storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+          persistLibrary('b');
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
         }
@@ -7455,7 +7779,7 @@
         // 3. 還原最近開啟檔案紀錄
         if (Array.isArray(data.recentFiles)) {
           state.recentFiles = data.recentFiles;
-          storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+          persistLibrary('h');
           renderRecentFilesList();
         }
 
@@ -8785,7 +9109,7 @@
       clearRecentBtn.addEventListener('click', () => {
         if (confirm('確定要清除所有最近開啟的經文紀錄？')) {
           state.recentFiles = [];
-          storage.remove(STORAGE_KEYS.RECENT_FILES);
+          persistLibrary('h');
           renderRecentFilesList();
           showToast('🗑️ 已成功清除所有閱讀紀錄', 'success');
         }
@@ -8811,7 +9135,7 @@
       clearBkmBtn.addEventListener('click', () => {
         if (confirm('確定要清除所有經文書籤與最愛？')) {
           state.bookmarks = [];
-          storage.remove(STORAGE_KEYS.BOOKMARKS);
+          persistLibrary('b');
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
           showToast('🗑️ 已清除所有書籤', 'success');
@@ -9204,7 +9528,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9538,7 +9862,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.0.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11972,6 +12296,7 @@
   function renderLibrary() {
     const listEl = $('libraryList');
     if (!listEl) return;
+    renderSyncStatus();
     const bookmarks = state.bookmarks || [];
     const recent = state.recentFiles || [];
     const isBm = libraryUi.tab === 'bookmarks';
@@ -12136,7 +12461,7 @@
       if (del) {
         const file = del.getAttribute('data-del-bookmark');
         state.bookmarks = (state.bookmarks || []).filter(i => i.filePath !== file);
-        storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+        persistLibrary('b');
         renderBookmarksList();
         if (state.currentFile === file) updateBookmarkButtonUI(file);
         showToast('🗑️ 已從書籤移除', 'success');
@@ -12197,6 +12522,7 @@
     state.account.config = cfg.data;
     updateUserMenu();
     updateLegalLinks();
+    setupLibrarySync();
     setupAccountEvents();
     await refreshAccountMe();
     if (authAction) await handleAuthLink(authAction, authParams);
@@ -12225,6 +12551,7 @@
     if (!user) state.isAdmin = false;
     updateUserMenu();
     if (user && user.needsConsent) openOverlay('consentOverlay');
+    onLibraryAccountChange(user);
   }
 
   function openOverlay(id) {
@@ -12628,8 +12955,12 @@
   }
 
   async function accountLogout() {
+    // 先把書籤與歷程送上帳號，成功才清掉這台裝置上的本機資料
+    const cleared = await finishLibrarySyncBeforeLogout();
+    const hadLocal = (state.bookmarks || []).length || (state.recentFiles || []).length;
     await accountApi('/api/auth/logout', { method: 'POST', body: {} });
     setAccountUser(null);
+    if (!cleared && hadLocal) showToast('目前無法同步，書籤與歷程先保留在這台裝置，下次登入時會同步', 'info', 4500);
     closeOverlay('accountSettingsOverlay');
     closeOverlay('consentOverlay');
     showToast('👋 已登出', 'info');

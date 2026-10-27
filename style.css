@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.0.1
+   mdWebview — Style System (style.css) v4.1.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -9251,4 +9251,14 @@ a.small-btn {
 #reauthOverlay,
 #consentOverlay {
   z-index: 1100;
+}
+
+.library-sync-status {
+  padding: 2px 14px 6px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+.library-sync-status[data-status="error"],
+.library-sync-status[data-status="pending"] {
+  color: var(--text-primary);
 }
