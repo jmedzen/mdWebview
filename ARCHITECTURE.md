@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.1.5 | 最後更新：2026-10
+> 版本：v4.1.6 | 最後更新：2026-10
 
 ---
 
@@ -842,6 +842,8 @@ flowchart TD
 | `siteName` | `string` | 站台名稱，來自 `config.settings.siteName`，預設 `'mdWebview'` |
 | `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
 | `fileSort` | `string` | 檔案排序：`name-asc`|`name-desc`|`modified-asc`|`modified-desc` |
+| `fileTreeFilter` | `string` | 檔案瀏覽器頂部即時篩選字串（支援空白多詞與簡繁字組比對；篩選時自動展開命中支線） |
+| `tocFilter` | `string` | 本頁大綱頂部即時過濾字串（同時支援一般 DOM 大綱與大檔虛擬大綱；切換經文或回首頁時自動清空） |
 | `fileSizes` | `Map` | `filePath → bytes`，用於判斷是否需要虛擬化渲染 |
 | `dictFileSizePaths` | `Set` | 目前辭典清單中已知的 `dict:` 路徑集合；每次詞頭刷新時用以回收已移除辭典在 `fileSizes` 的殘留項 |
 | `recentFiles` | `string[]` | 最近開啟的檔案路徑（最多 20 筆，持久化於 localStorage） |
@@ -975,7 +977,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.1.5'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.1.6'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

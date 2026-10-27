@@ -6,14 +6,14 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.1.5) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.1.6) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
 **閱讀**
 
-- 📂 **左側目錄**：所有經論依資料夾排列，點一下就能打開。可依檔名或修改時間排序，也能一次全部展開或收起。
-- 📑 **自動目錄**：文章裡的標題會自動整理成目錄，點標題就能跳到那一段；往下捲動時，也會顯示目前讀到哪個標題。
+- 📂 **左側目錄**：所有經論依資料夾排列，點一下就能打開。頂部有篩選框可即時依檔名或資料夾找經論，也可依檔名或修改時間排序、一次全部展開或收起。
+- 📑 **自動目錄**：文章裡的標題會自動整理成目錄，頂部有過濾框可即時篩選本篇標題；點標題就能跳到那一段，往下捲動時也會顯示目前讀到哪個標題。
 - 🕮 **記得讀到哪裡**：下次打開同一篇，會自動回到上次閱讀的位置。
 - ↔️ **左右欄寬度可調整**：把滑鼠移到左右兩側的邊緣，會出現一條亮色的把手，按住往左右拖曳就能調整寬度。手機上會自動隱藏，避免佔用空間。
 - 🎨 **五種閱讀配色**：暗色、亮色、Solarized、禪風、Gruvbox，挑自己看得順眼的。
@@ -185,7 +185,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v4.1.5）
+├── package.json        # 專案資訊（v4.1.6）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -231,14 +231,14 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.1.5) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.1.6) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
 **Reading**
 
-- 📂 **Directory on the left**: All texts are arranged by folder — click one to open it. Sort by name or by date modified, and expand or collapse everything at once.
-- 📑 **Automatic contents**: Headings in an article automatically become a table of contents. Click a heading to jump to that section, and as you scroll it shows which section you are in.
+- 📂 **Directory on the left**: All texts are arranged by folder — click one to open it. Filter by file or folder name at the top, sort by name or by date modified, and expand or collapse everything at once.
+- 📑 **Automatic contents**: Headings in an article automatically become a table of contents with a quick filter box at the top. Click a heading to jump to that section, and as you scroll it shows which section you are in.
 - 🕮 **Remembers where you stopped**: Reopen the same article and it takes you back to where you left off.
 - ↔️ **Adjustable side columns**: Move your mouse to either edge of the page and a bright handle appears — drag it left or right to change the width. Hidden automatically on phones.
 - 🎨 **Five reading color schemes**: Dark, Light, Solarized, Zen, and Gruvbox. Pick whichever is easiest on your eyes.
@@ -403,7 +403,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.1.5)
+├── package.json        # Project information (v4.1.6)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers
