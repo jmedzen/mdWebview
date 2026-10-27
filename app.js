@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v3.12.10
+   mdWebview — Application Logic (app.js) v3.12.11
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -76,6 +76,7 @@
     LAST_READ_PROGRESS: 'mdWebview-last-read-progress',
     RECENT_FILES: 'mdWebview-user-recentfiles',
     BOOKMARKS: 'mdWebview-user-bookmarks',
+    LIBRARY_PREFS: 'mdWebview-user-library',
     ADMIN_TOKEN: 'mdWebview-admin-token',
     ADMIN_TZ: 'mdWebview-admin-tz',
     DICT_FILE_ORDER: 'mdWebview-dict-file-order',
@@ -6605,6 +6606,8 @@
 
     const display = $('fontSizeDisplay');
     if (display) display.textContent = size;
+    const menuDisplay = $('userMenuFontSize');
+    if (menuDisplay) menuDisplay.textContent = size;
     if (saveToLocalStorage) {
       storage.set(STORAGE_KEYS.FONT_SIZE, size);
     }
@@ -6951,16 +6954,33 @@
     const cleanPath = filePath.startsWith('dict:') ? filePath.slice(5) : filePath;
     const fileName = title || cleanPath.split('/').pop().replace(/\.md$/, '');
     let list = state.recentFiles || [];
+    const prev = list.find(item => item.filePath === filePath);
     list = list.filter(item => item.filePath !== filePath);
-    list.unshift({
+    const entry = {
       filePath,
       fileName,
-      time: new Date().toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    });
+      time: new Date().toLocaleString(activeLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      ts: Date.now()
+    };
+    // 沿用上次讀到的位置，直到這次捲動後由 saveReadProgress 更新
+    if (prev && typeof prev.pct === 'number') { entry.pct = prev.pct; entry.line = prev.line || null; }
+    list.unshift(entry);
     if (list.length > 20) list = list.slice(0, 20);
     state.recentFiles = list;
     storage.setJson(STORAGE_KEYS.RECENT_FILES, list);
     renderRecentFilesList();
+  }
+
+  /** 把目前讀到的位置（百分比、行號）記在最近閱讀那一筆上，給「書籤與最近」顯示與跳回。 */
+  function updateRecentProgress(filePath, pct, line) {
+    const item = (state.recentFiles || []).find(i => i.filePath === filePath);
+    if (!item) return;
+    if (item.pct === pct && item.line === line) return;
+    item.pct = pct;
+    item.line = line || null;
+    item.ts = Date.now();
+    storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+    if (isLibraryOpen() && libraryUi.tab === 'recent') renderLibrary();
   }
 
   function renderRecentFilesList() {
@@ -6968,6 +6988,7 @@
     if (!container) return;
 
     const list = state.recentFiles || [];
+    if (isLibraryOpen()) renderLibrary();
     if (list.length === 0) {
       container.innerHTML = `<div class="list-empty-hint">尚無最近開啟的經文檔案</div>`;
       return;
@@ -7156,6 +7177,8 @@
   }
 
   function renderBookmarksList() {
+    if (isLibraryOpen()) renderLibrary();
+    updateLibraryCount();
     const targets = [$('bookmarksList'), $('sidebarBookmarksList')].filter(Boolean);
     if (targets.length === 0) return;
 
@@ -7250,6 +7273,9 @@
         timestamp: Date.now()
       };
       storage.setJson(STORAGE_KEYS.LAST_READ_PROGRESS, progress);
+      const scrollable = content.scrollHeight - content.clientHeight;
+      const pct = scrollable > 0 ? Math.round(Math.min(1, Math.max(0, content.scrollTop / scrollable)) * 100) : 100;
+      updateRecentProgress(filePath, pct, currentLine);
     }, 250);
   }
 
@@ -7267,10 +7293,11 @@
    * 失效。延遲期間只要 token 變動或 currentFile 已非目標檔案即放棄捲動，且每次都
    * 重新查詢 #content（節點可能已被換掉）。
    *
+   * @param {boolean} [force=false] - 「繼續閱讀」按鈕：使用者主動要求，不受自動恢復開關限制
    * @returns {boolean} 是否已排入還原流程（沒有可還原資料或功能關閉時為 false）
    */
-  function restoreReadProgress() {
-    if (!state.autoReadProgress) return false;
+  function restoreReadProgress(force = false) {
+    if (!force && !state.autoReadProgress) return false;
     const data = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
     if (!data || !data.filePath) return false;
     try {
@@ -7314,7 +7341,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.10';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.11';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8566,6 +8593,10 @@
           closeUserMenu(true);
           return;
         }
+        if (isLibraryOpen()) {
+          closeLibrary();
+          return;
+        }
         const annOverlay = $('announcementModalOverlay');
         if (annOverlay && annOverlay.style.display !== 'none' && annOverlay.style.display !== '') {
           closeAnnouncementModal(true);
@@ -9173,7 +9204,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.10';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.11';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9507,7 +9538,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.10';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '3.12.11';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11744,6 +11775,8 @@
     if ($('userMenuAdminLabel')) $('userMenuAdminLabel').textContent = state.isSingleUser ? '系統設定' : '後台系統設定';
     if ($('userMenuLogoutBtn')) $('userMenuLogoutBtn').hidden = !user;
     if ($('userMenuLogoutSep')) $('userMenuLogoutSep').hidden = !user;
+    if ($('userMenuFontSize') && state.fontSize) $('userMenuFontSize').textContent = state.fontSize;
+    updateLibraryCount();
   }
 
   function updateUserMenuScript() {
@@ -11856,6 +11889,12 @@
       });
     });
 
+    // 字級：選單保持開著，看得到字變大變小
+    $('userMenuFontDec').addEventListener('click', () => applyFontSize(state.fontSize - 1));
+    $('userMenuFontInc').addEventListener('click', () => applyFontSize(state.fontSize + 1));
+    $('userMenuLibraryBtn').addEventListener('click', userMenuAction(() => openLibrary()));
+    setupLibrary();
+
     $('userMenuLoginBtn').addEventListener('click', userMenuAction(() => openAccountAuth('login')));
     $('userMenuRegisterBtn').addEventListener('click', userMenuAction(() => openAccountAuth('register')));
     $('userMenuSettingsBtn').addEventListener('click', userMenuAction(() => openUserSettingsOverlay()));
@@ -11866,6 +11905,272 @@
     updateUserMenu();
     updateUserMenuScript();
     updateUserMenuTheme(state.currentTheme || document.documentElement.getAttribute('data-theme'));
+  }
+
+  // ── 書籤與最近：右側抽屜 ──
+  // 書籤依資料夾分組（可收合），可篩選、依加入順序或名稱排序；最近依日期分組，
+  // 顯示上次讀到的位置。分頁、排序、收合狀態只是個人便利，存在 localStorage。
+  const libraryUi = (() => {
+    const saved = storage.getJson(STORAGE_KEYS.LIBRARY_PREFS, null) || {};
+    return {
+      tab: saved.tab === 'recent' ? 'recent' : 'bookmarks',
+      sort: saved.sort === 'name' ? 'name' : 'new',
+      collapsed: (saved.collapsed && typeof saved.collapsed === 'object') ? saved.collapsed : {},
+      q: ''
+    };
+  })();
+  let libraryCloseTimer = null;
+
+  function saveLibraryPrefs() {
+    storage.setJson(STORAGE_KEYS.LIBRARY_PREFS, { tab: libraryUi.tab, sort: libraryUi.sort, collapsed: libraryUi.collapsed });
+  }
+
+  function isLibraryOpen() {
+    const d = $('libraryDrawer');
+    return !!d && d.classList.contains('open');
+  }
+
+  function updateLibraryCount() {
+    const el = $('userMenuLibraryCount');
+    if (!el) return;
+    const n = (state.bookmarks || []).length;
+    el.textContent = n ? `${n} 書籤` : '';
+  }
+
+  /** 書籤所在資料夾：辭典條目歸到「辭典」，主樹檔案取上層路徑。 */
+  function libraryFolderOf(filePath) {
+    if (!filePath) return '';
+    if (filePath.startsWith('dict:')) return '辭典';
+    const parts = filePath.split('/');
+    parts.pop();
+    return parts.length ? parts.join(' / ') : '根目錄';
+  }
+
+  function libraryTitleOf(item) {
+    if (item.fileName) return item.fileName;
+    const clean = (item.filePath || '').replace(/^dict:/, '');
+    return clean.split('/').pop().replace(/\.md$/i, '');
+  }
+
+  function libraryDayGroup(ts) {
+    if (typeof ts !== 'number') return 2;
+    const d = new Date(ts);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = today.getTime();
+    if (d.getTime() >= start) return 0;
+    if (d.getTime() >= start - 86400000) return 1;
+    return 2;
+  }
+
+  function libraryMatches(item, q) {
+    if (!q) return true;
+    const hay = `${libraryTitleOf(item)} ${item.filePath || ''}`.toLowerCase();
+    return hay.includes(q);
+  }
+
+  function renderLibrary() {
+    const listEl = $('libraryList');
+    if (!listEl) return;
+    const bookmarks = state.bookmarks || [];
+    const recent = state.recentFiles || [];
+    const isBm = libraryUi.tab === 'bookmarks';
+    $('libraryCountBookmarks').textContent = bookmarks.length;
+    $('libraryCountRecent').textContent = recent.length;
+    for (const [id, on] of [['libraryTabBookmarks', isBm], ['libraryTabRecent', !isBm]]) {
+      const t = $(id);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+    }
+    listEl.setAttribute('aria-labelledby', isBm ? 'libraryTabBookmarks' : 'libraryTabRecent');
+
+    const sortBtn = $('librarySortBtn');
+    sortBtn.hidden = !isBm;
+    sortBtn.textContent = libraryUi.sort === 'name' ? '名稱 A→Z' : '最新優先';
+
+    // 繼續閱讀：上次讀到的檔案與位置
+    const resume = $('libraryResumeBtn');
+    const last = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null);
+    const showResume = !isBm && !!(last && last.filePath);
+    resume.hidden = !showResume;
+    if (showResume) {
+      const r = recent.find(i => i.filePath === last.filePath);
+      $('libraryResumeTitle').textContent = r ? libraryTitleOf(r) : libraryTitleOf({ filePath: last.filePath });
+      $('libraryResumePct').textContent = r && typeof r.pct === 'number' ? `上次讀到 ${r.pct}%` : '';
+    }
+
+    const q = libraryUi.q.trim().toLowerCase();
+    let html = '';
+    if (isBm) {
+      const items = bookmarks.map((b, i) => ({ b, i })).filter(x => libraryMatches(x.b, q));
+      if (libraryUi.sort === 'name') {
+        items.sort((x, y) => libraryTitleOf(x.b).localeCompare(libraryTitleOf(y.b), 'zh-Hant'));
+      }
+      if (!items.length) {
+        html = bookmarks.length
+          ? `<div class="library-empty">沒有符合「${escHtml(libraryUi.q.trim())}」的書籤</div>`
+          : `<div class="library-empty">還沒有書籤。開啟經文後，點標題旁的 🔖 加書籤。</div>`;
+      } else {
+        const groups = new Map();
+        for (const x of items) {
+          const f = libraryFolderOf(x.b.filePath);
+          if (!groups.has(f)) groups.set(f, []);
+          groups.get(f).push(x.b);
+        }
+        for (const [folder, list] of groups) {
+          const open = !!q || !libraryUi.collapsed[folder];
+          html += `<button type="button" class="library-group" data-folder="${escHtml(folder)}" aria-expanded="${open}">`
+            + `<span class="library-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="library-group-name">${escHtml(folder)}</span>`
+            + `<span class="library-group-count">${list.length}</span></button>`;
+          if (!open) continue;
+          for (const b of list) {
+            const current = b.filePath === state.currentFile ? ' current' : '';
+            html += `<div class="library-item${current}">`
+              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}" title="${escHtml(b.filePath || '')}">`
+              + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
+              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
+              + `</button>`
+              + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
+              + `</div>`;
+          }
+        }
+      }
+    } else {
+      const items = recent.filter(r => libraryMatches(r, q));
+      if (!items.length) {
+        html = recent.length
+          ? `<div class="library-empty">沒有符合「${escHtml(libraryUi.q.trim())}」的紀錄</div>`
+          : `<div class="library-empty">還沒有閱讀紀錄。開啟過的經文會出現在這裡（最多 20 筆）。</div>`;
+      } else {
+        const labels = ['今天', '昨天', '更早'];
+        [0, 1, 2].forEach(g => {
+          const list = items.filter(r => libraryDayGroup(r.ts) === g);
+          if (!list.length) return;
+          html += `<div class="library-group static"><span class="library-group-name">${labels[g]}</span><span class="library-group-count">${list.length}</span></div>`;
+          for (const r of list) {
+            const hasPct = typeof r.pct === 'number';
+            const current = r.filePath === state.currentFile ? ' current' : '';
+            html += `<div class="library-item${current}">`
+              + `<button type="button" class="library-open" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath || '')}">`
+              + `<span class="library-item-title">${escHtml(libraryTitleOf(r))}</span>`
+              + `<span class="library-item-sub">${escHtml(libraryFolderOf(r.filePath))}${r.time ? ` · ${escHtml(r.time)}` : ''}</span>`
+              + (hasPct ? `<span class="library-bar" aria-hidden="true"><i style="width:${r.pct}%"></i></span>` : '')
+              + `</button>`
+              + (hasPct ? `<span class="library-pct" title="上次讀到的位置">${r.pct}%</span>` : '')
+              + `</div>`;
+          }
+        });
+      }
+    }
+    listEl.innerHTML = html;
+  }
+
+  function openLibrary(tab) {
+    const drawer = $('libraryDrawer');
+    const scrim = $('libraryScrim');
+    if (!drawer) return;
+    if (tab) libraryUi.tab = tab;
+    if (libraryCloseTimer) { clearTimeout(libraryCloseTimer); libraryCloseTimer = null; }
+    renderLibrary();
+    drawer.hidden = false;
+    scrim.hidden = false;
+    requestAnimationFrame(() => {
+      drawer.classList.add('open');
+      scrim.classList.add('open');
+    });
+    // 觸控裝置不自動聚焦篩選框，免得一打開就跳出鍵盤
+    const target = isMobileBrowser() ? $(libraryUi.tab === 'bookmarks' ? 'libraryTabBookmarks' : 'libraryTabRecent') : $('libraryFilter');
+    setTimeout(() => target && target.focus({ preventScroll: true }), 30);
+  }
+
+  function closeLibrary(returnFocus = true) {
+    const drawer = $('libraryDrawer');
+    const scrim = $('libraryScrim');
+    if (!drawer || drawer.hidden) return;
+    drawer.classList.remove('open');
+    scrim.classList.remove('open');
+    libraryCloseTimer = setTimeout(() => {
+      drawer.hidden = true;
+      scrim.hidden = true;
+      libraryCloseTimer = null;
+    }, 220);
+    if (returnFocus && $('userMenuBtn')) $('userMenuBtn').focus({ preventScroll: true });
+  }
+
+  function setLibraryTab(tab) {
+    if (libraryUi.tab === tab) return;
+    libraryUi.tab = tab;
+    saveLibraryPrefs();
+    renderLibrary();
+  }
+
+  function setupLibrary() {
+    const drawer = $('libraryDrawer');
+    if (!drawer) return;
+    $('libraryCloseBtn').addEventListener('click', () => closeLibrary());
+    $('libraryScrim').addEventListener('click', () => closeLibrary());
+    $$('.library-tab', drawer).forEach(t => {
+      t.addEventListener('click', () => setLibraryTab(t.getAttribute('data-tab')));
+      t.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        setLibraryTab(libraryUi.tab === 'bookmarks' ? 'recent' : 'bookmarks');
+        $(libraryUi.tab === 'bookmarks' ? 'libraryTabBookmarks' : 'libraryTabRecent').focus();
+      });
+    });
+    $('libraryFilter').addEventListener('input', (e) => {
+      libraryUi.q = e.target.value;
+      renderLibrary();
+    });
+    $('librarySortBtn').addEventListener('click', () => {
+      libraryUi.sort = libraryUi.sort === 'name' ? 'new' : 'name';
+      saveLibraryPrefs();
+      renderLibrary();
+    });
+    $('libraryResumeBtn').addEventListener('click', () => {
+      closeLibrary(false);
+      if (!restoreReadProgress(true)) showToast('沒有可以繼續的閱讀紀錄', 'info');
+    });
+    $('libraryList').addEventListener('click', (e) => {
+      const del = e.target.closest('[data-del-bookmark]');
+      if (del) {
+        const file = del.getAttribute('data-del-bookmark');
+        state.bookmarks = (state.bookmarks || []).filter(i => i.filePath !== file);
+        storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
+        renderBookmarksList();
+        if (state.currentFile === file) updateBookmarkButtonUI(file);
+        showToast('🗑️ 已從書籤移除', 'success');
+        return;
+      }
+      const group = e.target.closest('[data-folder]');
+      if (group) {
+        if (libraryUi.q.trim()) return;
+        const f = group.getAttribute('data-folder');
+        if (libraryUi.collapsed[f]) delete libraryUi.collapsed[f];
+        else libraryUi.collapsed[f] = true;
+        saveLibraryPrefs();
+        renderLibrary();
+        return;
+      }
+      const open = e.target.closest('[data-file]');
+      if (open) {
+        const file = open.getAttribute('data-file');
+        const line = parseInt(open.getAttribute('data-line'), 10) || undefined;
+        closeLibrary(false);
+        openFile(file, line);
+      }
+    });
+    // 抽屜開著時，Tab 鍵只在抽屜裡循環
+    drawer.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const f = Array.from(drawer.querySelectorAll('button, input')).filter(el => !el.hidden && el.offsetParent !== null && el.tabIndex !== -1);
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+    updateLibraryCount();
   }
 
   // ── 啟動：讀設定、目前登入者、處理信件連結與第三方登入回來的網址 ──

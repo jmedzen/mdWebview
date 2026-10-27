@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v3.12.10
+   mdWebview — Style System (style.css) v3.12.11
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -8232,6 +8232,326 @@ html[data-display-script="hans"] {
     top: calc(52px + env(safe-area-inset-top, 0px));
     right: 8px;
   }
+}
+
+/* 選單：字級列與「書籤與最近」 */
+.user-menu-font {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.user-menu-font-btn {
+  min-width: 34px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.user-menu-font-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.user-menu-font-size {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.user-menu-item-library {
+  background: var(--accent-dim);
+}
+.user-menu-count {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-weight: 600;
+}
+
+/* ================================================================
+   書籤與最近：右側抽屜（手機滿版）
+   ================================================================ */
+.library-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 955;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.library-scrim.open {
+  opacity: 1;
+}
+.library-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 960;
+  width: min(400px, 100vw);
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px var(--shadow-color);
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
+}
+.library-drawer.open {
+  transform: none;
+}
+.library-drawer[hidden],
+.library-scrim[hidden],
+.library-drawer [hidden] {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-drawer,
+  .library-scrim {
+    transition: none;
+  }
+}
+@media (max-width: 520px) {
+  .library-drawer {
+    width: 100vw;
+    border-left: none;
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+.library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 4px;
+}
+.library-head h2 {
+  margin: 0;
+  font-size: calc(16px * var(--ui-font-scale, 1));
+}
+.library-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+}
+.library-close:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.library-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.library-tab {
+  margin-bottom: -1px;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.library-tab small {
+  margin-left: 5px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.library-tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.library-tools {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.library-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+}
+.library-sort {
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.library-sort:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.library-resume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.library-resume-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-resume small {
+  flex: 0 0 auto;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.library-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 16px;
+}
+.library-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 8px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+}
+.library-group.static {
+  cursor: default;
+}
+.library-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-group-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.library-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+.library-item:hover {
+  background: var(--hover-bg);
+}
+.library-item.current .library-item-title {
+  color: var(--accent);
+}
+.library-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.library-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.library-item-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+}
+.library-bar {
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.library-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.library-pct {
+  min-width: 40px;
+  padding-right: 8px;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.library-del {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+.library-del:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.library-empty {
+  padding: 36px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.library-drawer button:focus-visible,
+.library-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* 首次依瀏覽器語言自動切換時的提示：固定在右上角、指向切換按鈕 */
