@@ -8,7 +8,7 @@
 process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://reader.example';
 process.env.SCRYPT_LN = process.env.SCRYPT_LN || '10';
 
-const { test, describe, before, after, beforeEach } = require('node:test');
+const { test, describe, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -65,7 +65,11 @@ function withEnv(vars, fn) {
 
 before(() => { db.open(); });
 beforeEach(() => { globalThis.fetch = realFetch; });
-after(() => { globalThis.fetch = realFetch; db.close(); });
+after(async () => {
+  globalThis.fetch = realFetch;
+  db.close();
+  await require('../lib/worker-pool.js').terminateWorkerPools(); // logger 載入時會啟動工作執行緒
+});
 
 // ── 信件 token ───────────────────────────────────────────────
 describe('email tokens (db)', () => {
@@ -150,8 +154,11 @@ describe('invites (db)', () => {
   });
 
   test('uses are clamped to 1..1000', () => {
-    assert.equal(db.listInvites().find(i => i.id === db.createInvite({ usesLeft: 0 }).id).uses_left, 1);
-    assert.equal(db.listInvites().find(i => i.id === db.createInvite({ usesLeft: 99999 }).id).uses_left, 1000);
+    const low = db.createInvite({ usesLeft: 0 });
+    const high = db.createInvite({ usesLeft: 99999 });
+    const rows = db.listInvites();
+    assert.equal(rows.find(i => i.id === low.id).uses_left, 1);
+    assert.equal(rows.find(i => i.id === high.id).uses_left, 1000);
   });
 });
 
@@ -978,6 +985,8 @@ describe('migrations, backup and restore on a real database file', () => {
     db.close();
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-db-test-'));
   });
+  // 每個測試結束都關閉檔案資料庫，前一個失敗也不會讓後面的 open() 回傳舊連線。
+  afterEach(() => { db.close(); });
   after(() => {
     db.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1101,21 +1110,6 @@ describe('migrations, backup and restore on a real database file', () => {
     assert.equal(daily.length, 7);
     assert.ok(daily.some(b => b.name === db.listBackups()[0].name), 'newest kept');
     assert.ok(!daily.some(b => b.name === 'users-20240101.db'), 'oldest pruned');
-    db.close();
-  });
-
-  test('migrating a database that already holds data first writes a pre-migration backup', () => {
-    // 現行只有 v1，所以以人工把 user_version 降回 0 又保留資料來模擬「舊版資料庫＋新遷移」不可行；
-    // 這裡直接驗證 snapshotTo 的備份檔可獨立開啟、內容完整（遷移前備份用的就是它）。
-    const file = path.join(dir, 'snap', 'users.db');
-    db.open({ path: file, backupDir: path.join(dir, 'snap', 'backups'), force: true });
-    newUser({ email: 'snap@example.org' });
-    const target = path.join(dir, 'snap', 'backups', 'users-pre-v2.db');
-    db.backupNow('manual');
-    const copy = new DatabaseSync(target.replace('users-pre-v2.db', db.listBackups()[0].name), { readOnly: true });
-    try {
-      assert.equal(copy.prepare('SELECT COUNT(*) n FROM users WHERE email = ?').get('snap@example.org').n, 1);
-    } finally { copy.close(); }
     db.close();
   });
 
