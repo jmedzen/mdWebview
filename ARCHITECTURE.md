@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.2.0 | 最後更新：2026-10
+> 版本：v4.2.1 | 最後更新：2026-10
 
 ---
 
@@ -978,7 +978,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.2.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.2.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1453,8 +1453,10 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 右上角選單多了字級列（`#userMenuFontDec`／`#userMenuFontSize`／`#userMenuFontInc`，走 `applyFontSize()`，調整時選單不關）與「書籤與歷程」（`#userMenuLibraryBtn`，右側顯示書籤數）。點了打開右側抽屜 `#libraryDrawer`（寬 `min(400px, 100vw)`，≤520px 全寬，z-index 960，遮罩 `#libraryScrim` 955）。抽屜有兩個分頁：
 
-- **書籤**：依資料夾分組（辭典條目歸「辭典」，根目錄檔案歸「根目錄」），資料夾可收合；可切換「最新加入／名稱 A→Z」排序；每筆有刪除鈕，刪除後同步側欄書籤清單。
+- **書籤**：依資料夾分組（辭典條目歸「辭典」，根目錄檔案歸「根目錄」），資料夾可收合；可切換「最新加入／名稱 A→Z」排序；每筆有刪除鈕，刪除後同步側欄書籤清單。每筆同樣顯示閱讀進度條與右側百分比（v4.2.1 起與「歷程」一致）。
 - **歷程**：依「今天／昨天／更早」分組，每筆顯示閱讀進度條與百分比；頂端「繼續閱讀」按鈕呼叫 `restoreReadProgress(true)` 回到上次位置。
+
+兩個分頁共用同一組進度呈現 helper（v4.2.1）：`libraryProgressPct(item)` 把 `pct` 收斂成 0–100 的整數（缺值、`null`、`NaN`、字串一律回 `null`，不誤顯示 0%），`libraryProgressBarHtml(pct)` 產生 `<span class="library-bar"><i style="width:N%"></i></span>`。抽成共用函式是因為進度會經 `library-sync.js` 跨裝置同步，伺服器只做粗粒度驗證，回來的值可能越界（例如 130）或帶小數（37.4），兩邊各自拼字串就會一邊把進度條畫出容器、一邊顯示「37.4%」。書籤頁原本把進度塞在「加入於 … · 讀到 37%」的副標題裡，遇到沒有 `time` 的舊書籤就完全看不到進度，現在一律走進度條；舊書籤沒有自己的 `pct` 時仍借用對應歷程的進度。
 
 兩個分頁共用頂端的篩選框（比對標題與路徑）。目前分頁、排序、收合的資料夾存在 `mdWebview-user-library`。`addRecentFile()` 會記 `ts`，並保留舊的 `pct`、`line`；`saveReadProgress()` 透過 `updateRecentProgress()` 寫入目前檔案的進度。舊紀錄沒有 `ts`，會放在「更早」且不顯示百分比。Esc、點遮罩或關閉鈕會關抽屜，Tab 鍵只在抽屜內循環；側欄書籤或最近清單改變時，若抽屜開著會一起重畫。
 

@@ -73,14 +73,10 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
     );
   });
 
-  test('index.html 應包含三個版本徽章 (v + version)', () => {
+  test('index.html 應包含兩個版本徽章 (v + version)', () => {
     const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
     const targetVer = `v${version}`;
 
-    assert.ok(
-      indexHtml.includes(`id="userSettingsHeaderVersion">${targetVer}<`),
-      `index.html 應包含 userSettingsHeaderVersion 徽章 (${targetVer})`
-    );
     assert.ok(
       indexHtml.includes(`id="systemTabVersion">${targetVer}<`),
       `index.html 應包含 systemTabVersion 徽章 (${targetVer})`
@@ -88,6 +84,52 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
     assert.ok(
       indexHtml.includes(`id="userSettingsFooterVersion">版本 ${targetVer}<`),
       `index.html 應包含 userSettingsFooterVersion 徽章 (版本 ${targetVer})`
+    );
+  });
+
+  /**
+   * 偏好設定面板的**標題列**不再掛版本徽章（改由面板底部 footer 顯示，避免同一個
+   * 面板重複出現版本號兩次）。守衛保留，防止日後又被加回去。
+   */
+  test('偏好設定面板標題列不應再顯示版本徽章（版本只在 footer）', () => {
+    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
+    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
+
+    assert.ok(
+      !indexHtml.includes('userSettingsHeaderVersion'),
+      'index.html 不應保留 userSettingsHeaderVersion 徽章元素'
+    );
+    assert.ok(
+      !appContent.includes('userSettingsHeaderVersion'),
+      'app.js 不應再引用 userSettingsHeaderVersion'
+    );
+  });
+
+  /**
+   * 後台「系統設定」面板標題同樣要有版本徽章：管理員常需要回報目前站上跑的
+   * 是哪一版，而後台面板是最常被打開的地方。此徽章與偏好設定面板共用
+   * .user-settings-version-badge 樣式，並由 openSettingsOverlay() 於開啟時
+   * 以 __APP_CONFIG__.appVersion 覆寫（避免 SSG 快取或舊 HTML 造成版本漂移）。
+   */
+  test('後台系統設定標題列應包含版本徽章，且 app.js 開啟時會同步覆寫', () => {
+    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
+    const targetVer = `v${version}`;
+
+    assert.ok(
+      indexHtml.includes(`id="adminSettingsHeaderVersion">${targetVer}<`),
+      `index.html 後台系統設定標題列應包含 adminSettingsHeaderVersion 徽章 (${targetVer})`
+    );
+
+    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
+    assert.match(
+      appContent,
+      /\$\('adminSettingsHeaderVersion'\)/,
+      'app.js 應在開啟後台面板時取得 adminSettingsHeaderVersion 元素'
+    );
+    assert.match(
+      appContent,
+      /adminHeaderVer\.textContent\s*=/,
+      'app.js 應以執行中的 appVersion 覆寫後台版本徽章文字'
     );
   });
 
