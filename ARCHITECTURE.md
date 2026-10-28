@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.2.1 | 最後更新：2026-10
+> 版本：v4.2.2 | 最後更新：2026-10
 
 ---
 
@@ -830,7 +830,7 @@ flowchart TD
 | 欄位 | 型別 | 說明 |
 |------|------|------|
 | `currentFile` | `string|null` | 當前開啟的檔案路徑（`null` = 首頁歡迎畫面） |
-| `currentTheme` | `string` | 主題 ID：`obsidian-dark`|`obsidian-light`|`solarized`|`zen`|`gruvbox` |
+| `currentTheme` | `string` | 主題 ID：`obsidian-dark`|`obsidian-light`（霧灰 Mist）|`solarized`|`zen`|`gruvbox`|`paper`|`moon`|`bamboo` |
 | `defaultFontSize` | `number` | 伺服器設定的預設字體大小（px），作為重置基準 |
 | `fontSize` | `number` | 當前閱讀字體大小（px），使用者可調整 |
 | `textAlign` | `string` | 文字對齊：`justify`|`left` |
@@ -978,7 +978,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.2.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.2.2'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

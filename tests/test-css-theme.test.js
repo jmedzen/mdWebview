@@ -40,13 +40,16 @@ describe('CSS 樣式系統與 5 大主題完整性測試 (style.css)', () => {
     assert.equal(minDepth, 0, 'CSS 不得出現提早閉合或多餘之右括號');
   });
 
-  test('5 大主題定義完整性 (Obsidian Dark/Light, Solarized, Zen, Gruvbox)', () => {
+  test('8 大主題定義完整性 (Obsidian Dark, 霧灰 Mist, Solarized, Zen, Gruvbox, 素紙, 月白, 竹青)', () => {
     const expectedThemes = [
       'obsidian-dark',
       'obsidian-light',
       'solarized',
       'zen',
-      'gruvbox'
+      'gruvbox',
+      'paper',
+      'moon',
+      'bamboo'
     ];
 
     for (const theme of expectedThemes) {
