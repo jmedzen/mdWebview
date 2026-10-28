@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.2.2
+   mdWebview — Style System (style.css) v4.2.3
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -102,49 +102,49 @@ body {
 }
 
 /* ── §2 Theme Definitions ───────────────────────────────────── */
-/* ── Theme 1: Obsidian Dark (Default) ──────────────────────── */
+/* ── Theme 1: 夜藍 Night（預設；沿用 obsidian-dark 的 ID，舊設定不受影響） ── */
 [data-theme="obsidian-dark"] {
-  --bg-primary: #1e1e2e;
-  --bg-secondary: #181825;
-  --bg-tertiary: #313244;
-  --bg-elevated: #45475a;
-  --text-primary: #cdd6f4;
-  --text-secondary: #a6adc8;
-  --text-muted: #6c7086;
-  --accent: #cba6f7;
-  --accent-dim: rgba(203, 166, 247, 0.15);
-  --accent-hover: #b4befe;
-  --border: #45475a;
-  --border-subtle: #313244;
-  --sidebar-bg: rgba(24, 24, 37, 0.88);
+  --bg-primary: #141b2b;
+  --bg-secondary: #0f1522;
+  --bg-tertiary: #1c2539;
+  --bg-elevated: #2a3550;
+  --text-primary: #d3dbe9;
+  --text-secondary: #aab5c9;
+  --text-muted: #8591a8;
+  --accent: #86b4ea;
+  --accent-dim: rgba(134, 180, 234, 0.15);
+  --accent-hover: #a3c7f2;
+  --border: #26304a;
+  --border-subtle: #1e2840;
+  --sidebar-bg: rgba(15, 21, 34, 0.92);
   --sidebar-blur: 16px;
-  --hover-bg: rgba(69, 71, 90, 0.45);
-  --active-bg: rgba(203, 166, 247, 0.12);
-  --scrollbar-track: #181825;
-  --scrollbar-thumb: #45475a;
-  --scrollbar-thumb-hover: #585b70;
-  --search-highlight: rgba(249, 226, 175, 0.35);
-  --search-active: rgba(249, 226, 175, 0.7);
-  --heading-color: #cba6f7;
-  --h2-color: #89b4fa;
-  --h3-color: #94e2d5;
-  --bold-color: #fab387;
-  --link-color: #89b4fa;
-  --code-bg: rgba(49, 50, 68, 0.7);
-  --blockquote-border: #cba6f7;
-  --blockquote-bg: rgba(203, 166, 247, 0.05);
-  --table-header-bg: rgba(69, 71, 90, 0.5);
-  --table-stripe: rgba(49, 50, 68, 0.3);
-  --shadow-color: rgba(0, 0, 0, 0.3);
-  --header-bg: #181825;
-  --input-bg: #313244;
-  --badge-bg: #45475a;
-  --loading-bg: rgba(30, 30, 46, 0.85);
+  --hover-bg: rgba(211, 219, 233, 0.07);
+  --active-bg: rgba(134, 180, 234, 0.14);
+  --scrollbar-track: #0f1522;
+  --scrollbar-thumb: #2a3550;
+  --scrollbar-thumb-hover: #8591a8;
+  --search-highlight: rgba(233, 196, 106, 0.32);
+  --search-active: rgba(233, 196, 106, 0.62);
+  --heading-color: #a9c9f1;
+  --h2-color: #86b4ea;
+  --h3-color: #8fd1c5;
+  --bold-color: #e9c57f;
+  --link-color: #9cc8f5;
+  --code-bg: rgba(42, 53, 80, 0.6);
+  --blockquote-border: #86b4ea;
+  --blockquote-bg: rgba(134, 180, 234, 0.06);
+  --table-header-bg: rgba(42, 53, 80, 0.55);
+  --table-stripe: rgba(28, 37, 57, 0.45);
+  --shadow-color: rgba(0, 0, 0, 0.45);
+  --header-bg: #0f1522;
+  --input-bg: #1c2539;
+  --badge-bg: #2a3550;
+  --loading-bg: rgba(20, 27, 43, 0.85);
   /* 成功／錯誤訊息：文字一律用 --text-primary，這兩色只上在邊框、圖示與短字 */
-  --success: #a6e3a1;
-  --success-bg: rgba(166, 227, 161, 0.12);
-  --danger: #f38ba8;
-  --danger-bg: rgba(243, 139, 168, 0.12);
+  --success: #8fd3a0;
+  --success-bg: rgba(143, 211, 160, 0.12);
+  --danger: #f39a9a;
+  --danger-bg: rgba(243, 154, 154, 0.12);
 }
 
 /* ── Theme 2: 霧灰 Mist（沿用 obsidian-light 的 ID，舊設定不受影響） ─────────── */
@@ -192,49 +192,49 @@ body {
   --danger-bg: rgba(176, 42, 42, 0.09);
 }
 
-/* ── Theme 3: Solarized ────────────────────────────────────── */
+/* ── Theme 3: 苔夜 Moss（沿用 solarized 的 ID，舊設定不受影響） ── */
 [data-theme="solarized"] {
-  --bg-primary: #073642;
-  --bg-secondary: #002b36;
-  --bg-tertiary: #05232c;
-  --bg-elevated: #1a5a6a;
-  --text-primary: #93a1a1;
-  --text-secondary: #839496;
-  --text-muted: #586e75;
-  --accent: #b58900;
-  --accent-dim: rgba(181, 137, 0, 0.12);
-  --accent-hover: #cb4b16;
-  --border: #2a4f5a;
-  --border-subtle: #0a4050;
-  --sidebar-bg: rgba(0, 43, 54, 0.92);
+  --bg-primary: #1a1f1a;
+  --bg-secondary: #141814;
+  --bg-tertiary: #232a23;
+  --bg-elevated: #323b31;
+  --text-primary: #d4dccd;
+  --text-secondary: #afbaa7;
+  --text-muted: #8a9581;
+  --accent: #b6ca7e;
+  --accent-dim: rgba(182, 202, 126, 0.15);
+  --accent-hover: #c8d896;
+  --border: #2e362d;
+  --border-subtle: #252c24;
+  --sidebar-bg: rgba(20, 24, 20, 0.92);
   --sidebar-blur: 16px;
-  --hover-bg: rgba(88, 110, 117, 0.2);
-  --active-bg: rgba(181, 137, 0, 0.12);
-  --scrollbar-track: #002b36;
-  --scrollbar-thumb: #2a4f5a;
-  --scrollbar-thumb-hover: #586e75;
-  --search-highlight: rgba(181, 137, 0, 0.3);
-  --search-active: rgba(181, 137, 0, 0.6);
-  --heading-color: #b58900;
-  --h2-color: #268bd2;
-  --h3-color: #2aa198;
-  --bold-color: #cb4b16;
-  --link-color: #268bd2;
-  --code-bg: rgba(0, 43, 54, 0.8);
-  --blockquote-border: #b58900;
-  --blockquote-bg: rgba(181, 137, 0, 0.05);
-  --table-header-bg: rgba(0, 43, 54, 0.7);
-  --table-stripe: rgba(9, 65, 81, 0.3);
-  --shadow-color: rgba(0, 0, 0, 0.35);
-  --header-bg: #002b36;
-  --input-bg: #05232c;
-  --badge-bg: #2a4f5a;
-  --loading-bg: rgba(7, 54, 66, 0.85);
+  --hover-bg: rgba(212, 220, 205, 0.07);
+  --active-bg: rgba(182, 202, 126, 0.14);
+  --scrollbar-track: #141814;
+  --scrollbar-thumb: #323b31;
+  --scrollbar-thumb-hover: #8a9581;
+  --search-highlight: rgba(233, 196, 106, 0.32);
+  --search-active: rgba(233, 196, 106, 0.62);
+  --heading-color: #c6d690;
+  --h2-color: #b6ca7e;
+  --h3-color: #dbbb7c;
+  --bold-color: #e6ac70;
+  --link-color: #90c4cb;
+  --code-bg: rgba(50, 59, 49, 0.6);
+  --blockquote-border: #b6ca7e;
+  --blockquote-bg: rgba(182, 202, 126, 0.06);
+  --table-header-bg: rgba(50, 59, 49, 0.55);
+  --table-stripe: rgba(35, 42, 35, 0.45);
+  --shadow-color: rgba(0, 0, 0, 0.45);
+  --header-bg: #141814;
+  --input-bg: #232a23;
+  --badge-bg: #323b31;
+  --loading-bg: rgba(26, 31, 26, 0.85);
   /* 成功／錯誤訊息：文字一律用 --text-primary，這兩色只上在邊框、圖示與短字 */
-  --success: #a3b82a;
-  --success-bg: rgba(133, 153, 0, 0.16);
-  --danger: #ff7b72;
-  --danger-bg: rgba(220, 50, 47, 0.16);
+  --success: #a6d38f;
+  --success-bg: rgba(166, 211, 143, 0.12);
+  --danger: #f0958a;
+  --danger-bg: rgba(240, 149, 138, 0.12);
 }
 
 /* ── Theme 4: 禪風 Zen ─────────────────────────────────────── */
@@ -7643,7 +7643,7 @@ body.modal-open {
      與 zen 這類淺色主題下，深色文字（--text-primary）會疊在深色底上，
      對比只剩 1.4～2.2，等於看不見。
      實測各主題 text-primary 對候選底色的最低對比：
-       --bg-elevated  → 2.89（solarized 太亮）
+       --bg-elevated  → 2.89（舊 solarized 太亮）
        --bg-secondary → 5.61
        --bg-tertiary  → 6.04（最差情況仍達 AA）
      因此選 --bg-tertiary。第一行是舊引擎退回不透明底色的退路。 */
@@ -8306,12 +8306,12 @@ html[data-display-script="hans"] {
   border: 1px solid rgba(127, 127, 127, 0.45);
 }
 /* 每個主題的代表色：左半為底色、右半為強調色（取自各主題的 --bg-primary 與 --accent） */
-.user-menu-theme[data-value="obsidian-dark"] .swatch { background: linear-gradient(135deg, #1e1e2e 50%, #cba6f7 50%); }
+.user-menu-theme[data-value="obsidian-dark"] .swatch { background: linear-gradient(135deg, #141b2b 50%, #86b4ea 50%); }
 .user-menu-theme[data-value="obsidian-light"] .swatch { background: linear-gradient(135deg, #f7f7f6 50%, #3f5866 50%); }
 .user-menu-theme[data-value="paper"] .swatch { background: linear-gradient(135deg, #fbf9f4 50%, #a63a2b 50%); }
 .user-menu-theme[data-value="moon"] .swatch { background: linear-gradient(135deg, #f2f5fa 50%, #3a55a0 50%); }
 .user-menu-theme[data-value="bamboo"] .swatch { background: linear-gradient(135deg, #f2f4ec 50%, #4a6a2c 50%); }
-.user-menu-theme[data-value="solarized"] .swatch { background: linear-gradient(135deg, #073642 50%, #b58900 50%); }
+.user-menu-theme[data-value="solarized"] .swatch { background: linear-gradient(135deg, #1a1f1a 50%, #b6ca7e 50%); }
 .user-menu-theme[data-value="zen"] .swatch { background: linear-gradient(135deg, #f5f0e8 50%, #7a6548 50%); }
 .user-menu-theme[data-value="gruvbox"] .swatch { background: linear-gradient(135deg, #282828 50%, #fe8019 50%); }
 @media (hover: hover) {

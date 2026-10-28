@@ -7,8 +7,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#181825",
-  "theme_color": "#181825",
+  "background_color": "#0f1522",
+  "theme_color": "#0f1522",
   "lang": "zh-TW",
   "categories": [
     "books",
