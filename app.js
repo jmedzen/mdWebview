@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.1
+   mdWebview — Application Logic (app.js) v4.2.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -294,7 +294,7 @@
    *
    * ── 核心閱讀狀態 ──────────────────────────────────────────────
    * @property {string|null}  currentFile       - 當前開啟的檔案路徑（null = 首頁歡迎畫面）
-   * @property {string}       currentTheme      - 主題 ID ('obsidian-dark'|'obsidian-light'|'solarized'|'zen'|'gruvbox')
+   * @property {string}       currentTheme      - 主題 ID ('obsidian-dark'|'obsidian-light'|'solarized'|'zen'|'gruvbox'|'paper'|'moon'|'bamboo')
    * @property {number}       defaultFontSize   - 伺服器設定的預設字體大小（px），作為重置基準
    * @property {number}       fontSize          - 目前閱讀字體大小（px），使用者可調整
    * @property {string}       textAlign         - 文字對齊 ('justify'|'left')
@@ -6797,17 +6797,23 @@
 
   const THEME_HEADER_COLORS = {
     'obsidian-dark': '#181825',
-    'obsidian-light': '#e6e9ef',
+    'obsidian-light': '#eeeeec',
     'solarized': '#002b36',
     'zen': '#ece5d8',
-    'gruvbox': '#1d2021'
+    'gruvbox': '#1d2021',
+    'paper': '#f3efe6',
+    'moon': '#e7ecf4',
+    'bamboo': '#e8ecdf'
   };
+
+  /** 淺色主題（Turnstile 等第三方元件要用 light 外觀） */
+  const LIGHT_THEMES = new Set(['obsidian-light', 'zen', 'paper', 'moon', 'bamboo']);
 
   /**
    * 套用指定主題，更新 data-theme 屬性、所有主題下拉選單、狀態列顏色。
    * 特殊處理：強制移除並重新插入 <meta name="theme-color"> 以觸發 iOS WebKit 狀態列重繪。
    *
-   * @param {string}  theme                  - 主題 ID ('obsidian-dark'|'obsidian-light'|'solarized'|'zen'|'gruvbox')
+   * @param {string}  theme                  - 主題 ID ('obsidian-dark'|'obsidian-light'|'solarized'|'zen'|'gruvbox'|'paper'|'moon'|'bamboo')
    * @param {boolean} [saveToLocalStorage=true] - 是否將選擇持久化至 localStorage
    * @param {boolean} [notify=false]            - 是否以 Toast 通知使用者
    */
@@ -6854,7 +6860,7 @@
     }
 
     if (notify) {
-      const themeMap = { 'obsidian-dark': '🌙 暗色 Dark', 'obsidian-light': '☀️ 亮色 Light', 'solarized': '🔆 Solarized', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
+      const themeMap = { 'obsidian-dark': '🌙 暗色 Dark', 'obsidian-light': '🌫️ 霧灰 Mist', 'paper': '📜 素紙 Paper', 'moon': '🌕 月白 Moon', 'bamboo': '🎋 竹青 Bamboo', 'solarized': '🔆 Solarized', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
       showToast(`🎨 已切換閱讀主題為「${themeMap[theme] || theme}」`, 'info');
     }
   }
@@ -7886,7 +7892,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9772,7 +9778,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10104,7 +10110,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10994,7 +11000,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13032,7 +13038,7 @@
     return loadTurnstile().then(ts => ts.render(container, {
       sitekey: siteKey,
       action,
-      theme: document.documentElement.getAttribute('data-theme') === 'obsidian-light' ? 'light' : 'auto',
+      theme: LIGHT_THEMES.has(document.documentElement.getAttribute('data-theme')) ? 'light' : 'auto',
       callback: (t) => onToken(t),
       'expired-callback': () => onToken(''),
       'error-callback': () => onToken('')
