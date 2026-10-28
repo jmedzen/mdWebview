@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.2.2) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.2.3) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -16,7 +16,7 @@
 - 📑 **自動目錄**：文章裡的標題會自動整理成目錄，頂部有過濾框可即時篩選本篇標題；點標題就能跳到那一段，往下捲動時也會顯示目前讀到哪個標題。
 - 🕮 **記得讀到哪裡**：下次打開同一篇，會自動回到上次閱讀的位置。
 - ↔️ **左右欄寬度可調整**：把滑鼠移到左右兩側的邊緣，會出現一條亮色的把手，按住往左右拖曳就能調整寬度。手機上會自動隱藏，避免佔用空間。
-- 🎨 **八種閱讀配色**：暗色、霧灰、素紙、月白、竹青、Solarized、禪風、Gruvbox，挑自己看得順眼的。
+- 🎨 **八種閱讀配色**：夜藍、霧灰、素紙、月白、竹青、苔夜、禪風、Gruvbox，挑自己看得順眼的。
 - 📱 **排版自己調**：字的大小、行距、文字靠左或靠中、每行多寬，都能自己設定。
 - 🔤 **簡繁字形一併比對**：開啟後，搜尋、辭典與本篇找字時簡體與繁體字形互相命中（如 后／後、发／發／髮、着／著），簡體來源的檔案也找得到。簡體顯示時一律開啟。
   - 系統預設關閉，但若你的瀏覽器語言是簡體中文（`zh-CN`／`zh-Hans`／`zh-SG`），
@@ -185,7 +185,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v4.2.2）
+├── package.json        # 專案資訊（v4.2.3）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -231,7 +231,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.2.2) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.2.3) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -241,7 +241,7 @@ mdWebview/
 - 📑 **Automatic contents**: Headings in an article automatically become a table of contents with a quick filter box at the top. Click a heading to jump to that section, and as you scroll it shows which section you are in.
 - 🕮 **Remembers where you stopped**: Reopen the same article and it takes you back to where you left off.
 - ↔️ **Adjustable side columns**: Move your mouse to either edge of the page and a bright handle appears — drag it left or right to change the width. Hidden automatically on phones.
-- 🎨 **Eight reading color schemes**: Dark, Mist, Paper, Moon, Bamboo, Solarized, Zen, and Gruvbox. Pick whichever is easiest on your eyes.
+- 🎨 **Eight reading color schemes**: Night, Mist, Paper, Moon, Bamboo, Moss, Zen, and Gruvbox. Pick whichever is easiest on your eyes.
 - 📱 **Adjust the layout**: Set the text size, line spacing, whether text is left-aligned or centered, and how wide each line is.
 - 🔤 **Match Simplified and Traditional forms**: When on, searches, dictionary look-ups and find-in-article treat Simplified and Traditional forms as the same character (后／後, 发／發／髮, 着／著), so Simplified-source files are found too. Always on in Simplified display.
   - Off by default, but if your browser language is Simplified Chinese (`zh-CN`, `zh-Hans`, `zh-SG`) it turns on automatically on your first visit and is remembered. You can switch it off any time in the settings; once you have chosen, the system will not change it for you.
@@ -403,7 +403,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.2.2)
+├── package.json        # Project information (v4.2.3)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

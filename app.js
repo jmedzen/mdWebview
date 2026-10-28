@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.2
+   mdWebview — Application Logic (app.js) v4.2.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6796,9 +6796,9 @@
   // ═══════════════════════════════════════════════════════════
 
   const THEME_HEADER_COLORS = {
-    'obsidian-dark': '#181825',
+    'obsidian-dark': '#0f1522',
     'obsidian-light': '#eeeeec',
-    'solarized': '#002b36',
+    'solarized': '#141814',
     'zen': '#ece5d8',
     'gruvbox': '#1d2021',
     'paper': '#f3efe6',
@@ -6831,7 +6831,7 @@
     state.currentTheme = theme;
 
     // Dynamically update <meta name="theme-color"> so iOS Safari / PWA status bar matches the active theme
-    const themeColor = THEME_HEADER_COLORS[theme] || '#181825';
+    const themeColor = THEME_HEADER_COLORS[theme] || '#0f1522';
     document.documentElement.style.backgroundColor = themeColor;
     if (document.body) document.body.style.backgroundColor = themeColor;
     const header = $('appHeader');
@@ -6860,7 +6860,7 @@
     }
 
     if (notify) {
-      const themeMap = { 'obsidian-dark': '🌙 暗色 Dark', 'obsidian-light': '🌫️ 霧灰 Mist', 'paper': '📜 素紙 Paper', 'moon': '🌕 月白 Moon', 'bamboo': '🎋 竹青 Bamboo', 'solarized': '🔆 Solarized', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
+      const themeMap = { 'obsidian-dark': '🌌 夜藍 Night', 'obsidian-light': '🌫️ 霧灰 Mist', 'paper': '📜 素紙 Paper', 'moon': '🌕 月白 Moon', 'bamboo': '🎋 竹青 Bamboo', 'solarized': '🌿 苔夜 Moss', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
       showToast(`🎨 已切換閱讀主題為「${themeMap[theme] || theme}」`, 'info');
     }
   }
@@ -7892,7 +7892,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9778,7 +9778,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10110,7 +10110,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11000,7 +11000,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.2';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.3';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
