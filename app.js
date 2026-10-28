@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.0
+   mdWebview — Application Logic (app.js) v4.2.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7886,7 +7886,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9772,12 +9772,10 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
-    const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
-    if (headerVer) headerVer.textContent = cleanVer;
     if (footerVer) footerVer.textContent = '版本 ' + cleanVer;
     if (systemVer) systemVer.textContent = cleanVer;
 
@@ -10106,7 +10104,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -10992,6 +10990,13 @@
     const successEl = $('settingsSuccessMsg');
     errorEl.style.display = 'none';
     successEl.style.display = 'none';
+
+    // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
+    const adminHeaderVer = $('adminSettingsHeaderVersion');
+    if (adminHeaderVer) {
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.1';
+      adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
+    }
 
     try {
       const res = await fetch('/api/admin/settings', {
@@ -12537,6 +12542,31 @@
     return hay.includes(q);
   }
 
+  /**
+   * 正規化閱讀進度百分比：夾在 0–100 並四捨五入。
+   *
+   * 進度會經由 library-sync 跨裝置同步，伺服器端只做粗粒度驗證，回來的值仍可能
+   * 越界（例如 130）或帶小數（37.4）。直接塞進 style 的 width 會讓進度條畫出容器
+   * 之外，百分比文字也會變成「37.4%」。這裡一次收斂成整數。
+   *
+   * @param {{pct?: number}|null} item 書籤或歷程條目
+   * @returns {number|null} 0–100 的整數；該條目沒有進度時回 null
+   */
+  function libraryProgressPct(item) {
+    if (!item || typeof item.pct !== 'number' || !Number.isFinite(item.pct)) return null;
+    return Math.max(0, Math.min(100, Math.round(item.pct)));
+  }
+
+  /**
+   * 進度條標記。書籤與歷程共用同一份，兩邊視覺才不會各說各話。
+   * @param {number|null} pct 已正規化的百分比
+   * @returns {string} HTML 片段；沒有進度時回空字串
+   */
+  function libraryProgressBarHtml(pct) {
+    if (typeof pct !== 'number') return '';
+    return `<span class="library-bar" aria-hidden="true"><i style="width:${pct}%"></i></span>`;
+  }
+
   function renderLibrary() {
     const listEl = $('libraryList');
     if (!listEl) return;
@@ -12597,11 +12627,16 @@
             // 書籤自己記閱讀進度（隨帳號同步）；舊書籤還沒有時，借用歷程裡的進度
             const prog = typeof b.pct === 'number' ? b : recent.find(r => r.filePath === b.filePath);
             const progLine = prog && prog.line ? Number(prog.line) || 0 : 0;
+            // 與「歷程」一致的進度呈現：細進度條 + 右側百分比。
+            // 進度沿用同一組 .library-bar / .library-pct 樣式，兩邊視覺才不會各說各話。
+            const pct = libraryProgressPct(prog);
             html += `<div class="library-item${current}">`
               + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''} title="${escHtml(b.filePath || '')}">`
               + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
-              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}${prog && typeof prog.pct === 'number' ? ` · 讀到 ${prog.pct}%` : ''}</span>` : '')
+              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
+              + libraryProgressBarHtml(pct)
               + `</button>`
+              + (pct !== null ? `<span class="library-pct" title="上次讀到的位置">${pct}%</span>` : '')
               + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
               + `</div>`;
           }
@@ -12620,15 +12655,16 @@
           if (!list.length) return;
           html += `<div class="library-group static"><span class="library-group-name">${labels[g]}</span><span class="library-group-count">${list.length}</span></div>`;
           for (const r of list) {
-            const hasPct = typeof r.pct === 'number';
+            // 百分比一律夾在 0–100：跨裝置同步回來的值可能越界，會把進度條畫出容器外。
+            const pct = libraryProgressPct(r);
             const current = r.filePath === state.currentFile ? ' current' : '';
             html += `<div class="library-item${current}">`
               + `<button type="button" class="library-open" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath || '')}">`
               + `<span class="library-item-title">${escHtml(libraryTitleOf(r))}</span>`
               + `<span class="library-item-sub">${escHtml(libraryFolderOf(r.filePath))}${r.time ? ` · ${escHtml(r.time)}` : ''}</span>`
-              + (hasPct ? `<span class="library-bar" aria-hidden="true"><i style="width:${r.pct}%"></i></span>` : '')
+              + libraryProgressBarHtml(pct)
               + `</button>`
-              + (hasPct ? `<span class="library-pct" title="上次讀到的位置">${r.pct}%</span>` : '')
+              + (pct !== null ? `<span class="library-pct" title="上次讀到的位置">${pct}%</span>` : '')
               + `<button type="button" class="library-del" data-del-recent="${escHtml(r.filePath)}" title="移除紀錄" aria-label="移除紀錄：${escHtml(libraryTitleOf(r))}">✕</button>`
               + `</div>`;
           }
