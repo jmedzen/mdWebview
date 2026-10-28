@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.1.3
+   mdWebview — Application Logic (app.js) v4.2.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -410,6 +410,8 @@
     deployTarget: appConfig.deployTarget || 'web',
     siteName: appConfig.siteName || 'mdWebview',
     fileSort: 'name-asc',
+    fileTreeFilter: '',
+    tocFilter: '',
     searchSort: 'relevance',
     searchMode: (() => {
       const saved = storage.get(STORAGE_KEYS.SEARCH_MODE);
@@ -1819,6 +1821,11 @@
     disconnectScrollSpy();
     headingTextMap.clear();
     cachedLineAnchors = [];
+    resetTocFilterUI();
+    const tocList = $('tocList');
+    if (tocList) {
+      tocList.innerHTML = '<div class="panel-placeholder"><span class="panel-placeholder-icon">📑</span><span>開啟檔案後顯示大綱</span></div>';
+    }
     updateEntryNav();
 
     const welcome = $('welcomeScreen');
@@ -2309,9 +2316,7 @@
       buildWikilinkIndex(state.treeData);
       buildFileSizeMap(state.treeData);
       populateSearchFolderSelect(state.treeData);
-      container.innerHTML = '';
-      const sorted = sortTreeNodes(state.treeData, state.fileSort);
-      renderTreeNodes(sorted, container, 0);
+      renderFileTree();
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
       showToast('檔案目錄載入失敗，請重新整理', 'error');
@@ -2372,25 +2377,82 @@
     }
   }
 
-  function renderTreeNodes(nodes, container, level) {
+  /**
+   * 側欄即時篩選（檔案瀏覽器與本頁大綱共用）的正規化工具：
+   * 轉小寫，並在開啟簡繁字組比對或簡體顯示時將字元折疊為字組代表字。
+   */
+  function foldSidebarFilterText(str) {
+    if (!str) return '';
+    const lower = String(str).toLowerCase();
+    const sv = s2tQueryEnabled() ? window.mdSearchVariants : null;
+    return sv ? sv.fold(lower) : lower;
+  }
+
+  function parseSidebarFilterTerms(query) {
+    const q = (query || '').trim();
+    if (!q) return [];
+    return q.split(/\s+/).filter(Boolean).map(foldSidebarFilterText);
+  }
+
+  function matchesSidebarFilter(text, foldedTerms) {
+    if (!foldedTerms || foldedTerms.length === 0) return true;
+    const target = foldSidebarFilterText(text);
+    for (let i = 0; i < foldedTerms.length; i++) {
+      if (!target.includes(foldedTerms[i])) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 依關鍵字遞迴篩選檔案樹：
+   * - 若資料夾或上層路徑已命中，保留其下子項目（或有更精確命中時只留命中項）
+   * - 若檔案本身（檔名或完整相對路徑）命中全部詞組則保留
+   * - 只要子樹中有任何命中檔案，即保留該上層資料夾
+   */
+  function filterTreeNodes(nodes, foldedTerms) {
+    if (!Array.isArray(nodes)) return [];
+    if (!foldedTerms || foldedTerms.length === 0) return nodes;
+    const out = [];
+    for (const node of nodes) {
+      if (node.type === 'directory') {
+        const selfMatch = matchesSidebarFilter(`${node.path || ''} ${node.name || ''}`, foldedTerms);
+        const filteredChildren = filterTreeNodes(node.children || [], foldedTerms);
+        if (filteredChildren.length > 0) {
+          out.push({ ...node, children: filteredChildren });
+        } else if (selfMatch && Array.isArray(node.children) && node.children.length > 0) {
+          out.push({ ...node });
+        }
+      } else {
+        if (matchesSidebarFilter(`${node.path || ''} ${node.name || ''}`, foldedTerms)) {
+          out.push(node);
+        }
+      }
+    }
+    return out;
+  }
+
+  function renderTreeNodes(nodes, container, level, expandAll = false) {
     if (!Array.isArray(nodes) || !container) return;
-    nodes.forEach((node, idx) => {
+    const frag = document.createDocumentFragment();
+    nodes.forEach((node) => {
       const item = document.createElement('div');
       item.className = 'tree-item';
 
       if (node.type === 'directory') {
+        const expClass = expandAll ? ' expanded' : '';
+        const iconChar = expandAll ? '📂' : '📁';
         item.innerHTML = `
           <div class="tree-item-row tree-folder" style="padding-left:${8 + level * 16}px" data-path="${escHtml(node.path)}">
-            <span class="tree-chevron">›</span>
-            <span class="tree-icon">📁</span>
+            <span class="tree-chevron${expClass}">›</span>
+            <span class="tree-icon">${iconChar}</span>
             <span class="tree-name">${escHtml(node.name)}</span>
             <span class="tree-file-count">${countFiles(node)}</span>
           </div>
-          <div class="tree-children"></div>
+          <div class="tree-children${expClass}"></div>
         `;
         const childrenEl = item.querySelector('.tree-children');
         if (Array.isArray(node.children)) {
-          renderTreeNodes(node.children, childrenEl, level + 1);
+          renderTreeNodes(node.children, childrenEl, level + 1, expandAll);
         }
 
         const row = item.querySelector('.tree-item-row');
@@ -2411,8 +2473,107 @@
         row.addEventListener('click', () => openFile(node.path));
       }
 
-      container.appendChild(item);
+      frag.appendChild(item);
     });
+    container.appendChild(frag);
+  }
+
+  function renderFileTree() {
+    const container = $('fileTree');
+    if (!container || !Array.isArray(state.treeData)) return;
+    const sorted = sortTreeNodes(state.treeData, state.fileSort);
+    const terms = parseSidebarFilterTerms(state.fileTreeFilter);
+    const isFiltering = terms.length > 0;
+    const visibleNodes = isFiltering ? filterTreeNodes(sorted, terms) : sorted;
+    state._lastFileTreeFilterMatches = isFiltering
+      ? visibleNodes.reduce((sum, n) => sum + countFiles(n), 0)
+      : 0;
+
+    container.innerHTML = '';
+    if (visibleNodes.length === 0) {
+      if (isFiltering) {
+        container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">📂</span><span>沒有符合「${escHtml(state.fileTreeFilter.trim())}」的檔案</span></div>`;
+      } else {
+        container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">📂</span><span>目錄內尚無經文檔案</span></div>`;
+      }
+      updateCollapseBtnUI($('fileCollapseAllBtn'), false);
+      return;
+    }
+
+    renderTreeNodes(visibleNodes, container, 0, isFiltering);
+    updateCollapseBtnUI($('fileCollapseAllBtn'), isFiltering);
+
+    if (state.currentFile && !String(state.currentFile).startsWith('dict:')) {
+      const target = container.querySelector(`.tree-file[data-path="${CSS.escape(state.currentFile)}"]`);
+      if (target) {
+        target.classList.add('active');
+        if (!isFiltering) expandTreeAncestors(target);
+      }
+    }
+  }
+
+  // ── 檔案瀏覽器篩選日誌與數據分析（含注音/拼音組字感知與靜止去抖）──────
+  // 中文輸入法（注音、拼音）在選字完成前會連續觸發 input 事件，且使用者打一個詞
+  // 可能分兩三次選字。因此：
+  //   1. compositionstart 期間一律不排程日誌，待 compositionend 才開始計時；
+  //   2. 純注音符號（ㄅ–ㄩ 與聲調符號）不送出日誌；
+  //   3. 輸入框完全無動作滿 FILE_TREE_FILTER_LOG_DEBOUNCE_MS (1200ms) 後才送出，
+  //      且與上一筆已記錄字串相同時不重複送出。
+  const FILE_TREE_FILTER_LOG_DEBOUNCE_MS = 1200;
+  const BOPOMOFO_ONLY_RE = /^[\u3105-\u312F\u02CA\u02C7\u02CB\u02D9\s]+$/;
+  let _fileFilterLogTimer = null;
+  let _isFileFilterComposing = false;
+  let _lastLoggedFileTreeFilter = '';
+
+  function sendFileTreeFilterEvent(query, matches) {
+    const q = String(query || '').trim();
+    if (!q) return;
+    try {
+      fetch('/api/tree-filter-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, matches: Number(matches) || 0 }),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  function cancelFileTreeFilterLog() {
+    if (_fileFilterLogTimer) {
+      clearTimeout(_fileFilterLogTimer);
+      _fileFilterLogTimer = null;
+    }
+  }
+
+  function scheduleFileTreeFilterLog(rawQuery) {
+    cancelFileTreeFilterLog();
+    if (_isFileFilterComposing) return;
+    const q = String(rawQuery == null ? state.fileTreeFilter : rawQuery).trim();
+    if (!q || BOPOMOFO_ONLY_RE.test(q)) return;
+
+    _fileFilterLogTimer = setTimeout(() => {
+      _fileFilterLogTimer = null;
+      if (_isFileFilterComposing) return;
+      const finalQ = String(state.fileTreeFilter || '').trim();
+      if (!finalQ || BOPOMOFO_ONLY_RE.test(finalQ)) return;
+      if (finalQ === _lastLoggedFileTreeFilter) return;
+      _lastLoggedFileTreeFilter = finalQ;
+      sendFileTreeFilterEvent(finalQ, state._lastFileTreeFilterMatches || 0);
+    }, FILE_TREE_FILTER_LOG_DEBOUNCE_MS);
+  }
+
+  function applyFileTreeFilter(rawQuery) {
+    const val = rawQuery == null ? '' : String(rawQuery);
+    state.fileTreeFilter = val;
+    const input = $('fileTreeFilterInput');
+    if (input && input.value !== val) input.value = val;
+    const clearBtn = $('fileTreeFilterClear');
+    if (clearBtn) clearBtn.hidden = !val.trim();
+    if (!val.trim()) {
+      cancelFileTreeFilterLog();
+      _lastLoggedFileTreeFilter = '';
+    }
+    renderFileTree();
   }
 
   const ICON_COLLAPSE_ALL = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5L8 6.5L13 3.5"/><path d="M3 12.5L8 9.5L13 12.5"/></svg>`;
@@ -2567,7 +2728,11 @@
     const filesTab = document.querySelector('.sidebar-tab[data-tab="files"]');
     if (filesTab && !filesTab.classList.contains('active')) filesTab.click();
 
-    const row = document.querySelector(`.tree-item-row[data-path="${CSS.escape(treePath)}"]`);
+    let row = document.querySelector(`.tree-item-row[data-path="${CSS.escape(treePath)}"]`);
+    if (!row && state.fileTreeFilter) {
+      applyFileTreeFilter('');
+      row = document.querySelector(`.tree-item-row[data-path="${CSS.escape(treePath)}"]`);
+    }
     if (!row) return;
     expandTreeAncestors(row);
     if (row.classList.contains('tree-folder')) {
@@ -3202,6 +3367,8 @@
       minLevel = 1;
     }
     v._collapsedEntries = v._collapsedEntries || new Set();
+    const filterTerms = parseSidebarFilterTerms(state.tocFilter);
+    const isFiltering = filterTerms.length > 0;
 
     let skipUntilLevel = -1;
 
@@ -3209,7 +3376,7 @@
       const e = v.entries[i];
       const level = e.level || 1;
 
-      if (skipUntilLevel > 0) {
+      if (!isFiltering && skipUntilLevel > 0) {
         if (level > skipUntilLevel) {
           continue; // Child under a collapsed ancestor
         } else {
@@ -3217,10 +3384,14 @@
         }
       }
 
-      const hasChildren = (i + 1 < v.entries.length) && ((v.entries[i + 1].level || 1) > level);
-      const isCollapsed = v._collapsedEntries.has(i);
-      const depth = Math.max(0, level - minLevel);
       const label = cleanHeadingText(e.h || '');
+      if (isFiltering && !matchesSidebarFilter(label, filterTerms)) {
+        continue;
+      }
+
+      const hasChildren = !isFiltering && (i + 1 < v.entries.length) && ((v.entries[i + 1].level || 1) > level);
+      const isCollapsed = !isFiltering && v._collapsedEntries.has(i);
+      const depth = Math.max(0, level - minLevel);
 
       items.push({
         type: 'entry',
@@ -3254,6 +3425,18 @@
     if (!v || !v._tocItems || !v._tocOffsets || !v._tocWindow) return;
     const items = v._tocItems;
     const offsets = v._tocOffsets;
+    if (items.length === 0) {
+      v._tocRenderedStart = -1;
+      v._tocRenderedEnd = -1;
+      v._tocSpacerTop.style.height = '0px';
+      v._tocSpacerBottom.style.height = '0px';
+      v._tocRowEls.clear();
+      const q = (state.tocFilter || '').trim();
+      v._tocWindow.innerHTML = q
+        ? `<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>沒有符合「${escHtml(q)}」的標題</span></div>`
+        : '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
+      return;
+    }
     const scrollTop = tocList.scrollTop;
     const viewportH = tocList.clientHeight || 400;
 
@@ -3435,7 +3618,7 @@
     disconnectScrollSpy();
     buildVirtualTocItems(v);
 
-    if (v._tocItems.length === 0) {
+    if (!v.entries || v.entries.length === 0) {
       tocList.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">📑</span><span>此文件沒有標題</span></div>';
       return;
     }
@@ -3651,7 +3834,9 @@
     state._openFileAbort = abortCtrl;
     cachedLineAnchors = [];
 
+    const isSwitchingFile = state.currentFile !== filePath;
     state.currentFile = filePath;
+    if (isSwitchingFile) resetTocFilterUI();
     log.info(`Opening file "${filePath}"${scrollToLineNum ? ` (Line: ${scrollToLineNum})` : ''}`);
 
     addRecentFile(filePath);
@@ -4891,8 +5076,100 @@
     }
 
     tocList.appendChild(fragment);
+    applyStandardTocFilter();
     syncTocCollapseBtnState();
     setupScrollSpy(validItems.map(item => item.h));
+  }
+
+  function resetTocFilterUI() {
+    state.tocFilter = '';
+    const input = $('tocFilterInput');
+    if (input && input.value !== '') input.value = '';
+    const clearBtn = $('tocFilterClear');
+    if (clearBtn) clearBtn.hidden = true;
+  }
+
+  function applyStandardTocFilter() {
+    const tocList = $('tocList');
+    if (!tocList || isVirtualMode()) return;
+    const rows = Array.from($$('.toc-item-row', tocList));
+    const oldEmpty = $('tocFilterEmpty');
+    if (oldEmpty) oldEmpty.remove();
+    if (rows.length === 0) return;
+
+    const terms = parseSidebarFilterTerms(state.tocFilter);
+    if (terms.length === 0) {
+      // 還原依階層收折狀態決定的可見性
+      let hideBelowLevel = Infinity;
+      for (let i = 0; i < rows.length; i++) {
+        const curLevel = parseInt(rows[i].getAttribute('data-level'), 10) || 1;
+        if (curLevel > hideBelowLevel) {
+          rows[i].classList.add('is-hidden');
+        } else {
+          rows[i].classList.remove('is-hidden');
+          if (rows[i].classList.contains('collapsed')) {
+            hideBelowLevel = curLevel;
+          } else {
+            hideBelowLevel = Infinity;
+          }
+        }
+      }
+      return;
+    }
+
+    let matchCount = 0;
+    const ds = window.mdDisplayScript;
+    for (let i = 0; i < rows.length; i++) {
+      const labelEl = rows[i].querySelector('.toc-item-label');
+      const text = (ds && ds.isActive() && labelEl)
+        ? ds.originalTextContent(labelEl)
+        : (labelEl ? labelEl.textContent : rows[i].textContent);
+      if (matchesSidebarFilter(text || '', terms)) {
+        rows[i].classList.remove('is-hidden');
+        matchCount++;
+      } else {
+        rows[i].classList.add('is-hidden');
+      }
+    }
+
+    if (matchCount === 0) {
+      const empty = document.createElement('div');
+      empty.id = 'tocFilterEmpty';
+      empty.className = 'panel-placeholder';
+      empty.innerHTML = `<span class="placeholder-icon">📑</span><span>沒有符合「${escHtml(state.tocFilter.trim())}」的標題</span>`;
+      tocList.appendChild(empty);
+    }
+  }
+
+  function applyTocFilter(rawQuery) {
+    const val = rawQuery == null ? '' : String(rawQuery);
+    state.tocFilter = val;
+    const input = $('tocFilterInput');
+    if (input && input.value !== val) input.value = val;
+    const clearBtn = $('tocFilterClear');
+    if (clearBtn) clearBtn.hidden = !val.trim();
+
+    const tocList = $('tocList');
+    if (isVirtualMode() && state.virtual) {
+      const v = state.virtual;
+      buildVirtualTocItems(v);
+      v._tocRenderedStart = -1;
+      v._tocRenderedEnd = -1;
+      if (tocList) tocList.scrollTop = 0;
+      renderTocWindow();
+      syncTocCollapseBtnState();
+      if (!val.trim()) {
+        updateVirtualScrollSpy(estimateLineFromScrollTop());
+      }
+      return;
+    }
+
+    applyStandardTocFilter();
+    if (tocList) tocList.scrollTop = 0;
+    syncTocCollapseBtnState();
+    if (!val.trim() && state.refreshScrollSpy) {
+      state.refreshScrollSpy(false);
+    }
   }
 
   function toggleSubtreeVisibility(rows, parentIdx, isCollapsed) {
@@ -4994,6 +5271,9 @@
           r.classList.remove('is-hidden');
         }
       });
+    }
+    if (state.tocFilter && state.tocFilter.trim()) {
+      applyStandardTocFilter();
     }
     syncTocCollapseBtnState();
     if (state.refreshScrollSpy) {
@@ -6727,6 +7007,12 @@
     if (saveToLocalStorage) {
       storage.set(STORAGE_KEYS.AUTO_S2T, enabled ? 'true' : 'false');
     }
+    if (state.fileTreeFilter && state.fileTreeFilter.trim()) {
+      renderFileTree();
+    }
+    if (state.tocFilter && state.tocFilter.trim()) {
+      applyTocFilter(state.tocFilter);
+    }
   }
 
   // ── 繁／簡顯示 (Display Script) ───────────────────────────
@@ -6794,6 +7080,8 @@
    *
    * 搜尋高亮會把文字節點切開再組回去，新節點只拿得到簡體字，切回繁體時
    * 無法逐字還原。偵測到這種節點就重新渲染目前檔案，確保繁體與原文一致。
+   * 圖表（.mermaid-container 內的 Pele SVG）本來就不轉換，裡面的簡體字是原文，
+   * 不算數，否則圖表含簡體字時每次切回繁體都會整篇重渲染。
    */
   function contentHasUnrestorableText() {
     const ds = window.mdDisplayScript;
@@ -6804,7 +7092,7 @@
     let n;
     while ((n = walker.nextNode())) {
       if (ds.originalText(n) === n.data && sv.hasSimplified(n.data) &&
-          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid'))) {
+          !(n.parentElement && n.parentElement.closest('code, pre, .katex, .mermaid, .mermaid-container, .pele'))) {
         return true;
       }
     }
@@ -7598,7 +7886,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8308,15 +8596,54 @@
         const labels = { 'name-asc': '名稱↑', 'name-desc': '名稱↓', 'modified-desc': '時間↓', 'modified-asc': '時間↑' };
         $('fileSortLabel').textContent = labels[sort] || '名稱';
         $('fileSortDropdown').classList.remove('open');
-        // Re-render tree with new sort
-        const container = $('fileTree');
-        container.innerHTML = '';
-        renderTreeNodes(sortTreeNodes(state.treeData, sort), container, 0);
+        // Re-render tree with new sort (preserving active filter)
+        renderFileTree();
       });
     });
 
     // ── File Collapse All ──
     $('fileCollapseAllBtn').addEventListener('click', collapseAllFolders);
+
+    // ── File Tree Quick Filter ──
+    const fileTreeFilterInput = $('fileTreeFilterInput');
+    const fileTreeFilterClear = $('fileTreeFilterClear');
+    if (fileTreeFilterInput) {
+      const debouncedFileFilter = debounce((v) => applyFileTreeFilter(v), 60);
+      fileTreeFilterInput.addEventListener('compositionstart', () => {
+        _isFileFilterComposing = true;
+        cancelFileTreeFilterLog();
+      });
+      fileTreeFilterInput.addEventListener('compositionend', () => {
+        _isFileFilterComposing = false;
+        const val = fileTreeFilterInput.value;
+        if (fileTreeFilterClear) fileTreeFilterClear.hidden = !val.trim();
+        applyFileTreeFilter(val);
+        scheduleFileTreeFilterLog(val);
+      });
+      fileTreeFilterInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (fileTreeFilterClear) fileTreeFilterClear.hidden = !val.trim();
+        debouncedFileFilter(val);
+        if (e.isComposing || _isFileFilterComposing) {
+          cancelFileTreeFilterLog();
+        } else {
+          scheduleFileTreeFilterLog(val);
+        }
+      });
+      fileTreeFilterInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && fileTreeFilterInput.value) {
+          e.preventDefault();
+          e.stopPropagation();
+          applyFileTreeFilter('');
+        }
+      });
+    }
+    if (fileTreeFilterClear) {
+      fileTreeFilterClear.addEventListener('click', () => {
+        applyFileTreeFilter('');
+        if (fileTreeFilterInput) fileTreeFilterInput.focus();
+      });
+    }
 
     // ── Search Sort Dropdown ──
     $('searchSortBtn').addEventListener('click', (e) => {
@@ -8352,6 +8679,31 @@
 
     // ── TOC Collapse All ──
     $('tocCollapseAllBtn').addEventListener('click', tocCollapseAll);
+
+    // ── TOC Quick Filter ──
+    const tocFilterInput = $('tocFilterInput');
+    const tocFilterClear = $('tocFilterClear');
+    if (tocFilterInput) {
+      const debouncedTocFilter = debounce((v) => applyTocFilter(v), 50);
+      tocFilterInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (tocFilterClear) tocFilterClear.hidden = !val.trim();
+        debouncedTocFilter(val);
+      });
+      tocFilterInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && tocFilterInput.value) {
+          e.preventDefault();
+          e.stopPropagation();
+          applyTocFilter('');
+        }
+      });
+    }
+    if (tocFilterClear) {
+      tocFilterClear.addEventListener('click', () => {
+        applyTocFilter('');
+        if (tocFilterInput) tocFilterInput.focus();
+      });
+    }
 
     // ── Close dropdowns on outside click ──
     document.addEventListener('click', () => {
@@ -9420,7 +9772,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const headerVer = $('userSettingsHeaderVersion');
     const footerVer = $('userSettingsFooterVersion');
@@ -9754,7 +10106,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.1.3';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -14279,73 +14631,148 @@
     // 無法還原時保留畫面上的簡體字，由字組比對涵蓋。
     let currentSelectedText = '';
 
+    // 觸發來源：桌機滑鼠放開走 mouseup；手機長按選字、拖曳選取把手時頁面
+    // 收不到可靠的 mouseup（iOS 拖把手連 touch 事件都沒有），改由 selectionchange
+    // 去抖觸發，touchend 為備援。三者共用同一個計時器，不會重複計算。
+    const SELECTION_MOUSE_DELAY = 50;
+    const SELECTION_CHANGE_DELAY = 300;
+    const SELECTION_TOUCH_DELAY = 400;
+    let selectionTimer = null;
+    let mouseSelecting = false;      // 滑鼠按住拖曳中，交給 mouseup 處理
+    let lastInputWasTouch = false;   // 觸控時彈窗放在選取下方，避開系統選單
+    let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
+
+    const hidePopup = () => popup.classList.remove('visible');
+    const scheduleSelectionCheck = (delay) => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(updateSelectionPopup, delay);
+    };
+
+    function updateSelectionPopup() {
+      selectionTimer = null;
+      const selection = window.getSelection();
+      const text = selection ? selection.toString().trim() : '';
+
+      if (!text || !state.currentFile || selection.rangeCount === 0) {
+        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        return;
+      }
+
+      // Check if the selection is inside markdownBody
+      const range = selection.getRangeAt(0);
+      const container = $('markdownBody');
+      if (!container || !container.contains(range.commonAncestorContainer)) {
+        hidePopup();
+        return;
+      }
+
+      // Get the line number of the start of selection
+      const lineNum = getSelectionLineNumber(selection);
+      if (!lineNum) {
+        hidePopup();
+        return;
+      }
+
+      currentSelectedText = text;
+      const ds = window.mdDisplayScript;
+      if (isHansDisplay() && ds && ds.isActive()) {
+        const orig = ds.originalTextOfRange(range);
+        if (orig && orig.trim()) currentSelectedText = orig.trim();
+      }
+      currentLineNum = lineNum;
+
+      // Show popup
+      popup.classList.toggle('touch', lastInputWasTouch);
+      popup.classList.add('visible');
+
+      const popupWidth = popup.offsetWidth || 280;
+      const popupHeight = popup.offsetHeight || 34;
+      const rect = range.getBoundingClientRect();
+      const rects = range.getClientRects();
+      const firstRect = rects.length ? rects[0] : rect;
+      const lastRect = rects.length ? rects[rects.length - 1] : rect;
+
+      // 可見範圍以 visualViewport 為準（手機雙指放大時 innerWidth 不等於可見寬度）
+      const vv = window.visualViewport;
+      const viewLeft = vv ? vv.offsetLeft : 0;
+      const viewTop = vv ? vv.offsetTop : 0;
+      const viewWidth = vv ? vv.width : window.innerWidth;
+      const viewHeight = vv ? vv.height : window.innerHeight;
+
+      let top;
+      let left;
+      if (lastInputWasTouch) {
+        // iOS／Android 的原生選單都在選取上方，彈窗放在最後一行下方，
+        // 並留出選取把手的高度；下方不夠時才放到第一行上方。
+        const HANDLE_GAP = 28;
+        top = lastRect.bottom + HANDLE_GAP;
+        left = lastRect.left + lastRect.width / 2 - popupWidth / 2;
+        if (top + popupHeight > viewTop + viewHeight - 8) {
+          top = firstRect.top - popupHeight - HANDLE_GAP;
+        }
+      } else {
+        // Right above the selection; flip below when there is no room
+        top = rect.top - popupHeight - 8;
+        left = rect.left + rect.width / 2 - popupWidth / 2;
+        if (top < viewTop + 8) top = rect.bottom + 8;
+      }
+
+      if (left < viewLeft + 10) left = viewLeft + 10;
+      if (left + popupWidth > viewLeft + viewWidth - 10) {
+        left = Math.max(viewLeft + 10, viewLeft + viewWidth - popupWidth - 10);
+      }
+      top = Math.max(viewTop + 4, Math.min(top, viewTop + viewHeight - popupHeight - 4));
+
+      popup.style.top = `${Math.max(0, top + window.scrollY)}px`;
+      popup.style.left = `${Math.max(0, left + window.scrollX)}px`;
+
+      // Update share link using unencoded Chinese URL
+      const baseUrl = window.location.origin + window.location.pathname;
+      const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
+      currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
+
+      // Reset label
+      shareLabel.textContent = `分享第 ${lineNum} 行`;
+      shareBtn.classList.remove('copied');
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+      if (popup.contains(e.target)) return;
+      lastInputWasTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
+      mouseSelecting = e.pointerType === 'mouse' && e.button === 0;
+    }, true);
+
     document.addEventListener('mouseup', () => {
+      mouseSelecting = false;
       // Small timeout to let selection clear/update
-      setTimeout(() => {
-        const selection = window.getSelection();
-        const text = selection.toString().trim();
-        
-        if (!text || !state.currentFile) {
-          popup.classList.remove('visible');
-          return;
-        }
-
-        // Check if the selection is inside markdownBody
-        const range = selection.getRangeAt(0);
-        const container = $('markdownBody');
-        if (!container.contains(range.commonAncestorContainer)) {
-          popup.classList.remove('visible');
-          return;
-        }
-
-        // Get the line number of the start of selection
-        const lineNum = getSelectionLineNumber(selection);
-        if (!lineNum) {
-          popup.classList.remove('visible');
-          return;
-        }
-
-        currentSelectedText = text;
-        const ds = window.mdDisplayScript;
-        if (isHansDisplay() && ds && ds.isActive()) {
-          const orig = ds.originalTextOfRange(range);
-          if (orig && orig.trim()) currentSelectedText = orig.trim();
-        }
-        currentLineNum = lineNum;
-
-        // Calculate position: right above/right of the selection
-        const rect = range.getBoundingClientRect();
-        
-        // Show popup
-        popup.classList.add('visible');
-        
-        const popupWidth = popup.offsetWidth || 280;
-        const popupHeight = popup.offsetHeight || 34;
-        
-        let top = rect.top + window.scrollY - popupHeight - 8;
-        let left = rect.left + rect.width / 2 + window.scrollX - popupWidth / 2;
-
-        if (left < 10) left = 10;
-        if (left + popupWidth > window.innerWidth - 10) {
-          left = Math.max(10, window.innerWidth - popupWidth - 10);
-        }
-        if (top < window.scrollY + 8) {
-          top = rect.bottom + window.scrollY + 8;
-        }
-        
-        popup.style.top = `${Math.max(0, top)}px`;
-        popup.style.left = `${Math.max(0, left)}px`;
-
-        // Update share link using unencoded Chinese URL
-        const baseUrl = window.location.origin + window.location.pathname;
-        const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-        currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
-
-        // Reset label
-        shareLabel.textContent = `分享第 ${lineNum} 行`;
-        shareBtn.classList.remove('copied');
-      }, 50);
+      scheduleSelectionCheck(lastInputWasTouch ? SELECTION_TOUCH_DELAY : SELECTION_MOUSE_DELAY);
     });
+
+    document.addEventListener('touchend', (e) => {
+      if (popup.contains(e.target)) return;
+      lastInputWasTouch = true;
+      mouseSelecting = false;
+      scheduleSelectionCheck(SELECTION_TOUCH_DELAY);
+    }, { passive: true });
+
+    document.addEventListener('selectionchange', () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        clearTimeout(selectionTimer);
+        selectionTimer = null;
+        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        return;
+      }
+      if (mouseSelecting) return;
+      // 選取仍在變動（拖曳把手中）：先藏起來，停手後再依新位置顯示
+      if (!shareBtn.classList.contains('copied')) hidePopup();
+      scheduleSelectionCheck(SELECTION_CHANGE_DELAY);
+    });
+
+    // 觸碰彈窗按鈕時，系統可能在 click 前先清掉選取；暫緩隱藏讓 click 能送達
+    popup.addEventListener('touchstart', () => {
+      popupTouchGuardUntil = Date.now() + 800;
+    }, { passive: true });
 
     // Prevent selection from clearing when clicking the popup button
     popup.addEventListener('mousedown', (e) => {

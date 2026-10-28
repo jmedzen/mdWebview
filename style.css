@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.1.3
+   mdWebview — Style System (style.css) v4.2.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -866,6 +866,71 @@ body,
 .placeholder-icon {
   font-size: calc(var(--sidebar-font-size) * 28 / 13);
   opacity: 0.5;
+}
+
+/* ── Sidebar Quick Filter (File Tree & TOC) ────────────────── */
+.sidebar-filter-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 98%;
+  margin: 0 auto 6px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.sidebar-filter-input {
+  flex: 1;
+  min-width: 0;
+  height: 29px;
+  padding: 0 26px 0 9px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--cjk-serif), 'Inter', sans-serif;
+  font-size: calc(var(--sidebar-font-size) * 12 / 13);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.sidebar-filter-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.sidebar-filter-input::placeholder {
+  color: var(--text-muted);
+}
+
+.sidebar-filter-clear {
+  position: absolute;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-filter-clear[hidden] {
+  display: none !important;
+}
+
+.sidebar-filter-clear:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 /* ── §7 File Tree ──────────────────────────────────────────── */
@@ -2975,6 +3040,9 @@ img.markdown-img:hover {
   .dict-search-input {
     font-size: 16px !important;
   }
+  .sidebar-filter-input {
+    font-size: 16px !important;
+  }
   .dict-results,
   .dict-file-list {
     -webkit-overflow-scrolling: touch;
@@ -4524,6 +4592,11 @@ img.markdown-img:hover {
   padding: 3px 4px;
   animation: popupFadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: auto;
+  /* 點彈窗不應開始選字或叫出長按選單（手機） */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 
 .selection-share-popup.visible {
@@ -4565,6 +4638,12 @@ img.markdown-img:hover {
   opacity: 0.6;
   margin: 0 2px;
   flex-shrink: 0;
+}
+
+/* 觸控選字時按鈕加大，方便手指點按 */
+.selection-share-popup.touch button {
+  min-height: 40px;
+  padding: 8px 11px;
 }
 
 /* ── §28 Line Highlight ─────────────────────────────────────── */

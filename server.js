@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.1.3
+ * @version 4.2.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -102,6 +102,7 @@ const {
 
 const {
   analyticsStore, getLogFilePath, appendToPersistentLog, getAnalyticsEventId,
+  cleanAnalyticsDocPath, normalizeDailyBucket,
   updateAnalyticsStoreEntry, saveAnalyticsStore, queueAnalyticsStoreEntry,
   initializeAnalyticsStore, cleanOldLogsJob, buildAggregateAnalyticsData,
   getAnalyticsData, parseAnalyticsRange,
@@ -150,6 +151,7 @@ marked.use({
 // server. Log it and keep serving. The per-request guards above handle the
 // known vectors; this is defense-in-depth for anything unexpected.
 process.on('uncaughtException', (err) => {
+  if (err && (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED')) return;
   Logger.error('Process', 'Uncaught exception', err);
 });
 process.on('unhandledRejection', (reason) => {
@@ -3561,6 +3563,26 @@ async function handleDictEvent(req, res) {
   return sendJSON(res, 400, { error: 'Unknown event kind' });
 }
 
+// ── API: File Tree Filter Event (Debounced Client Beacon) ────
+/**
+ * 接收前端「檔案瀏覽器」篩選框在輸入靜止（且注音/拼音組字結束）後送出的篩選事件，
+ * 寫入 Search 結構化日誌並納入 Analytics 搜尋次數與熱門關鍵字統計。
+ */
+async function handleTreeFilterEvent(req, res) {
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const q = String(data.query || '').trim().slice(0, 300);
+  if (!q) {
+    return sendJSON(res, 400, { error: 'Missing query' });
+  }
+  const matches = Number.isFinite(Number(data.matches))
+    ? Math.max(0, Math.floor(Number(data.matches)))
+    : 0;
+  searchMetrics.totalQueries++;
+  Logger.info('Search', `[tree-filter] Query: "${q}" -> ${matches} matches`, req, { query: q });
+  return sendJSON(res, 200, { ok: true });
+}
+
 // ── API: Full-text Search ────────────────────────────────────
 /**
  * 在全庫 Bigram 倒排索引中執行全文搜尋（GET /api/search?q=...）。
@@ -3972,7 +3994,7 @@ async function buildHotList(blackList) {
     if (seenHotIds.has(id)) return;
     seenHotIds.add(id);
 
-    let docPath = extractAnalyticsPath(item);
+    let docPath = cleanAnalyticsDocPath(extractAnalyticsPath(item));
     if (!docPath) return;
     docPath = docPath.trim().replace(/\\/g, '/');
     if (isBlacklisted(docPath)) return;
@@ -3990,12 +4012,21 @@ async function buildHotList(blackList) {
     });
   }
 
+  const rawCoveredDates = new Set();
+
   for (const file of files) {
-    if (!file.endsWith('.jsonl')) continue;
+    if (!file.endsWith('.jsonl') || file.includes('.sync-conflict-')) continue;
     const filePath = path.join(LOG_DIR, file);
     try {
-      const stats = await fs.promises.stat(filePath);
-      if (stats.mtimeMs < maxCutoff - (24 * 60 * 60 * 1000)) continue;
+      const dateMatch = file.match(/^access-(\d{4}-\d{2}-\d{2})\.jsonl$/);
+      if (dateMatch) {
+        rawCoveredDates.add(dateMatch[1]);
+        const fileEndTime = new Date(`${dateMatch[1]}T23:59:59.999Z`).getTime();
+        if (!Number.isNaN(fileEndTime) && fileEndTime < maxCutoff) continue;
+      } else {
+        const stats = await fs.promises.stat(filePath);
+        if (stats.mtimeMs < maxCutoff - (24 * 60 * 60 * 1000)) continue;
+      }
 
       const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
       const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
@@ -4010,6 +4041,32 @@ async function buildHotList(blackList) {
   // Also scan in-memory buffer (safely deduplicated by seenHotIds)
   for (const item of systemLogBuffer) {
     processHotEntry(item);
+  }
+
+  // Merge >7d simplified daily buckets from analyticsStore.daily for dates whose raw .jsonl was archived/deleted
+  const store = await initializeAnalyticsStore().catch(() => null);
+  if (store && store.daily) {
+    for (const [dateKey, rawBucket] of Object.entries(store.daily)) {
+      if (rawCoveredDates.has(dateKey)) continue;
+      const dayEndTime = new Date(`${dateKey}T23:59:59.999Z`).getTime();
+      if (Number.isNaN(dayEndTime) || dayEndTime < maxCutoff) continue;
+
+      const bucket = normalizeDailyBucket(rawBucket);
+      for (const [rawDocPath, viewCount] of Object.entries(bucket.files || {})) {
+        if (!viewCount) continue;
+        const docPath = rawDocPath.trim().replace(/\\/g, '/');
+        if (!docPath || isBlacklisted(docPath)) continue;
+        const fileName = docPath.split('/').pop().replace(/\.md$/, '');
+        windows.forEach((days, idx) => {
+          if (dayEndTime >= now - (days * 24 * 60 * 60 * 1000)) {
+            const m = windowMaps[idx];
+            let stat = m.get(docPath);
+            if (!stat) { stat = { path: docPath, fileName, views: 0 }; m.set(docPath, stat); }
+            stat.views += viewCount;
+          }
+        });
+      }
+    }
   }
 
   // Merge: 7d top5 -> 30d top5 -> 90d top5, deduplicated
@@ -4917,7 +4974,7 @@ const server = http.createServer((req, res) => {
       httpMetrics.recentRequestTimes.splice(0, httpMetrics.recentRequestTimes.length - MAX_RECENT_REQUEST_TIMES);
     }
 
-    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
+    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render' || pathname === '/api/tree-filter-event';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
       Logger.info('HTTP', `${req.method} ${pathname}${logSearch || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
@@ -5015,6 +5072,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/dict-event' && req.method === 'POST') {
     return handleDictEvent(req, res);
+  }
+  if (pathname === '/api/tree-filter-event' && req.method === 'POST') {
+    return handleTreeFilterEvent(req, res);
   }
   if (pathname === '/api/dict-files' && req.method === 'GET') {
     return handleDictFiles(req, res);
