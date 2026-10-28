@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.2.1
+ * @version 4.2.2
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -5268,7 +5268,7 @@ const server = http.createServer((req, res) => {
       if (suggestList !== undefined && (typeof suggestList !== 'object' || Array.isArray(suggestList))) {
         return sendJSON(res, 400, { error: '欄位 suggestList 必須為物件', code: 'INVALID_FIELD_TYPE', field: 'suggestList' });
       }
-      const KNOWN_THEMES = ['obsidian-dark', 'obsidian-light', 'solarized', 'zen', 'gruvbox'];
+      const KNOWN_THEMES = ['obsidian-dark', 'obsidian-light', 'solarized', 'zen', 'gruvbox', 'paper', 'moon', 'bamboo'];
       if (defaultTheme && !KNOWN_THEMES.includes(defaultTheme)) {
         return sendJSON(res, 400, { error: `未知的主題：${defaultTheme}`, code: 'INVALID_THEME', field: 'defaultTheme' });
       }
