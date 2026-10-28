@@ -633,3 +633,94 @@ describe('F13 — 持久化日誌寫入失敗不得遞迴自我記錄', () => {
       'appendToPersistentLog 內以 Logger 回報失敗會造成無限遞迴（Logger 會再呼叫 appendToPersistentLog）');
   });
 });
+
+// ── F14：7 天原生 Log 保留與 >7 天簡化日聚合雙層統計演算法 ────────────────────
+describe('F14 — 7 天原生 Log 保留與 >7 天簡化日聚合雙層演算法', () => {
+  test('cleanOldLogsJob 歸檔 >7 天的原生 jsonl 並刪除原檔，30d/90d 仍可由簡化日聚合正確查詢', async () => {
+    const analytics = require('../lib/analytics.js');
+    await analytics.initializeAnalyticsStore();
+
+    const now = Date.now();
+    const day15Ago = new Date(now - 15 * 24 * 60 * 60 * 1000);
+    const day2Ago = new Date(now - 2 * 24 * 60 * 60 * 1000);
+    const fmtDate = (d) => d.toISOString().split('T')[0];
+
+    const oldDateStr = fmtDate(day15Ago);
+    const recentDateStr = fmtDate(day2Ago);
+    const oldLogPath = path.join(TEST_LOG_DIR, `access-${oldDateStr}.jsonl`);
+    const recentLogPath = path.join(TEST_LOG_DIR, `access-${recentDateStr}.jsonl`);
+
+    const oldEntries = [
+      {
+        timestamp: `${oldDateStr}T10:00:00.000Z`,
+        level: 'INFO',
+        tag: 'Render',
+        ip: '198.51.100.42',
+        message: 'Loaded document: "sutra/old-15d.md" (2ms)',
+        path: 'sutra/old-15d.md',
+        seq: 9001
+      },
+      {
+        timestamp: `${oldDateStr}T10:05:00.000Z`,
+        level: 'INFO',
+        tag: 'Search',
+        ip: '198.51.100.42',
+        message: 'Query: "般若波羅蜜"',
+        query: '般若波羅蜜',
+        seq: 9002
+      }
+    ];
+    const recentEntries = [
+      {
+        timestamp: `${recentDateStr}T11:00:00.000Z`,
+        level: 'INFO',
+        tag: 'Render',
+        ip: '203.0.113.88',
+        message: 'Loaded document: "sutra/recent-2d.md" (1ms)',
+        path: 'sutra/recent-2d.md',
+        seq: 9003
+      }
+    ];
+
+    fs.writeFileSync(oldLogPath, oldEntries.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+    fs.writeFileSync(recentLogPath, recentEntries.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+
+    await analytics.cleanOldLogsJob();
+
+    assert.equal(fs.existsSync(oldLogPath), false, '超過 7 天的原生 jsonl 應在歸檔後被刪除');
+    assert.equal(fs.existsSync(recentLogPath), true, '7 天內的原生 jsonl 應保留');
+    assert.ok(analytics.analyticsStore.daily[oldDateStr], '超過 7 天的數據應已轉入 daily 簡化聚合');
+    assert.equal(analytics.analyticsStore.daily[oldDateStr].files['sutra/old-15d.md'], 1);
+    assert.equal(analytics.analyticsStore.daily[oldDateStr].searches['般若波羅蜜'], 1);
+
+    const data30d = await analytics.getAnalyticsData('30d', 'UTC');
+    const paths30d = data30d.topFiles.map(f => f.path);
+    assert.ok(paths30d.includes('sutra/old-15d.md'), '30d 報表應能從簡化日聚合讀出 15 天前被刪除 jsonl 的文章');
+    assert.ok(paths30d.includes('sutra/recent-2d.md'), '30d 報表應能同時讀出 2 天前保留 jsonl 的文章');
+    assert.ok(data30d.topSearches.some(s => s.query === '般若波羅蜜' && s.count >= 1), '30d 報表應包含 15 天前的搜尋詞');
+  });
+
+  test('normalizeDailyBucket 與 cleanAnalyticsDocPath 修復舊版髒路徑與 [object Object] 字串汙染', () => {
+    const { normalizeDailyBucket, cleanAnalyticsDocPath } = require('../lib/analytics.js');
+    assert.equal(cleanAnalyticsDocPath('20-辭典/佛光辭典.md -> 200 (41m'), '20-辭典/佛光辭典.md');
+    assert.equal(cleanAnalyticsDocPath('../../server.js'), '');
+
+    const dirtyBucket = {
+      views: 1,
+      searches: 2,
+      ips: {
+        '127.0.0.1': '[object Object]111',
+        '10.0.0.1': { requests: 5, lastAccess: '2026-08-15T00:00:00Z' }
+      },
+      files: {
+        '20-辭典/佛光辭典.md -> 200 (41m': { views: 2, ips: { '127.0.0.1': true } },
+        '20-辭典/佛光辭典.md -> 304 (1m': 3
+      }
+    };
+    const norm = normalizeDailyBucket(dirtyBucket);
+    assert.equal(norm.ips['127.0.0.1'], 4, '[object Object]111 應還原為 1 + 3 = 4 次');
+    assert.equal(norm.ips['10.0.0.1'], 5, '舊版物件結構應轉為整數計數');
+    assert.equal(norm.files['20-辭典/佛光辭典.md'], 5, '同路徑的髒尾綴應合併為單一乾淨路徑');
+    assert.equal(norm.views, 5, 'views 應與合併後的檔案點閱總和一致');
+  });
+});
