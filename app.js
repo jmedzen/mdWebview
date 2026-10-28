@@ -2485,6 +2485,9 @@
     const terms = parseSidebarFilterTerms(state.fileTreeFilter);
     const isFiltering = terms.length > 0;
     const visibleNodes = isFiltering ? filterTreeNodes(sorted, terms) : sorted;
+    state._lastFileTreeFilterMatches = isFiltering
+      ? visibleNodes.reduce((sum, n) => sum + countFiles(n), 0)
+      : 0;
 
     container.innerHTML = '';
     if (visibleNodes.length === 0) {
@@ -2509,6 +2512,56 @@
     }
   }
 
+  // ── 檔案瀏覽器篩選日誌與數據分析（含注音/拼音組字感知與靜止去抖）──────
+  // 中文輸入法（注音、拼音）在選字完成前會連續觸發 input 事件，且使用者打一個詞
+  // 可能分兩三次選字。因此：
+  //   1. compositionstart 期間一律不排程日誌，待 compositionend 才開始計時；
+  //   2. 純注音符號（ㄅ–ㄩ 與聲調符號）不送出日誌；
+  //   3. 輸入框完全無動作滿 FILE_TREE_FILTER_LOG_DEBOUNCE_MS (1200ms) 後才送出，
+  //      且與上一筆已記錄字串相同時不重複送出。
+  const FILE_TREE_FILTER_LOG_DEBOUNCE_MS = 1200;
+  const BOPOMOFO_ONLY_RE = /^[\u3105-\u312F\u02CA\u02C7\u02CB\u02D9\s]+$/;
+  let _fileFilterLogTimer = null;
+  let _isFileFilterComposing = false;
+  let _lastLoggedFileTreeFilter = '';
+
+  function sendFileTreeFilterEvent(query, matches) {
+    const q = String(query || '').trim();
+    if (!q) return;
+    try {
+      fetch('/api/tree-filter-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, matches: Number(matches) || 0 }),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  function cancelFileTreeFilterLog() {
+    if (_fileFilterLogTimer) {
+      clearTimeout(_fileFilterLogTimer);
+      _fileFilterLogTimer = null;
+    }
+  }
+
+  function scheduleFileTreeFilterLog(rawQuery) {
+    cancelFileTreeFilterLog();
+    if (_isFileFilterComposing) return;
+    const q = String(rawQuery == null ? state.fileTreeFilter : rawQuery).trim();
+    if (!q || BOPOMOFO_ONLY_RE.test(q)) return;
+
+    _fileFilterLogTimer = setTimeout(() => {
+      _fileFilterLogTimer = null;
+      if (_isFileFilterComposing) return;
+      const finalQ = String(state.fileTreeFilter || '').trim();
+      if (!finalQ || BOPOMOFO_ONLY_RE.test(finalQ)) return;
+      if (finalQ === _lastLoggedFileTreeFilter) return;
+      _lastLoggedFileTreeFilter = finalQ;
+      sendFileTreeFilterEvent(finalQ, state._lastFileTreeFilterMatches || 0);
+    }, FILE_TREE_FILTER_LOG_DEBOUNCE_MS);
+  }
+
   function applyFileTreeFilter(rawQuery) {
     const val = rawQuery == null ? '' : String(rawQuery);
     state.fileTreeFilter = val;
@@ -2516,6 +2569,10 @@
     if (input && input.value !== val) input.value = val;
     const clearBtn = $('fileTreeFilterClear');
     if (clearBtn) clearBtn.hidden = !val.trim();
+    if (!val.trim()) {
+      cancelFileTreeFilterLog();
+      _lastLoggedFileTreeFilter = '';
+    }
     renderFileTree();
   }
 
@@ -8552,10 +8609,26 @@
     const fileTreeFilterClear = $('fileTreeFilterClear');
     if (fileTreeFilterInput) {
       const debouncedFileFilter = debounce((v) => applyFileTreeFilter(v), 60);
+      fileTreeFilterInput.addEventListener('compositionstart', () => {
+        _isFileFilterComposing = true;
+        cancelFileTreeFilterLog();
+      });
+      fileTreeFilterInput.addEventListener('compositionend', () => {
+        _isFileFilterComposing = false;
+        const val = fileTreeFilterInput.value;
+        if (fileTreeFilterClear) fileTreeFilterClear.hidden = !val.trim();
+        applyFileTreeFilter(val);
+        scheduleFileTreeFilterLog(val);
+      });
       fileTreeFilterInput.addEventListener('input', (e) => {
         const val = e.target.value;
         if (fileTreeFilterClear) fileTreeFilterClear.hidden = !val.trim();
         debouncedFileFilter(val);
+        if (e.isComposing || _isFileFilterComposing) {
+          cancelFileTreeFilterLog();
+        } else {
+          scheduleFileTreeFilterLog(val);
+        }
       });
       fileTreeFilterInput.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && fileTreeFilterInput.value) {

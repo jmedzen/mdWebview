@@ -3561,6 +3561,26 @@ async function handleDictEvent(req, res) {
   return sendJSON(res, 400, { error: 'Unknown event kind' });
 }
 
+// ── API: File Tree Filter Event (Debounced Client Beacon) ────
+/**
+ * 接收前端「檔案瀏覽器」篩選框在輸入靜止（且注音/拼音組字結束）後送出的篩選事件，
+ * 寫入 Search 結構化日誌並納入 Analytics 搜尋次數與熱門關鍵字統計。
+ */
+async function handleTreeFilterEvent(req, res) {
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const q = String(data.query || '').trim().slice(0, 300);
+  if (!q) {
+    return sendJSON(res, 400, { error: 'Missing query' });
+  }
+  const matches = Number.isFinite(Number(data.matches))
+    ? Math.max(0, Math.floor(Number(data.matches)))
+    : 0;
+  searchMetrics.totalQueries++;
+  Logger.info('Search', `[tree-filter] Query: "${q}" -> ${matches} matches`, req, { query: q });
+  return sendJSON(res, 200, { ok: true });
+}
+
 // ── API: Full-text Search ────────────────────────────────────
 /**
  * 在全庫 Bigram 倒排索引中執行全文搜尋（GET /api/search?q=...）。
@@ -4917,7 +4937,7 @@ const server = http.createServer((req, res) => {
       httpMetrics.recentRequestTimes.splice(0, httpMetrics.recentRequestTimes.length - MAX_RECENT_REQUEST_TIMES);
     }
 
-    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render';
+    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render' || pathname === '/api/tree-filter-event';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
       Logger.info('HTTP', `${req.method} ${pathname}${logSearch || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
@@ -5015,6 +5035,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/dict-event' && req.method === 'POST') {
     return handleDictEvent(req, res);
+  }
+  if (pathname === '/api/tree-filter-event' && req.method === 'POST') {
+    return handleTreeFilterEvent(req, res);
   }
   if (pathname === '/api/dict-files' && req.method === 'GET') {
     return handleDictFiles(req, res);

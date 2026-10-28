@@ -731,6 +731,7 @@ flowchart TD
 | `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料（支援 `If-None-Match` 304） |
 | `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文）；全文模式自 v3.7.6 起採**游標分頁**（`after` / `done` 進、`nextAfter` / `hasMore` / `exhausted` 出，每頁每檔 1500 筆） |
 | `/api/dict-event` | POST | `handleDictEvent()` | ❌ | 辭典查閱行為日誌 Beacon |
+| `/api/tree-filter-event` | POST | `handleTreeFilterEvent()` | ❌ | 檔案瀏覽器篩選日誌與搜尋統計 Beacon（前端於注音/拼音組字結束且輸入靜止 1.2s 後發送） |
 | `/api/dict-files` | GET | `handleDictFiles()` | ❌ | 辭典來源檔案清單 |
 | `/api/suggest-list` | GET | `handleSuggestList()` | ❌ | 首頁推薦經論、熱門榜與每日單詞 |
 | `/api/admin/setup` | POST | 伺服器首次管理員初始化 | ❌ | 首次部署管理員帳號與 siteUrl 設定 |
