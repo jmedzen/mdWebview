@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.2.3
+   mdWebview — Style System (style.css) v4.2.4
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -498,12 +498,21 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
+  /* 標題列改為 fixed（見 §5），這裡留出它的高度 */
+  padding-top: calc(48px + env(safe-area-inset-top, 0px));
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
 /* ── §5 Header ─────────────────────────────────────────────── */
+/* position: fixed 貼齊視窗頂端：iOS / iPadOS 26 的 Safari 與主畫面 App 只有在頂端偵測到
+   fixed（或 sticky）的不透明元素時，才會用它的底色填滿狀態列；否則會在狀態列下方
+   疊一層「捲動邊緣」模糊，標題列看起來像蒙了一層薄霧。不要加 backdrop-filter 或半透明底色。 */
 .app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
