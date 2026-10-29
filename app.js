@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.5
+   mdWebview — Application Logic (app.js) v4.2.6
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -6809,6 +6809,20 @@
   /** 淺色主題（Turnstile 等第三方元件要用 light 外觀） */
   const LIGHT_THEMES = new Set(['obsidian-light', 'zen', 'paper', 'moon', 'bamboo']);
 
+  let statusBarTintTimer = 0;
+  /**
+   * iOS 26 主畫面 App 的狀態列不會隨頁面換色，只在頂端有圖層出現或消失時重新取色。
+   * 換主題後讓 #statusBarTint 出現一下再收起；等標題列 0.4s 的底色轉場跑完才收，
+   * 否則 iOS 可能取到轉場中途的顏色。
+   */
+  function refreshStatusBarTint() {
+    const strip = $('statusBarTint');
+    if (!strip) return;
+    clearTimeout(statusBarTintTimer);
+    strip.hidden = false;
+    statusBarTintTimer = setTimeout(() => { strip.hidden = true; }, 500);
+  }
+
   /**
    * 套用指定主題，更新 data-theme 屬性、所有主題下拉選單、狀態列顏色。
    * 特殊處理：強制移除並重新插入 <meta name="theme-color"> 以觸發 iOS WebKit 狀態列重繪。
@@ -6858,6 +6872,8 @@
       void activePill.offsetWidth; // Force reflow & style recalculation
       setTimeout(() => activePill.classList.remove('theme-updating'), 60);
     }
+
+    refreshStatusBarTint();
 
     if (notify) {
       const themeMap = { 'obsidian-dark': '🌌 夜藍 Night', 'obsidian-light': '🌫️ 霧灰 Mist', 'paper': '📜 素紙 Paper', 'moon': '🌕 月白 Moon', 'bamboo': '🎋 竹青 Bamboo', 'solarized': '🌿 苔夜 Moss', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
@@ -7892,7 +7908,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.5';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9778,7 +9794,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.5';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10110,7 +10126,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.5';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11000,7 +11016,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.5';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
