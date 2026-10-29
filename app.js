@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.6
+   mdWebview — Application Logic (app.js) v4.2.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -692,7 +692,10 @@
 
     // Open file from URL query or hash on first load; if home/frontpage specified, show welcome screen; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
-    if (urlInfo && urlInfo.search) {
+    const themeReloadSpot = takeThemeReloadSpot();
+    if (themeReloadSpot) {
+      restoreReadProgress(true, themeReloadSpot);
+    } else if (urlInfo && urlInfo.search) {
       // ?search= 為明確的入口意圖，優先於其他參數（此時不會有 file）。
       activateSearchPanel(urlInfo.search);
     } else if (urlInfo && urlInfo.isHome) {
@@ -6809,18 +6812,50 @@
   /** 淺色主題（Turnstile 等第三方元件要用 light 外觀） */
   const LIGHT_THEMES = new Set(['obsidian-light', 'zen', 'paper', 'moon', 'bamboo']);
 
-  let statusBarTintTimer = 0;
+  const THEME_RELOAD_KEY = 'mdWebview-theme-reload';
+
   /**
-   * iOS 26 主畫面 App 的狀態列不會隨頁面換色，只在頂端有圖層出現或消失時重新取色。
-   * 換主題後讓 #statusBarTint 出現一下再收起；等標題列 0.4s 的底色轉場跑完才收，
-   * 否則 iOS 可能取到轉場中途的顏色。
+   * 使用者在介面上換主題。
+   *
+   * iOS / iPadOS 26 的主畫面 App 只在 App 開啟時讀一次狀態列顏色，之後換主題、改
+   * theme-color 或在頂端放色條都不會更新（實機測過）。所以在 iOS 主畫面 App 裡換主題後
+   * 重新載入頁面，並把目前閱讀位置記在 sessionStorage，載入後由 takeThemeReloadSpot 接回。
+   *
+   * @param {string}  theme
+   * @param {boolean} [notify=false] - 是否以 Toast 通知（重新載入時看不到，iOS 主畫面 App 不顯示）
    */
-  function refreshStatusBarTint() {
-    const strip = $('statusBarTint');
-    if (!strip) return;
-    clearTimeout(statusBarTintTimer);
-    strip.hidden = false;
-    statusBarTintTimer = setTimeout(() => { strip.hidden = true; }, 500);
+  function chooseTheme(theme, notify = false) {
+    const reload = isIOSDevice() && isStandaloneMode();
+    applyTheme(theme, true, notify && !reload);
+    if (!reload) return;
+    try {
+      const content = $('content');
+      if (state.currentFile && content) {
+        sessionStorage.setItem(THEME_RELOAD_KEY, JSON.stringify({
+          filePath: state.currentFile,
+          line: topVisibleLine(content),
+          scrollTop: content.scrollTop
+        }));
+      }
+    } catch (_) {}
+    setTimeout(() => location.reload(), 50);
+  }
+
+  /**
+   * 取出（並清掉）換主題重新載入前的閱讀位置；沒有時回傳 null。
+   *
+   * @returns {{filePath: string, line: ?number, scrollTop: number}|null}
+   */
+  function takeThemeReloadSpot() {
+    try {
+      const raw = sessionStorage.getItem(THEME_RELOAD_KEY);
+      if (!raw) return null;
+      sessionStorage.removeItem(THEME_RELOAD_KEY);
+      const spot = JSON.parse(raw);
+      return spot && typeof spot.filePath === 'string' ? spot : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /**
@@ -6872,8 +6907,6 @@
       void activePill.offsetWidth; // Force reflow & style recalculation
       setTimeout(() => activePill.classList.remove('theme-updating'), 60);
     }
-
-    refreshStatusBarTint();
 
     if (notify) {
       const themeMap = { 'obsidian-dark': '🌌 夜藍 Night', 'obsidian-light': '🌫️ 霧灰 Mist', 'paper': '📜 素紙 Paper', 'moon': '🌕 月白 Moon', 'bamboo': '🎋 竹青 Bamboo', 'solarized': '🌿 苔夜 Moss', 'zen': '🍵 禪風 Zen', 'gruvbox': '🍂 Gruvbox' };
@@ -7795,6 +7828,45 @@
   // ═══════════════════════════════════════════════════════════
   // §18 READ PROGRESS AUTO-SAVE / RESTORE
   // ═══════════════════════════════════════════════════════════
+  /**
+   * 目前畫面頂端那一行的行號（找不到時為 null）。
+   *
+   * @param {HTMLElement} content - #content 捲動容器
+   * @returns {number|null}
+   */
+  function topVisibleLine(content) {
+    // Find top visible line anchor without layout thrashing
+    let currentLine = null;
+    if (state.virtual && typeof estimateLineFromScrollTop === 'function') {
+      currentLine = estimateLineFromScrollTop();
+    } else {
+      const anchors = (cachedLineAnchors && cachedLineAnchors.length > 0)
+        ? cachedLineAnchors
+        : Array.from($$('.line-anchor[data-line]', $('markdownBody')));
+      if (anchors.length > 0) {
+        const targetTop = content.getBoundingClientRect().top + 20;
+        let low = 0, high = anchors.length - 1;
+        let bestIdx = -1;
+        while (low <= high) {
+          const mid = (low + high) >> 1;
+          const top = anchors[mid].getBoundingClientRect().top;
+          if (top >= targetTop) {
+            bestIdx = mid;
+            high = mid - 1;
+          } else {
+            low = mid + 1;
+          }
+        }
+        if (bestIdx !== -1) {
+          currentLine = parseInt(anchors[bestIdx].getAttribute('data-line'), 10) || null;
+        } else {
+          currentLine = parseInt(anchors[anchors.length - 1].getAttribute('data-line'), 10) || null;
+        }
+      }
+    }
+    return currentLine;
+  }
+
   let _saveProgressTimer = null;
   function saveReadProgress(filePath) {
     if (!filePath || !state.autoReadProgress) return;
@@ -7803,35 +7875,7 @@
       const content = $('content');
       if (!content) return;
 
-      // Find top visible line anchor without layout thrashing
-      let currentLine = null;
-      if (state.virtual && typeof estimateLineFromScrollTop === 'function') {
-        currentLine = estimateLineFromScrollTop();
-      } else {
-        const anchors = (cachedLineAnchors && cachedLineAnchors.length > 0)
-          ? cachedLineAnchors
-          : Array.from($$('.line-anchor[data-line]', $('markdownBody')));
-        if (anchors.length > 0) {
-          const targetTop = content.getBoundingClientRect().top + 20;
-          let low = 0, high = anchors.length - 1;
-          let bestIdx = -1;
-          while (low <= high) {
-            const mid = (low + high) >> 1;
-            const top = anchors[mid].getBoundingClientRect().top;
-            if (top >= targetTop) {
-              bestIdx = mid;
-              high = mid - 1;
-            } else {
-              low = mid + 1;
-            }
-          }
-          if (bestIdx !== -1) {
-            currentLine = parseInt(anchors[bestIdx].getAttribute('data-line'), 10) || null;
-          } else {
-            currentLine = parseInt(anchors[anchors.length - 1].getAttribute('data-line'), 10) || null;
-          }
-        }
-      }
+      const currentLine = topVisibleLine(content);
 
       const progress = {
         filePath,
@@ -7861,11 +7905,12 @@
    * 重新查詢 #content（節點可能已被換掉）。
    *
    * @param {boolean} [force=false] - 「繼續閱讀」按鈕：使用者主動要求，不受自動恢復開關限制
+   * @param {{filePath: string, line: ?number, scrollTop: number}|null} [saved=null] - 指定要還原的位置（換主題重新載入用），不讀 localStorage
    * @returns {boolean} 是否已排入還原流程（沒有可還原資料或功能關閉時為 false）
    */
-  function restoreReadProgress(force = false) {
+  function restoreReadProgress(force = false, saved = null) {
     if (!force && !state.autoReadProgress) return false;
-    const data = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
+    const data = saved || storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
     if (!data || !data.filePath) return false;
     try {
       // Pass line for server-side rendering hint, but primarily use scrollTop for precise restoration
@@ -7908,7 +7953,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8737,7 +8782,7 @@
     const themeSel = $('themeSelect');
     if (themeSel) {
       themeSel.addEventListener('change', (e) => {
-        applyTheme(e.target.value, true, true);
+        chooseTheme(e.target.value, true);
       });
     }
 
@@ -9372,7 +9417,7 @@
     // ── Setting Menu Controls ──
     const settingThemeSel = $('settingThemeSelect');
     if (settingThemeSel) {
-      settingThemeSel.addEventListener('change', (e) => applyTheme(e.target.value));
+      settingThemeSel.addEventListener('change', (e) => chooseTheme(e.target.value));
     }
 
     const textAlignGroup = $('settingTextAlignGroup');
@@ -9794,7 +9839,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10126,7 +10171,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11016,7 +11061,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.6';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -12480,7 +12525,7 @@
     $$('#userMenuThemeGroup .user-menu-theme').forEach(b => {
       b.addEventListener('click', () => {
         const theme = b.getAttribute('data-value');
-        if (theme && theme !== state.currentTheme) applyTheme(theme, true);
+        if (theme && theme !== state.currentTheme) chooseTheme(theme);
       });
     });
 

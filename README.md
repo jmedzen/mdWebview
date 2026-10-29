@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.2.6) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.2.7) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -185,7 +185,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v4.2.6）
+├── package.json        # 專案資訊（v4.2.7）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -231,7 +231,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.2.6) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.2.7) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -403,7 +403,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.2.6)
+├── package.json        # Project information (v4.2.7)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

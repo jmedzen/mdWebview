@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.2.6'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.2.7'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -53,11 +53,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.2.6">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.2.6">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.2.6">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.2.6">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.2.6">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.2.7">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.2.7">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.2.7">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.2.7">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.2.7">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -79,14 +79,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.2.6">
+  <link rel="stylesheet" href="style.css?v=4.2.7">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.2.6"></script>
+  <script src="i18n/boot.js?v=4.2.7"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
-  <!-- iOS 26 狀態列換色用（見 style.css §5、app.js refreshStatusBarTint） -->
-  <div class="status-bar-tint" id="statusBarTint" aria-hidden="true" hidden></div>
   <div class="app">
     <!-- ── §HEADER ──────────────────────────────────────── -->
     <header class="app-header" id="appHeader">
@@ -726,7 +724,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.2.6</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.2.7</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -763,7 +761,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.2.6</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.2.7</span>
       </div>
     </div>
   </div>
@@ -1089,7 +1087,7 @@
     <div class="modal-card settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>後台系統設定 <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.2.6</span></h2>
+        <h2>後台系統設定 <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.2.7</span></h2>
         <button type="button" class="modal-close-btn" id="settingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -2483,14 +2481,14 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.2.6" defer></script>
-  <script src="i18n/zh-TW.js?v=4.2.6" defer></script>
-  <script src="i18n/zh-CN.js?v=4.2.6" defer></script>
-  <script src="i18n/i18n.js?v=4.2.6" defer></script>
-  <script src="i18n/content-terms.js?v=4.2.6" defer></script>
-  <script src="i18n/display-script.js?v=4.2.6" defer></script>
-  <script src="i18n/search-variants.js?v=4.2.6" defer></script>
-  <script src="library-sync.js?v=4.2.6" defer></script>
-  <script src="app.js?v=4.2.6" defer></script>
+  <script src="marked.min.js?v=4.2.7" defer></script>
+  <script src="i18n/zh-TW.js?v=4.2.7" defer></script>
+  <script src="i18n/zh-CN.js?v=4.2.7" defer></script>
+  <script src="i18n/i18n.js?v=4.2.7" defer></script>
+  <script src="i18n/content-terms.js?v=4.2.7" defer></script>
+  <script src="i18n/display-script.js?v=4.2.7" defer></script>
+  <script src="i18n/search-variants.js?v=4.2.7" defer></script>
+  <script src="library-sync.js?v=4.2.7" defer></script>
+  <script src="app.js?v=4.2.7" defer></script>
 </body>
 </html>
