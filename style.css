@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.2.6
+   mdWebview — Style System (style.css) v4.2.7
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -525,22 +525,6 @@ body,
   border-bottom: 1px solid var(--border-subtle);
   z-index: 100;
   user-select: none;
-}
-
-/* iOS 26 主畫面 App 的狀態列只在頂端有圖層出現或消失時才重新取色，頁面換色不會跟著變。
-   換主題時讓這條新主題色的 fixed 色條短暫出現再消失，逼它取新色。它在標題列下面，看不到。 */
-.status-bar-tint {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 12px;
-  background-color: var(--header-bg);
-  pointer-events: none;
-  z-index: 99;
-}
-.status-bar-tint[hidden] {
-  display: none;
 }
 
 /* ── Header Active File Indicator ──────────────────────────────── */
