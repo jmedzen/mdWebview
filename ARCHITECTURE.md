@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.2.7 | 最後更新：2026-10
+> 版本：v4.3.1 | 最後更新：2026-11
 
 ---
 
@@ -225,6 +225,10 @@ flowchart TD
 **section-index 格式**（由 `index-worker.js` 建立）：
 - 每個 "entry"（如辭典詞條）的起止行號與位元組偏移
 - 用於辭典條目導航（`entryNav` prev/next）與精確分塊邊界
+- 每個 "group"（較淺層的標題，如卷／品／章）的標題、層級、行號（`ls`）與所屬 entry 範圍；磁碟快取格式 `SEX3` 起 group 多存一個 `lineStart`
+- **大綱（v4.2.8）**：`buildVirtualTocNodes()` 依文件順序把 groups 與 entries 合併成 `v._tocNodes`，大綱的收折（`v._collapsedNodes`）、列元素與目前位置都以 node 索引為鍵；點 group 列以 `jumpToTocLine(ls)` 跳轉。v4.2.8 前虛擬大綱只畫 entries，1MB 以上的檔案只看得到最深一層標題
+- **跳轉鎖（v4.3.1）**：`scrollToLineVirtual()` 執行期間設 `v._jumpLock`，捲動處理器在鎖住時不管理區塊；對齊迴圈收斂後才解鎖並更新大綱高亮。`setMountedWindow()` 以 `v._mountGen` 讓最新的視窗勝出，`chunkKeepsMountedContiguous()` 擋下會讓已掛載區塊不連續的遲到區塊（spacer 假設區塊連續）。v4.3.1 前點很後面的標題時，捲動處理器會用舊位置重掛區塊，讀到錯的段落
+- 虛擬大綱的「畫面頂端行」函式叫 `virtualTopLine()`；§18 已有 `topVisibleLine(content)`，同名宣告會互相覆蓋（`tests/test-app-function-names.test.js` 會擋）
 
 **虛擬化判定（`isVirtualizedFile(filePath)`，~L1968）**：一律以 `String(filePath).startsWith('dict:')` 為真，否則再比較 `(state.fileSizes.get(filePath) || 0) >= LARGE_FILE_MIN_BYTES`。此 Helper 存在的理由是：**辭典檔（`dict:`）永遠走虛擬分塊路徑，但它們並不在主樹的 `state.fileSizes` 對照表中**（`/api/tree` 不含任何 `dict:` 節點——實測 7,598 個檔案節點、0 個 dict 節點）。因此單憑檔案大小判斷會把辭典檔誤判為一般檔案，讓 `restoreReadProgress()` 補送延遲的絕對 `content.scrollTo`，覆蓋掉 `openFile` 剛完成的逐行定位。凡需判斷「這是不是虛擬檔案」處都應走此 Helper。
 
@@ -674,7 +678,9 @@ flowchart TD
 | `lib/session.js` | Cookie session（`__Host-mdw_sid`／`mdw_sid`，HttpOnly、SameSite=Lax）、沒用才過期（一般 30 天、管理員 7 天）、重新驗證時窗 | `startSession`, `getSession`, `getUser`, `endSession`, `hasRecentReauth`, `markReauth`, `isSecureRequest` |
 | `lib/accounts.js` | 帳號路由：註冊、登入、驗證信、重設密碼、我的帳號、第三方登入回調、`/privacy` `/terms`、`/api/health`、後台帳號 API；登入限速與防機器人 | `init`, `handle`, `isAccountRoute`, `ADMIN_ROUTES`, `setupFirstAdmin`, `handleLegacyAdminLogin`, `handleLogout` |
 | `lib/oauth.js` | Google（OIDC + PKCE）、Facebook、Apple（form_post）登入流程 | `begin`, `complete`, `enabledProviders`, `getStatus` |
-| `lib/mailer.js` | 寄信（Resend HTTP API，或 `log` 模式只寫日誌） | `send`, `renderMail`, `getStatus`, `getOutbox` |
+| `lib/mailer.js` | 寄信（Resend HTTP API，或 `log` 模式只寫日誌；可帶 cid 內嵌附件） | `send`, `renderMail`, `getStatus`, `getOutbox` |
+| `lib/reports.js` | 每日／每週報表信：統計、信件 HTML、排程、後台 API 資料 | `buildReport`, `renderReport`, `renderPreview`, `sendReport`, `dueReports`, `start`, `status` |
+| `lib/report-chart.js` | 報表圖表：同一份場景輸出 SVG（預覽）與 PNG（信件，零依賴點陣化） | `timeChart`, `toSvg`, `toPng` |
 | `lib/turnstile.js` | Cloudflare Turnstile 伺服器端驗證 | `verify`, `isConfigured`, `getSiteKey` |
 | `lib/worker-pool.js` | 背景 Worker Thread 池生命週期調度：Render Pool 與 Index Pool 管理、Backpressure 佇列上限、逾時熔斷重生、指數退避防 Crash Loop | `workerPool`, `indexWorkerPool`, `initWorkerPool`, `initIndexWorkerPool`, `renderWithWorker`, `executeIndexJob`, `runIndexWorkerPool`, `terminateWorkerPools` |
 | `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`（**getter**，見 §13.1）, `getLogFilePath`, `appendToPersistentLog`, `getAnalyticsEventId`, `assignAnalyticsEventSeq`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `queueAnalyticsStoreEntry`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `pruneAnalyticsLogEntry`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
@@ -978,7 +984,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.2.7'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.3.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1474,3 +1480,13 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **跨裝置繼續閱讀**：同步後若歷程第一筆比本機的上次閱讀新，「繼續閱讀」改用那一筆（以行號定位）。
 - 偏好設定（主題、字級等）目前不同步。
 
+### 每日／每週報表信（v4.3.0）
+
+後台「📬 報表」分頁設定，透過「🔑 帳號系統」的 Resend 寄出（`lib/reports.js`）。
+
+- **期間**：以設定的時區（預設 `Asia/Taipei`）切日。日報 = 昨天 00:00–24:00，與前一天比較；週報 = 到昨天為止的 7 天，與再前 7 天比較。預設日報每天 08:00、週報每週一 08:00 寄出，收件人留白時寄給所有有 Email 的啟用中管理員。
+- **內容**：流量（閱讀、獨立訪客 IP、請求、熱門文章 Top 10、請求最多的 IP）、關鍵字（熱門搜尋 Top 15 與前期數字、「新」標記、上升最多、查無結果、檔名篩選次數、辭典搜尋與查閱）、使用者（總數、新註冊名單、登入人數與方式、活躍會員、閱讀同步、最常閱讀的會員、安全與帳號異動事件、14／28 天新註冊與登入趨勢）。
+- **資料來源**：流量讀 `logs/access-*.jsonl`（保留 7 天，可算到小時）；原始日誌已刪除的日子改用 `analytics-aggregates.json` 的每日摘要，以 UTC 日整天計入並在信中標示「概估」。搜尋「查無結果」靠日誌訊息的 `-> 0 matches`；`[tree-filter]` 是側欄檔名篩選，另外計數、不進關鍵字排行。使用者資料讀 `users.db`。
+- **圖表**：`lib/report-chart.js` 產生場景（矩形、折線、多邊形、圓點、數字文字），`toSvg()` 給後台預覽，`toPng()` 自己點陣化（3×3 超取樣反鋸齒、內建筆畫數字字型、`zlib` 壓縮）給信件以 `cid:` 內嵌（Resend `attachments[].content_id`），因為 Gmail、Outlook 不顯示 SVG。中文標題與圖例都放在信件 HTML，不進圖片；排行榜是 HTML 表格長條，所有信箱都看得到。
+- **排程**：`reports.start()`（`accounts.init()` 內呼叫，測試環境不啟動）每 5 分鐘檢查 `dueReports()`。寄出前先把期別寫進 `app_settings` 的 `reports.lastSent.<kind>`，重啟不重寄、失敗也不自動重試（避免每 5 分鐘寄一次），可在後台手動補寄。第一次啟動時把當期記為已寄，不會一上線就補寄舊報表。最近 30 筆寄送紀錄存在 `reports.history`。
+- **API**（管理員）：`GET /api/admin/reports`（設定、收件人、下次寄送、紀錄）、`POST /api/admin/reports/settings`、`GET /api/admin/reports/preview?kind=daily|weekly`（回傳 `{subject, html}`，圖用 SVG data URI，後台以 sandbox iframe 的 `srcdoc` 顯示）、`POST /api/admin/reports/send`（`{kind, to?}`；`to` 有值時只寄這個地址當測試）。

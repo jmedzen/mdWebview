@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.7
+   mdWebview — Application Logic (app.js) v4.3.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1632,7 +1632,7 @@
     }
 
     // Tabs that exist only for a public deployment.
-    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn', 'adminTabUsersBtn', 'adminTabAccountSystemBtn'];
+    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn', 'adminTabUsersBtn', 'adminTabAccountSystemBtn', 'adminTabReportsBtn'];
     for (const id of webOnlyTabs) {
       const btn = $(id);
       if (btn) btn.style.display = single ? 'none' : '';
@@ -1642,7 +1642,7 @@
     // configuration tab so the panel is never left showing an empty section.
     if (single) {
       const activePane = document.querySelector('.admin-tab-pane.active');
-      if (activePane && ['adminPaneSeo', 'adminPaneAnalytics', 'adminPaneUsers', 'adminPaneAccountSystem'].includes(activePane.id)) {
+      if (activePane && ['adminPaneSeo', 'adminPaneAnalytics', 'adminPaneUsers', 'adminPaneAccountSystem', 'adminPaneReports'].includes(activePane.id)) {
         const configBtn = $('adminTabConfigBtn');
         if (configBtn) configBtn.click();
       }
@@ -2869,6 +2869,8 @@
         // The document may have been torn down while the response body was
         // streaming; never mutate the DOM from a stale chunk after that await.
         if (state.virtual !== v) return null;
+        // A newer mount window moved elsewhere while this fetch was in flight.
+        if (!chunkKeepsMountedContiguous(v, ci)) return null;
         const sectionEl = document.createElement('section');
         sectionEl.className = 'chunk';
         sectionEl.setAttribute('data-chunk', ci);
@@ -3124,6 +3126,12 @@
     if (!v) return;
     const keep = new Set();
     for (let c = centerCi - radius; c <= centerCi + radius; c++) keep.add(c);
+    // The newest window wins. An older call still awaiting its fetches must not
+    // touch the geometry afterwards, and chunks it (or a prefetch) lands later
+    // must not end up outside this window: spacers assume one contiguous run.
+    const gen = (v._mountGen || 0) + 1;
+    v._mountGen = gen;
+    v._mountKeep = keep;
     for (const [c, data] of Array.from(v.chunks.entries())) {
       if (!keep.has(c)) {
         data.sectionEl.remove();
@@ -3139,9 +3147,28 @@
       mounts.push(ensureChunk(v.chunkRanges[c].from));
     }
     await Promise.all(mounts);
+    if (state.virtual !== v || v._mountGen !== gen) return;
+    for (const [c, data] of Array.from(v.chunks.entries())) {
+      if (!keep.has(c)) {
+        data.sectionEl.remove();
+        v.chunks.delete(c);
+        v.chunkHeights.delete(c);
+      }
+    }
     updateAvgPxPerLine();
     refreshSpacers();
     updateCachedLineAnchors($('markdownBody'));
+  }
+
+  // True when mounting chunk `ci` keeps the mounted chunks one contiguous run
+  // (refreshSpacers derives both spacer heights from the first/last mounted
+  // chunk, so a detached chunk would corrupt the whole scroll geometry).
+  function chunkKeepsMountedContiguous(v, ci) {
+    if (v._mountKeep && v._mountKeep.has(ci)) return true;
+    if (v.chunks.size === 0) return true;
+    let min = Infinity, max = -Infinity;
+    for (const c of v.chunks.keys()) { if (c < min) min = c; if (c > max) max = c; }
+    return ci >= min - 1 && ci <= max + 1;
   }
 
   /**
@@ -3175,15 +3202,36 @@
     const entryIndex = entryIndexForLine(lineNum);
     const ci = chunkIndexForEntry(entryIndex);
 
+    // While a jump is in progress the scroll handler must not manage chunks:
+    // mounting, removing and aligning all fire scroll events whose scrollTop is
+    // the OLD position (or a half-built geometry), and its remount would tear
+    // the target chunk down again — clicking a far heading then landed in the
+    // wrong section. The lock is released when the alignment loop settles.
+    const lock = {};
+    v._jumpLock = lock;
+    const release = () => {
+      if (v._jumpLock !== lock) return;
+      v._jumpLock = null;
+      if (state.virtual !== v) return;
+      updateVirtualScrollSpy(lineNum);
+      updateEntryNav();
+    };
+
+    // Safety net: never leave the scroll handler locked out (e.g. a chunk fetch
+    // that hangs).
+    setTimeout(() => { if (v._jumpLock === lock) release(); }, 4000);
+
     // Mount a contiguous window around the target, then position by the target
     // element's *actual* rect. Spacers keep the layout stable, so this lands
     // exactly on the requested line (large-file jumps were previously drifting
     // because chunks mounted above the target shifted the document mid-scroll).
     await setMountedWindow(ci, 1);
+    if (v._jumpLock !== lock) return; // superseded by a newer jump
 
     let target = document.getElementById('L' + lineNum);
     if (!target) target = anchorAtOrBefore(lineNum);
     if (!target) {
+      release();
       showToast(`⚠️ 找不到第 ${lineNum} 行`, 'warning');
       return;
     }
@@ -3217,18 +3265,22 @@
     // 實際 rect 最多修正 3 次即收斂；任何文件切換、節點卸載或無進展即中止。
     const jumpToken = state._openToken;
     let lastAbs = Infinity;
+    // Release one frame later so the scroll event of the last correction is
+    // still swallowed by the lock.
+    const releaseAfterScroll = () => {
+      v._lineJumpRaf = requestAnimationFrame(() => { v._lineJumpRaf = null; release(); });
+    };
     const alignJump = (attempt) => {
-      if (state.virtual !== v || state._openToken !== jumpToken) return;
-      if (!target.isConnected) return;
+      if (v._jumpLock !== lock) return;
+      if (state.virtual !== v || state._openToken !== jumpToken) { v._jumpLock = null; return; }
       const c = $('content');
-      if (!c) return;
+      if (!target.isConnected || !c) return release();
       const d = (target.getBoundingClientRect().top - c.getBoundingClientRect().top) - 12;
       const abs = Math.abs(d);
-      if (abs <= 2) return;
-      if (abs >= lastAbs || attempt >= 3) return;
+      if (abs <= 2 || abs >= lastAbs || attempt >= 3) return releaseAfterScroll();
       lastAbs = abs;
       const next = Math.max(0, c.scrollTop + d);
-      if (next === c.scrollTop) return; // 已達捲動邊界，視為終止
+      if (next === c.scrollTop) return releaseAfterScroll(); // 已達捲動邊界，視為終止
       c.scrollTop = next;
       // 獨立欄位：不可重用 v._scrollRaf（那是 setupVirtualScroll 的節流閘門）。
       v._lineJumpRaf = requestAnimationFrame(() => { v._lineJumpRaf = null; alignJump(attempt + 1); });
@@ -3246,7 +3298,14 @@
     const v = state.virtual;
     if (!v) return;
     const line = v.entries[entryIndex] ? v.entries[entryIndex].ls : 1;
-    await scrollToLineVirtual(line, null);
+    await jumpToTocLine(line);
+  }
+
+  // Jump to a heading line of the virtualized file (used for group headings,
+  // which have no entry index of their own).
+  async function jumpToTocLine(line) {
+    if (!state.virtual) return;
+    await scrollToLineVirtual(line || 1, null);
     updateEntryNav();
     if (isMobileBrowser() || window.innerWidth <= 768) {
       closeMobileSidebars();
@@ -3268,6 +3327,16 @@
   // `estimateLineFromScrollTop()` drifts by an entry or two and the TOC would
   // highlight the entry below the one the reader is on.
   function topVisibleEntryIndex() {
+    const line = virtualTopLine();
+    return line > 0 ? entryIndexForLine(line) : -1;
+  }
+
+  // Source line at the top of the content viewport (see topVisibleEntryIndex),
+  // or -1 when no anchors are mounted yet. Do not rename to topVisibleLine: §18
+  // already declares a function with that name, and the later declaration
+  // silently replaces this one (the scroll spy then fell back to the rough
+  // scrollTop estimate and highlighted the neighbouring heading).
+  function virtualTopLine() {
     const v = state.virtual;
     const content = $('content');
     if (!v || !content || !cachedLineAnchors.length) return -1;
@@ -3291,46 +3360,59 @@
     while (idx + 1 < cachedLineAnchors.length && cachedLineAnchors[idx].getBoundingClientRect().bottom <= crTop) idx++;
 
     const topLine = parseInt(cachedLineAnchors[idx].dataset.line || '0', 10);
-    if (topLine <= 0) return -1;
-    return entryIndexForLine(topLine);
+    return topLine > 0 ? topLine : -1;
   }
 
-  function findVisibleAncestorEntry(v, entryIdx) {
-    if (entryIdx < 0 || !v || !v.entries || !v.entries[entryIdx]) return entryIdx;
-    if (v._tocEntryItemIndex && v._tocEntryItemIndex.has(entryIdx)) {
-      return entryIdx;
-    }
-    let targetLevel = v.entries[entryIdx].level || 1;
-    for (let i = entryIdx - 1; i >= 0; i--) {
-      const curLevel = v.entries[i].level || 1;
+  // Nearest ancestor of TOC node `nodeIdx` (itself included) that is currently
+  // shown, i.e. not hidden inside a collapsed parent.
+  function findVisibleAncestorNode(v, nodeIdx) {
+    const nodes = v && v._tocNodes;
+    if (nodeIdx < 0 || !nodes || !nodes[nodeIdx]) return nodeIdx;
+    if (v._tocNodeItemIndex && v._tocNodeItemIndex.has(nodeIdx)) return nodeIdx;
+    let targetLevel = nodes[nodeIdx].level || 1;
+    for (let i = nodeIdx - 1; i >= 0; i--) {
+      const curLevel = nodes[i].level || 1;
       if (curLevel < targetLevel) {
         targetLevel = curLevel;
-        if (v._tocEntryItemIndex && v._tocEntryItemIndex.has(i)) {
-          return i;
-        }
+        if (v._tocNodeItemIndex && v._tocNodeItemIndex.has(i)) return i;
       }
     }
-    return entryIdx;
+    return nodeIdx;
+  }
+
+  // Last TOC node whose heading line is at/before `line` (binary search; nodes
+  // are in document order).
+  function tocNodeIndexForLine(v, line) {
+    const nodes = v && v._tocNodes;
+    if (!nodes || nodes.length === 0) return -1;
+    let lo = 0, hi = nodes.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (nodes[mid].ls <= line) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
   }
 
   function updateVirtualScrollSpy(line) {
     const v = state.virtual;
     if (!v || !v._tocItems || v._tocItems.length === 0) return;
-    let ei = topVisibleEntryIndex();
-    if (ei < 0) ei = entryIndexForLine(line); // no anchors mounted yet → fall back
+    let topLine = virtualTopLine();
+    if (topLine < 0) topLine = line; // no anchors mounted yet → fall back
 
     // Always clear active class on rendered rows first
     if (v._tocRowEls) {
       v._tocRowEls.forEach(el => el.classList.remove('active'));
     }
 
-    v._activeTocEntry = ei;
-    const visibleEntry = findVisibleAncestorEntry(v, ei);
+    const ni = tocNodeIndexForLine(v, topLine);
+    v._activeTocNode = ni;
+    const visibleNode = findVisibleAncestorNode(v, ni);
 
-    let row = v._tocRowEls.get(visibleEntry);
+    let row = v._tocRowEls.get(visibleNode);
     if (!row && isTocPanelVisible()) {
-      centerTocOnEntry(visibleEntry);
-      row = v._tocRowEls.get(visibleEntry);
+      centerTocOnNode(visibleNode);
+      row = v._tocRowEls.get(visibleNode);
     }
     if (row) {
       row.classList.add('active');
@@ -3354,30 +3436,58 @@
       .trim();
   }
 
+  // All headings of a virtualized file, in document order. The section index
+  // splits them into `entries` (the deepest heading level, which tile the file
+  // for chunking) and `groups` (every shallower heading, e.g. 卷/品/章). The
+  // outline must show both, otherwise only the deepest level appears.
+  // A group precedes the entry at its `first` index; groups after the last
+  // entry have first === entries.length.
+  function buildVirtualTocNodes(v) {
+    const entries = v.entries || [];
+    const groups = v.groups || [];
+    const nodes = [];
+    let gi = 0;
+    const pushGroup = (g) => {
+      const fallbackLs = entries[g.first] ? entries[g.first].ls : (v.totalLines || 1);
+      nodes.push({ kind: 'group', entryIndex: -1, h: g.h || '', level: g.level || 1, ls: g.ls > 0 ? g.ls : fallbackLs });
+    };
+    for (let i = 0; i < entries.length; i++) {
+      while (gi < groups.length && (groups[gi].first ?? 0) <= i) pushGroup(groups[gi++]);
+      const e = entries[i];
+      nodes.push({ kind: 'entry', entryIndex: i, h: e.h || '', level: e.level || 1, ls: e.ls || 1 });
+    }
+    while (gi < groups.length) pushGroup(groups[gi++]);
+    return nodes;
+  }
+
   // Flat fixed-height item list + prefix offsets. Only ~O(window) rows are
   // mounted; the offsets let renderTocWindow find the visible slice in O(log n).
+  // Items, collapse state and row elements are keyed by TOC node index (see
+  // buildVirtualTocNodes), not entry index.
   function buildVirtualTocItems(v) {
+    if (!v._tocNodes) v._tocNodes = buildVirtualTocNodes(v);
+    const nodes = v._tocNodes;
     const items = [];
-    const entryItemIndex = new Map();
+    const nodeItemIndex = new Map();
     let minLevel = 6;
-    if (v.entries && v.entries.length > 0) {
-      for (let i = 0; i < v.entries.length; i++) {
-        const lvl = v.entries[i].level || 1;
+    if (nodes.length > 0) {
+      for (let i = 0; i < nodes.length; i++) {
+        const lvl = nodes[i].level || 1;
         if (lvl < minLevel) minLevel = lvl;
         if (minLevel === 1) break;
       }
     } else {
       minLevel = 1;
     }
-    v._collapsedEntries = v._collapsedEntries || new Set();
+    v._collapsedNodes = v._collapsedNodes || new Set();
     const filterTerms = parseSidebarFilterTerms(state.tocFilter);
     const isFiltering = filterTerms.length > 0;
 
     let skipUntilLevel = -1;
 
-    for (let i = 0; i < (v.entries || []).length; i++) {
-      const e = v.entries[i];
-      const level = e.level || 1;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const level = n.level || 1;
 
       if (!isFiltering && skipUntilLevel > 0) {
         if (level > skipUntilLevel) {
@@ -3387,18 +3497,20 @@
         }
       }
 
-      const label = cleanHeadingText(e.h || '');
+      const label = cleanHeadingText(n.h || '');
       if (isFiltering && !matchesSidebarFilter(label, filterTerms)) {
         continue;
       }
 
-      const hasChildren = !isFiltering && (i + 1 < v.entries.length) && ((v.entries[i + 1].level || 1) > level);
-      const isCollapsed = !isFiltering && v._collapsedEntries.has(i);
+      const hasChildren = !isFiltering && (i + 1 < nodes.length) && ((nodes[i + 1].level || 1) > level);
+      const isCollapsed = !isFiltering && v._collapsedNodes.has(i);
       const depth = Math.max(0, level - minLevel);
 
       items.push({
-        type: 'entry',
-        entryIndex: i,
+        type: n.kind,
+        nodeIndex: i,
+        entryIndex: n.entryIndex,
+        line: n.ls,
         label,
         level,
         depth,
@@ -3406,7 +3518,7 @@
         isCollapsed,
         h: TOC_ROW_H
       });
-      entryItemIndex.set(i, items.length - 1);
+      nodeItemIndex.set(i, items.length - 1);
 
       if (hasChildren && isCollapsed) {
         skipUntilLevel = level;
@@ -3418,7 +3530,7 @@
     for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + items[i].h;
     v._tocItems = items;
     v._tocOffsets = offsets;
-    v._tocEntryItemIndex = entryItemIndex;
+    v._tocNodeItemIndex = nodeItemIndex;
     v._tocTotalHeight = offsets[offsets.length - 1];
   }
 
@@ -3479,7 +3591,7 @@
       el.className = 'toc-item-row virtual' + (item.isCollapsed ? ' collapsed' : '');
       el.setAttribute('data-entry', item.entryIndex);
       el.setAttribute('data-level', item.level || 1);
-      el.setAttribute('data-index', item.entryIndex);
+      el.setAttribute('data-index', item.nodeIndex);
 
       const depth = item.depth || 0;
       const indent = depth * 16 + 8;
@@ -3497,10 +3609,10 @@
         chevron.title = item.isCollapsed ? '展開' : '摺疊';
         chevron.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (v._collapsedEntries.has(item.entryIndex)) {
-            v._collapsedEntries.delete(item.entryIndex);
+          if (v._collapsedNodes.has(item.nodeIndex)) {
+            v._collapsedNodes.delete(item.nodeIndex);
           } else {
-            v._collapsedEntries.add(item.entryIndex);
+            v._collapsedNodes.add(item.nodeIndex);
           }
           buildVirtualTocItems(v);
           v._tocRenderedStart = -1;
@@ -3518,27 +3630,30 @@
       label.title = item.label || '';
       el.appendChild(label);
 
-      el.addEventListener('click', () => jumpToEntry(item.entryIndex));
-      v._tocRowEls.set(item.entryIndex, el);
+      el.addEventListener('click', () => {
+        if (item.entryIndex >= 0) jumpToEntry(item.entryIndex);
+        else jumpToTocLine(item.line);
+      });
+      v._tocRowEls.set(item.nodeIndex, el);
       frag.appendChild(el);
     }
     win.appendChild(frag);
     v._tocSpacerBottom.style.height = (v._tocTotalHeight - offsets[end + 1]) + 'px';
 
     // Re-apply the active highlight if the active entry (or visible ancestor) is mounted.
-    if (v._activeTocEntry != null) {
-      const visibleEntry = findVisibleAncestorEntry(v, v._activeTocEntry);
-      const active = v._tocRowEls.get(visibleEntry);
+    if (v._activeTocNode != null) {
+      const visibleNode = findVisibleAncestorNode(v, v._activeTocNode);
+      const active = v._tocRowEls.get(visibleNode);
       if (active) active.classList.add('active');
     }
   }
 
-  function centerTocOnEntry(ei) {
+  function centerTocOnNode(ni) {
     const v = state.virtual;
     const tocList = $('tocList');
-    if (!v || !v._tocOffsets || !v._tocEntryItemIndex) return;
-    const visibleEntry = findVisibleAncestorEntry(v, ei);
-    const itemIdx = v._tocEntryItemIndex.get(visibleEntry);
+    if (!v || !v._tocOffsets || !v._tocNodeItemIndex) return;
+    const visibleNode = findVisibleAncestorNode(v, ni);
+    const itemIdx = v._tocNodeItemIndex.get(visibleNode);
     if (itemIdx == null) return;
     const target = v._tocOffsets[itemIdx];
     const viewportH = tocList.clientHeight || 400;
@@ -3575,10 +3690,11 @@
     if (v.headwordMap) v.headwordMap.clear();
     if (v.entryMap) v.entryMap.clear();
     if (v._tocRowEls) v._tocRowEls.clear();
-    if (v._collapsedEntries) v._collapsedEntries.clear();
+    if (v._collapsedNodes) v._collapsedNodes.clear();
+    v._tocNodes = null;
     v._tocItems = null;
     v._tocOffsets = null;
-    v._tocEntryItemIndex = null;
+    v._tocNodeItemIndex = null;
     v._tocSpacerTop = null;
     v._tocWindow = null;
     v._tocSpacerBottom = null;
@@ -3634,7 +3750,7 @@
     v._tocSpacerBottom = document.createElement('div');
     v._tocSpacerBottom.className = 'toc-spacer';
     v._tocRowEls = new Map();
-    v._activeTocEntry = -1;
+    v._activeTocNode = -1;
     tocList.appendChild(v._tocSpacerTop);
     tocList.appendChild(v._tocWindow);
     tocList.appendChild(v._tocSpacerBottom);
@@ -3664,6 +3780,7 @@
 
     const onScroll = () => {
       if (!isVirtualMode()) return;
+      if (v._jumpLock) return; // scrollToLineVirtual owns the geometry until it settles
       // Topmost visible line, estimated arithmetically from scrollTop and the
       // calibrated px-per-line. Deliberately no getBoundingClientRect()/
       // offsetHeight here — those force a synchronous layout on every scroll
@@ -3755,7 +3872,8 @@
       entryMap: new Map(),
       _tocItems: null,
       _tocOffsets: null,
-      _tocEntryItemIndex: null,
+      _tocNodes: null,
+      _tocNodeItemIndex: null,
       _tocTotalHeight: 0,
       _tocRowEls: new Map(),
       _tocSpacerTop: null,
@@ -3765,7 +3883,7 @@
       _tocRaf: null,
       _tocRenderedStart: -1,
       _tocRenderedEnd: -1,
-      _activeTocEntry: -1,
+      _activeTocNode: -1,
       _scrollHandler: null,
       _scrollRaf: null,
     };
@@ -5201,7 +5319,7 @@
     if (!btn) return;
     if (isVirtualMode()) {
       const v = state.virtual;
-      const isExpanded = !v || !v._collapsedEntries || v._collapsedEntries.size === 0;
+      const isExpanded = !v || !v._collapsedNodes || v._collapsedNodes.size === 0;
       updateCollapseBtnUI(btn, isExpanded);
     } else {
       const rows = $$('.toc-item-row', $('tocList'));
@@ -5215,17 +5333,19 @@
     if (isVirtualMode()) {
       const v = state.virtual;
       if (!v || !v.entries || v.entries.length === 0) return;
-      v._collapsedEntries = v._collapsedEntries || new Set();
-      if (v._collapsedEntries.size > 0) {
+      v._collapsedNodes = v._collapsedNodes || new Set();
+      if (v._collapsedNodes.size > 0) {
         // Expand all
-        v._collapsedEntries.clear();
+        v._collapsedNodes.clear();
       } else {
         // Collapse all parents with children
-        for (let i = 0; i < v.entries.length; i++) {
-          const curLevel = v.entries[i].level || 1;
-          const nextLevel = (i + 1 < v.entries.length) ? (v.entries[i + 1].level || 1) : 1;
+        if (!v._tocNodes) v._tocNodes = buildVirtualTocNodes(v);
+        const nodes = v._tocNodes;
+        for (let i = 0; i < nodes.length; i++) {
+          const curLevel = nodes[i].level || 1;
+          const nextLevel = (i + 1 < nodes.length) ? (nodes[i + 1].level || 1) : 1;
           if (nextLevel > curLevel) {
-            v._collapsedEntries.add(i);
+            v._collapsedNodes.add(i);
           }
         }
       }
@@ -7953,7 +8073,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8637,8 +8757,8 @@
           requestAnimationFrame(() => {
             if (isVirtualMode()) {
               const v = state.virtual;
-              const ei = (v && v._activeTocEntry >= 0) ? v._activeTocEntry : 0;
-              centerTocOnEntry(ei);
+              const ni = (v && v._activeTocNode >= 0) ? v._activeTocNode : 0;
+              centerTocOnNode(ni);
             } else if (state.refreshScrollSpy) {
               state.refreshScrollSpy(true);
             }
@@ -9839,7 +9959,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10171,7 +10291,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11061,7 +11181,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -11543,6 +11663,8 @@
     const tabSuggestBtn = $('adminTabSuggestBtn');
     const tabUsersBtn = $('adminTabUsersBtn');
     const tabAccountSystemBtn = $('adminTabAccountSystemBtn');
+    const tabReportsBtn = $('adminTabReportsBtn');
+    const paneReports = $('adminPaneReports');
     const paneUsers = $('adminPaneUsers');
     const paneAccountSystem = $('adminPaneAccountSystem');
     const paneConfig = $('adminPaneConfig');
@@ -11560,8 +11682,8 @@
         clearInterval(hwAutoRefreshTimer);
         hwAutoRefreshTimer = null;
       }
-      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest, paneUsers, paneAccountSystem].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn, tabUsersBtn, tabAccountSystemBtn].forEach(b => { if (b) b.classList.remove('active'); });
+      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest, paneUsers, paneAccountSystem, paneReports].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn, tabUsersBtn, tabAccountSystemBtn, tabReportsBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
     function activateTab(btn, pane, callback) {
@@ -11627,6 +11749,15 @@
         activateTab(tabUsersBtn, paneUsers, () => {
           setupAdminAccountEvents();
           loadAdminUsersTab();
+        });
+      });
+    }
+
+    if (tabReportsBtn) {
+      tabReportsBtn.addEventListener('click', () => {
+        activateTab(tabReportsBtn, paneReports, () => {
+          setupAdminReportsEvents();
+          loadAdminReportsTab();
         });
       });
     }
@@ -14262,6 +14393,111 @@
       ${missing}
       <div class="account-list-row"><span>最近一次寄出</span><span>${m.lastSentAt ? escHtml(fmtDateTime(m.lastSentAt)) : '—'}</span></div>
       <div class="account-list-row"><span>24 小時內寄送失敗</span><span>${m.failures24h}</span></div>`;
+  }
+
+
+  // ── 報表信（📬 報表分頁，後端 lib/reports.js） ──────────────
+  const REPORT_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+  let adminReportsEventsReady = false;
+
+  function setupAdminReportsEvents() {
+    if (adminReportsEventsReady) return;
+    adminReportsEventsReady = true;
+    const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+    $('adminReportsDailyHour').innerHTML = hours;
+    $('adminReportsWeeklyHour').innerHTML = hours;
+
+    $('adminReportsSaveBtn').addEventListener('click', async () => {
+      const body = {
+        timezone: $('adminReportsTz').value.trim() || 'Asia/Taipei',
+        recipients: $('adminReportsRecipients').value.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean),
+        daily: { enabled: $('adminReportsDailyOn').checked, hour: Number($('adminReportsDailyHour').value) },
+        weekly: { enabled: $('adminReportsWeeklyOn').checked, weekday: Number($('adminReportsWeeklyDay').value), hour: Number($('adminReportsWeeklyHour').value) }
+      };
+      const r = await accountApi('/api/admin/reports/settings', { method: 'POST', body });
+      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error', 4000); return; }
+      showToast('✅ 報表設定已儲存', 'success');
+      renderAdminReports(r.data);
+    });
+
+    const preview = async (kind) => {
+      const frame = $('adminReportsPreview');
+      const info = $('adminReportsPreviewInfo');
+      info.textContent = '產生中…';
+      const r = await accountApi(`/api/admin/reports/preview?kind=${kind}`);
+      if (!r.ok) { info.textContent = r.data.error || '產生失敗'; return; }
+      info.textContent = `主旨：${r.data.subject}`;
+      frame.hidden = false;
+      frame.srcdoc = r.data.html;
+      $('adminReportsSendKind').value = kind;
+    };
+    $('adminReportsPreviewDailyBtn').addEventListener('click', () => preview('daily'));
+    $('adminReportsPreviewWeeklyBtn').addEventListener('click', () => preview('weekly'));
+
+    $('adminReportsSendBtn').addEventListener('click', async () => {
+      const btn = $('adminReportsSendBtn');
+      btn.disabled = true;
+      const r = await accountApi('/api/admin/reports/send', {
+        method: 'POST',
+        body: { kind: $('adminReportsSendKind').value, to: $('adminReportsTestTo').value.trim() }
+      });
+      btn.disabled = false;
+      if (r.data && r.data.status) renderAdminReports(r.data.status);
+      if (r.ok) showToast(`✅ ${r.data.message}，請到信箱確認（也看看垃圾郵件匣）`, 'success', 5000);
+      else showToast(`❌ ${r.data.error || '寄信失敗'}`, 'error', 5000);
+    });
+  }
+
+  async function loadAdminReportsTab() {
+    const r = await accountApi('/api/admin/reports');
+    if (!r.ok) {
+      $('adminReportsStatus').innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法載入報表設定')}</div>`;
+      setAdminCardLight('reports', 'bad', r.data.error || '無法載入');
+      return;
+    }
+    renderAdminReports(r.data);
+  }
+
+  function renderAdminReports(d) {
+    const s = d.settings;
+    $('adminReportsTz').value = s.timezone;
+    $('adminReportsDailyOn').checked = s.daily.enabled;
+    $('adminReportsDailyHour').value = String(s.daily.hour);
+    $('adminReportsWeeklyOn').checked = s.weekly.enabled;
+    $('adminReportsWeeklyDay').value = String(s.weekly.weekday);
+    $('adminReportsWeeklyHour').value = String(s.weekly.hour);
+    $('adminReportsRecipients').value = s.recipients.join('\n');
+    $('adminReportsRecipients').placeholder = d.adminEmails.length ? `留白會寄給：${d.adminEmails.join('、')}` : '管理員帳號都還沒有 Email，請填收件人';
+
+    const notice = $('adminReportsNotice');
+    const problems = [];
+    if (!d.mail.configured) problems.push('寄信還沒設定好，報表不會寄出。請先到「🔑 帳號系統」設定 Resend。');
+    else if (d.mail.provider === 'log') problems.push('寄信目前是測試模式（只寫進日誌），報表不會真的寄出。');
+    if (!d.recipients.length) problems.push('沒有收件人：請填收件人，或替管理員帳號設定 Email。');
+    notice.textContent = problems.join('\n');
+    notice.style.display = problems.length ? '' : 'none';
+
+    const anyOn = s.daily.enabled || s.weekly.enabled;
+    const lastFail = (d.history || []).find(h => h.trigger !== 'test');
+    setAdminCardLight('reports',
+      !anyOn ? 'off' : problems.length ? 'bad' : lastFail && !lastFail.ok ? 'warn' : 'ok',
+      !anyOn ? '' : problems.length ? '報表寄不出去' : lastFail && !lastFail.ok ? '上次寄送失敗' : '會依排程寄出');
+
+    const when = (ms) => (ms ? fmtDateTime(ms) : '—');
+    $('adminReportsStatus').innerHTML = `
+      <div class="account-list-row"><span>收件人</span><span>${d.recipients.length ? escHtml(d.recipients.join('、')) : '<span class="account-badge danger">沒有收件人</span>'}</span></div>
+      <div class="account-list-row"><span>下次寄日報</span><span>${s.daily.enabled ? escHtml(when(d.nextRun.daily)) : '已關閉'}</span></div>
+      <div class="account-list-row"><span>下次寄週報</span><span>${s.weekly.enabled ? `${escHtml(when(d.nextRun.weekly))}（週${REPORT_WEEKDAYS[s.weekly.weekday]}）` : '已關閉'}</span></div>
+      <div class="account-list-row"><span>排程已處理到</span><span>日報 ${escHtml(d.lastSent.daily || '—')}・週報 ${escHtml(d.lastSent.weekly || '—')}</span></div>
+      <div class="field-hint">時間以你的瀏覽器時區顯示；報表本身以 ${escHtml(s.timezone)} 切日。</div>`;
+
+    const kindName = { daily: '日報', weekly: '週報' };
+    const trig = { schedule: '排程', manual: '手動', test: '測試' };
+    const hist = d.history || [];
+    $('adminReportsHistory').innerHTML = hist.length ? hist.map(h => `
+      <div class="account-list-row"><span>${escHtml(fmtDateTime(h.at))}・${escHtml(kindName[h.kind] || h.kind)} ${escHtml(h.period)}・${escHtml(trig[h.trigger] || h.trigger)}<br><span class="field-hint">${escHtml((h.to || []).join('、'))}${h.error ? `｜${escHtml(h.error)}` : ''}</span></span>
+      <span class="account-badge${h.ok ? '' : ' danger'}">${h.ok ? `已寄 ${h.sent}` : '失敗'}</span></div>`).join('')
+      : '<div class="field-hint">還沒有寄過報表。</div>';
   }
 
   async function loadAdminMailDns() {

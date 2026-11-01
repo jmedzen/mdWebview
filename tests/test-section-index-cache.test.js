@@ -41,7 +41,7 @@ const {
 } = require('../server');
 
 const SECTION_BIN = path.join(TEST_LOG_DIR, 'section-index-cache.bin');
-const MAGIC = 0x53455832; // "SEX2"
+const MAGIC = 0x53455833; // "SEX3"
 
 // 共用收尾：所有測試結束後才釋放 worker pool 與暫存目錄。
 // 不可寫在個別 test 的 t.after 中——terminateWorkerPools() 一旦執行，
@@ -60,7 +60,7 @@ function readBinFileCount(binPath) {
   if (!fs.existsSync(binPath)) return -1;
   const buf = fs.readFileSync(binPath);
   if (buf.length < 8) return -1;
-  assert.equal(buf.readUInt32BE(0), MAGIC, 'bin 檔魔數應為 SEX2');
+  assert.equal(buf.readUInt32BE(0), MAGIC, 'bin 檔魔數應為 SEX3');
   return buf.readUInt32BE(4);
 }
 

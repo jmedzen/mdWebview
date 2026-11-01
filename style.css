@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.2.7
+   mdWebview — Style System (style.css) v4.3.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -9374,7 +9374,27 @@ a.small-btn {
   margin-left: 5px;
   vertical-align: top;
 }
+.report-preview-frame {
+  width: 100%;
+  height: 900px;
+  margin-top: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #eef0f3;
+}
+#adminReportsRecipients {
+  width: 100%;
+  font-family: inherit;
+}
+#adminPaneReports .account-consent input {
+  width: auto;
+  flex: none;
+}
+#adminPaneReports .account-consent {
+  color: var(--text-primary);
+}
 .admin-tab-dot[hidden],
+#adminPaneReports [hidden],
 #adminPaneAccountSystem [hidden] {
   display: none !important;
 }
@@ -9385,7 +9405,8 @@ a.small-btn {
 }
 
 #adminPaneUsers select,
-#adminPaneAccountSystem select {
+#adminPaneAccountSystem select,
+#adminPaneReports select {
   height: 38px;
   padding: 0 10px;
   background: var(--input-bg);

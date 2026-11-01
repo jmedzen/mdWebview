@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.2.7
+ * @version 4.3.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -1328,7 +1328,11 @@ async function handleSectionIndex(req, res, query) {
       le: e.lineEnd,
       level: e.level || (e.groupIdx > 0 ? e.groupIdx : 1)
     }));
-    const groups = (idx.groups || []).map(g => ({ h: g.headword, first: g.firstEntry, last: g.lastEntry }));
+    // Groups are the shallower headings (e.g. 卷/品 above the deepest-level
+    // entries). The TOC interleaves them with entries, so it needs their level
+    // and source line; without them the sidebar outline showed only the deepest
+    // heading level of a large file.
+    const groups = (idx.groups || []).map(g => ({ h: g.headword, level: g.level || 1, ls: g.lineStart || 0, first: g.firstEntry, last: g.lastEntry }));
     // Precomputed chunk boundaries (byte-bounded), so the client requests exactly
     // the ranges the chunk renderer will produce — no off-by-whole-chunk drift.
     const chunks = computeChunkRanges(idx);
@@ -1571,7 +1575,7 @@ let searchIndex = {
 const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
 const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
 const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
-const SECTION_INDEX_MAGIC = 0x53455832; // "SEX2"
+const SECTION_INDEX_MAGIC = 0x53455833; // "SEX3" (v3: groups carry lineStart)
 const SECTION_INDEX_MAX_CACHE = 20;     // hot in-memory LRU size (keeps reads cheap)
 // Upper bound for the on-disk mirror. Must comfortably exceed the number of
 // large files in the vault (currently ~321) so a full scan can persist every
@@ -1816,7 +1820,7 @@ async function getSectionIndex(fullPath, stat, relPath) {
  *   preambleLineCount u32 | totalLines u32 | totalBytes u32 |
  *   entryCount u32 | groupCount u32 |
  *   entries: [ headwordLen u16 + headword | offset u32 | len u32 | lineStart u32 | lineEnd u32 | groupIdx i16 ]
- *   groups:  [ headwordLen u16 + headword | level u8 | firstEntry u32 | lastEntry u32 ]
+ *   groups:  [ headwordLen u16 + headword | level u8 | lineStart u32 | firstEntry u32 | lastEntry u32 ]
  */
 async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_BIN) {
   const result = [];
@@ -1861,18 +1865,19 @@ async function loadAllSectionIndexesFromBinAsync(binPath = SECTION_INDEX_CACHE_B
     }
     if (!entryOk) break;
 
-    if (groupCount > 500000 || pos + groupCount * 11 > buf.length) break;
+    if (groupCount > 500000 || pos + groupCount * 15 > buf.length) break;
     const groups = new Array(groupCount);
     let groupOk = true;
     for (let i = 0; i < groupCount; i++) {
       if (pos + 2 > buf.length) { groupOk = false; break; }
       const hLen = buf.readUInt16BE(pos); pos += 2;
-      if (pos + hLen + 9 > buf.length) { groupOk = false; break; }
+      if (pos + hLen + 13 > buf.length) { groupOk = false; break; }
       const headword = buf.toString('utf-8', pos, pos + hLen); pos += hLen;
       const level = buf.readUInt8(pos); pos += 1;
+      const lineStart = buf.readUInt32BE(pos); pos += 4;
       const firstEntry = buf.readUInt32BE(pos); pos += 4;
       const lastEntry = buf.readUInt32BE(pos); pos += 4;
-      groups[i] = { headword, level, firstEntry, lastEntry };
+      groups[i] = { headword, level, lineStart, firstEntry, lastEntry };
     }
     if (!groupOk) break;
 
@@ -1967,7 +1972,7 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
     for (const idx of files) {
       totalBytes += 2 + Buffer.byteLength(idx.relPath) + 4 + 8 + 1 + 4 + 4 + 4 + 4 + 4;
       for (const e of idx.entries) totalBytes += 2 + Buffer.byteLength(e.headword) + 4 + 4 + 4 + 4 + 2;
-      for (const g of idx.groups) totalBytes += 2 + Buffer.byteLength(g.headword) + 1 + 4 + 4;
+      for (const g of idx.groups) totalBytes += 2 + Buffer.byteLength(g.headword) + 1 + 4 + 4 + 4;
     }
 
     const buf = Buffer.allocUnsafe(totalBytes);
@@ -2004,6 +2009,7 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
         buf.writeUInt16BE(hB.length, pos); pos += 2;
         hB.copy(buf, pos); pos += hB.length;
         buf.writeUInt8(g.level, pos); pos += 1;
+        buf.writeUInt32BE(g.lineStart || 0, pos); pos += 4;
         buf.writeUInt32BE(g.firstEntry, pos); pos += 4;
         buf.writeUInt32BE(g.lastEntry, pos); pos += 4;
       }
