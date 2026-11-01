@@ -284,6 +284,26 @@ describe('library sync over HTTP', () => {
     assert.equal(row, undefined);
   });
 
+  test('tombstones cannot be used to grow the tables without limit', async () => {
+    const c = await signup('sync-tomb@example.org');
+    const d = db.getDb();
+    const uid = db.getUserByEmail('sync-tomb@example.org').id;
+    const t = Date.now();
+    const insB = d.prepare('INSERT OR IGNORE INTO bookmarks (user_id, path, title, updated_at, deleted_at, seq) VALUES (?, ?, ?, ?, ?, 0)');
+    for (let i = 0; i < sync.LIMITS.maxBookmarkRows; i++) insB.run(uid, `tomb${i}.md`, '', t - 1000, t - 500);
+    const r = await push(c, { cursor: 1e9, bookmarks: [{ path: 'new-tomb.md', updatedAt: t, deleted: true }, { path: 'new-live.md', title: 'x', updatedAt: t }] });
+    assert.equal(r.json.rejected, 2, 'new rows beyond the row cap are refused, deleted or not');
+    // 已存在的列仍可更新（復活或再刪除）
+    const again = await push(c, { cursor: 1e9, bookmarks: [{ path: 'tomb0.md', title: 'back', updatedAt: t + 5 }] });
+    assert.equal(again.json.rejected, 0);
+
+    const insH = d.prepare('INSERT OR IGNORE INTO read_progress (user_id, path, position, title, updated_at, deleted_at, seq) VALUES (?, ?, 0, \'\', ?, ?, 0)');
+    for (let i = 0; i < sync.LIMITS.maxHistoryRows; i++) insH.run(uid, `h${i}.md`, t - 1000, t - 500);
+    const h = await push(c, { cursor: 1e9, history: [{ path: 'h-new-tomb.md', updatedAt: t, deleted: true }, { path: 'h-new-live.md', pct: 5, updatedAt: t }] });
+    assert.equal(h.json.rejected, 1, 'only the new tombstone is refused; real reading history is still kept');
+    assert.ok(d.prepare('SELECT 1 FROM read_progress WHERE user_id = ? AND path = ?').get(uid, 'h-new-live.md'));
+  });
+
   test('oversized body is rejected with 413, bad JSON with 400', async () => {
     const c = await signup('sync-big@example.org');
     const big = JSON.stringify({ bookmarks: [{ path: 'a.md', title: 'x'.repeat(1100 * 1024), updatedAt: 1 }] });

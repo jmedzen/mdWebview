@@ -19,6 +19,8 @@
     maxItemsPerRequest: 500,   // 每次請求、每種資料最多幾筆
     maxBookmarks: 2000,        // 每個帳號
     maxHistory: 200,           // 伺服器保留的歷程筆數（畫面只顯示最近 20 筆）
+    maxBookmarkRows: 4000,     // 每個帳號書籤總列數（有效＋墓碑），防止用大量「刪除」灌爆資料庫
+    maxHistoryRows: 400,       // 每個帳號歷程總列數（有效＋墓碑）
     maxClockSkewMs: 60 * 1000, // 超過伺服器時間這麼多的時間戳視為未來，截斷
     tombstoneTtlMs: 90 * 24 * 3600 * 1000
   };
