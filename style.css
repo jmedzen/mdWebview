@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.6.0
+   mdWebview — Style System (style.css) v4.7.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -10610,4 +10610,210 @@ a.small-btn {
 .library-sync-status[data-status="error"],
 .library-sync-status[data-status="pending"] {
   color: var(--text-primary);
+}
+
+/* ================================================================
+   §26 劃重點（朱筆底線）— CSS Custom Highlight API，不改動 DOM
+   顏色：亮色主題與暗色主題各一組；文字顏色不變，只上在底線
+   ================================================================ */
+:root {
+  --hl-r: #c4402f;
+  --hl-y: #c79a12;
+  --hl-g: #3d8a38;
+  --hl-b: #2f6cc0;
+}
+[data-theme="obsidian-dark"],
+[data-theme="solarized"],
+[data-theme="gruvbox"] {
+  --hl-r: #f08a78;
+  --hl-y: #e9c46a;
+  --hl-g: #8fcf7a;
+  --hl-b: #86b0f0;
+}
+/* 底線離字遠一點，避免壓到中文字的下緣；::highlight 沿用內文的這兩個設定 */
+#markdownBody {
+  text-underline-offset: 0.28em;
+  text-decoration-skip-ink: none;
+}
+::highlight(mdw-hl-r) { text-decoration: underline 2px var(--hl-r); }
+::highlight(mdw-hl-y) { text-decoration: underline 2px var(--hl-y); }
+::highlight(mdw-hl-g) { text-decoration: underline 2px var(--hl-g); }
+::highlight(mdw-hl-b) { text-decoration: underline 2px var(--hl-b); }
+/* 從書籤點開某處劃線時短暫標出位置 */
+::highlight(mdw-hl-flash) { background-color: var(--search-active); }
+
+/* 選字彈窗的色點 */
+.selection-share-popup .hl-swatches {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.selection-share-popup .hl-swatch {
+  padding: 6px 5px;
+}
+.selection-share-popup .hl-swatch i {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-sizing: border-box;
+}
+.selection-share-popup .hl-swatch[data-hl-color="r"] i { background: var(--hl-r); }
+.selection-share-popup .hl-swatch[data-hl-color="y"] i { background: var(--hl-y); }
+.selection-share-popup .hl-swatch[data-hl-color="g"] i { background: var(--hl-g); }
+.selection-share-popup .hl-swatch[data-hl-color="b"] i { background: var(--hl-b); }
+.selection-share-popup .hl-swatch.current i {
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 3.5px var(--text-primary);
+}
+.selection-share-popup .hl-edit-only { display: none; }
+.selection-share-popup.hl-edit .hl-edit-only { display: flex; }
+.selection-share-popup.hl-edit #selectionSearchBtn,
+.selection-share-popup.hl-edit #selectionDictBtn,
+.selection-share-popup.hl-edit #selectionShareBtn,
+.selection-share-popup.hl-edit .popup-divider:not(.hl-divider) {
+  display: none;
+}
+/* 觸控：色點自成一排，按鈕排第二排，手指好點 */
+.selection-share-popup.touch.visible {
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 20px);
+}
+.selection-share-popup.touch .hl-swatches {
+  flex-basis: 100%;
+  justify-content: center;
+}
+.selection-share-popup.touch .hl-swatch {
+  min-height: 40px;
+  padding: 8px 9px;
+}
+.selection-share-popup.touch .hl-swatch i {
+  width: 22px;
+  height: 22px;
+}
+.selection-share-popup.touch .hl-divider { display: none; }
+
+/* 內文上方：有劃線找不到原處 */
+.hl-lost-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--hl-y);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+}
+.hl-lost-bar[hidden] { display: none; }
+.hl-lost-bar .hl-lost-text { flex: 1; }
+.hl-lost-view {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 書籤抽屜：書籤下可收折的劃線清單 */
+.library-item.missing .library-item-title {
+  color: var(--text-secondary);
+}
+.library-missing {
+  color: var(--danger);
+}
+.library-hl-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 16px);
+  margin: -4px 0 4px 16px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .library-hl-toggle:hover { background: var(--hover-bg); color: var(--text-primary); }
+}
+.library-hl-list {
+  list-style: none;
+  margin: 0 0 6px 24px;
+  padding: 0;
+  border-left: 1px solid var(--border);
+}
+.library-hl-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.library-hl-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .library-hl-open:hover { background: var(--hover-bg); }
+}
+.library-hl-mark {
+  flex: none;
+  width: 12px;
+  height: 0;
+  border-bottom: 2px solid var(--hl-r);
+  transform: translateY(-3px);
+}
+.library-hl-item[data-color="y"] .library-hl-mark { border-color: var(--hl-y); }
+.library-hl-item[data-color="g"] .library-hl-mark { border-color: var(--hl-g); }
+.library-hl-item[data-color="b"] .library-hl-mark { border-color: var(--hl-b); }
+.library-hl-quote {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-content, inherit);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.library-hl-item.lost .library-hl-quote { color: var(--text-secondary); }
+.library-hl-lost {
+  flex: none;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  color: var(--danger);
+}
+.library-hl-act {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .library-hl-act:hover { background: var(--hover-bg); color: var(--text-primary); }
 }

@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v4.6.0';
+const CACHE_VERSION = 'v4.7.0';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -15,6 +15,7 @@ const SHELL_ASSETS = [
   '/style.css',
   '/app.js',
   '/library-sync.js',
+  '/highlights.js',
   '/marked.min.js',
   '/i18n/boot.js',
   '/i18n/zh-TW.js',

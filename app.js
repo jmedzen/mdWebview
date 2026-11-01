@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.6.0
+   mdWebview — Application Logic (app.js) v4.7.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -91,7 +91,10 @@
     // INSTALLED 存 '1'（一旦安裝就永久不再提）。
     INSTALL_DISMISSED: 'mdWebview-install-dismissed',
     INSTALL_INSTALLED: 'mdWebview-install-done',
-    SYNC_META: 'mdWebview-sync-meta'
+    SYNC_META: 'mdWebview-sync-meta',
+    // 劃重點（每處一筆，隨書籤同步）與「找不到原處」的標記（只存本機）
+    HIGHLIGHTS: 'mdWebview-user-highlights',
+    HIGHLIGHTS_LOST: 'mdWebview-highlights-lost'
   };
 
   // ── 安全 LocalStorage 存取工具 (Safe Storage Helper) ───────
@@ -445,6 +448,7 @@
     isMobile: isMobile,
     recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
     bookmarks: safeJsonParse('mdWebview-user-bookmarks', []),
+    highlights: safeJsonParse('mdWebview-user-highlights', []),
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -2628,6 +2632,7 @@
       buildFileSizeMap(state.treeData);
       populateSearchFolderSelect(state.treeData);
       renderFileTree();
+      reconcileMovedLibraryFiles();
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
       showToast('檔案目錄載入失敗，請重新整理', 'error');
@@ -2638,9 +2643,12 @@
   // whether to take the virtualized path without an extra network round-trip.
   function buildFileSizeMap(nodes) {
     state.fileSizes.clear();
+    const files = new Set();
+    state.treeFileSet = files;
     (function walk(list) {
       if (!Array.isArray(list)) return;
       for (const n of list) {
+        if (n.type === 'file' && n.path) files.add(n.path);
         if (n.type === 'file' && typeof n.size === 'number') {
           state.fileSizes.set(n.path, n.size);
         }
@@ -7763,7 +7771,7 @@
   // 本機 localStorage 永遠是第一手資料（離線可用）。登入後，異動以「路徑 + 時間戳」
   // 逐筆送到伺服器，並拉回其他裝置的異動；規則見 library-sync.js（時間戳大者勝，刪除留墓碑）。
   // 中繼資料（meta）：uid 這份本機資料屬於誰、cursor 上次拉到的伺服器序號、
-  // tb/th 書籤／歷程的墓碑、db/dh 尚未送出的路徑。
+  // tb/th 書籤／歷程的墓碑、db/dh 尚未送出的路徑；劃重點以 id 為 key，墓碑 tl、待送出 dl。
   // ═══════════════════════════════════════════════════════════
   const SYNC_URL = '/api/me/sync';
   const SYNC_PUSH_DELAY_MS = 4000;
@@ -7772,7 +7780,7 @@
   const SYNC_BEACON_MAX_BYTES = 60000;
   const LibSync = window.MdwLibrarySync;
 
-  const librarySnap = { b: new Map(), h: new Map() };
+  const librarySnap = { b: new Map(), h: new Map(), l: new Map() };
   let syncMetaMemory = null; // localStorage 不能用（Safari 私密模式等）時的後備
   const syncRt = { timer: null, inflight: null, lastPullAt: 0, user: null, status: 'local', retryAt: 0 };
 
@@ -7780,6 +7788,7 @@
     let m = storage.getJson(STORAGE_KEYS.SYNC_META, null) || syncMetaMemory;
     if (!m || typeof m !== 'object') m = {};
     m.tb = m.tb || {}; m.th = m.th || {}; m.db = m.db || {}; m.dh = m.dh || {};
+    m.tl = m.tl || {}; m.dl = m.dl || {};
     m.cursor = Number(m.cursor) || 0;
     m.uid = m.uid || null;
     return m;
@@ -7793,29 +7802,37 @@
   function rebuildLibrarySnap() {
     librarySnap.b = new Map((state.bookmarks || []).map(i => [i.filePath, i.ts]));
     librarySnap.h = new Map((state.recentFiles || []).map(i => [i.filePath, i.ts]));
+    librarySnap.l = new Map((state.highlights || []).map(i => [i.id, i.ts]));
   }
+
+  const LIBRARY_KINDS = {
+    b: { list: () => state.bookmarks, key: 'filePath', storageKey: () => STORAGE_KEYS.BOOKMARKS, tombs: 'tb', dirty: 'db' },
+    h: { list: () => state.recentFiles, key: 'filePath', storageKey: () => STORAGE_KEYS.RECENT_FILES, tombs: 'th', dirty: 'dh' },
+    l: { list: () => state.highlights, key: 'id', storageKey: () => STORAGE_KEYS.HIGHLIGHTS, tombs: 'tl', dirty: 'dl' }
+  };
 
   /**
    * 把 state.bookmarks（'b'）或 state.recentFiles（'h'）寫回 localStorage，並與上次的快照比對：
    * 新增或時間戳變動的記為待送出，消失的記為墓碑。所有本機異動都經過這裡。
    */
   function persistLibrary(kind) {
-    const isB = kind === 'b';
-    const list = (isB ? state.bookmarks : state.recentFiles) || [];
+    const K = LIBRARY_KINDS[kind];
+    const list = K.list() || [];
     const snap = librarySnap[kind];
     const m = syncMeta();
-    const tombs = isB ? m.tb : m.th;
-    const dirty = isB ? m.db : m.dh;
+    const tombs = m[K.tombs];
+    const dirty = m[K.dirty];
     const now = Date.now();
     const seen = new Set();
     for (const it of list) {
       if (!it.ts) it.ts = now;
-      seen.add(it.filePath);
-      if (snap.get(it.filePath) !== it.ts) {
-        dirty[it.filePath] = 1;
-        delete tombs[it.filePath];
+      const key = it[K.key];
+      seen.add(key);
+      if (snap.get(key) !== it.ts) {
+        dirty[key] = 1;
+        delete tombs[key];
       }
-      snap.set(it.filePath, it.ts);
+      snap.set(key, it.ts);
     }
     for (const p of Array.from(snap.keys())) {
       if (seen.has(p)) continue;
@@ -7823,12 +7840,13 @@
       tombs[p] = Math.max(now, (tombs[p] || 0) + 1);
       dirty[p] = 1;
     }
-    storage.setJson(isB ? STORAGE_KEYS.BOOKMARKS : STORAGE_KEYS.RECENT_FILES, list);
+    storage.setJson(K.storageKey(), list);
     saveSyncMeta(m);
     scheduleLibrarySync();
   }
 
   function wireFromLocal(kind, path, m) {
+    if (kind === 'l') return highlightWireFromLocal(path, m);
     const isB = kind === 'b';
     const list = (isB ? state.bookmarks : state.recentFiles) || [];
     const it = list.find(i => i.filePath === path);
@@ -7843,17 +7861,29 @@
     return null;
   }
 
+  function highlightWireFromLocal(id, m) {
+    const it = (state.highlights || []).find(i => i.id === id);
+    const tomb = m.tl[id] || 0;
+    if (it && (it.ts || 0) >= tomb) {
+      return { id, path: it.filePath, updatedAt: it.ts, line: it.line, off: it.off, q: it.q, pre: it.pre || '', suf: it.suf || '', c: it.c };
+    }
+    if (tomb) return { id, path: (it && it.filePath) || '-', updatedAt: tomb, deleted: true };
+    return null;
+  }
+
   function buildSyncBody(m) {
-    const b = [], h = [];
+    const b = [], h = [], l = [];
     for (const p of Object.keys(m.db)) { const w = wireFromLocal('b', p, m); if (w) b.push(w); }
     for (const p of Object.keys(m.dh)) { const w = wireFromLocal('h', p, m); if (w) h.push(w); }
+    for (const p of Object.keys(m.dl)) { const w = wireFromLocal('l', p, m); if (w) l.push(w); }
     const cap = LibSync.LIMITS.maxItemsPerRequest;
-    return { cursor: m.cursor, bookmarks: b.slice(0, cap), history: h.slice(0, cap) };
+    const hlCap = window.MdwHighlights ? window.MdwHighlights.LIMITS.maxPerRequest : 200;
+    return { cursor: m.cursor, bookmarks: b.slice(0, cap), history: h.slice(0, cap), highlights: l.slice(0, hlCap) };
   }
 
   function hasPendingSync() {
     const m = syncMeta();
-    return Object.keys(m.db).length > 0 || Object.keys(m.dh).length > 0;
+    return Object.keys(m.db).length > 0 || Object.keys(m.dh).length > 0 || Object.keys(m.dl).length > 0;
   }
 
   function scheduleLibrarySync(delay = SYNC_PUSH_DELAY_MS) {
@@ -7900,9 +7930,11 @@
   function applyRemoteLibrary(res, m) {
     const mb = LibSync.mergeRemote(state.bookmarks, m.tb, res.bookmarks, { make: w => libraryItemFromWire('b', w) });
     const mh = LibSync.mergeRemote(state.recentFiles, m.th, res.history, { make: w => libraryItemFromWire('h', w), cap: 20 });
+    const ml = LibSync.mergeRemote(state.highlights, m.tl, res.highlights || [], { make: highlightFromWire, localKey: 'id', wireKey: 'id' });
     if (mb.changed) { state.bookmarks = mb.list; m.tb = mb.tombs; }
     if (mh.changed) { state.recentFiles = mh.list; m.th = mh.tombs; }
-    return mb.changed || mh.changed;
+    if (ml.changed) { state.highlights = ml.list; m.tl = ml.tombs; }
+    return mb.changed || mh.changed || ml.changed;
   }
 
   /** 跨裝置的「繼續閱讀」：其他裝置讀得比較新時，以歷程第一筆為準（沒有捲動位置，用行號）。 */
@@ -7917,9 +7949,11 @@
 
   function refreshLibraryUi() {
     rebuildLibrarySnap();
+    ensureBookmarksForHighlights();
     renderBookmarksList();
     renderRecentFilesList();
     if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+    scheduleHighlightPaint();
   }
 
   function runLibrarySync(reason) {
@@ -7931,7 +7965,8 @@
         const body = buildSyncBody(m0);
         const sent = {
           b: Object.fromEntries(body.bookmarks.map(w => [w.path, w.updatedAt])),
-          h: Object.fromEntries(body.history.map(w => [w.path, w.updatedAt]))
+          h: Object.fromEntries(body.history.map(w => [w.path, w.updatedAt])),
+          l: Object.fromEntries(body.highlights.map(w => [w.id, w.updatedAt]))
         };
         setSyncStatus('syncing');
         const r = await accountApi(SYNC_URL, { method: 'POST', body });
@@ -7950,7 +7985,7 @@
         syncRt.retryAt = 0;
         const m = syncMeta();
         // 送出期間若又改過同一筆，保留待送出狀態
-        for (const [kind, dirty, tombs] of [['b', m.db, m.tb], ['h', m.dh, m.th]]) {
+        for (const [kind, dirty, tombs] of [['b', m.db, m.tb], ['h', m.dh, m.th], ['l', m.dl, m.tl]]) {
           for (const p of Object.keys(sent[kind])) {
             const cur = Math.max(librarySnap[kind].get(p) || 0, tombs[p] || 0);
             if (cur === sent[kind][p]) delete dirty[p];
@@ -7961,9 +7996,11 @@
         m.uid = syncRt.user.id;
         m.tb = LibSync.pruneTombs(m.tb, Date.now());
         m.th = LibSync.pruneTombs(m.th, Date.now());
+        m.tl = LibSync.pruneTombs(m.tl, Date.now());
         if (changed) {
           storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
           storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+          storage.setJson(STORAGE_KEYS.HIGHLIGHTS, state.highlights);
           adoptNewestHistoryAsResume();
         }
         saveSyncMeta(m);
@@ -8023,8 +8060,10 @@
       m2.cursor = 0;
       for (const i of state.bookmarks || []) { if (!i.ts) i.ts = Date.now(); m2.db[i.filePath] = 1; }
       for (const i of state.recentFiles || []) { if (!i.ts) i.ts = Date.now(); m2.dh[i.filePath] = 1; }
+      for (const i of state.highlights || []) { if (!i.ts) i.ts = Date.now(); m2.dl[i.id] = 1; }
       storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
       storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+      storage.setJson(STORAGE_KEYS.HIGHLIGHTS, state.highlights);
     }
     m2.uid = syncRt.user.id;
     saveSyncMeta(m2);
@@ -8035,8 +8074,11 @@
   function clearLocalLibrary() {
     state.bookmarks = [];
     state.recentFiles = [];
+    state.highlights = [];
     storage.remove(STORAGE_KEYS.BOOKMARKS);
     storage.remove(STORAGE_KEYS.RECENT_FILES);
+    storage.remove(STORAGE_KEYS.HIGHLIGHTS);
+    storage.remove(STORAGE_KEYS.HIGHLIGHTS_LOST);
     storage.remove(STORAGE_KEYS.LAST_READ_PROGRESS);
     storage.remove(STORAGE_KEYS.SYNC_META);
     syncMetaMemory = null;
@@ -8070,9 +8112,10 @@
     setInterval(pullLibraryIfStale, SYNC_POLL_MS);
     // 同一個瀏覽器的其他分頁改了資料：重新讀取並重畫（storage 事件只在「其他」分頁觸發）
     window.addEventListener('storage', (e) => {
-      if (e.key !== null && ![STORAGE_KEYS.BOOKMARKS, STORAGE_KEYS.RECENT_FILES, STORAGE_KEYS.SYNC_META].includes(e.key)) return;
+      if (e.key !== null && ![STORAGE_KEYS.BOOKMARKS, STORAGE_KEYS.RECENT_FILES, STORAGE_KEYS.HIGHLIGHTS, STORAGE_KEYS.SYNC_META].includes(e.key)) return;
       state.bookmarks = safeJsonParse(STORAGE_KEYS.BOOKMARKS, []);
       state.recentFiles = safeJsonParse(STORAGE_KEYS.RECENT_FILES, []);
+      state.highlights = safeJsonParse(STORAGE_KEYS.HIGHLIGHTS, []);
       refreshLibraryUi();
     });
   }
@@ -8244,7 +8287,9 @@
     let isBookmarked = false;
 
     if (idx >= 0) {
+      if (!confirmRemoveBookmarkHighlights([filePath])) return true;
       list.splice(idx, 1);
+      removeHighlightsOfFiles([filePath]);
       isBookmarked = false;
       showToast('🗑️ 已從書籤移除', 'success');
     } else {
@@ -8292,6 +8337,537 @@
   function renderBookmarksList() {
     if (isLibraryOpen()) renderLibrary();
     updateLibraryCount();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §17b HIGHLIGHTS（劃重點：朱筆底線，隸屬書籤）
+  //
+  // 選取經文 → 選字彈窗的色點 → 在字下畫一條有色細線。每處劃線一筆，存在
+  // state.highlights（localStorage，登入後隨書籤同步，見 §14b 的 'l'），並一定掛在
+  // 一個書籤下：劃線時檔案還不是書籤就自動加入；移除書籤會一併刪掉劃線。
+  //
+  // 畫線用 CSS Custom Highlight API（CSS.highlights + ::highlight()），不改動 DOM，
+  // 所以不影響繁簡轉換、虛擬捲動與頁內搜尋。位置由 highlights.js 依「行號＋原文＋
+  // 前後文」找回；經文改版後找到新位置就悄悄更新，找不到就標「找不到原處」，不刪資料。
+  // ═══════════════════════════════════════════════════════════
+  const HL = window.MdwHighlights;
+  const HL_COLOR_NAMES = { r: '朱', y: '黃', g: '綠', b: '藍' };
+  const HL_PAINT_DELAY_MS = 150;
+  const HL_FLASH_MS = 1600;
+  const hlRt = {
+    painted: [],          // [{ id, range }] 目前畫在畫面上的劃線
+    timer: null,
+    observer: null,
+    observed: null,
+    flashId: null,
+    lost: safeJsonParse(STORAGE_KEYS.HIGHLIGHTS_LOST, {}) || {}
+  };
+  // 點已劃線處時叫出的彈窗；由 setupSelectionPopup 提供（共用選字彈窗）
+  let hlShowEditPopup = null;
+
+  function hlSupported() {
+    return !!(window.CSS && CSS.highlights && typeof window.Highlight === 'function');
+  }
+
+  function highlightFromWire(w) {
+    return { id: w.id, filePath: w.path, line: w.line, off: w.off, q: w.q, pre: w.pre || '', suf: w.suf || '', c: w.c, ts: w.updatedAt };
+  }
+
+  function highlightsOf(filePath) {
+    return (state.highlights || []).filter(h => h.filePath === filePath)
+      .sort((a, b) => (a.line - b.line) || ((a.off || 0) - (b.off || 0)));
+  }
+
+  function isHighlightLost(id) {
+    return !!hlRt.lost[id];
+  }
+
+  function saveHighlightLost() {
+    storage.setJson(STORAGE_KEYS.HIGHLIGHTS_LOST, hlRt.lost);
+  }
+
+  /** 主樹已載入、且檔案不在其中（辭典條目不判斷）。 */
+  function isLibraryFileMissing(filePath) {
+    if (!filePath || filePath.startsWith('dict:')) return false;
+    const set = state.treeFileSet;
+    return !!(set && set.size && !set.has(filePath));
+  }
+
+  function makeBookmarkEntry(filePath, title) {
+    const fileName = title || filePath.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
+    const entry = { filePath, fileName, time: new Date().toLocaleDateString(activeLocale()), ts: Date.now() };
+    const seen = (state.recentFiles || []).find(r => r.filePath === filePath);
+    if (seen && typeof seen.pct === 'number') { entry.pct = seen.pct; entry.line = seen.line || null; }
+    return entry;
+  }
+
+  /** 劃線一定掛在書籤下：有劃線、卻沒有書籤的檔案補上書籤（例如另一台裝置同步過來）。 */
+  function ensureBookmarksForHighlights() {
+    const have = new Set((state.bookmarks || []).map(b => b.filePath));
+    const tombs = syncMeta().tb;
+    const newest = new Map();
+    for (const h of state.highlights || []) {
+      newest.set(h.filePath, Math.max(newest.get(h.filePath) || 0, h.ts || 0));
+    }
+    let added = false;
+    for (const [fp, ts] of newest) {
+      if (have.has(fp)) continue;
+      // 書籤是在這些劃線之後才刪的：劃線的刪除也會跟著同步過來，不要把書籤救回來
+      if ((tombs[fp] || 0) > ts) continue;
+      state.bookmarks = state.bookmarks || [];
+      state.bookmarks.unshift(makeBookmarkEntry(fp));
+      added = true;
+    }
+    if (added) persistLibrary('b');
+    return added;
+  }
+
+  function confirmRemoveBookmarkHighlights(filePaths) {
+    const set = new Set(filePaths);
+    const n = (state.highlights || []).filter(h => set.has(h.filePath)).length;
+    if (!n) return true;
+    return confirm(`這個書籤下有 ${n} 處劃線，移除書籤會一併刪除。確定要移除嗎？`);
+  }
+
+  function removeHighlightsOfFiles(filePaths) {
+    const set = new Set(filePaths);
+    const before = (state.highlights || []).length;
+    state.highlights = (state.highlights || []).filter(h => {
+      if (!set.has(h.filePath)) return true;
+      delete hlRt.lost[h.id];
+      return false;
+    });
+    if (state.highlights.length !== before) {
+      persistLibrary('l');
+      saveHighlightLost();
+      scheduleHighlightPaint();
+    }
+  }
+
+  /**
+   * 書籤指向的檔案不在文庫了：用同檔名或同經號找到唯一的新位置就搬過去（劃線一起搬）；
+   * 找不到就保留原樣，抽屜裡標「此文件已不在文庫」。
+   */
+  function reconcileMovedLibraryFiles() {
+    if (!HL || !state.treeFileSet || !state.treeFileSet.size) return;
+    const files = Array.from(state.treeFileSet);
+    const now = Date.now();
+    let changedB = false;
+    let changedL = false;
+    const paths = new Set((state.bookmarks || []).map(b => b.filePath).concat((state.highlights || []).map(h => h.filePath)));
+    for (const oldPath of paths) {
+      if (!isLibraryFileMissing(oldPath)) continue;
+      const target = HL.findMovedFile(oldPath, files);
+      if (!target) continue;
+      const bm = (state.bookmarks || []).find(b => b.filePath === oldPath);
+      const already = (state.bookmarks || []).some(b => b.filePath === target);
+      if (bm) {
+        if (already) state.bookmarks = state.bookmarks.filter(b => b !== bm);
+        else { bm.filePath = target; bm.ts = now; }
+        changedB = true;
+      }
+      for (const h of state.highlights || []) {
+        if (h.filePath === oldPath) { h.filePath = target; h.ts = now; changedL = true; }
+      }
+      log.info(`書籤檔案已搬移：${oldPath} → ${target}`);
+    }
+    if (changedB) persistLibrary('b');
+    if (changedL) persistLibrary('l');
+    if (changedB || changedL || isLibraryOpen()) renderBookmarksList();
+  }
+
+  // ── 內文的文字索引：所有文字節點依序接起來（原文），並記下每一行的起點 ──
+  function buildHighlightTextIndex(body) {
+    const ds = window.mdDisplayScript;
+    const conv = !!(ds && ds.isActive());
+    const nodes = [];
+    const nodeIndex = new Map();
+    const lineStarts = [];
+    let text = '';
+    let lastLine = 0;
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        if (n.nodeType === 3) return NodeFilter.FILTER_ACCEPT;
+        const tag = n.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'svg' || tag === 'SVG') return NodeFilter.FILTER_REJECT;
+        if (n.classList.contains('mermaid-container') || n.classList.contains('katex-mathml')) return NodeFilter.FILTER_REJECT;
+        return n.classList.contains('line-anchor') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n.nodeType === 1) {
+        const line = parseInt(n.getAttribute('data-line'), 10);
+        if (line > lastLine) { lineStarts.push({ line, pos: text.length }); lastLine = line; }
+        continue;
+      }
+      const orig = conv ? ds.originalText(n) : n.data;
+      if (!orig.length) continue;
+      nodeIndex.set(n, nodes.length);
+      nodes.push({ n, pos: text.length, len: orig.length, dlen: n.data.length });
+      text += orig;
+    }
+    return { text, nodes, nodeIndex, lineStarts, conv };
+  }
+
+  function hlNodeAt(idx, pos) {
+    let lo = 0, hi = idx.nodes.length - 1, ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (idx.nodes[mid].pos <= pos) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  function hlScale(off, from, to) {
+    return from === to ? off : Math.round(off * to / Math.max(1, from));
+  }
+
+  /** 文字索引的 [s, e) 轉成 DOM Range。 */
+  function hlRangeOf(idx, s, e) {
+    if (e <= s || !idx.nodes.length) return null;
+    const i = hlNodeAt(idx, s);
+    const j = hlNodeAt(idx, e - 1);
+    if (i < 0 || j < 0) return null;
+    const a = idx.nodes[i];
+    const b = idx.nodes[j];
+    try {
+      const r = document.createRange();
+      r.setStart(a.n, Math.min(a.dlen, hlScale(s - a.pos, a.len, a.dlen)));
+      r.setEnd(b.n, Math.min(b.dlen, hlScale(e - b.pos, b.len, b.dlen)));
+      return r;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** DOM 上的一點（Range 的端點）在文字索引裡的位置。 */
+  function hlOffsetOf(idx, container, offset) {
+    if (container && container.nodeType === 3 && idx.nodeIndex.has(container)) {
+      const nd = idx.nodes[idx.nodeIndex.get(container)];
+      return nd.pos + Math.min(nd.len, hlScale(offset, nd.dlen, nd.len));
+    }
+    // 端點在元素上：取該點之後第一個文字節點的起點
+    const probe = document.createRange();
+    try { probe.setStart(container, offset); } catch (_) { return null; }
+    probe.collapse(true);
+    let lo = 0, hi = idx.nodes.length - 1, ans = idx.nodes.length;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      let cmp;
+      try { cmp = probe.comparePoint(idx.nodes[mid].n, 0); } catch (_) { cmp = 1; }
+      if (cmp >= 0) { ans = mid; hi = mid - 1; } else lo = mid + 1;
+    }
+    return ans < idx.nodes.length ? idx.nodes[ans].pos : idx.text.length;
+  }
+
+  function clearHighlightPaint() {
+    hlRt.painted = [];
+    if (!hlSupported()) return;
+    for (const c of HL.COLORS) CSS.highlights.delete(`mdw-hl-${c}`);
+  }
+
+  function ensureHighlightObserver(body) {
+    if (!body || hlRt.observed === body || typeof MutationObserver !== 'function') return;
+    if (hlRt.observer) hlRt.observer.disconnect();
+    // 內文重畫、虛擬捲動載入新段落、繁簡轉換改寫文字，都要重新定位劃線
+    hlRt.observer = new MutationObserver(() => scheduleHighlightPaint());
+    hlRt.observer.observe(body, { childList: true, subtree: true, characterData: true });
+    hlRt.observed = body;
+  }
+
+  function scheduleHighlightPaint(delay = HL_PAINT_DELAY_MS) {
+    if (!HL) return;
+    if (hlRt.timer) clearTimeout(hlRt.timer);
+    hlRt.timer = setTimeout(paintHighlights, delay);
+  }
+
+  function paintHighlights() {
+    hlRt.timer = null;
+    const body = $('markdownBody');
+    if (!HL || !body) return;
+    ensureHighlightObserver(body);
+    const fp = state.currentFile;
+    const list = fp ? highlightsOf(fp) : [];
+    if (!list.length) {
+      clearHighlightPaint();
+      updateHighlightLostBar();
+      return;
+    }
+    const idx = buildHighlightTextIndex(body);
+    const ls = idx.lineStarts;
+    const virtual = isVirtualMode();
+    const minLine = ls.length ? ls[0].line : 0;
+    const maxLine = ls.length ? ls[ls.length - 1].line : 0;
+    // 簡體顯示時，被切開的文字節點可能只剩簡體字，比對結果不足以改寫資料或判定遺失
+    const trustworthy = !idx.conv;
+    const byColor = {};
+    for (const c of HL.COLORS) byColor[c] = [];
+    const painted = [];
+    let changed = false;
+    let lostChanged = false;
+    const now = Date.now();
+    for (const h of list) {
+      // 大檔只載入了一部分：這處劃線所在的段落還沒載入，先不判斷
+      if (virtual && (h.line < minLine || h.line > maxLine)) continue;
+      const loc = idx.text ? HL.locate(idx.text, h, ls) : null;
+      if (!loc) {
+        if (trustworthy && idx.text && !hlRt.lost[h.id]) { hlRt.lost[h.id] = 1; lostChanged = true; }
+        continue;
+      }
+      if (hlRt.lost[h.id]) { delete hlRt.lost[h.id]; lostChanged = true; }
+      if (trustworthy) {
+        const a = HL.makeAnchor(idx.text, loc.s, loc.e, ls);
+        if (a && (a.line !== h.line || a.off !== h.off || a.q !== h.q)) {
+          Object.assign(h, a, { ts: Math.max(now, (h.ts || 0) + 1) });
+          changed = true;
+        }
+      }
+      const range = hlRangeOf(idx, loc.s, loc.e);
+      if (!range) continue;
+      (byColor[h.c] || byColor[HL.COLORS[0]]).push(range);
+      painted.push({ id: h.id, range });
+    }
+    hlRt.painted = painted;
+    if (hlSupported()) {
+      for (const c of HL.COLORS) {
+        if (byColor[c].length) CSS.highlights.set(`mdw-hl-${c}`, new Highlight(...byColor[c]));
+        else CSS.highlights.delete(`mdw-hl-${c}`);
+      }
+    }
+    if (changed) persistLibrary('l');
+    if (lostChanged) { saveHighlightLost(); renderBookmarksList(); }
+    updateHighlightLostBar();
+    if (hlRt.flashId) flashHighlight(hlRt.flashId);
+  }
+
+  function flashHighlight(id) {
+    const p = hlRt.painted.find(x => x.id === id);
+    if (!p) return;
+    hlRt.flashId = null;
+    const rect = p.range.getBoundingClientRect();
+    const scroller = $('content');
+    if (scroller && rect.height && (rect.top < 60 || rect.bottom > window.innerHeight - 40)) {
+      scroller.scrollTop += rect.top - window.innerHeight / 3;
+    }
+    if (!hlSupported()) return;
+    CSS.highlights.set('mdw-hl-flash', new Highlight(p.range));
+    setTimeout(() => CSS.highlights.delete('mdw-hl-flash'), HL_FLASH_MS);
+  }
+
+  /** 這一篇有劃線找不到原處時，在內文上方提示。 */
+  function updateHighlightLostBar() {
+    const body = $('markdownBody');
+    if (!body || !body.parentNode) return;
+    let bar = $('hlLostBar');
+    const fp = state.currentFile;
+    const n = fp ? highlightsOf(fp).filter(h => hlRt.lost[h.id]).length : 0;
+    if (!n) { if (bar) bar.hidden = true; return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'hlLostBar';
+      bar.className = 'hl-lost-bar';
+      bar.setAttribute('role', 'status');
+      bar.innerHTML = '<span class="hl-lost-text"></span><button type="button" class="hl-lost-view">查看</button>';
+      bar.querySelector('.hl-lost-view').addEventListener('click', () => {
+        if (!state.currentFile) return;
+        libraryUi.hlOpen[state.currentFile] = true;
+        saveLibraryPrefs();
+        openLibrary('bookmarks');
+      });
+    }
+    if (bar.nextSibling !== body) body.parentNode.insertBefore(bar, body);
+    bar.querySelector('.hl-lost-text').textContent = `這一篇有 ${n} 處劃線在目前的經文裡找不到原處（經文可能已修改），劃線內容仍保留在書籤裡。`;
+    bar.hidden = false;
+  }
+
+  /**
+   * 以選取的範圍新增一處劃線。與既有劃線重疊時合併成一處（顏色用這次選的）。
+   * @returns {boolean} 是否新增
+   */
+  function createHighlightFromRange(range, color) {
+    const fp = state.currentFile;
+    const body = $('markdownBody');
+    if (!HL || !fp || !body || !range || !body.contains(range.commonAncestorContainer)) return false;
+    const idx = buildHighlightTextIndex(body);
+    const s0 = hlOffsetOf(idx, range.startContainer, range.startOffset);
+    const e0 = hlOffsetOf(idx, range.endContainer, range.endOffset);
+    if (s0 == null || e0 == null) return false;
+    let t = HL.trimRange(idx.text, s0, e0);
+    if (!t) return false;
+    // 與這一篇既有的劃線重疊：併成一處
+    const merged = [];
+    for (const h of highlightsOf(fp)) {
+      const loc = HL.locate(idx.text, h, idx.lineStarts);
+      if (loc && loc.s < t.e && loc.e > t.s) {
+        merged.push(h.id);
+        t = { s: Math.min(t.s, loc.s), e: Math.max(t.e, loc.e) };
+      }
+    }
+    if (t.e - t.s > HL.LIMITS.maxQuote) {
+      showToast(`一次最多劃 ${HL.LIMITS.maxQuote} 個字，請分段劃線`, 'warning');
+      return false;
+    }
+    const a = HL.makeAnchor(idx.text, t.s, t.e, idx.lineStarts);
+    if (!a) return false;
+    const c = HL.COLORS.includes(color) ? color : HL.COLORS[0];
+    state.highlights = (state.highlights || []).filter(h => !merged.includes(h.id));
+    state.highlights.push(Object.assign({ id: HL.newId(), filePath: fp }, a, { c, ts: Date.now() }));
+    persistLibrary('l');
+
+    let addedBookmark = false;
+    if (!(state.bookmarks || []).some(b => b.filePath === fp)) {
+      const titleEl = document.querySelector('#contentHeader .file-title');
+      state.bookmarks = state.bookmarks || [];
+      state.bookmarks.unshift(makeBookmarkEntry(fp, titleEl ? titleEl.textContent : ''));
+      persistLibrary('b');
+      updateBookmarkButtonUI(fp);
+      addedBookmark = true;
+    }
+    renderBookmarksList();
+    paintHighlights();
+    if (!hlSupported()) showToast('已劃線並存入書籤；這個瀏覽器版本無法顯示底線，請更新瀏覽器', 'warning', 4000);
+    else if (addedBookmark) showToast('已劃線，並把這一篇加入書籤', 'success');
+    return true;
+  }
+
+  function recolorHighlight(id, color) {
+    const h = (state.highlights || []).find(x => x.id === id);
+    if (!h || !HL.COLORS.includes(color) || h.c === color) return;
+    h.c = color;
+    h.ts = Math.max(Date.now(), (h.ts || 0) + 1);
+    persistLibrary('l');
+    renderBookmarksList();
+    paintHighlights();
+  }
+
+  function removeHighlight(id) {
+    const before = (state.highlights || []).length;
+    state.highlights = (state.highlights || []).filter(h => h.id !== id);
+    if (state.highlights.length === before) return;
+    delete hlRt.lost[id];
+    saveHighlightLost();
+    persistLibrary('l');
+    renderBookmarksList();
+    paintHighlights();
+  }
+
+  function copyHighlightText(id) {
+    const h = (state.highlights || []).find(x => x.id === id);
+    if (!h) return;
+    const ds = window.mdDisplayScript;
+    const text = isHansDisplay() && ds && ds.isLoaded() ? ds.toContent(h.q) : h.q;
+    const ok = () => showToast('已複製劃線文字', 'success');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(() => { if (fallbackCopy(text)) ok(); else showToast('❌ 複製失敗', 'error'); });
+    } else if (fallbackCopy(text)) ok();
+    else showToast('❌ 複製失敗', 'error');
+  }
+
+  /** 點在哪一處劃線上（以底線所在的行框判斷，含下方一點空間）。 */
+  function highlightAtPoint(x, y) {
+    for (const p of hlRt.painted) {
+      const rects = p.range.getClientRects();
+      for (const r of rects) {
+        if (x >= r.left - 1 && x <= r.right + 1 && y >= r.top - 1 && y <= r.bottom + 6) return p;
+      }
+    }
+    return null;
+  }
+
+  function openHighlightInReader(id) {
+    const h = (state.highlights || []).find(x => x.id === id);
+    if (!h) return;
+    if (isLibraryFileMissing(h.filePath)) { showToast('此文件已不在文庫', 'warning'); return; }
+    closeLibrary(false);
+    hlRt.flashId = id;
+    if (state.currentFile === h.filePath) {
+      scrollToLine(h.line);
+      scheduleHighlightPaint(60);
+    } else {
+      openFile(h.filePath, h.line);
+    }
+  }
+
+  /** 書籤下的劃線清單（抽屜用）。 */
+  function libraryHighlightsHtml(filePath, q) {
+    const list = highlightsOf(filePath);
+    if (!list.length) return '';
+    const matchQ = !!q && list.some(h => h.q.toLowerCase().includes(q));
+    const open = !!libraryUi.hlOpen[filePath] || matchQ;
+    const lost = list.filter(h => hlRt.lost[h.id]).length;
+    let html = `<button type="button" class="library-hl-toggle" data-hl-toggle="${escHtml(filePath)}" aria-expanded="${open}">`
+      + `<span class="library-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>`
+      + `<span>${list.length} 處劃線</span>`
+      + (lost ? `<span class="library-hl-lost">${lost} 處找不到原處</span>` : '')
+      + `</button>`;
+    if (!open) return html;
+    html += '<ul class="library-hl-list">';
+    for (const h of list) {
+      const isLost = !!hlRt.lost[h.id];
+      const quote = h.q.length > 80 ? `${h.q.slice(0, 80)}…` : h.q;
+      html += `<li class="library-hl-item${isLost ? ' lost' : ''}" data-color="${escHtml(h.c)}">`
+        + `<button type="button" class="library-hl-open" data-hl-open="${escHtml(h.id)}" title="${isLost ? '找不到原處：經文可能已修改' : `第 ${h.line} 行`}">`
+        + `<span class="library-hl-mark" aria-label="${HL_COLOR_NAMES[h.c] || ''}色"></span>`
+        + `<span class="library-hl-quote">${escHtml(quote)}</span>`
+        + (isLost ? '<span class="library-hl-lost">找不到原處</span>' : '')
+        + `</button>`
+        + `<button type="button" class="library-hl-act" data-hl-copy="${escHtml(h.id)}" title="複製劃線文字" aria-label="複製劃線文字">⧉</button>`
+        + `<button type="button" class="library-hl-act" data-del-hl="${escHtml(h.id)}" title="刪除這處劃線" aria-label="刪除這處劃線">✕</button>`
+        + `</li>`;
+    }
+    return html + '</ul>';
+  }
+
+  /** 抽屜裡與劃線有關的點擊；處理了就回傳 true。 */
+  function handleHighlightLibraryClick(e) {
+    const toggle = e.target.closest('[data-hl-toggle]');
+    if (toggle) {
+      const fp = toggle.getAttribute('data-hl-toggle');
+      if (libraryUi.hlOpen[fp]) delete libraryUi.hlOpen[fp];
+      else libraryUi.hlOpen[fp] = true;
+      saveLibraryPrefs();
+      renderLibrary();
+      return true;
+    }
+    const copy = e.target.closest('[data-hl-copy]');
+    if (copy) { copyHighlightText(copy.getAttribute('data-hl-copy')); return true; }
+    const del = e.target.closest('[data-del-hl]');
+    if (del) { removeHighlight(del.getAttribute('data-del-hl')); return true; }
+    const open = e.target.closest('[data-hl-open]');
+    if (open) { openHighlightInReader(open.getAttribute('data-hl-open')); return true; }
+    const missing = e.target.closest('[data-missing-file]');
+    if (missing) {
+      const fp = missing.getAttribute('data-missing-file');
+      if (highlightsOf(fp).length) {
+        libraryUi.hlOpen[fp] = true;
+        saveLibraryPrefs();
+        renderLibrary();
+      } else {
+        showToast('此文件已不在文庫', 'warning');
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function setupHighlights() {
+    if (!HL) return;
+    ensureBookmarksForHighlights();
+    ensureHighlightObserver($('markdownBody'));
+    const body = $('markdownBody');
+    if (!body) return;
+    // 點一下已劃線的地方：叫出改色／複製／取消的彈窗
+    body.addEventListener('click', (e) => {
+      if (!hlRt.painted.length) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+      if (e.target.closest('a, button, input, textarea, .line-anchor')) return;
+      const hit = highlightAtPoint(e.clientX, e.clientY);
+      if (!hit) return;
+      const h = (state.highlights || []).find(x => x.id === hit.id);
+      if (h && hlShowEditPopup) hlShowEditPopup(h, hit.range);
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -8422,7 +8998,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8450,6 +9026,7 @@
         readProgress: storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null),
         recentFiles: state.recentFiles || [],
         bookmarks: state.bookmarks || [],
+        highlights: state.highlights || [],
         dictionary: {
           fileOrder: state.dictFileOrder || [],
           fileSelected: loadDictFileSelect() || []
@@ -8544,12 +9121,20 @@
           setSearchMode(pref.searchMode, { rerun: false });
         }
 
-        // 2. 還原書籤最愛
+        // 2. 還原書籤最愛（與其下的劃重點）
+        if (Array.isArray(data.highlights)) {
+          state.highlights = data.highlights.filter(h => h && typeof h.id === 'string' && typeof h.filePath === 'string' && typeof h.q === 'string');
+          persistLibrary('l');
+        }
         if (Array.isArray(data.bookmarks)) {
           state.bookmarks = data.bookmarks;
           persistLibrary('b');
+        }
+        if (Array.isArray(data.bookmarks) || Array.isArray(data.highlights)) {
+          ensureBookmarksForHighlights();
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+          scheduleHighlightPaint();
         }
 
         // 3. 還原最近開啟檔案紀錄
@@ -9873,6 +10458,7 @@
     setupResizeHandle();
     setupDictResizeHandle();
     setupSelectionPopup();
+    setupHighlights();
 
     // ── 右上角整合選單 ──
     setupUserMenu();
@@ -10298,7 +10884,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10666,7 +11252,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11556,7 +12142,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13546,13 +14132,15 @@
       tab: saved.tab === 'recent' ? 'recent' : 'bookmarks',
       sort: saved.sort === 'name' ? 'name' : 'new',
       collapsed: (saved.collapsed && typeof saved.collapsed === 'object') ? saved.collapsed : {},
+      // 書籤下的劃重點清單哪些是展開的（以檔案路徑為 key）
+      hlOpen: (saved.hlOpen && typeof saved.hlOpen === 'object') ? saved.hlOpen : {},
       q: ''
     };
   })();
   let libraryCloseTimer = null;
 
   function saveLibraryPrefs() {
-    storage.setJson(STORAGE_KEYS.LIBRARY_PREFS, { tab: libraryUi.tab, sort: libraryUi.sort, collapsed: libraryUi.collapsed });
+    storage.setJson(STORAGE_KEYS.LIBRARY_PREFS, { tab: libraryUi.tab, sort: libraryUi.sort, collapsed: libraryUi.collapsed, hlOpen: libraryUi.hlOpen });
   }
 
   function isLibraryOpen() {
@@ -13658,7 +14246,8 @@
     const q = libraryUi.q.trim().toLowerCase();
     let html = '';
     if (isBm) {
-      const items = bookmarks.map((b, i) => ({ b, i })).filter(x => libraryMatches(x.b, q));
+      const items = bookmarks.map((b, i) => ({ b, i }))
+        .filter(x => libraryMatches(x.b, q) || (q && highlightsOf(x.b.filePath).some(h => h.q.toLowerCase().includes(q))));
       if (libraryUi.sort === 'name') {
         items.sort((x, y) => libraryTitleOf(x.b).localeCompare(libraryTitleOf(y.b), 'zh-Hant'));
       }
@@ -13687,15 +14276,21 @@
             // 與「歷程」一致的進度呈現：細進度條 + 右側百分比。
             // 進度沿用同一組 .library-bar / .library-pct 樣式，兩邊視覺才不會各說各話。
             const pct = libraryProgressPct(prog);
-            html += `<div class="library-item${current}">`
-              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''} title="${escHtml(b.filePath || '')}">`
+            // 檔案已不在文庫：不能開啟，但書籤與其下的劃線都保留
+            const missing = isLibraryFileMissing(b.filePath);
+            const openAttr = missing ? `data-missing-file="${escHtml(b.filePath)}"` : `data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''}`;
+            html += `<div class="library-item${current}${missing ? ' missing' : ''}">`
+              + `<button type="button" class="library-open" ${openAttr} title="${escHtml(b.filePath || '')}">`
               + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
-              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
-              + libraryProgressBarHtml(pct)
+              + (missing
+                ? '<span class="library-item-sub library-missing">此文件已不在文庫</span>'
+                : (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : ''))
+              + (missing ? '' : libraryProgressBarHtml(pct))
               + `</button>`
-              + (pct !== null ? `<span class="library-pct" title="上次讀到的位置">${pct}%</span>` : '')
+              + (pct !== null && !missing ? `<span class="library-pct" title="上次讀到的位置">${pct}%</span>` : '')
               + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
-              + `</div>`;
+              + `</div>`
+              + libraryHighlightsHtml(b.filePath, q);
           }
         }
       }
@@ -13803,7 +14398,9 @@
     });
     $('libraryClearBtn').addEventListener('click', () => {
       if (libraryUi.tab === 'bookmarks') {
-        if (!confirm('確定要清除所有書籤？')) return;
+        const nHl = (state.highlights || []).length;
+        if (!confirm(nHl ? `確定要清除所有書籤？其下的 ${nHl} 處劃線也會一併刪除。` : '確定要清除所有書籤？')) return;
+        removeHighlightsOfFiles((state.bookmarks || []).map(b => b.filePath).concat((state.highlights || []).map(h => h.filePath)));
         state.bookmarks = [];
         persistLibrary('b');
         renderBookmarksList();
@@ -13826,9 +14423,12 @@
         renderRecentFilesList();
         return;
       }
+      if (handleHighlightLibraryClick(e)) return;
       const del = e.target.closest('[data-del-bookmark]');
       if (del) {
         const file = del.getAttribute('data-del-bookmark');
+        if (!confirmRemoveBookmarkHighlights([file])) return;
+        removeHighlightsOfFiles([file]);
         state.bookmarks = (state.bookmarks || []).filter(i => i.filePath !== file);
         persistLibrary('b');
         renderBookmarksList();
@@ -15818,6 +16418,21 @@
       popup.id = 'selectionSharePopup';
       popup.className = 'selection-share-popup';
       popup.innerHTML = `
+        <div class="hl-swatches" role="group" aria-label="劃重點">
+          <button type="button" class="hl-swatch" data-hl-color="r" title="朱色劃線" aria-label="朱色劃線"><i></i></button>
+          <button type="button" class="hl-swatch" data-hl-color="y" title="黃色劃線" aria-label="黃色劃線"><i></i></button>
+          <button type="button" class="hl-swatch" data-hl-color="g" title="綠色劃線" aria-label="綠色劃線"><i></i></button>
+          <button type="button" class="hl-swatch" data-hl-color="b" title="藍色劃線" aria-label="藍色劃線"><i></i></button>
+        </div>
+        <div class="popup-divider hl-divider"></div>
+        <button type="button" id="selectionHlCopyBtn" class="hl-edit-only" title="複製劃線文字">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5a1 1 0 011-1h6.5"/></svg>
+          <span>複製</span>
+        </button>
+        <button type="button" id="selectionHlRemoveBtn" class="hl-edit-only" title="取消這處劃線">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>
+          <span>取消劃線</span>
+        </button>
         <button id="selectionSearchBtn" title="在全文庫中搜尋此文字">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
@@ -15847,6 +16462,8 @@
     const shareBtn = $('selectionShareBtn');
     const shareLabel = $('selectionShareLabel');
     let currentShareUrl = '';
+    let currentRange = null;     // 選取範圍（劃線用）
+    let editHighlightId = null;  // 點已劃線處叫出彈窗時，那一處的 id
     let currentLineNum = null;
     // 簡體顯示時盡量還原成繁體原文，搜尋框與網址顯示的就是經文原字；
     // 無法還原時保留畫面上的簡體字，由字組比對涵蓋。
@@ -15864,48 +16481,9 @@
     let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
 
     const hidePopup = () => popup.classList.remove('visible');
-    const scheduleSelectionCheck = (delay) => {
-      clearTimeout(selectionTimer);
-      selectionTimer = setTimeout(updateSelectionPopup, delay);
-    };
 
-    function updateSelectionPopup() {
-      selectionTimer = null;
-      const selection = window.getSelection();
-      const text = selection ? selection.toString().trim() : '';
-
-      if (!text || !state.currentFile || selection.rangeCount === 0) {
-        if (Date.now() >= popupTouchGuardUntil) hidePopup();
-        return;
-      }
-
-      // Check if the selection is inside markdownBody
-      const range = selection.getRangeAt(0);
-      const container = $('markdownBody');
-      if (!container || !container.contains(range.commonAncestorContainer)) {
-        hidePopup();
-        return;
-      }
-
-      // Get the line number of the start of selection
-      const lineNum = getSelectionLineNumber(selection);
-      if (!lineNum) {
-        hidePopup();
-        return;
-      }
-
-      currentSelectedText = text;
-      const ds = window.mdDisplayScript;
-      if (isHansDisplay() && ds && ds.isActive()) {
-        const orig = ds.originalTextOfRange(range);
-        if (orig && orig.trim()) currentSelectedText = orig.trim();
-      }
-      currentLineNum = lineNum;
-
-      // Show popup
-      popup.classList.toggle('touch', lastInputWasTouch);
-      popup.classList.add('visible');
-
+    // 彈窗放在 range 旁：觸控放下方（避開系統選單），滑鼠放上方
+    function placePopupNear(range) {
       const popupWidth = popup.offsetWidth || 280;
       const popupHeight = popup.offsetHeight || 34;
       const rect = range.getBoundingClientRect();
@@ -15946,6 +16524,73 @@
 
       popup.style.top = `${Math.max(0, top + window.scrollY)}px`;
       popup.style.left = `${Math.max(0, left + window.scrollX)}px`;
+    }
+
+    function setPopupMode(editId, color) {
+      editHighlightId = editId;
+      popup.classList.toggle('hl-edit', !!editId);
+      popup.querySelectorAll('.hl-swatch').forEach(b => {
+        const on = !!editId && b.getAttribute('data-hl-color') === color;
+        b.classList.toggle('current', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    // 點已劃線處：同一個彈窗換成「改色／複製／取消劃線」
+    hlShowEditPopup = (h, range) => {
+      clearTimeout(selectionTimer);
+      selectionTimer = null;
+      currentRange = null;
+      setPopupMode(h.id, h.c);
+      popup.classList.toggle('touch', lastInputWasTouch);
+      popup.classList.add('visible');
+      popupTouchGuardUntil = Date.now() + 700;
+      placePopupNear(range);
+    };
+    const scheduleSelectionCheck = (delay) => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(updateSelectionPopup, delay);
+    };
+
+    function updateSelectionPopup() {
+      selectionTimer = null;
+      const selection = window.getSelection();
+      const text = selection ? selection.toString().trim() : '';
+
+      if (!text || !state.currentFile || selection.rangeCount === 0) {
+        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        return;
+      }
+
+      // Check if the selection is inside markdownBody
+      const range = selection.getRangeAt(0);
+      const container = $('markdownBody');
+      if (!container || !container.contains(range.commonAncestorContainer)) {
+        hidePopup();
+        return;
+      }
+
+      // Get the line number of the start of selection
+      const lineNum = getSelectionLineNumber(selection);
+      if (!lineNum) {
+        hidePopup();
+        return;
+      }
+
+      currentSelectedText = text;
+      const ds = window.mdDisplayScript;
+      if (isHansDisplay() && ds && ds.isActive()) {
+        const orig = ds.originalTextOfRange(range);
+        if (orig && orig.trim()) currentSelectedText = orig.trim();
+      }
+      currentLineNum = lineNum;
+      currentRange = range.cloneRange();
+
+      // Show popup
+      setPopupMode(null);
+      popup.classList.toggle('touch', lastInputWasTouch);
+      popup.classList.add('visible');
+      placePopupNear(range);
 
       // Update share link using unencoded Chinese URL
       const baseUrl = window.location.origin + window.location.pathname;
@@ -15999,6 +16644,35 @@
     popup.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
+    });
+
+    // 0. 劃重點：選字時點色點＝劃線；點已劃線處時點色點＝改色
+    popup.querySelectorAll('.hl-swatch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.getAttribute('data-hl-color');
+        if (editHighlightId) {
+          recolorHighlight(editHighlightId, color);
+          setPopupMode(editHighlightId, color);
+          return;
+        }
+        const range = currentRange;
+        popup.classList.remove('visible');
+        if (!range) return;
+        if (createHighlightFromRange(range, color)) {
+          const sel = window.getSelection();
+          if (sel) sel.removeAllRanges();
+        }
+        currentRange = null;
+      });
+    });
+    $('selectionHlCopyBtn').addEventListener('click', () => {
+      if (editHighlightId) copyHighlightText(editHighlightId);
+      popup.classList.remove('visible');
+    });
+    $('selectionHlRemoveBtn').addEventListener('click', () => {
+      if (editHighlightId) removeHighlight(editHighlightId);
+      setPopupMode(null);
+      popup.classList.remove('visible');
     });
 
     // 1. 全文庫搜尋按鈕
