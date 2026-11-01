@@ -535,6 +535,34 @@ describe('account flows over HTTP', () => {
     assert.equal((await post('/api/auth/reset', { token: tokens[2], password: 'another-pass-123' })).status, 400);
   });
 
+  test('common passwords are refused at sign-up; admins need 12+ characters when changing their password', async () => {
+    const weak = await post('/api/auth/register', Object.assign({ email: 'weak-pw@example.org', password: 'password123', agree: true }, human));
+    assert.equal(weak.status, 400);
+    assert.equal(weak.json.code, 'WEAK_PASSWORD');
+    const adminCookie = await makeAdmin('boss-len@example.org');
+    const short = await post('/api/auth/password', { currentPassword: 'boss-password', newPassword: 'eleven-char' }, adminCookie);
+    assert.equal(short.status, 400);
+    assert.match(short.json.error, /12/);
+    assert.equal((await post('/api/auth/password', { currentPassword: 'boss-password', newPassword: 'twelve-chars!' }, adminCookie)).status, 200);
+    // 一般使用者 8 個字元即可
+    const cookie = await registerAndVerify('eight-ok@example.org', 'reader-pass-1');
+    assert.equal((await post('/api/auth/password', { currentPassword: 'reader-pass-1', newPassword: 'eight-ok' }, cookie)).status, 200);
+  });
+
+  test('an admin session ends after 30 days even if used every day; regular users have no absolute limit', async () => {
+    const adminCookie = await makeAdmin('boss-abs@example.org');
+    const boss = db.getUserByEmail('boss-abs@example.org');
+    assert.equal((await rq('/api/admin/lockouts', { cookie: adminCookie })).status, 200);
+    db.getDb().prepare('UPDATE sessions SET created_at = ? WHERE user_id = ?').run(Date.now() - 31 * DAY, boss.id);
+    assert.equal((await rq('/api/admin/lockouts', { cookie: adminCookie })).status, 401);
+    assert.equal((await rq('/api/me', { cookie: adminCookie })).json.user, null);
+
+    const userCookie = await registerAndVerify('abs-user@example.org', 'abs-user-pass1');
+    const u = db.getUserByEmail('abs-user@example.org');
+    db.getDb().prepare('UPDATE sessions SET created_at = ? WHERE user_id = ?').run(Date.now() - 200 * DAY, u.id);
+    assert.equal((await rq('/api/me', { cookie: userCookie })).json.user.email, 'abs-user@example.org');
+  });
+
   test('change email: confirmation goes to the NEW address, notice to the old one, link works once, takes effect only then', async () => {
     const old = 'old-addr@example.org';
     const neu = 'new-addr@example.org';

@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.8.6
+ * @version 4.8.7
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -5197,8 +5197,8 @@ const server = http.createServer((req, res) => {
       if (!/^https?:\/\//i.test(cleanSiteUrl)) {
         return sendJSON(res, 400, { error: '首頁權威 URL 格式不正確，必須以 http:// 或 https:// 開頭' });
       }
-      if (password.length < 8) {
-        return sendJSON(res, 400, { error: '密碼長度至少需為 8 個字元' });
+      if (password.length < 12) {
+        return sendJSON(res, 400, { error: '管理員密碼長度至少需為 12 個字元' });
       }
       if (!timingSafeCompare(String(data.setupToken || '').trim(), getSetupToken())) {
         Logger.warn('Admin', 'Rejected first-run setup attempt with a missing or invalid setup token', req);
