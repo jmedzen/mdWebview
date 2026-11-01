@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.7.1 | 最後更新：2026-11
+> 版本：v4.8.0 | 最後更新：2026-11
 
 ---
 
@@ -488,6 +488,12 @@ flowchart TD
 - Key: `mdWebview-home-notice-dismissed`（v4.7.1 起；不沿用舊彈窗的 `mdWebview-announcement-modal-ack`，否則讀過彈窗的人在首頁完全看不到公告）。收起後首頁留一個「顯示公告」連結，可隨時叫回。
 - Value: `{announcement: 公告文字, announcementUpdatedAt: timestamp}`
 - 只比對公告本身；推薦清單輪替不會讓公告重新出現（舊彈窗每個輪替時段都重跳的問題因此消失）。
+
+### 首頁「入室」版面（v4.8.0）
+
+- 第一屏（`.home-hero`，`min-height: calc(100svh - 70px)`）只留問候、浮動蓮花 emoji、每日經文、搜尋框與兩顆快捷鈕，背後一圈主題色柔光；底部的 `#homeScrollCue`「向下」會捲到下方第一個有內容的區塊，下面什麼都沒有時隱藏（`renderHomeCue()`）。
+- 往下是書架、公告（膠囊）、每日一詞＋今日推薦；區塊標題置中、上方一條主題色細線，不再用卡片框住。經句與區塊標題同為 `--cjk-serif` 字重 600。
+- 書架：書衣是明亮的粉彩（天藍／蜜桃／薄荷／奶黃／淡紫，各混一成主題色），書名深墨色。**手機（≤768px）不畫書架**，`renderHomeContinue()` 同時輸出 `.home-shelf-list`：一列一部經（`.home-item`，≥72px，整列可點、`data-file`／`data-continue` 沿用書架的點擊處理），最近讀的有主題色邊框與「繼續讀」；桌機隱藏清單、手機隱藏書架與說明欄。
 
 ---
 
@@ -1004,7 +1010,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.7.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.8.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

@@ -246,3 +246,39 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
     assert.ok(!appJs.includes('看完整條目'));
   });
 });
+
+// ── 首頁「入室」版面（v4.8.0）──────────────────────────────────
+describe('首頁：入室版面', () => {
+  test('第一屏撐滿視窗；向下提示在 hero 裡，下面沒內容時隱藏', () => {
+    assert.match(styleCss, /\.home-hero \{[^}]*min-height: calc\(100svh - 70px\)/);
+    assert.ok(indexHtml.includes('id="homeScrollCue"'));
+    assert.match(appJs, /function homeBelowTarget\(\)/);
+    assert.match(appJs, /cue\.hidden = !homeBelowTarget\(\)/);
+  });
+
+  test('經句與區塊標題同為粗宋體', () => {
+    const verse = styleCss.match(/\.home-verse-text \{[^}]*font-family: var\(--cjk-serif\)[^}]*font-weight: 600/);
+    assert.ok(verse, '經句應使用 --cjk-serif、字重 600');
+    assert.match(styleCss, /\.home-sec-title \{[^}]*font-family: var\(--cjk-serif\)[^}]*font-weight: 600/);
+  });
+
+  test('手機書架改成大按鈕清單：每列 ≥72px、整列可點、桌機隱藏', () => {
+    assert.match(appJs, /class="home-shelf-list"/);
+    assert.match(appJs, /class="home-item\$\{i === 0 \? ' is-latest' : ''\}"[^`]*data-file=/);
+    assert.match(styleCss, /\.home-item \{[^}]*min-height: 72px/);
+    assert.match(styleCss, /\.home-shelf-list \{\s*display: none;/);
+    const mobile = styleCss.slice(styleCss.lastIndexOf('@media (max-width: 768px) {', styleCss.indexOf('.welcome-footer {')));
+    assert.match(mobile, /\.home-shelf-stage,\s*\.home-shelf-info \{\s*display: none;/);
+    assert.match(mobile, /\.home-shelf-list \{\s*display: flex;/);
+  });
+
+  test('書本是淡色粉彩，書名用深墨色（不再是深色書衣＋白字）', () => {
+    assert.doesNotMatch(styleCss, /#6e3b2b|#3c5547|#2d4060/);
+    assert.match(styleCss, /\.home-spine-title \{[^}]*color: rgba\(52, 44, 36/);
+  });
+
+  test('蓮花仍是會漂浮的 emoji', () => {
+    assert.ok(indexHtml.includes('<div class="welcome-lotus" aria-hidden="true">🪷</div>'));
+    assert.match(styleCss, /\.welcome-lotus \{[^}]*animation: float/);
+  });
+});
