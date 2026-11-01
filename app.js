@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.7
+   mdWebview — Application Logic (app.js) v4.2.8
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -3246,7 +3246,14 @@
     const v = state.virtual;
     if (!v) return;
     const line = v.entries[entryIndex] ? v.entries[entryIndex].ls : 1;
-    await scrollToLineVirtual(line, null);
+    await jumpToTocLine(line);
+  }
+
+  // Jump to a heading line of the virtualized file (used for group headings,
+  // which have no entry index of their own).
+  async function jumpToTocLine(line) {
+    if (!state.virtual) return;
+    await scrollToLineVirtual(line || 1, null);
     updateEntryNav();
     if (isMobileBrowser() || window.innerWidth <= 768) {
       closeMobileSidebars();
@@ -3268,6 +3275,13 @@
   // `estimateLineFromScrollTop()` drifts by an entry or two and the TOC would
   // highlight the entry below the one the reader is on.
   function topVisibleEntryIndex() {
+    const line = topVisibleLine();
+    return line > 0 ? entryIndexForLine(line) : -1;
+  }
+
+  // Source line at the top of the content viewport (see topVisibleEntryIndex),
+  // or -1 when no anchors are mounted yet.
+  function topVisibleLine() {
     const v = state.virtual;
     const content = $('content');
     if (!v || !content || !cachedLineAnchors.length) return -1;
@@ -3291,46 +3305,59 @@
     while (idx + 1 < cachedLineAnchors.length && cachedLineAnchors[idx].getBoundingClientRect().bottom <= crTop) idx++;
 
     const topLine = parseInt(cachedLineAnchors[idx].dataset.line || '0', 10);
-    if (topLine <= 0) return -1;
-    return entryIndexForLine(topLine);
+    return topLine > 0 ? topLine : -1;
   }
 
-  function findVisibleAncestorEntry(v, entryIdx) {
-    if (entryIdx < 0 || !v || !v.entries || !v.entries[entryIdx]) return entryIdx;
-    if (v._tocEntryItemIndex && v._tocEntryItemIndex.has(entryIdx)) {
-      return entryIdx;
-    }
-    let targetLevel = v.entries[entryIdx].level || 1;
-    for (let i = entryIdx - 1; i >= 0; i--) {
-      const curLevel = v.entries[i].level || 1;
+  // Nearest ancestor of TOC node `nodeIdx` (itself included) that is currently
+  // shown, i.e. not hidden inside a collapsed parent.
+  function findVisibleAncestorNode(v, nodeIdx) {
+    const nodes = v && v._tocNodes;
+    if (nodeIdx < 0 || !nodes || !nodes[nodeIdx]) return nodeIdx;
+    if (v._tocNodeItemIndex && v._tocNodeItemIndex.has(nodeIdx)) return nodeIdx;
+    let targetLevel = nodes[nodeIdx].level || 1;
+    for (let i = nodeIdx - 1; i >= 0; i--) {
+      const curLevel = nodes[i].level || 1;
       if (curLevel < targetLevel) {
         targetLevel = curLevel;
-        if (v._tocEntryItemIndex && v._tocEntryItemIndex.has(i)) {
-          return i;
-        }
+        if (v._tocNodeItemIndex && v._tocNodeItemIndex.has(i)) return i;
       }
     }
-    return entryIdx;
+    return nodeIdx;
+  }
+
+  // Last TOC node whose heading line is at/before `line` (binary search; nodes
+  // are in document order).
+  function tocNodeIndexForLine(v, line) {
+    const nodes = v && v._tocNodes;
+    if (!nodes || nodes.length === 0) return -1;
+    let lo = 0, hi = nodes.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (nodes[mid].ls <= line) { ans = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
   }
 
   function updateVirtualScrollSpy(line) {
     const v = state.virtual;
     if (!v || !v._tocItems || v._tocItems.length === 0) return;
-    let ei = topVisibleEntryIndex();
-    if (ei < 0) ei = entryIndexForLine(line); // no anchors mounted yet → fall back
+    let topLine = topVisibleLine();
+    if (topLine < 0) topLine = line; // no anchors mounted yet → fall back
 
     // Always clear active class on rendered rows first
     if (v._tocRowEls) {
       v._tocRowEls.forEach(el => el.classList.remove('active'));
     }
 
-    v._activeTocEntry = ei;
-    const visibleEntry = findVisibleAncestorEntry(v, ei);
+    const ni = tocNodeIndexForLine(v, topLine);
+    v._activeTocNode = ni;
+    const visibleNode = findVisibleAncestorNode(v, ni);
 
-    let row = v._tocRowEls.get(visibleEntry);
+    let row = v._tocRowEls.get(visibleNode);
     if (!row && isTocPanelVisible()) {
-      centerTocOnEntry(visibleEntry);
-      row = v._tocRowEls.get(visibleEntry);
+      centerTocOnNode(visibleNode);
+      row = v._tocRowEls.get(visibleNode);
     }
     if (row) {
       row.classList.add('active');
@@ -3354,30 +3381,58 @@
       .trim();
   }
 
+  // All headings of a virtualized file, in document order. The section index
+  // splits them into `entries` (the deepest heading level, which tile the file
+  // for chunking) and `groups` (every shallower heading, e.g. 卷/品/章). The
+  // outline must show both, otherwise only the deepest level appears.
+  // A group precedes the entry at its `first` index; groups after the last
+  // entry have first === entries.length.
+  function buildVirtualTocNodes(v) {
+    const entries = v.entries || [];
+    const groups = v.groups || [];
+    const nodes = [];
+    let gi = 0;
+    const pushGroup = (g) => {
+      const fallbackLs = entries[g.first] ? entries[g.first].ls : (v.totalLines || 1);
+      nodes.push({ kind: 'group', entryIndex: -1, h: g.h || '', level: g.level || 1, ls: g.ls > 0 ? g.ls : fallbackLs });
+    };
+    for (let i = 0; i < entries.length; i++) {
+      while (gi < groups.length && (groups[gi].first ?? 0) <= i) pushGroup(groups[gi++]);
+      const e = entries[i];
+      nodes.push({ kind: 'entry', entryIndex: i, h: e.h || '', level: e.level || 1, ls: e.ls || 1 });
+    }
+    while (gi < groups.length) pushGroup(groups[gi++]);
+    return nodes;
+  }
+
   // Flat fixed-height item list + prefix offsets. Only ~O(window) rows are
   // mounted; the offsets let renderTocWindow find the visible slice in O(log n).
+  // Items, collapse state and row elements are keyed by TOC node index (see
+  // buildVirtualTocNodes), not entry index.
   function buildVirtualTocItems(v) {
+    if (!v._tocNodes) v._tocNodes = buildVirtualTocNodes(v);
+    const nodes = v._tocNodes;
     const items = [];
-    const entryItemIndex = new Map();
+    const nodeItemIndex = new Map();
     let minLevel = 6;
-    if (v.entries && v.entries.length > 0) {
-      for (let i = 0; i < v.entries.length; i++) {
-        const lvl = v.entries[i].level || 1;
+    if (nodes.length > 0) {
+      for (let i = 0; i < nodes.length; i++) {
+        const lvl = nodes[i].level || 1;
         if (lvl < minLevel) minLevel = lvl;
         if (minLevel === 1) break;
       }
     } else {
       minLevel = 1;
     }
-    v._collapsedEntries = v._collapsedEntries || new Set();
+    v._collapsedNodes = v._collapsedNodes || new Set();
     const filterTerms = parseSidebarFilterTerms(state.tocFilter);
     const isFiltering = filterTerms.length > 0;
 
     let skipUntilLevel = -1;
 
-    for (let i = 0; i < (v.entries || []).length; i++) {
-      const e = v.entries[i];
-      const level = e.level || 1;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const level = n.level || 1;
 
       if (!isFiltering && skipUntilLevel > 0) {
         if (level > skipUntilLevel) {
@@ -3387,18 +3442,20 @@
         }
       }
 
-      const label = cleanHeadingText(e.h || '');
+      const label = cleanHeadingText(n.h || '');
       if (isFiltering && !matchesSidebarFilter(label, filterTerms)) {
         continue;
       }
 
-      const hasChildren = !isFiltering && (i + 1 < v.entries.length) && ((v.entries[i + 1].level || 1) > level);
-      const isCollapsed = !isFiltering && v._collapsedEntries.has(i);
+      const hasChildren = !isFiltering && (i + 1 < nodes.length) && ((nodes[i + 1].level || 1) > level);
+      const isCollapsed = !isFiltering && v._collapsedNodes.has(i);
       const depth = Math.max(0, level - minLevel);
 
       items.push({
-        type: 'entry',
-        entryIndex: i,
+        type: n.kind,
+        nodeIndex: i,
+        entryIndex: n.entryIndex,
+        line: n.ls,
         label,
         level,
         depth,
@@ -3406,7 +3463,7 @@
         isCollapsed,
         h: TOC_ROW_H
       });
-      entryItemIndex.set(i, items.length - 1);
+      nodeItemIndex.set(i, items.length - 1);
 
       if (hasChildren && isCollapsed) {
         skipUntilLevel = level;
@@ -3418,7 +3475,7 @@
     for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + items[i].h;
     v._tocItems = items;
     v._tocOffsets = offsets;
-    v._tocEntryItemIndex = entryItemIndex;
+    v._tocNodeItemIndex = nodeItemIndex;
     v._tocTotalHeight = offsets[offsets.length - 1];
   }
 
@@ -3479,7 +3536,7 @@
       el.className = 'toc-item-row virtual' + (item.isCollapsed ? ' collapsed' : '');
       el.setAttribute('data-entry', item.entryIndex);
       el.setAttribute('data-level', item.level || 1);
-      el.setAttribute('data-index', item.entryIndex);
+      el.setAttribute('data-index', item.nodeIndex);
 
       const depth = item.depth || 0;
       const indent = depth * 16 + 8;
@@ -3497,10 +3554,10 @@
         chevron.title = item.isCollapsed ? '展開' : '摺疊';
         chevron.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (v._collapsedEntries.has(item.entryIndex)) {
-            v._collapsedEntries.delete(item.entryIndex);
+          if (v._collapsedNodes.has(item.nodeIndex)) {
+            v._collapsedNodes.delete(item.nodeIndex);
           } else {
-            v._collapsedEntries.add(item.entryIndex);
+            v._collapsedNodes.add(item.nodeIndex);
           }
           buildVirtualTocItems(v);
           v._tocRenderedStart = -1;
@@ -3518,27 +3575,30 @@
       label.title = item.label || '';
       el.appendChild(label);
 
-      el.addEventListener('click', () => jumpToEntry(item.entryIndex));
-      v._tocRowEls.set(item.entryIndex, el);
+      el.addEventListener('click', () => {
+        if (item.entryIndex >= 0) jumpToEntry(item.entryIndex);
+        else jumpToTocLine(item.line);
+      });
+      v._tocRowEls.set(item.nodeIndex, el);
       frag.appendChild(el);
     }
     win.appendChild(frag);
     v._tocSpacerBottom.style.height = (v._tocTotalHeight - offsets[end + 1]) + 'px';
 
     // Re-apply the active highlight if the active entry (or visible ancestor) is mounted.
-    if (v._activeTocEntry != null) {
-      const visibleEntry = findVisibleAncestorEntry(v, v._activeTocEntry);
-      const active = v._tocRowEls.get(visibleEntry);
+    if (v._activeTocNode != null) {
+      const visibleNode = findVisibleAncestorNode(v, v._activeTocNode);
+      const active = v._tocRowEls.get(visibleNode);
       if (active) active.classList.add('active');
     }
   }
 
-  function centerTocOnEntry(ei) {
+  function centerTocOnNode(ni) {
     const v = state.virtual;
     const tocList = $('tocList');
-    if (!v || !v._tocOffsets || !v._tocEntryItemIndex) return;
-    const visibleEntry = findVisibleAncestorEntry(v, ei);
-    const itemIdx = v._tocEntryItemIndex.get(visibleEntry);
+    if (!v || !v._tocOffsets || !v._tocNodeItemIndex) return;
+    const visibleNode = findVisibleAncestorNode(v, ni);
+    const itemIdx = v._tocNodeItemIndex.get(visibleNode);
     if (itemIdx == null) return;
     const target = v._tocOffsets[itemIdx];
     const viewportH = tocList.clientHeight || 400;
@@ -3575,10 +3635,11 @@
     if (v.headwordMap) v.headwordMap.clear();
     if (v.entryMap) v.entryMap.clear();
     if (v._tocRowEls) v._tocRowEls.clear();
-    if (v._collapsedEntries) v._collapsedEntries.clear();
+    if (v._collapsedNodes) v._collapsedNodes.clear();
+    v._tocNodes = null;
     v._tocItems = null;
     v._tocOffsets = null;
-    v._tocEntryItemIndex = null;
+    v._tocNodeItemIndex = null;
     v._tocSpacerTop = null;
     v._tocWindow = null;
     v._tocSpacerBottom = null;
@@ -3634,7 +3695,7 @@
     v._tocSpacerBottom = document.createElement('div');
     v._tocSpacerBottom.className = 'toc-spacer';
     v._tocRowEls = new Map();
-    v._activeTocEntry = -1;
+    v._activeTocNode = -1;
     tocList.appendChild(v._tocSpacerTop);
     tocList.appendChild(v._tocWindow);
     tocList.appendChild(v._tocSpacerBottom);
@@ -3755,7 +3816,8 @@
       entryMap: new Map(),
       _tocItems: null,
       _tocOffsets: null,
-      _tocEntryItemIndex: null,
+      _tocNodes: null,
+      _tocNodeItemIndex: null,
       _tocTotalHeight: 0,
       _tocRowEls: new Map(),
       _tocSpacerTop: null,
@@ -3765,7 +3827,7 @@
       _tocRaf: null,
       _tocRenderedStart: -1,
       _tocRenderedEnd: -1,
-      _activeTocEntry: -1,
+      _activeTocNode: -1,
       _scrollHandler: null,
       _scrollRaf: null,
     };
@@ -5201,7 +5263,7 @@
     if (!btn) return;
     if (isVirtualMode()) {
       const v = state.virtual;
-      const isExpanded = !v || !v._collapsedEntries || v._collapsedEntries.size === 0;
+      const isExpanded = !v || !v._collapsedNodes || v._collapsedNodes.size === 0;
       updateCollapseBtnUI(btn, isExpanded);
     } else {
       const rows = $$('.toc-item-row', $('tocList'));
@@ -5215,17 +5277,19 @@
     if (isVirtualMode()) {
       const v = state.virtual;
       if (!v || !v.entries || v.entries.length === 0) return;
-      v._collapsedEntries = v._collapsedEntries || new Set();
-      if (v._collapsedEntries.size > 0) {
+      v._collapsedNodes = v._collapsedNodes || new Set();
+      if (v._collapsedNodes.size > 0) {
         // Expand all
-        v._collapsedEntries.clear();
+        v._collapsedNodes.clear();
       } else {
         // Collapse all parents with children
-        for (let i = 0; i < v.entries.length; i++) {
-          const curLevel = v.entries[i].level || 1;
-          const nextLevel = (i + 1 < v.entries.length) ? (v.entries[i + 1].level || 1) : 1;
+        if (!v._tocNodes) v._tocNodes = buildVirtualTocNodes(v);
+        const nodes = v._tocNodes;
+        for (let i = 0; i < nodes.length; i++) {
+          const curLevel = nodes[i].level || 1;
+          const nextLevel = (i + 1 < nodes.length) ? (nodes[i + 1].level || 1) : 1;
           if (nextLevel > curLevel) {
-            v._collapsedEntries.add(i);
+            v._collapsedNodes.add(i);
           }
         }
       }
@@ -7953,7 +8017,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.8';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8637,8 +8701,8 @@
           requestAnimationFrame(() => {
             if (isVirtualMode()) {
               const v = state.virtual;
-              const ei = (v && v._activeTocEntry >= 0) ? v._activeTocEntry : 0;
-              centerTocOnEntry(ei);
+              const ni = (v && v._activeTocNode >= 0) ? v._activeTocNode : 0;
+              centerTocOnNode(ni);
             } else if (state.refreshScrollSpy) {
               state.refreshScrollSpy(true);
             }
@@ -9839,7 +9903,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.8';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10171,7 +10235,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.8';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11061,7 +11125,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.8';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

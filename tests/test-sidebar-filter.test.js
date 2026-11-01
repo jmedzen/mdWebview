@@ -54,6 +54,7 @@ function makeSandbox(opts = {}) {
     'parseSidebarFilterTerms',
     'matchesSidebarFilter',
     'filterTreeNodes',
+    'buildVirtualTocNodes',
     'buildVirtualTocItems',
   ]) {
     vm.runInContext(extractFunction(appSrc, fn), ctx);
@@ -174,7 +175,7 @@ describe('本頁大綱即時過濾 — buildVirtualTocItems 與一般模式過�
         { h: '乙一 自相門', level: 3 },
         { h: '甲二 釋末那識', level: 2 },
       ],
-      _collapsedEntries: new Set([0]), // 第一卷原本處於收折狀態
+      _collapsedNodes: new Set([0]), // 第一卷原本處於收折狀態
     };
 
     ctx.buildVirtualTocItems(v);
@@ -189,6 +190,67 @@ describe('本頁大綱即時過濾 — buildVirtualTocItems 與一般模式過�
     assert.equal(v._tocItems.length, 1);
     assert.equal(v._tocItems[0].entryIndex, 0);
     assert.equal(v._tocItems[0].isCollapsed, true);
+  });
+});
+
+describe('虛擬大綱 — 大檔各層標題（groups）皆須顯示', () => {
+  // 大檔的 section index 只把最深一層標題當 entries，較淺的標題（卷／品／章）放在 groups。
+  // 大綱若只畫 entries，就只會看到最深一層。
+  const makeV = () => ({
+    totalLines: 100,
+    entries: [
+      { h: '一、緣起', ls: 5, level: 3 },
+      { h: '二、正說', ls: 20, level: 3 },
+      { h: '一、總說', ls: 60, level: 3 },
+    ],
+    groups: [
+      { h: '卷一', level: 1, ls: 1, first: 0, last: 1 },
+      { h: '序品', level: 2, ls: 3, first: 0, last: 1 },
+      { h: '方便品', level: 2, ls: 50, first: 2, last: 2 },
+      { h: '附錄', level: 1, ls: 90, first: 3, last: 3 },
+    ],
+  });
+
+  test('groups 依文件順序穿插在 entries 之間，並保留層級縮排', () => {
+    const ctx = makeSandbox();
+    const v = makeV();
+    ctx.buildVirtualTocItems(v);
+    const rows = JSON.parse(JSON.stringify(v._tocItems.map(it => [it.label, it.depth, it.type, it.entryIndex, it.line])));
+    assert.deepEqual(rows, [
+      ['卷一', 0, 'group', -1, 1],
+      ['序品', 1, 'group', -1, 3],
+      ['一、緣起', 2, 'entry', 0, 5],
+      ['二、正說', 2, 'entry', 1, 20],
+      ['方便品', 1, 'group', -1, 50],
+      ['一、總說', 2, 'entry', 2, 60],
+      ['附錄', 0, 'group', -1, 90],
+    ]);
+    assert.equal(v._tocItems[0].hasChildren, true);
+    assert.equal(v._tocItems[1].hasChildren, true);
+    assert.equal(v._tocItems[2].hasChildren, false);
+  });
+
+  test('收折上層 group 會隱藏其下所有子標題', () => {
+    const ctx = makeSandbox();
+    const v = makeV();
+    v._collapsedNodes = new Set([1]); // 收折「序品」
+    ctx.buildVirtualTocItems(v);
+    assert.deepEqual(Array.from(v._tocItems, it => it.label), ['卷一', '序品', '方便品', '一、總說', '附錄']);
+    assert.equal(v._tocItems[1].isCollapsed, true);
+  });
+
+  test('過濾時 group 標題也能被找到', () => {
+    const ctx = makeSandbox({ tocFilter: '方便' });
+    const v = makeV();
+    ctx.buildVirtualTocItems(v);
+    assert.deepEqual(Array.from(v._tocItems, it => it.label), ['方便品']);
+  });
+
+  test('沒有 groups 時行為與過去相同（nodeIndex === entryIndex）', () => {
+    const ctx = makeSandbox();
+    const v = { entries: makeV().entries };
+    ctx.buildVirtualTocItems(v);
+    assert.deepEqual(JSON.parse(JSON.stringify(v._tocItems.map(it => [it.nodeIndex, it.entryIndex]))), [[0, 0], [1, 1], [2, 2]]);
   });
 });
 
