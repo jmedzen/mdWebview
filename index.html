@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.2.8'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.3.0'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -53,11 +53,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.2.8">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.2.8">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.2.8">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.2.8">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.2.8">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.3.0">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.3.0">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.3.0">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.3.0">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.3.0">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -79,9 +79,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.2.8">
+  <link rel="stylesheet" href="style.css?v=4.3.0">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.2.8"></script>
+  <script src="i18n/boot.js?v=4.3.0"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -724,7 +724,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.2.8</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.3.0</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -761,7 +761,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.2.8</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.3.0</span>
       </div>
     </div>
   </div>
@@ -1087,7 +1087,7 @@
     <div class="modal-card settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>後台系統設定 <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.2.8</span></h2>
+        <h2>後台系統設定 <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.3.0</span></h2>
         <button type="button" class="modal-close-btn" id="settingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -1104,6 +1104,7 @@
         <button type="button" class="admin-tab-btn" data-tab="seo" id="adminTabSeoBtn">🔍 搜尋優化</button>
         <button type="button" class="admin-tab-btn" data-tab="users" id="adminTabUsersBtn">👥 使用者</button>
         <button type="button" class="admin-tab-btn" data-tab="accountsys" id="adminTabAccountSystemBtn">🔑 帳號系統<span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span></button>
+        <button type="button" class="admin-tab-btn" data-tab="reports" id="adminTabReportsBtn">📬 報表</button>
         <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌</button>
       </div>
 
@@ -2086,6 +2087,96 @@
         </div>
       </div>
 
+      <!-- Tab: 報表信（每日／每週，lib/reports.js） -->
+      <div class="admin-tab-pane" id="adminPaneReports" style="display: none;">
+        <div class="admin-config-grid">
+          <div data-card="reports" class="config-card full-width" id="adminReportsCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">📬</span>
+              <h3 class="config-card-title">每日與每週報表</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">透過「🔑 帳號系統」設定好的 Resend 寄出，內容有使用者（新註冊、登入、活躍、閱讀同步、安全事件）、流量（閱讀、訪客、熱門文章、每小時／每日圖表）與關鍵字（熱門搜尋、上升最多、查無結果、辭典）。日報寄前一天，週報寄到前一天為止的 7 天，各自和前一期比較。</p>
+              <div id="adminReportsNotice" class="setup-result error" style="display: none;"></div>
+              <div class="setup-form">
+                <label class="field-hint" for="adminReportsTz">報表時區（決定一天從幾點算起、幾點寄出）</label>
+                <input type="text" id="adminReportsTz" list="adminReportsTzList" spellcheck="false" placeholder="Asia/Taipei">
+                <datalist id="adminReportsTzList">
+                  <option value="Asia/Taipei"></option>
+                  <option value="Asia/Hong_Kong"></option>
+                  <option value="Asia/Shanghai"></option>
+                  <option value="Asia/Singapore"></option>
+                  <option value="Asia/Kuala_Lumpur"></option>
+                  <option value="Asia/Tokyo"></option>
+                  <option value="America/Los_Angeles"></option>
+                  <option value="America/New_York"></option>
+                  <option value="Europe/London"></option>
+                  <option value="Australia/Sydney"></option>
+                  <option value="UTC"></option>
+                </datalist>
+                <div class="setup-form-row">
+                  <div>
+                    <label class="account-consent"><input type="checkbox" id="adminReportsDailyOn"><span>寄每日報表</span></label>
+                    <label class="field-hint" for="adminReportsDailyHour">每天寄出時間</label>
+                    <select id="adminReportsDailyHour"></select>
+                  </div>
+                  <div>
+                    <label class="account-consent"><input type="checkbox" id="adminReportsWeeklyOn"><span>寄每週報表</span></label>
+                    <label class="field-hint" for="adminReportsWeeklyDay">每週寄出日與時間</label>
+                    <div class="setup-form-row">
+                      <select id="adminReportsWeeklyDay" aria-label="每週寄出日">
+                        <option value="1">週一</option><option value="2">週二</option><option value="3">週三</option><option value="4">週四</option><option value="5">週五</option><option value="6">週六</option><option value="0">週日</option>
+                      </select>
+                      <select id="adminReportsWeeklyHour" aria-label="每週寄出時間"></select>
+                    </div>
+                  </div>
+                </div>
+                <label class="field-hint" for="adminReportsRecipients">收件人（一行一個，最多 10 位；留白 = 寄給所有有 Email 的管理員）</label>
+                <textarea id="adminReportsRecipients" rows="3" spellcheck="false"></textarea>
+                <div class="account-inline-form">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminReportsSaveBtn">儲存</button>
+                </div>
+              </div>
+              <div id="adminReportsStatus" class="account-list"></div>
+            </div>
+          </div>
+
+          <div data-card="reportpreview" class="config-card full-width" id="adminReportsPreviewCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">👀</span>
+              <h3 class="config-card-title">預覽與立即寄送</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">預覽用目前的資料產生，和寄出的內容相同。預覽中的圖表是 SVG；寄出的信改用同一張圖轉成的 PNG，因為 Gmail、Outlook 不顯示 SVG。</p>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminReportsPreviewDailyBtn">預覽日報</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminReportsPreviewWeeklyBtn">預覽週報</button>
+                <span id="adminReportsPreviewInfo" class="field-hint"></span>
+              </div>
+              <div class="account-inline-form">
+                <select id="adminReportsSendKind" aria-label="要寄的報表">
+                  <option value="daily">日報</option>
+                  <option value="weekly">週報</option>
+                </select>
+                <input type="email" id="adminReportsTestTo" placeholder="測試收件 Email（留白 = 寄給收件人）" aria-label="測試收件 Email">
+                <button type="button" class="modal-btn submit-btn small-btn" id="adminReportsSendBtn">立即寄出</button>
+              </div>
+              <iframe id="adminReportsPreview" class="report-preview-frame" title="報表預覽" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
+            </div>
+          </div>
+
+          <div data-card="reporthistory" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">🧾</span>
+              <h3 class="config-card-title">寄送紀錄</h3>
+            </div>
+            <div class="config-card-body">
+              <div id="adminReportsHistory" class="account-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tab 2: System Logs -->
       <div class="admin-tab-pane" id="adminPaneLogs" style="display: none;">
         <div class="admin-logs-header">
@@ -2481,14 +2572,14 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.2.8" defer></script>
-  <script src="i18n/zh-TW.js?v=4.2.8" defer></script>
-  <script src="i18n/zh-CN.js?v=4.2.8" defer></script>
-  <script src="i18n/i18n.js?v=4.2.8" defer></script>
-  <script src="i18n/content-terms.js?v=4.2.8" defer></script>
-  <script src="i18n/display-script.js?v=4.2.8" defer></script>
-  <script src="i18n/search-variants.js?v=4.2.8" defer></script>
-  <script src="library-sync.js?v=4.2.8" defer></script>
-  <script src="app.js?v=4.2.8" defer></script>
+  <script src="marked.min.js?v=4.3.0" defer></script>
+  <script src="i18n/zh-TW.js?v=4.3.0" defer></script>
+  <script src="i18n/zh-CN.js?v=4.3.0" defer></script>
+  <script src="i18n/i18n.js?v=4.3.0" defer></script>
+  <script src="i18n/content-terms.js?v=4.3.0" defer></script>
+  <script src="i18n/display-script.js?v=4.3.0" defer></script>
+  <script src="i18n/search-variants.js?v=4.3.0" defer></script>
+  <script src="library-sync.js?v=4.3.0" defer></script>
+  <script src="app.js?v=4.3.0" defer></script>
 </body>
 </html>
