@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.8.0
+   mdWebview — Style System (style.css) v4.8.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1985,25 +1985,49 @@ section.chunk.chunk-error {
   background: var(--accent-hover);
 }
 
-.home-word-alt {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--text-secondary);
-  cursor: pointer;
+.home-word-others {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
 }
 
+.home-word-others-label {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--text-muted);
+}
 
+/* 其他候選詞條：有邊框的按鈕，不是藏在句子裡的小字連結 */
+.home-word-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
 
+.home-word-alt {
+  min-height: 40px;
+  padding: 7px 18px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
 
-
-
-
-
-
-.home-word-alt:hover {
+.home-word-alt:hover,
+.home-word-alt:focus-visible {
+  border-color: var(--accent);
   color: var(--accent);
+  background: var(--hover-bg);
+  outline: none;
 }
 
 /* ── 首頁搜尋（經藏之門）──────────────────────────────────────
@@ -2627,7 +2651,7 @@ section.chunk.chunk-error {
   }
 }
 
-/* ── 首頁「入室」版面（v4.8.0）─────────────────────────────────
+/* ── 首頁「入室」版面（v4.8.1）─────────────────────────────────
    第一屏只留一句經、一個搜尋框與柔光，像走進禪室；往下滑才是書架與今日。
    區塊標題上方一條細線，內容置中、不再用卡片框住。
    手機沒有書架圖：改成一列一部經的大按鈕清單（整列可點，高度 72px 以上）。 */
@@ -2678,7 +2702,7 @@ section.chunk.chunk-error {
 }
 
 .home-hero.has-verse .welcome-lotus {
-  font-size: 48px;
+  font-size: 60px;
   margin-bottom: 8px;
 }
 
@@ -2826,6 +2850,7 @@ section.chunk.chunk-error {
 
 .home-word-more {
   align-items: center;
+  margin-top: 22px;
 }
 
 .home-rec-list .suggest-item {
@@ -2953,6 +2978,10 @@ section.chunk.chunk-error {
 @media (max-width: 768px) {
   .home-hero {
     padding: 84px 0 110px;
+  }
+
+  .home-hero.has-verse .welcome-lotus {
+    font-size: 48px;
   }
 
   .home-verse-text {

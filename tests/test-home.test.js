@@ -280,5 +280,42 @@ describe('首頁：入室版面', () => {
   test('蓮花仍是會漂浮的 emoji', () => {
     assert.ok(indexHtml.includes('<div class="welcome-lotus" aria-hidden="true">🪷</div>'));
     assert.match(styleCss, /\.welcome-lotus \{[^}]*animation: float/);
+    // 桌機 60px，手機 48px
+    assert.match(styleCss, /\.home-hero\.has-verse \.welcome-lotus \{\s*font-size: 60px;\s*margin-bottom: 8px;/);
+    assert.match(styleCss, /@media \(max-width: 768px\) \{\s*\.home-hero \{\s*padding: 84px 0 110px;\s*\}\s*\.home-hero\.has-verse \.welcome-lotus \{\s*font-size: 48px;/);
+  });
+});
+
+describe('首頁：書架短經名', () => {
+  function loadBookSlipTitle() {
+    const start = appJs.indexOf('  function bookSlipTitle(title) {');
+    const end = appJs.indexOf('\n  }\n', start) + 4;
+    assert.ok(start > 0 && end > start);
+    // eslint-disable-next-line no-new-func
+    return new Function(`${appJs.slice(start, end)}\n    return bookSlipTitle;`)();
+  }
+
+  test('有書名號取書名號；有經號＋經名去經號', () => {
+    const f = loadBookSlipTitle();
+    assert.equal(f('T0251《般若波羅蜜多心經》'), '般若波羅蜜多心經');
+    assert.equal(f('X1234a 楞嚴經正脈疏'), '楞嚴經正脈疏');
+    assert.equal(f('T0262_妙法蓮華經'), '妙法蓮華經');
+  });
+
+  test('檔名本身就是編號時整段保留（「80-01」不能只剩「01」）', () => {
+    const f = loadBookSlipTitle();
+    assert.equal(f('80-01'), '80-01');
+    assert.equal(f('T0251'), 'T0251');
+    assert.equal(f('12.3'), '12.3');
+    assert.equal(f('  '), '');
+  });
+});
+
+describe('首頁：每日一詞「換一個」', () => {
+  test('其他候選詞條是有邊框的按鈕（≥40px），不是句子裡的小字連結', () => {
+    assert.match(appJs, /class="home-word-others-label">換一個</);
+    assert.match(appJs, /class="home-word-chips">/);
+    assert.match(styleCss, /\.home-word-alt \{[^}]*min-height: 40px[^}]*border: 1px solid var\(--border\)[^}]*border-radius: 999px/);
+    assert.doesNotMatch(appJs, /換一個：\$\{others/);
   });
 });
