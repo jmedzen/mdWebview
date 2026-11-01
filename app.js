@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.3.1
+   mdWebview — Application Logic (app.js) v4.4.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1631,21 +1631,10 @@
       }
     }
 
-    // Tabs that exist only for a public deployment.
-    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn', 'adminTabUsersBtn', 'adminTabAccountSystemBtn', 'adminTabReportsBtn'];
-    for (const id of webOnlyTabs) {
-      const btn = $(id);
-      if (btn) btn.style.display = single ? 'none' : '';
-    }
-
-    // If the SEO/analytics pane happens to be the active one, fall back to the
-    // configuration tab so the panel is never left showing an empty section.
-    if (single) {
-      const activePane = document.querySelector('.admin-tab-pane.active');
-      if (activePane && ['adminPaneSeo', 'adminPaneAnalytics', 'adminPaneUsers', 'adminPaneAccountSystem', 'adminPaneReports'].includes(activePane.id)) {
-        const configBtn = $('adminTabConfigBtn');
-        if (configBtn) configBtn.click();
-      }
+    // 後台導覽裡只屬於公開網站的頁面由 data-web-only 藏起；若目前正停在
+    // 這種頁面，改回第一個看得到的頁面，避免畫面停在空白區塊。
+    if (single && adminCurrentPage && !isAdminNavAvailable(adminNavItem(adminCurrentPage))) {
+      showAdminPage('');
     }
   }
 
@@ -1688,6 +1677,11 @@
       // hold and nothing to clear.
       state.isAdmin = !state.isSingleUser && !!data.isAuthenticated;
       updateUserMenu();
+      // 網址帶著 #admin/<頁面>（例如重新整理後台）就直接打開後台到那一頁
+      if ((state.isAdmin || state.isSingleUser) && adminPageFromHash() !== null) {
+        const ov = $('adminSettingsOverlay');
+        if (ov && ov.style.display !== 'flex') openSettingsOverlay();
+      }
       // 舊版把管理員 token 存在 localStorage；改用 cookie 後一律清掉。
       storage.remove(STORAGE_KEYS.ADMIN_TOKEN);
 
@@ -8073,7 +8067,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9383,8 +9377,21 @@
 
     // ── Keyboard shortcuts ──
     document.addEventListener('keydown', (e) => {
+      // ⌘K／Ctrl+K：後台開著時打開後台搜尋
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+        const ov = $('adminSettingsOverlay');
+        if (ov && ov.style.display === 'flex') {
+          e.preventDefault();
+          if (isAdminSearchOpen()) closeAdminSearch(); else openAdminSearch();
+          return;
+        }
+      }
       // ESC key → Exit open modals / settings overlays / search bar
       if (e.key === 'Escape') {
+        if (isAdminSearchOpen()) {
+          closeAdminSearch();
+          return;
+        }
         if (isUserMenuOpen()) {
           closeUserMenu(true);
           return;
@@ -9451,24 +9458,7 @@
         const adminOverlay = $('adminSettingsOverlay');
         if (adminOverlay && adminOverlay.style.display !== 'none' && adminOverlay.style.display !== '') {
           e.preventDefault();
-          const paneConfig = $('adminPaneConfig');
-          const paneSeo = $('adminPaneSeo');
-          const paneSuggest = $('adminPaneSuggest');
-          if (paneConfig && paneConfig.style.display !== 'none') {
-            performSaveSettings(false, false);
-          } else if (paneSeo && paneSeo.style.display !== 'none') {
-            const form = $('adminSeoForm');
-            if (form) {
-              if (typeof form.requestSubmit === 'function') form.requestSubmit();
-              else form.dispatchEvent(new Event('submit', { cancelable: true }));
-            }
-          } else if (paneSuggest && paneSuggest.style.display !== 'none') {
-            const form = $('adminSuggestForm');
-            if (form) {
-              if (typeof form.requestSubmit === 'function') form.requestSubmit();
-              else form.dispatchEvent(new Event('submit', { cancelable: true }));
-            }
-          }
+          saveAdminCurrentPage();
         }
       }
     });
@@ -9777,8 +9767,7 @@
         state.isAdmin = true;
         await refreshAccountMe();
         await openSettingsOverlay();
-        const setupTab = $('adminTabAccountSystemBtn');
-        if (setupTab && !setupTab.hidden && setupTab.style.display !== 'none') setupTab.click();
+        if (!state.isSingleUser) showAdminPage('setup');
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
@@ -9888,7 +9877,7 @@
         // Reload the file tree and update UI with new paths
         await loadTree();
         showToast('✅ 後台系統設定已成功儲存並生效', 'success');
-        setAdminDirty(false);
+        markAdminSaved('config');
 
         if (closeAfterSave) {
           closeAdminModal(true);
@@ -9959,7 +9948,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10051,6 +10040,8 @@
 
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
+    setAdminHash(null);
+    closeAdminSearch(false);
     const setupOverlay = $('adminSetupOverlay');
     if (setupOverlay) setupOverlay.style.display = 'none';
     document.body.classList.remove('modal-open');
@@ -10071,39 +10062,157 @@
     dismissDictIndexRebuildToast();
   }
 
+  /** 關閉後台或整頁重來時清空未儲存紀錄；false 以外的值保留給舊呼叫端。 */
   function setAdminDirty(isDirty) {
-    state._adminDirty = !!isDirty;
-    updateAdminDirtyUI(state._adminDirty);
+    if (!isDirty) adminDirtyFields.clear();
+    refreshAdminSaveBar();
   }
 
-  function updateAdminDirtyUI(isDirty) {
-    const adminBadge = $('adminUnsavedIndicator');
-    const seoBadge = $('seoUnsavedIndicator');
-    const suggestBadge = $('suggestUnsavedIndicator');
-    if (adminBadge) adminBadge.style.display = isDirty ? 'inline-block' : 'none';
-    if (seoBadge) seoBadge.style.display = isDirty ? 'inline-block' : 'none';
-    if (suggestBadge) suggestBadge.style.display = isDirty ? 'inline-block' : 'none';
+  // ── 底部儲存列 ──
+  // 設定類頁面（導覽項目帶 data-save）共用一條儲存列：使用者動過的欄位記下
+  // 原值，與原值不同的才算「未儲存」；儲存成功由各頁的存檔程式呼叫
+  // markAdminSaved(key)。寄信、Turnstile、登入方式是「填金鑰→驗證」流程，
+  // 按鈕留在卡片裡，旁邊直接顯示驗證結果，不走這條列。
+  const adminDirtyFields = new Map(); // element → { orig, save }
+  const ADMIN_SAVE_LABEL = { legal: '發布' };
+  const ADMIN_SAVE_FORMS = { config: 'adminSettingsForm', seo: 'adminSeoForm', suggest: 'adminSuggestForm' };
+  const ADMIN_SAVE_BUTTONS = { registration: 'adminRegSaveBtn', legal: 'adminLegalSaveBtn', reports: 'adminReportsSaveBtn' };
+
+  function adminFieldValue(el) {
+    return (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
+  }
+
+  function adminCurrentSaveKey() {
+    const btn = adminNavItem(adminCurrentPage);
+    return btn ? (btn.dataset.save || '') : '';
+  }
+
+  function isAdminTrackableField(el) {
+    if (!el || !el.matches || !el.matches('input, select, textarea')) return false;
+    if (['file', 'button', 'submit', 'hidden'].includes(el.type) || el.hasAttribute('data-no-dirty')) return false;
+    if (el.id === 'suggestArticleSearchInput') return false;
+    const pane = $(ADMIN_PANES[adminCurrentPane]);
+    if (!pane || !pane.contains(el) || el.closest('.admin-page-hidden')) return false;
+    return !!adminCurrentSaveKey();
+  }
+
+  /** 第一次碰到欄位時記下原值（orig 可由呼叫端給，用於程式改值前）。 */
+  function rememberAdminField(el, orig) {
+    if (adminDirtyFields.has(el)) return;
+    adminDirtyFields.set(el, { orig: orig === undefined ? adminFieldValue(el) : orig, save: adminCurrentSaveKey(), page: adminCurrentPage });
+  }
+
+  /** 真的改過（與原值不同）的欄位。 */
+  function adminDirtyEntries() {
+    return [...adminDirtyFields].filter(([el, v]) => adminFieldValue(el) !== v.orig);
+  }
+
+  /** 這個分頁裡有沒有還沒儲存的欄位：有的話切回來時不要重新載入，以免蓋掉使用者打的字。 */
+  function adminPaneHasDirty(paneKey) {
+    const pane = $(ADMIN_PANES[paneKey]);
+    return !!pane && adminDirtyEntries().some(([el]) => pane.contains(el));
+  }
+
+  function adminDirtyCount(save) {
+    let n = 0;
+    adminDirtyFields.forEach((v, el) => {
+      if ((!save || v.save === save) && adminFieldValue(el) !== v.orig) n++;
+    });
+    return n;
+  }
+
+  function refreshAdminSaveBar() {
+    state._adminDirty = adminDirtyCount('') > 0;
+    const bar = $('adminSaveBar');
+    if (!bar) return;
+    const save = adminCurrentSaveKey();
+    const n = save ? adminDirtyCount(save) : 0;
+    const dirty = adminDirtyEntries();
+    // 導覽列標出哪些頁面有未儲存的變更
+    const dirtyPages = new Set(dirty.map(([, v]) => v.page));
+    adminNavItems().forEach(b => b.classList.toggle('has-unsaved', dirtyPages.has(b.dataset.page)));
+    const revert = $('adminSaveBarRevert');
+    const saveBtn = $('adminSaveBarSave');
+    if (n > 0) {
+      delete bar.dataset.goto;
+      bar.hidden = false;
+      revert.hidden = false;
+      $('adminSaveBarState').textContent = `有 ${n} 項未儲存`;
+      saveBtn.textContent = ADMIN_SAVE_LABEL[save] || '儲存';
+      return;
+    }
+    // 目前這頁沒有，但別頁有：列不要消失，改成提醒並帶回那一頁。
+    const other = dirty.find(([, v]) => v.save && v.save !== save);
+    if (other) {
+      const page = other[1].page;
+      const navBtn = adminNavItem(page);
+      const label = navBtn && navBtn.querySelector('.admin-nav-label');
+      const count = dirty.filter(([, v]) => v.save === other[1].save).length;
+      bar.dataset.goto = page;
+      bar.hidden = false;
+      revert.hidden = true;
+      $('adminSaveBarState').textContent = `「${label ? label.textContent : '其他頁面'}」有 ${count} 項未儲存`;
+      saveBtn.textContent = '回去儲存';
+      return;
+    }
+    delete bar.dataset.goto;
+    bar.hidden = true;
+  }
+
+  /** 某一組設定存檔成功：清掉這組的未儲存紀錄。 */
+  function markAdminSaved(save) {
+    for (const [el, v] of adminDirtyFields) {
+      if (v.save === save) adminDirtyFields.delete(el);
+    }
+    refreshAdminSaveBar();
+  }
+
+  function saveAdminCurrentPage() {
+    const bar = $('adminSaveBar');
+    if (bar && bar.dataset.goto) { showAdminPage(bar.dataset.goto, { focus: true }); return; }
+    const save = adminCurrentSaveKey();
+    if (!save) return;
+    if (ADMIN_SAVE_FORMS[save]) {
+      // 直接觸發 submit 處理器，不跑瀏覽器表單驗證：同一張表單的其他欄位
+      // 可能在別頁（被藏起來），驗證失敗時會靜靜地什麼都不做。
+      const form = $(ADMIN_SAVE_FORMS[save]);
+      if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    } else if (ADMIN_SAVE_BUTTONS[save]) {
+      const btn = $(ADMIN_SAVE_BUTTONS[save]);
+      if (btn) btn.click();
+    }
+  }
+
+  function revertAdminCurrentPage() {
+    const save = adminCurrentSaveKey();
+    const entries = [...adminDirtyFields].filter(([, v]) => v.save === save);
+    entries.forEach(([el, v]) => {
+      if (el.type === 'checkbox' || el.type === 'radio') el.checked = v.orig;
+      else el.value = v.orig;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      adminDirtyFields.delete(el);
+    });
+    refreshAdminSaveBar();
   }
 
   function setupAdminDirtyTracking() {
     if (state._adminDirtyTrackingSetup) return;
     state._adminDirtyTrackingSetup = true;
-
-    ['adminSettingsForm', 'adminSeoForm', 'adminSuggestForm'].forEach(formId => {
-      const form = $(formId);
-      if (!form) return;
-      form.addEventListener('input', (e) => {
-        if (e.target.id === 'suggestArticleSearchInput' || 
-            e.target.id === 'adminCurrentPassword' || 
-            e.target.id === 'adminNewPassword' || 
-            e.target.id === 'adminConfirmPassword') return;
-        setAdminDirty(true);
-      });
-      form.addEventListener('change', (e) => {
-        if (e.target.id === 'suggestArticleSearchInput') return;
-        setAdminDirty(true);
-      });
-    });
+    const shell = $('adminShell');
+    if (!shell) return;
+    const remember = e => { if (isAdminTrackableField(e.target)) rememberAdminField(e.target); };
+    shell.addEventListener('focusin', remember, true);
+    shell.addEventListener('pointerdown', remember, true);
+    const onEdit = e => {
+      if (!isAdminTrackableField(e.target)) return;
+      rememberAdminField(e.target);
+      refreshAdminSaveBar();
+    };
+    shell.addEventListener('input', onEdit);
+    shell.addEventListener('change', onEdit);
+    $('adminSaveBarSave').addEventListener('click', saveAdminCurrentPage);
+    $('adminSaveBarRevert').addEventListener('click', revertAdminCurrentPage);
   }
 
   function setupPathDiagnostics() {
@@ -10193,90 +10302,6 @@
     }
   }
 
-  function setupChangePassword() {
-    const btn = $('btnChangePassword');
-    const currentInput = $('adminCurrentPassword');
-    const newInput = $('adminNewPassword');
-    const confirmInput = $('adminConfirmPassword');
-    const msgEl = $('changePasswordMsg');
-
-    if (!btn || btn._hasChangePasswordHandler) return;
-    btn._hasChangePasswordHandler = true;
-
-    btn.addEventListener('click', async () => {
-      const currentPassword = currentInput ? currentInput.value : '';
-      const newPassword = newInput ? newInput.value : '';
-      const confirmPassword = confirmInput ? confirmInput.value : '';
-
-      if (msgEl) {
-        msgEl.textContent = '';
-        msgEl.className = 'form-hint';
-      }
-
-      if (!currentPassword) {
-        if (msgEl) {
-          msgEl.textContent = '❌ 請輸入目前密碼';
-          msgEl.className = 'form-error-text';
-        }
-        if (currentInput) currentInput.focus();
-        return;
-      }
-
-      if (!newPassword || newPassword.length < 8) {
-        if (msgEl) {
-          msgEl.textContent = '❌ 新密碼長度至少需為 8 個字元';
-          msgEl.className = 'form-error-text';
-        }
-        if (newInput) newInput.focus();
-        return;
-      }
-
-      if (newPassword !== confirmPassword) {
-        if (msgEl) {
-          msgEl.textContent = '❌ 兩次輸入的新密碼不相符';
-          msgEl.className = 'form-error-text';
-        }
-        if (confirmInput) confirmInput.focus();
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = '更新中…';
-
-      try {
-        const res = await fetch('/api/admin/password', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ currentPassword, newPassword })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '更新密碼失敗');
-
-        if (currentInput) currentInput.value = '';
-        if (newInput) newInput.value = '';
-        if (confirmInput) confirmInput.value = '';
-
-        if (msgEl) {
-          msgEl.textContent = '✅ ' + (data.message || '密碼已成功更新！');
-          msgEl.className = 'form-success-text';
-          setTimeout(() => { if (msgEl) msgEl.textContent = ''; }, 4000);
-        }
-        showToast('✅ 管理員密碼已成功更新，已登出其他裝置', 'success');
-      } catch (err) {
-        if (msgEl) {
-          msgEl.textContent = '❌ ' + err.message;
-          msgEl.className = 'form-error-text';
-        }
-        showToast('❌ 更新密碼失敗：' + err.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '更新管理員密碼';
-      }
-    });
-  }
-
   function setupConfigBackupAndRestore() {
     const exportBtn = $('btnExportConfig');
     const importBtn = $('btnImportConfig');
@@ -10291,7 +10316,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11181,7 +11206,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -11228,6 +11253,9 @@
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');
+      setAdminDirty(false);
+      renderAdminSideUser();
+      showInitialAdminPage();
 
       // Preload data for the other admin tabs so they are populated the moment
       // the panel opens. Analytics and SEO reporting only exist for a public
@@ -11244,6 +11272,7 @@
       enhanceAdminCards();
       wireAdminConfigLights();
       refreshAdminConfigLights();
+      preloadAdminLights(data.settings);
     } catch (err) {
       console.error('Error fetching settings:', err);
       showToast('❌ 系統設定載入失敗', 'error');
@@ -11651,125 +11680,578 @@
   // ── §21.6 Settings Forms, Article Picker, Suggest & SEO ────────
   // 分頁切換與表單綁定、文章挑選器、推薦清單設定、Sitemap 與 SEO 工具。
 
+  // ── 後台頁面導覽 ──
+  // 每個導覽項目（index.html .admin-nav-item）宣告它屬於哪個內部分頁（data-pane）
+  // 以及要顯示哪幾張卡片（data-cards，空白＝整個分頁）。同一個分頁裡切頁面
+  // 只是換顯示的卡片，不重新載入資料；換到別的分頁才執行該分頁的載入。
+  // 目前頁面記在網址 #admin/<頁面>（重新整理後留在原處）與 localStorage。
+  const ADMIN_PANES = {
+    config: 'adminPaneConfig', seo: 'adminPaneSeo', hardware: 'adminPaneHardware',
+    logs: 'adminPaneLogs', analytics: 'adminPaneAnalytics', suggest: 'adminPaneSuggest',
+    users: 'adminPaneUsers', accountsys: 'adminPaneAccountSystem', reports: 'adminPaneReports',
+    backup: 'adminPaneBackup', overview: 'adminPaneOverview'
+  };
+  const ADMIN_HASH_PREFIX = '#admin';
+  let adminCurrentPane = null;
+  let adminCurrentPage = null;
+
+  function adminNavItems() {
+    return Array.from($$('.admin-nav-item', $('adminNav')));
+  }
+
+  function adminNavItem(page) {
+    return page ? document.querySelector(`.admin-nav-item[data-page="${page}"]`) : null;
+  }
+
+  /** 單機模式藏起的頁面（data-web-only）不能進入。 */
+  function isAdminNavAvailable(btn) {
+    if (!btn) return false;
+    if (state.isSingleUser === true && btn.closest('[data-web-only]')) return false;
+    return true;
+  }
+
+  function isAdminNarrow() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  /** 網址上的 #admin/<頁面>；沒有則回傳 null。 */
+  function adminPageFromHash() {
+    const h = window.location.hash || '';
+    if (h !== ADMIN_HASH_PREFIX && !h.startsWith(ADMIN_HASH_PREFIX + '/')) return null;
+    return decodeURIComponent(h.slice(ADMIN_HASH_PREFIX.length + 1));
+  }
+
+  function setAdminHash(page) {
+    const h = window.location.hash || '';
+    // 只動屬於後台的雜湊，閱讀用的 #file= 等舊格式不碰
+    if (h && h !== ADMIN_HASH_PREFIX && !h.startsWith(ADMIN_HASH_PREFIX + '/')) return;
+    const next = page === null ? '' : (page ? `${ADMIN_HASH_PREFIX}/${encodeURIComponent(page)}` : ADMIN_HASH_PREFIX);
+    if (h === next) return;
+    history.replaceState(history.state, '', window.location.pathname + window.location.search + next);
+  }
+
+  function runAdminPaneLoader(paneKey) {
+    switch (paneKey) {
+      case 'seo': loadSeoSettings(); updateOgLivePreview(); break;
+      case 'hardware': loadHardwareStats(); setupHardwareAutoRefresh(); break;
+      case 'logs': fetchAdminLogs(); break;
+      case 'analytics': loadAdminAnalytics(); break;
+      case 'suggest': loadSuggestSettings(); break;
+      case 'users': setupAdminAccountEvents(); loadAdminUsersTab(); break;
+      case 'reports': setupAdminReportsEvents(); loadAdminReportsTab(); break;
+      case 'accountsys': setupAdminAccountEvents(); loadAdminAccountSystemTab(); break;
+      case 'backup': setupAdminAccountEvents(); loadAdminBackupPane(); break;
+      case 'overview': loadAdminOverview(); break;
+      default: break;
+    }
+  }
+
+  function hideAdminPanes() {
+    if (hwAutoRefreshTimer) {
+      clearInterval(hwAutoRefreshTimer);
+      hwAutoRefreshTimer = null;
+    }
+    Object.values(ADMIN_PANES).forEach(id => {
+      const p = $(id);
+      if (p) { p.style.display = 'none'; p.classList.remove('active'); }
+    });
+  }
+
+  /**
+   * 切到某個後台頁面。page 找不到或在此模式看不到時，改用第一個看得到的頁面。
+   * opts.reload：同一個分頁也重新載入資料（例如從外部連進來）。
+   */
+  function showAdminPage(page, opts = {}) {
+    let btn = adminNavItem(page);
+    if (!isAdminNavAvailable(btn)) btn = adminNavItems().find(isAdminNavAvailable);
+    if (!btn) return;
+    page = btn.dataset.page;
+    const paneKey = btn.dataset.pane;
+    const pane = $(ADMIN_PANES[paneKey]);
+    if (!pane) return;
+    const paneChanged = paneKey !== adminCurrentPane;
+    if (paneChanged) {
+      hideAdminPanes();
+      pane.style.display = 'block';
+      pane.classList.add('active');
+      adminCurrentPane = paneKey;
+    }
+    const keys = (btn.dataset.cards || '').split(',').filter(Boolean);
+    pane.querySelectorAll('.config-card[data-card]').forEach(card => {
+      card.classList.toggle('admin-page-hidden', keys.length > 0 && !keys.includes(card.dataset.card));
+    });
+    pane.querySelectorAll('[data-admin-pages]').forEach(el => {
+      el.classList.toggle('admin-page-hidden', !el.dataset.adminPages.split(',').includes(page));
+    });
+    adminNavItems().forEach(b => {
+      const on = b === btn;
+      b.classList.toggle('active', on);
+      if (on) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    const label = btn.querySelector('.admin-nav-label');
+    const group = btn.closest('.admin-nav-group');
+    const groupTitle = group && group.querySelector('.admin-nav-group-title');
+    $('adminPageTitle').textContent = label ? label.textContent : '後台';
+    $('adminPageCrumb').textContent = groupTitle ? `後台 › ${groupTitle.textContent}` : '後台';
+    $('adminShell').dataset.view = 'page';
+    if (page !== adminCurrentPage || paneChanged) pane.scrollTop = 0;
+    adminCurrentPage = page;
+    setAdminHash(page);
+    refreshAdminSaveBar();
+    // 分頁裡還有沒儲存的欄位時不重新載入，否則伺服器的舊值會蓋掉使用者剛改的內容。
+    if ((paneChanged || opts.reload) && !adminPaneHasDirty(paneKey)) runAdminPaneLoader(paneKey);
+    if (opts.focus && isAdminNarrow()) {
+      const back = $('adminBackBtn');
+      if (back) back.focus({ preventScroll: true });
+    }
+  }
+
+  /** 手機：回到後台的分組清單。 */
+  function showAdminNavList() {
+    $('adminShell').dataset.view = 'list';
+    setAdminHash('');
+    const cur = adminNavItem(adminCurrentPage);
+    if (cur) cur.focus({ preventScroll: true });
+  }
+
+  /** 打開後台時決定先看哪一頁：網址帶的頁面，否則是總覽（手機則停在分組清單）。 */
+  function showInitialAdminPage() {
+    const fromHash = adminPageFromHash();
+    showAdminPage(fromHash || 'overview', { reload: true });
+    if (!fromHash && isAdminNarrow()) showAdminNavList();
+  }
+
+  /** 讓某張卡片所在的頁面出現（開站設定的「前往」用）。 */
+  function showAdminPageForCard(cardKey) {
+    const btn = adminNavItems().find(b => (b.dataset.cards || '').split(',').includes(cardKey));
+    if (btn) showAdminPage(btn.dataset.page);
+  }
+
+  /** 導覽上的燈號：取該頁所有卡片裡最嚴重的燈。 */
+  let adminNavLightsQueued = false;
+  function updateAdminNavLights() {
+    if (adminNavLightsQueued) return;
+    adminNavLightsQueued = true;
+    requestAnimationFrame(() => {
+      adminNavLightsQueued = false;
+      adminNavItems().forEach(btn => {
+        const pane = $(ADMIN_PANES[btn.dataset.pane]);
+        const dot = btn.querySelector('.admin-nav-light');
+        if (!pane || !dot) return;
+        const keys = (btn.dataset.cards || '').split(',').filter(Boolean);
+        let worst = 'off';
+        let worstText = '';
+        pane.querySelectorAll('.config-card[data-card]').forEach(card => {
+          if (keys.length && !keys.includes(card.dataset.card)) return;
+          const light = card.querySelector('.status-light');
+          if (!light) return;
+          const lv = ['bad', 'warn', 'ok'].find(x => light.classList.contains(x)) || 'off';
+          if (ADMIN_LIGHT_RANK[lv] > ADMIN_LIGHT_RANK[worst]) {
+            worst = lv;
+            worstText = lv === 'off' ? '' : (card.querySelector('.status-light-text') || {}).textContent || '';
+          }
+        });
+        if (btn.dataset.page === 'overview') return; // 總覽的燈號由待辦決定
+        dot.className = `admin-nav-light${worst === 'off' ? '' : ` ${worst}`}`;
+        dot.title = worst === 'off' ? '' : ADMIN_LIGHT_LABEL[worst];
+        btn.dataset.light = worst;
+        btn.dataset.lightText = worstText;
+      });
+      renderAdminOverviewStatus();
+    });
+  }
+
+  // ── 總覽 ──
+  // 待辦＝所有卡片中亮紅燈、黃燈的項目（加上管理員沒有 Email）；數字與趨勢
+  // 來自數據分析，系統健康來自硬體監控。打開後台時先預載各頁資料
+  // （preloadAdminLights），所以不用逐頁點開燈號也會齊全。
+  let adminOverviewExtra = { adminNeedsEmail: false };
+  const ADMIN_TODOS_SHOWN = 5;
+  let adminTodosExpanded = false;
+
+  /** 某張卡片屬於哪一頁（導覽項目）。 */
+  function adminNavItemForCard(card) {
+    const pane = card.closest('.admin-tab-pane');
+    const paneKey = Object.keys(ADMIN_PANES).find(k => ADMIN_PANES[k] === (pane && pane.id));
+    return adminNavItems().find(b => b.dataset.pane === paneKey &&
+      (!(b.dataset.cards || '') || b.dataset.cards.split(',').includes(card.dataset.card)));
+  }
+
+  function collectAdminTodos() {
+    const todos = [];
+    document.querySelectorAll('#adminShell .config-card[data-card]').forEach(card => {
+      const light = card.querySelector('.status-light');
+      if (!light) return;
+      const level = light.classList.contains('bad') ? 'bad' : light.classList.contains('warn') ? 'warn' : '';
+      if (!level) return;
+      const btn = adminNavItemForCard(card);
+      if (!isAdminNavAvailable(btn)) return;
+      const title = (card.querySelector('.config-card-title') || {}).textContent || '';
+      const text = (card.querySelector('.status-light-text') || {}).textContent || light.title || '';
+      todos.push({ level, title, text, page: btn.dataset.page, pageLabel: btn.querySelector('.admin-nav-label').textContent, card: card.dataset.card });
+    });
+    if (adminOverviewExtra.adminNeedsEmail) {
+      todos.push({ level: 'warn', title: '管理員帳號沒有 Email', text: '忘記密碼時無法自行重設', account: true });
+    }
+    return todos.sort((a, b) => ADMIN_LIGHT_RANK[b.level] - ADMIN_LIGHT_RANK[a.level]);
+  }
+
+  function renderAdminOverviewStatus() {
+    const todos = collectAdminTodos();
+    const list = $('ovTodoList');
+    if (list) {
+      const shown = adminTodosExpanded ? todos : todos.slice(0, ADMIN_TODOS_SHOWN);
+      list.innerHTML = todos.length ? shown.map((t, i) => `
+        <div class="ov-todo">
+          <span class="admin-nav-light ${t.level}" aria-label="${ADMIN_LIGHT_LABEL[t.level]}"></span>
+          <div class="ov-todo-text"><strong>${escHtml(t.title)}</strong>${t.pageLabel ? `<span class="ov-todo-page">${escHtml(t.pageLabel)}</span>` : ''}
+            ${t.text ? `<small>${escHtml(t.text)}</small>` : ''}</div>
+          <button type="button" class="modal-btn ${i === 0 && t.level === 'bad' ? 'submit-btn' : 'cancel-btn'} small-btn" data-todo="${i}">${t.account ? '我的帳號' : '前往'}</button>
+        </div>`).join('') + (todos.length > ADMIN_TODOS_SHOWN
+          ? `<button type="button" class="ov-link ov-todo-more" id="ovTodoMore">${adminTodosExpanded ? '收起' : `再顯示 ${todos.length - ADMIN_TODOS_SHOWN} 件`}</button>` : '')
+        : '<div class="ov-empty">目前沒有需要處理的事 ✓</div>';
+      const more = $('ovTodoMore');
+      if (more) more.addEventListener('click', () => { adminTodosExpanded = !adminTodosExpanded; renderAdminOverviewStatus(); });
+      list.querySelectorAll('[data-todo]').forEach(b => b.addEventListener('click', () => {
+        const t = todos[Number(b.dataset.todo)];
+        if (t.account) { closeAdminModal(); openAccountSettings(); return; }
+        showAdminPage(t.page);
+        const card = document.querySelector(`#adminShell .config-card[data-card="${t.card}"]`);
+        if (card) setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      }));
+    }
+    const sub = $('ovTodoSub');
+    if (sub) sub.textContent = todos.length ? `${todos.length} 件需要處理` : '';
+    const count = $('adminNavTodoCount');
+    if (count) { count.hidden = !todos.length; count.textContent = String(todos.length); }
+    const homeBtn = adminNavItem('overview');
+    const homeDot = homeBtn && homeBtn.querySelector('.admin-nav-light');
+    if (homeDot) homeDot.className = `admin-nav-light${todos.length ? ` ${todos[0].level}` : ''}`;
+
+    const pages = $('ovPages');
+    if (pages) {
+      pages.innerHTML = adminNavItems().filter(b => b.dataset.page !== 'overview' && isAdminNavAvailable(b)).map(b => {
+        const lv = b.dataset.light || 'off';
+        return `<button type="button" class="ov-page" data-goto-page="${escHtml(b.dataset.page)}">
+          <span class="admin-nav-light${lv === 'off' ? '' : ` ${lv}`}"></span>
+          <span class="ov-page-label">${escHtml(b.querySelector('.admin-nav-label').textContent)}</span>
+          <span class="ov-page-text">${escHtml(b.dataset.lightText || '')}</span></button>`;
+      }).join('');
+    }
+  }
+
+  function ovDelta(cur, prev) {
+    if (!prev) return cur ? '昨天 0' : '';
+    const pct = Math.round((cur - prev) / prev * 100);
+    return `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}% 比昨天`;
+  }
+
+  function renderOverviewTrend(trend) {
+    const box = $('ovTrend');
+    if (!box) return;
+    if (!trend.length) { box.innerHTML = '<div class="ov-empty">還沒有資料</div>'; return; }
+    const W = 600, H = 120, P = 6;
+    const max = Math.max(1, ...trend.map(d => d.views || 0));
+    const step = trend.length > 1 ? (W - P * 2) / (trend.length - 1) : 0;
+    const pts = trend.map((d, i) => [P + i * step, H - P - (d.views || 0) / max * (H - P * 2)]);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const total = trend.reduce((a, d) => a + (d.views || 0), 0);
+    box.innerHTML = `<div class="ov-trend-total">${total.toLocaleString()} <small>次閱讀</small></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="ov-trend-svg" role="img" aria-label="近 7 天每日閱讀">
+        <path d="${line} L${pts[pts.length - 1][0]},${H} L${pts[0][0]},${H} Z" class="ov-trend-area"/>
+        <path d="${line}" class="ov-trend-line" vector-effect="non-scaling-stroke"/></svg>
+      <div class="ov-trend-axis">${trend.map(d => `<span title="${escHtml(d.date)}：${(d.views || 0).toLocaleString()}">${escHtml(String(d.date).slice(5).replace('-', '/'))}</span>`).join('')}</div>`;
+  }
+
+  function renderOverviewHealth(hw, db) {
+    const box = $('ovHealth');
+    if (!box) return;
+    if (!hw) { box.innerHTML = '<div class="ov-empty">無法取得系統狀態</div>'; return; }
+    const lvPct = (v, warn, bad) => v >= bad ? 'bad' : v >= warn ? 'warn' : 'ok';
+    const rows = [];
+    const cpu = Number(hw.cpu && hw.cpu.usagePct) || 0;
+    rows.push(['CPU', lvPct(cpu, 70, 90), `${cpu.toFixed(1)}%`]);
+    const mem = hw.memory || {};
+    rows.push(['記憶體', lvPct(Number(mem.rssUsagePct) || 0, 75, 90), formatBytes(mem.rss || 0)]);
+    const disk = hw.storage && hw.storage.vaultFs ? Number(hw.storage.vaultFs.usagePct) || 0 : null;
+    if (disk !== null) rows.push(['磁碟', lvPct(disk, 80, 92), `${disk}%`]);
+    const idx = hw.index || {};
+    rows.push(['全文索引', idx.ready ? 'ok' : idx.building ? 'warn' : 'bad', idx.ready ? '就緒' : idx.building ? '建立中' : '未建立']);
+    const di = hw.dictIndex || {};
+    if (di.enabled) rows.push(['辭典索引', di.ready ? 'ok' : di.building ? 'warn' : 'bad', di.ready ? '就緒' : di.building ? '建立中' : '未建立']);
+    if (db) rows.push(['帳號資料庫', db.available ? (db.backupsEnabled ? 'ok' : 'warn') : 'bad',
+      db.available ? (db.backupsEnabled ? `${db.users} 位使用者` : '自動備份未開啟') : '無法使用']);
+    rows.push(['已運作', 'ok', formatUptime(hw.system ? hw.system.processUptime : 0)]);
+    box.innerHTML = rows.map(([label, lv, val]) => `<div class="ov-health-row"><span class="admin-nav-light ${lv}"></span><span>${escHtml(label)}</span><span class="ov-health-val">${escHtml(val)}</span></div>`).join('');
+  }
+
+  async function loadAdminOverview() {
+    renderAdminOverviewStatus();
+    const web = !state.isSingleUser;
+    const get = async (url) => {
+      try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (_) { return null; }
+    };
+    const tz = encodeURIComponent(getEffectiveTimezone());
+    const [hw, week, today, ov] = await Promise.all([
+      get('/api/admin/hardware'),
+      web ? get(`/api/admin/analytics?range=7d&tz=${tz}`) : null,
+      web ? get(`/api/admin/analytics?range=1d&tz=${tz}`) : null,
+      web ? accountApi('/api/admin/accounts-overview').then(r => (r.ok ? r.data : null)) : null
+    ]);
+    if (web) {
+      const trend = (week && week.dailyTrend) || [];
+      const t = trend[trend.length - 1] || {};
+      const y = trend[trend.length - 2] || {};
+      $('ovKpiViews').textContent = (t.views || 0).toLocaleString();
+      $('ovKpiViewsNote').textContent = ovDelta(t.views || 0, y.views || 0);
+      $('ovKpiVisitors').textContent = (t.uniqueIps || 0).toLocaleString();
+      $('ovKpiVisitorsNote').textContent = ovDelta(t.uniqueIps || 0, y.uniqueIps || 0);
+      $('ovKpiSearches').textContent = ((today && today.summary && today.summary.totalSearches) || 0).toLocaleString();
+      $('ovKpiSearchesNote').textContent = today && today.summary ? `辭典查閱 ${(today.summary.dictLookups || 0).toLocaleString()} 次` : '';
+      const c = ov && ov.counts;
+      $('ovKpiUsers').textContent = c ? c.users.toLocaleString() : '—';
+      $('ovKpiUsersNote').textContent = c ? `未驗證 ${c.unverified}・停用 ${c.disabled}` : '';
+      renderOverviewTrend(trend);
+      adminOverviewExtra.adminNeedsEmail = !!(ov && ov.adminNeedsEmail);
+    }
+    renderOverviewHealth(hw, ov && ov.database);
+    renderAdminOverviewStatus();
+  }
+
+  /** 打開後台時在背後把各頁資料載一次，讓導覽燈號與總覽待辦一開始就齊全。 */
+  async function preloadAdminLights(settings) {
+    const jobs = [];
+    if (!state.isSingleUser) {
+      setupAdminAccountEvents();
+      setupAdminReportsEvents();
+      jobs.push(loadSeoSettings(settings).then(() => refreshAdminConfigLights()));
+      if (adminCurrentPane !== 'users') jobs.push(loadAdminUsersTab());
+      if (adminCurrentPane !== 'accountsys') jobs.push(loadAdminAccountSystemTab());
+      if (adminCurrentPane !== 'reports') jobs.push(loadAdminReportsTab());
+    }
+    await Promise.allSettled(jobs);
+    renderAdminOverviewStatus();
+  }
+
+  /** 左欄底部顯示目前登入的管理員；單機模式沒有登入，也就沒有登出。 */
+  function renderAdminSideUser() {
+    const u = state.account && state.account.user;
+    const name = state.isSingleUser ? '單機模式' : (u && (u.displayName || u.username || u.email)) || '管理員';
+    $('adminSideUser').textContent = name;
+    $('adminSideAvatar').textContent = (name || 'A').trim().charAt(0).toUpperCase();
+    $('adminSideLogoutBtn').hidden = !!state.isSingleUser;
+  }
+
+  // ── ⌘K 搜尋 ──
+  // 索引每次打開時從畫面現場建立：頁面（導覽）、卡片標題、欄位名稱。單機模式
+  // 藏起的頁面不列。查詢以空白分詞，每個詞都要出現在名稱或所在位置裡。
+  // 公開網站另外提供「在使用者中搜尋」，把字串帶進使用者頁的搜尋欄。
+  const ADMIN_SEARCH_LIMIT = 40;
+  let adminSearchIndex = [];
+  let adminSearchResults = [];
+  let adminSearchActive = 0;
+  let adminSearchReturnFocus = null;
+
+  function adminSearchText(el) {
+    return el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  }
+
+  function buildAdminSearchIndex() {
+    const items = [];
+    const seen = new Set();
+    const add = item => {
+      const key = `${item.page}|${item.text}`;
+      if (!item.text || seen.has(key)) return;
+      seen.add(key);
+      item.hay = `${item.text} ${item.sub || ''} ${item.keywords || ''}`.toLowerCase();
+      items.push(item);
+    };
+    adminNavItems().forEach(btn => {
+      if (!isAdminNavAvailable(btn)) return;
+      const page = btn.dataset.page;
+      const label = adminSearchText(btn.querySelector('.admin-nav-label'));
+      const group = adminSearchText((btn.closest('.admin-nav-group') || btn).querySelector('.admin-nav-group-title'));
+      add({ kind: 'page', icon: adminSearchText(btn.querySelector('.admin-nav-icon')), text: label, sub: group || '後台', page });
+      const pane = $(ADMIN_PANES[btn.dataset.pane]);
+      if (!pane || page === 'overview') return;
+      const keys = (btn.dataset.cards || '').split(',').filter(Boolean);
+      pane.querySelectorAll('.config-card, .hardware-card, .analytics-section, .suggest-section').forEach(card => {
+        if (card.dataset.card && keys.length && !keys.includes(card.dataset.card)) return;
+        if (state.isSingleUser && card.closest('[data-web-only]')) return;
+        const title = adminSearchText(card.querySelector('.config-card-title, .card-title, .analytics-section-title, .suggest-section-title'));
+        if (title && title !== label) add({ kind: 'card', icon: '▤', text: title, sub: label, page, el: card });
+        card.querySelectorAll('label, .toggle-switch-title').forEach(l => {
+          if (state.isSingleUser && l.closest('[data-web-only]')) return;
+          const t = adminSearchText(l);
+          if (!t || t.length > 40) return;
+          const field = (l.htmlFor && $(l.htmlFor)) || l.querySelector('input, select, textarea') ||
+            (l.closest('.form-group, .toggle-row') || l).querySelector('input, select, textarea');
+          add({ kind: 'field', icon: '•', text: t, sub: title ? `${label} › ${title}` : label, page, el: field || l, card });
+        });
+      });
+    });
+    return items;
+  }
+
+  function searchAdmin(q) {
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return adminSearchIndex.filter(i => i.kind === 'page');
+    const rank = { page: 0, card: 1, field: 2 };
+    const scored = [];
+    adminSearchIndex.forEach(item => {
+      if (!terms.every(t => item.hay.includes(t))) return;
+      const text = item.text.toLowerCase();
+      const first = terms[0];
+      const score = (text.startsWith(first) ? 0 : text.includes(first) ? 10 : 20) + rank[item.kind];
+      scored.push([score, item]);
+    });
+    scored.sort((a, b) => a[0] - b[0]);
+    const out = scored.slice(0, ADMIN_SEARCH_LIMIT).map(x => x[1]);
+    if (!state.isSingleUser && q.trim().length >= 2) {
+      out.push({ kind: 'user', icon: '👥', text: `在使用者中搜尋「${q.trim()}」`, sub: '依 Email、名稱或帳號名稱', page: 'users', query: q.trim() });
+    }
+    return out;
+  }
+
+  function renderAdminSearch() {
+    const list = $('adminPaletteList');
+    const q = $('adminPaletteInput').value;
+    adminSearchResults = searchAdmin(q);
+    if (adminSearchActive >= adminSearchResults.length) adminSearchActive = 0;
+    if (!adminSearchResults.length) {
+      list.innerHTML = `<li class="admin-palette-empty">找不到「${escHtml(q.trim())}」</li>`;
+      return;
+    }
+    list.innerHTML = adminSearchResults.map((r, i) => `
+      <li class="admin-palette-item${i === adminSearchActive ? ' active' : ''}" role="option" id="adminPaletteOpt${i}" data-i="${i}" aria-selected="${i === adminSearchActive}">
+        <span class="admin-palette-icon" aria-hidden="true">${escHtml(r.icon || '')}</span>
+        <span class="admin-palette-text">${escHtml(r.text)}</span>
+        <span class="admin-palette-sub">${escHtml(r.sub || '')}</span>
+      </li>`).join('');
+    $('adminPaletteInput').setAttribute('aria-activedescendant', `adminPaletteOpt${adminSearchActive}`);
+    const act = list.querySelector('.active');
+    if (act) act.scrollIntoView({ block: 'nearest' });
+  }
+
+  function openAdminSearch() {
+    const pal = $('adminPalette');
+    if (!pal || !pal.hidden) return;
+    adminSearchReturnFocus = document.activeElement;
+    adminSearchIndex = buildAdminSearchIndex();
+    adminSearchActive = 0;
+    $('adminPaletteInput').value = '';
+    pal.hidden = false;
+    renderAdminSearch();
+    $('adminPaletteInput').focus();
+  }
+
+  function closeAdminSearch(restoreFocus = true) {
+    const pal = $('adminPalette');
+    if (!pal || pal.hidden) return;
+    pal.hidden = true;
+    if (restoreFocus && adminSearchReturnFocus && adminSearchReturnFocus.focus) adminSearchReturnFocus.focus({ preventScroll: true });
+  }
+
+  function isAdminSearchOpen() {
+    const pal = $('adminPalette');
+    return !!pal && !pal.hidden;
+  }
+
+  /** 前往搜尋結果：切頁、展開卡片、捲過去、短暫標亮，欄位則直接游標放進去。 */
+  function goToAdminSearchResult(r) {
+    if (!r) return;
+    closeAdminSearch(false);
+    showAdminPage(r.page, { focus: true });
+    if (r.kind === 'user') {
+      const box = $('adminUsersSearch');
+      if (box) {
+        box.value = r.query;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        box.focus();
+      }
+      return;
+    }
+    const card = r.card || (r.kind === 'card' ? r.el : null);
+    if (card && card.classList.contains('collapsed') && card.dataset.card) setAdminCardCollapsed(card, false, true);
+    const target = r.el;
+    if (!target) return;
+    requestAnimationFrame(() => {
+      const flash = target.closest('.form-group, .toggle-row, .setup-form') || target;
+      flash.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      flash.classList.remove('admin-search-flash');
+      void flash.offsetWidth;
+      flash.classList.add('admin-search-flash');
+      setTimeout(() => flash.classList.remove('admin-search-flash'), 1800);
+      if (target.matches && target.matches('input, select, textarea') && !target.disabled) target.focus({ preventScroll: true });
+    });
+  }
+
+  function setupAdminSearch() {
+    const input = $('adminPaletteInput');
+    if (!input || input._adminSearchReady) return;
+    input._adminSearchReady = true;
+    const kbd = $('adminSearchKbd');
+    if (kbd && !/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) kbd.textContent = 'Ctrl K';
+    $('adminSearchBtn').addEventListener('click', openAdminSearch);
+    input.addEventListener('input', () => { adminSearchActive = 0; renderAdminSearch(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.isComposing) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const n = adminSearchResults.length;
+        if (!n) return;
+        adminSearchActive = (adminSearchActive + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+        renderAdminSearch();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        goToAdminSearchResult(adminSearchResults[adminSearchActive]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeAdminSearch();
+      }
+    });
+    $('adminPaletteList').addEventListener('click', (e) => {
+      const li = e.target.closest('[data-i]');
+      if (li) goToAdminSearchResult(adminSearchResults[Number(li.dataset.i)]);
+    });
+    $('adminPalette').addEventListener('click', (e) => {
+      if (e.target.id === 'adminPalette') closeAdminSearch();
+    });
+  }
+
+  /** 「備份與還原」頁：網站設定 JSON 不需載入；帳號資料庫狀態與備份清單只在公開網站有。 */
+  async function loadAdminBackupPane() {
+    enhanceAdminCards();
+    if (state.isSingleUser) return;
+    const ov = await accountApi('/api/admin/accounts-overview');
+    if (ov.ok) renderAdminDbStatus(ov.data.database);
+    await loadAdminBackups();
+  }
+
   function setupAdminTabEvents() {
     if (state._adminTabEventsSetup) return;
     state._adminTabEventsSetup = true;
 
-    const tabConfigBtn = $('adminTabConfigBtn');
-    const tabSeoBtn = $('adminTabSeoBtn');
-    const tabHardwareBtn = $('adminTabHardwareBtn');
-    const tabLogsBtn = $('adminTabLogsBtn');
-    const tabAnalyticsBtn = $('adminTabAnalyticsBtn');
-    const tabSuggestBtn = $('adminTabSuggestBtn');
-    const tabUsersBtn = $('adminTabUsersBtn');
-    const tabAccountSystemBtn = $('adminTabAccountSystemBtn');
-    const tabReportsBtn = $('adminTabReportsBtn');
-    const paneReports = $('adminPaneReports');
-    const paneUsers = $('adminPaneUsers');
-    const paneAccountSystem = $('adminPaneAccountSystem');
-    const paneConfig = $('adminPaneConfig');
-    const paneSeo = $('adminPaneSeo');
-    const paneHardware = $('adminPaneHardware');
-    const paneLogs = $('adminPaneLogs');
-    const paneAnalytics = $('adminPaneAnalytics');
-    const paneSuggest = $('adminPaneSuggest');
     const refreshBtn = $('adminLogRefreshBtn');
     const searchInput = $('adminLogSearchInput');
     const settingsTzSelect = $('settingsTimezone');
 
-    function hideAllPanes() {
-      if (hwAutoRefreshTimer) {
-        clearInterval(hwAutoRefreshTimer);
-        hwAutoRefreshTimer = null;
-      }
-      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest, paneUsers, paneAccountSystem, paneReports].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn, tabUsersBtn, tabAccountSystemBtn, tabReportsBtn].forEach(b => { if (b) b.classList.remove('active'); });
-    }
-
-    function activateTab(btn, pane, callback) {
-      hideAllPanes();
-      if (btn) {
-        btn.classList.add('active');
-        btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      }
-      if (pane) pane.style.display = 'block';
-      if (callback) callback();
-    }
-
-    if (tabConfigBtn) {
-      tabConfigBtn.addEventListener('click', () => {
-        activateTab(tabConfigBtn, paneConfig);
-      });
-    }
-
-    if (tabSeoBtn) {
-      tabSeoBtn.addEventListener('click', () => {
-        activateTab(tabSeoBtn, paneSeo, () => {
-          loadSeoSettings();
-          updateOgLivePreview();
-        });
-      });
-    }
-
-    if (tabHardwareBtn) {
-      tabHardwareBtn.addEventListener('click', () => {
-        activateTab(tabHardwareBtn, paneHardware, () => {
-          loadHardwareStats();
-          setupHardwareAutoRefresh();
-        });
-      });
-    }
-
-    if (tabLogsBtn) {
-      tabLogsBtn.addEventListener('click', () => {
-        activateTab(tabLogsBtn, paneLogs, () => {
-          fetchAdminLogs();
-        });
-      });
-    }
-
-    if (tabAnalyticsBtn) {
-      tabAnalyticsBtn.addEventListener('click', () => {
-        activateTab(tabAnalyticsBtn, paneAnalytics, () => {
-          loadAdminAnalytics();
-        });
-      });
-    }
-
-    if (tabSuggestBtn) {
-      tabSuggestBtn.addEventListener('click', () => {
-        activateTab(tabSuggestBtn, paneSuggest, () => {
-          loadSuggestSettings();
-        });
-      });
-    }
-
-    if (tabUsersBtn) {
-      tabUsersBtn.addEventListener('click', () => {
-        activateTab(tabUsersBtn, paneUsers, () => {
-          setupAdminAccountEvents();
-          loadAdminUsersTab();
-        });
-      });
-    }
-
-    if (tabReportsBtn) {
-      tabReportsBtn.addEventListener('click', () => {
-        activateTab(tabReportsBtn, paneReports, () => {
-          setupAdminReportsEvents();
-          loadAdminReportsTab();
-        });
-      });
-    }
-
-    if (tabAccountSystemBtn) {
-      tabAccountSystemBtn.addEventListener('click', () => {
-        activateTab(tabAccountSystemBtn, paneAccountSystem, () => {
-          setupAdminAccountEvents();
-          loadAdminAccountSystemTab();
-        });
-      });
-    }
+    adminNavItems().forEach(btn => {
+      btn.addEventListener('click', () => showAdminPage(btn.dataset.page, { focus: true }));
+    });
+    const backBtn = $('adminBackBtn');
+    if (backBtn) backBtn.addEventListener('click', showAdminNavList);
+    const mainClose = $('adminMainCloseBtn');
+    if (mainClose) mainClose.addEventListener('click', () => closeAdminModal());
+    $('adminSideLogoutBtn').addEventListener('click', () => $('settingsLogoutBtn').click());
+    setupAdminSearch();
+    $('adminShell').addEventListener('click', (e) => {
+      const go = e.target.closest('[data-goto-page]');
+      if (go) { e.preventDefault(); showAdminPage(go.dataset.gotoPage, { focus: true }); }
+    });
+    setupAdminDirtyTracking();
 
     if (settingsTzSelect) {
       settingsTzSelect.addEventListener('change', () => {
@@ -11837,7 +12319,6 @@
 
     // Initialize all admin enhancement handlers
     setupPathDiagnostics();
-    setupChangePassword();
     setupConfigBackupAndRestore();
     setupHardwareClearCache();
     setupArticlePicker();
@@ -11917,9 +12398,10 @@
           if (!filePath) return;
           const currentLines = adminTextarea.value.split('\n').map(l => l.trim()).filter(Boolean);
           if (!currentLines.includes(filePath)) {
+            rememberAdminField(adminTextarea);
             currentLines.push(filePath);
             adminTextarea.value = currentLines.join('\n');
-            setAdminDirty(true);
+            refreshAdminSaveBar();
             showToast(`➕ 已加入「${filePath}」至推薦清單`, 'info');
           } else {
             showToast(`「${filePath}」已在推薦清單中`, 'info');
@@ -12145,7 +12627,7 @@
         if (!res.ok) throw new Error(data.error || '儲存失敗');
 
         _lastAdminSettings = data.settings || null;
-        setAdminDirty(false);
+        markAdminSaved('suggest');
 
         if (successEl) {
           successEl.textContent = '推薦設定已儲存';
@@ -12422,7 +12904,7 @@
           if (!res.ok) throw new Error(data.error || '儲存 SEO 設定失敗');
 
           if (data.settings) _lastAdminSettings = data.settings;
-          setAdminDirty(false);
+          markAdminSaved('seo');
           updateOgLivePreview();
           showToast('✅ 搜尋引擎優化 (SEO) 設定已成功儲存並生效', 'success');
           if (successMsg) {
@@ -13740,6 +14222,18 @@
 
   const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定對外網址（PUBLIC_BASE_URL 或首頁權威 URL）', MAIL: '尚未設定寄信（MAIL_PROVIDER、MAIL_API_KEY、MAIL_FROM）' };
 
+  let adminRegModeKnown = '';
+  let adminLegalVersionKnown = null;
+
+  /** 條款沒發布只有在開放註冊（含邀請制）時才要提醒；關閉註冊的站不需要。 */
+  function refreshAdminLegalLight() {
+    if (adminLegalVersionKnown === null) return;
+    const v = adminLegalVersionKnown;
+    const needed = adminRegModeKnown && adminRegModeKnown !== 'closed';
+    setAdminCardLight('legal', v ? 'ok' : needed ? 'warn' : 'off',
+      v ? `已發布第 ${v} 版` : needed ? '尚未發布，開放註冊前應先發布' : '尚未發布（關閉註冊時不需要）');
+  }
+
   async function loadAdminRegistration() {
     const r = await accountApi('/api/admin/registration');
     if (!r.ok) return;
@@ -13747,8 +14241,12 @@
     $('adminRegCap').value = r.data.hourlyCap;
     $('adminRegDomains').value = (r.data.disposableDomains || []).join('\n');
     const blockers = (r.data.blockers || []).map(b => REG_BLOCKER_TEXT[b] || b);
-    setAdminCardLight('registration', blockers.length ? 'bad' : r.data.mode === 'closed' ? 'warn' : 'ok',
-      blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'closed' ? '已關閉註冊' : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    adminRegModeKnown = r.data.mode;
+    // 關閉註冊是站長的選擇：灰燈、不列入待辦；開放時缺寄信或網址才是紅燈。
+    const closed = r.data.mode === 'closed';
+    setAdminCardLight('registration', closed ? 'off' : blockers.length ? 'bad' : 'ok',
+      closed ? '已關閉註冊' : blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    refreshAdminLegalLight();
     showBox($('adminRegBlockers'), blockers.length ? `註冊與寄信類功能暫停中：${blockers.join('；')}` : '');
   }
 
@@ -13927,7 +14425,8 @@
     const text = notable || (worst.level === 'off' ? '' : ADMIN_LIGHT_LABEL[worst.level]);
     light.title = text || '這個區塊沒有需要監控的狀態';
     light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[worst.level]}${text ? `，${text}` : ''}`);
-    label.textContent = worst.level === 'off' ? '' : text;
+    label.textContent = text;
+    updateAdminNavLights();
   }
 
   /** level: ok | warn | bad | off。同一張卡片可由多個 part 回報，取最嚴重的那個。 */
@@ -13957,12 +14456,13 @@
     L('footer', footerIssues.length ? 'warn' : 'ok', footerIssues.join('；'));
     L('announce', !val('settingsEnableAnnouncement') ? 'off' : val('settingsAnnouncementMessage') ? 'ok' : 'warn',
       !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
-    L('password', 'off');
     L('cfgbackup', 'off');
     const robots = val('seoRobotsIndex');
-    L('indexing', !robots ? 'warn' : val('seoSiteDescription') ? 'ok' : 'warn',
-      !robots ? '已禁止搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
-    L('og', val('seoOgImage') ? 'ok' : 'warn', val('seoOgImage') ? '已設定分享預覽圖' : '還沒有設定分享預覽圖');
+    // 不開放搜尋引擎收錄是站長的選擇（有些站本來就不要被搜尋到），顯示灰燈、不列入待辦。
+    L('indexing', !robots ? 'off' : val('seoSiteDescription') ? 'ok' : 'warn',
+      !robots ? '未開放搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
+    // 留白時伺服器會用內建的 /og-preview.png，所以不算問題。
+    L('og', 'ok', val('seoOgImage') ? '已設定分享預覽圖' : '使用內建的分享預覽圖');
     const verified = ['googleSiteVerification', 'bingSiteVerification', 'baiduSiteVerification'].filter(id => val(id)).length;
     L('webmaster', verified ? 'ok' : 'off', verified ? `已填 ${verified} 個驗證碼` : '');
     L('schema', val('seoEnableSearchBox') ? 'ok' : 'off', val('seoEnableSearchBox') ? '已啟用站內搜尋框結構化資料' : '');
@@ -14034,13 +14534,14 @@
   function goToAdminSetupStep(id) {
     const target = ADMIN_SETUP_TARGETS[id];
     if (target === 'config') {
-      $('adminTabConfigBtn').click();
+      showAdminPage('site');
       setTimeout(() => { const el = $('settingsSiteUrl'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } }, 300);
       return;
     }
     const el = $(target);
     if (!el) return;
     const card = el.closest('.config-card');
+    if (card && card.dataset.card) showAdminPageForCard(card.dataset.card);
     const howto = card && card.querySelector('details.setup-howto');
     if (howto && (id === 'mail' || id === 'turnstile')) howto.open = true;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -14145,7 +14646,8 @@
     list.innerHTML = '';
     const active = r.data.providers.filter(p => p.active).length;
     const idle = r.data.providers.filter(p => p.configured && !p.active).length;
-    setAdminCardLight('sso', active ? 'ok' : 'warn', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
+    // 第三方登入是選用的：沒啟用是灰燈，不列入待辦。
+    setAdminCardLight('sso', active ? 'ok' : 'off', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
     for (const p of r.data.providers) {
       const section = document.createElement('section');
       section.className = 'sso-provider';
@@ -14417,6 +14919,7 @@
       const r = await accountApi('/api/admin/reports/settings', { method: 'POST', body });
       if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error', 4000); return; }
       showToast('✅ 報表設定已儲存', 'success');
+      markAdminSaved('reports');
       renderAdminReports(r.data);
     });
 
@@ -14461,6 +14964,7 @@
   function renderAdminReports(d) {
     const s = d.settings;
     $('adminReportsTz').value = s.timezone;
+    $('adminReportsTzText').textContent = s.timezone;
     $('adminReportsDailyOn').checked = s.daily.enabled;
     $('adminReportsDailyHour').value = String(s.daily.hour);
     $('adminReportsWeeklyOn').checked = s.weekly.enabled;
@@ -14566,7 +15070,7 @@
   }
 
   function renderAdminTurnstile(t) {
-    setAdminCardLight('turnstile', t.configured ? 'ok' : 'warn', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
+    setAdminCardLight('turnstile', t.configured ? 'ok' : 'off', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
     const yes = text => `<span class="account-badge">${text}</span>`;
     const no = text => `<span class="account-badge danger">${text}</span>`;
     const last = t.lastResult;
@@ -14630,7 +15134,8 @@
     $('adminLegalPrivacy').value = r.data.privacy || '';
     $('adminLegalTerms').value = r.data.terms || '';
     $('adminLegalMajor').checked = false;
-    setAdminCardLight('legal', r.data.version ? 'ok' : 'warn', r.data.version ? `已發布第 ${r.data.version} 版` : '尚未發布，開放註冊前應先發布');
+    adminLegalVersionKnown = r.data.version || 0;
+    refreshAdminLegalLight();
     $('adminLegalVersion').textContent = r.data.version ? `第 ${r.data.version} 版 · ${fmtDateTime(r.data.updatedAt)}` : '尚未發布';
   }
 
@@ -14722,7 +15227,7 @@
         method: 'POST',
         body: { mode: $('adminRegMode').value, hourlyCap: $('adminRegCap').value, disposableDomains: $('adminRegDomains').value }
       });
-      if (r.ok) { showToast('✅ 註冊設定已儲存', 'success'); loadAdminRegistration(); refreshAccountConfig(); }
+      if (r.ok) { showToast('✅ 註冊設定已儲存', 'success'); markAdminSaved('registration'); loadAdminRegistration(); refreshAccountConfig(); }
       else showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error');
     });
 
@@ -14884,7 +15389,7 @@
         method: 'POST',
         body: { privacy: $('adminLegalPrivacy').value, terms: $('adminLegalTerms').value, major }
       });
-      if (r.ok) { showToast('✅ 已發布', 'success'); loadAdminLegal(); refreshAccountConfig(); }
+      if (r.ok) { showToast('✅ 已發布', 'success'); markAdminSaved('legal'); loadAdminLegal(); refreshAccountConfig(); }
       else showToast(`❌ ${r.data.error || '發布失敗'}`, 'error');
     });
 

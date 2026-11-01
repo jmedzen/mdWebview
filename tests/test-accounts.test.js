@@ -920,8 +920,8 @@ describe('account HTTP API', () => {
       assert.match(src, new RegExp(`['\`]${pattern}(?:[?'\`]|\\$\\{)`), `admin UI is missing ${route}`);
     }
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    assert.match(html, /id="adminTabUsersBtn"/);
-    assert.match(html, /id="adminTabAccountSystemBtn"/);
+    assert.match(html, /class="admin-nav-item" data-page="users"/);
+    assert.match(html, /class="admin-nav-item" data-page="setup"/);
   });
 
   test('legal text is not shipped in the repository', () => {

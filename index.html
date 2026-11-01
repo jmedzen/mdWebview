@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.3.1'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.4.1'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -53,11 +53,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.3.1">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.3.1">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.3.1">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.3.1">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.3.1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.4.1">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.4.1">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.4.1">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.4.1">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.4.1">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -79,9 +79,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.3.1">
+  <link rel="stylesheet" href="style.css?v=4.4.1">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.3.1"></script>
+  <script src="i18n/boot.js?v=4.4.1"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -724,7 +724,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.3.1</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.4.1</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -761,7 +761,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.3.1</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.4.1</span>
       </div>
     </div>
   </div>
@@ -1082,31 +1082,102 @@
     </div>
   </div>
 
-  <!-- 3. Admin Settings Overlay -->
+  <!-- 3. Admin Settings Overlay：全頁後台（左側分組導覽、右側一頁一件事；手機先看清單再進頁面） -->
   <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;">
-    <div class="modal-card settings-card">
-      <div class="modal-header">
-        <span class="modal-icon">⚙️</span>
-        <h2>後台系統設定 <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.3.1</span></h2>
-        <button type="button" class="modal-close-btn" id="settingsCloseBtn" title="關閉">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
-          </svg>
+    <div class="admin-shell" id="adminShell" data-view="page">
+      <aside class="admin-side" aria-label="後台導覽">
+        <div class="admin-side-top">
+          <span class="admin-side-brand"><span aria-hidden="true">⚙️</span> 後台</span>
+          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.4.1</span>
+          <button type="button" class="admin-side-close" id="settingsCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
+        </div>
+        <button type="button" class="admin-search-btn" id="adminSearchBtn" aria-haspopup="dialog" aria-controls="adminPalette">
+          <span aria-hidden="true">🔎</span><span class="admin-search-btn-text">搜尋設定、使用者…</span><kbd class="admin-search-kbd" id="adminSearchKbd">⌘K</kbd>
         </button>
-      </div>
+        <nav class="admin-nav" id="adminNav">
+          <div class="admin-nav-group admin-nav-group-home">
+            <button type="button" class="admin-nav-item" data-page="overview" data-pane="overview" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🏠</span><span class="admin-nav-label">總覽</span><span class="admin-nav-count" id="adminNavTodoCount" hidden></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group">
+            <div class="admin-nav-group-title">網站</div>
+            <button type="button" class="admin-nav-item" data-page="site" data-save="config" data-pane="config" data-cards="site"><span class="admin-nav-icon" aria-hidden="true">🌐</span><span class="admin-nav-label">網站與經文庫</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="reading" data-save="config" data-pane="config" data-cards="reading"><span class="admin-nav-icon" aria-hidden="true">🎨</span><span class="admin-nav-label">閱讀預設</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="homepage" data-save="config" data-pane="config" data-cards="footer,announce"><span class="admin-nav-icon" aria-hidden="true">🏡</span><span class="admin-nav-label">首頁頁尾與公告</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="suggest" data-save="suggest" data-pane="suggest" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📖</span><span class="admin-nav-label">推薦閱讀</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="seo" data-save="seo" data-pane="seo" data-cards="" data-web-only><span class="admin-nav-icon" aria-hidden="true">🔍</span><span class="admin-nav-label">搜尋引擎與分享</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group" data-web-only>
+            <div class="admin-nav-group-title">讀者與登入</div>
+            <button type="button" class="admin-nav-item" data-page="users" data-pane="users" data-cards="users"><span class="admin-nav-icon" aria-hidden="true">👥</span><span class="admin-nav-label">使用者</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="registration" data-save="registration" data-pane="users" data-cards="registration,invites"><span class="admin-nav-icon" aria-hidden="true">📝</span><span class="admin-nav-label">註冊與邀請碼</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="sso" data-pane="accountsys" data-cards="sso"><span class="admin-nav-icon" aria-hidden="true">🔑</span><span class="admin-nav-label">登入方式</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="legal" data-save="legal" data-pane="accountsys" data-cards="legal"><span class="admin-nav-icon" aria-hidden="true">📄</span><span class="admin-nav-label">條款與隱私</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group" data-web-only>
+            <div class="admin-nav-group-title">外部服務</div>
+            <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="mail" data-pane="accountsys" data-cards="mail"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="turnstile" data-pane="accountsys" data-cards="turnstile"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group" data-web-only>
+            <div class="admin-nav-group-title">營運</div>
+            <button type="button" class="admin-nav-item" data-page="analytics" data-pane="analytics" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📊</span><span class="admin-nav-label">數據分析</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="reports" data-save="reports" data-pane="reports" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📬</span><span class="admin-nav-label">報表信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group">
+            <div class="admin-nav-group-title">系統</div>
+            <button type="button" class="admin-nav-item" data-page="hardware" data-pane="hardware" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🖥️</span><span class="admin-nav-label">系統狀態</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="security" data-pane="users" data-cards="bots,lockouts,events" data-web-only><span class="admin-nav-icon" aria-hidden="true">🚨</span><span class="admin-nav-label">安全與攔截</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="logs" data-pane="logs" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📜</span><span class="admin-nav-label">日誌</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="backup" data-pane="backup" data-cards="cfgbackup,db"><span class="admin-nav-icon" aria-hidden="true">💾</span><span class="admin-nav-label">備份與還原</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+        </nav>
+        <div class="admin-side-foot">
+          <span class="admin-side-avatar" id="adminSideAvatar" aria-hidden="true">A</span>
+          <span class="admin-side-user" id="adminSideUser">管理員</span>
+          <button type="button" class="admin-side-logout" id="adminSideLogoutBtn">登出</button>
+        </div>
+      </aside>
+      <section class="admin-main" aria-labelledby="adminPageTitle">
+        <header class="admin-main-header">
+          <button type="button" class="admin-back-btn" id="adminBackBtn" aria-label="回到後台選單">‹ 後台</button>
+          <div class="admin-page-heading">
+            <div class="admin-page-crumb" id="adminPageCrumb"></div>
+            <h2 class="admin-page-title" id="adminPageTitle">後台</h2>
+          </div>
+          <button type="button" class="admin-main-close" id="adminMainCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
+        </header>
+        <div class="admin-panes">
+          <!-- 總覽：待辦、今日數字、近 7 天趨勢、系統健康、各頁狀態 -->
+          <div class="admin-tab-pane" id="adminPaneOverview" style="display: none;">
+            <div class="admin-overview">
+              <section class="ov-card" id="ovTodoCard">
+                <h3 class="ov-title">🚩 待辦 <span class="ov-sub" id="ovTodoSub"></span></h3>
+                <div class="ov-todo-list" id="ovTodoList"><div class="ov-empty">載入中…</div></div>
+              </section>
+              <div class="ov-kpis" data-web-only>
+                <div class="ov-kpi"><div class="ov-kpi-label">今日閱讀</div><div class="ov-kpi-value" id="ovKpiViews">—</div><div class="ov-kpi-note" id="ovKpiViewsNote"></div></div>
+                <div class="ov-kpi"><div class="ov-kpi-label">今日訪客</div><div class="ov-kpi-value" id="ovKpiVisitors">—</div><div class="ov-kpi-note" id="ovKpiVisitorsNote"></div></div>
+                <div class="ov-kpi"><div class="ov-kpi-label">今日全文搜尋</div><div class="ov-kpi-value" id="ovKpiSearches">—</div><div class="ov-kpi-note" id="ovKpiSearchesNote"></div></div>
+                <div class="ov-kpi"><div class="ov-kpi-label">使用者</div><div class="ov-kpi-value" id="ovKpiUsers">—</div><div class="ov-kpi-note" id="ovKpiUsersNote"></div></div>
+              </div>
+              <div class="ov-row">
+                <section class="ov-card" data-web-only>
+                  <h3 class="ov-title">📈 近 7 天閱讀 <button type="button" class="ov-link" data-goto-page="analytics">數據分析 ›</button></h3>
+                  <div class="ov-trend" id="ovTrend"></div>
+                </section>
+                <section class="ov-card">
+                  <h3 class="ov-title">🖥️ 系統健康 <button type="button" class="ov-link" data-goto-page="hardware">系統狀態 ›</button></h3>
+                  <div class="ov-health" id="ovHealth"><div class="ov-empty">載入中…</div></div>
+                </section>
+              </div>
+              <section class="ov-card">
+                <h3 class="ov-title">🧭 各頁狀態</h3>
+                <div class="ov-pages" id="ovPages"></div>
+              </section>
+            </div>
+          </div>
 
-      <!-- Admin Tabs Navigation -->
-      <div class="admin-tabs-nav" id="adminTabsNav">
-        <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
-        <button type="button" class="admin-tab-btn" data-tab="hardware" id="adminTabHardwareBtn">🖥️ 硬體監控</button>
-        <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
-        <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
-        <button type="button" class="admin-tab-btn" data-tab="seo" id="adminTabSeoBtn">🔍 搜尋優化</button>
-        <button type="button" class="admin-tab-btn" data-tab="users" id="adminTabUsersBtn">👥 使用者</button>
-        <button type="button" class="admin-tab-btn" data-tab="accountsys" id="adminTabAccountSystemBtn">🔑 帳號系統<span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span></button>
-        <button type="button" class="admin-tab-btn" data-tab="reports" id="adminTabReportsBtn">📬 報表</button>
-        <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌</button>
-      </div>
 
       <!-- Tab 1: Config Form -->
       <div class="admin-tab-pane active" id="adminPaneConfig">
@@ -1122,19 +1193,19 @@
               <div class="config-card-body">
                 <div class="form-row compact-row">
                   <div class="form-group half">
-                    <label for="settingsSiteName">網站名稱 (Website Name)</label>
+                    <label for="settingsSiteName">網站名稱</label>
                     <input type="text" id="settingsSiteName" placeholder="例如: mdWebview" required>
                     <span class="field-hint">替代系統標頭與品牌名稱。</span>
                   </div>
                   <div class="form-group half">
-                    <label for="settingsSiteUrl">首頁權威 URL (Canonical URL)</label>
+                    <label for="settingsSiteUrl">首頁權威 URL</label>
                     <input type="text" id="settingsSiteUrl" placeholder="例如: https://mbt.mahabodhi.co">
                     <span class="field-hint">SEO Canonical、Sitemap 網址。</span>
                   </div>
                 </div>
                 <div class="form-group">
                   <div class="field-label-row">
-                    <label for="settingsMdRoot">Vault 目錄路徑 (Vault Path)</label>
+                    <label for="settingsMdRoot">Vault 目錄路徑</label>
                     <button type="button" class="btn-diagnose" id="btnDiagnoseMdRoot" title="測試伺服器或容器端此路徑是否存在與讀寫權限">🔍 檢測路徑</button>
                   </div>
                   <input type="text" id="settingsMdRoot" placeholder="例如: /path/to/mdWebview/md" required>
@@ -1142,7 +1213,7 @@
                   <span class="field-hint">伺服器端存放 Markdown 檔案之絕對路徑。</span>
                 </div>
                 <div class="form-group">
-                  <label for="settingsTimezone">系統管理時區 (Admin Timezone)</label>
+                  <label for="settingsTimezone">時區</label>
                   <select id="settingsTimezone" class="theme-select-inline" style="width: 100%;">
                     <option value="auto">🌐 自動偵測時區 (瀏覽器預設)</option>
                     <option value="Asia/Taipei">🌏 台北 / 香港 (UTC+8)</option>
@@ -1151,7 +1222,7 @@
                     <option value="America/New_York">🇺🇸 紐約 (UTC-4/-5)</option>
                     <option value="Europe/London">🇪🇺 倫敦 (UTC+0/+1)</option>
                   </select>
-                  <span class="field-hint">用於後台系統日誌、數據分析圖表與導出報表的時間顯示時區。</span>
+                  <span class="field-hint">後台日誌、數據分析與報表信都用這個時區。選「自動」時，日誌與分析跟著你的瀏覽器，報表信維持目前的時區。</span>
                 </div>
               </div>
             </div>
@@ -1276,57 +1347,13 @@
               </div>
             </div>
 
-            <!-- Card 5: Admin Password Change -->
-            <div data-card="password" class="config-card">
-              <div class="config-card-header">
-                <span class="config-card-icon">🔒</span>
-                <h3 class="config-card-title">管理員密碼修改 (Change Admin Password)</h3>
-              </div>
-              <div class="config-card-body">
-                <div class="form-group">
-                  <label for="adminCurrentPassword">目前密碼</label>
-                  <input type="password" id="adminCurrentPassword" placeholder="輸入目前密碼" autocomplete="current-password">
-                </div>
-                <div class="form-row compact-row">
-                  <div class="form-group half">
-                    <label for="adminNewPassword">新密碼 (至少 8 碼)</label>
-                    <input type="password" id="adminNewPassword" placeholder="輸入新密碼" autocomplete="new-password">
-                  </div>
-                  <div class="form-group half">
-                    <label for="adminConfirmPassword">確認新密碼</label>
-                    <input type="password" id="adminConfirmPassword" placeholder="再次確認新密碼" autocomplete="new-password">
-                  </div>
-                </div>
-                <div class="password-action-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; flex-wrap: wrap; gap: 8px;">
-                  <button type="button" id="btnChangePassword" class="modal-btn submit-btn small-btn">更新管理員密碼</button>
-                  <span id="changePasswordMsg" class="form-hint" style="margin-left: 6px;"></span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Card 6: Config Backup & Restore -->
-            <div data-card="cfgbackup" class="config-card">
-              <div class="config-card-header">
-                <span class="config-card-icon">💾</span>
-                <h3 class="config-card-title">設定備份與還原 (Config Backup & Restore)</h3>
-              </div>
-              <div class="config-card-body">
-                <span class="field-hint" style="margin: 0; line-height: 1.5;">匯出包含網站外觀、SEO、推薦與時區之完整設定備份，或上傳先前的 JSON 備份檔進行還原（自動略過密碼雜湊）。</span>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
-                  <button type="button" id="btnExportConfig" class="modal-btn submit-btn small-btn">📥 匯出設定備份 (JSON)</button>
-                  <button type="button" id="btnImportConfig" class="modal-btn cancel-btn small-btn">📤 匯入設定還原</button>
-                  <input type="file" id="configImportFileInput" accept=".json" style="display: none;">
-                </div>
-              </div>
-            </div>
-
           </div>
 
           <div id="settingsErrorMsg" class="form-error" style="display: none;"></div>
           <div id="settingsSuccessMsg" class="form-success" style="display: none;"></div>
           <div class="modal-actions">
             <button type="button" id="settingsLogoutBtn" class="modal-btn logout-btn">登出</button>
-            <span id="adminUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更 (Cmd+S)</span>
+            <span id="adminUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更</span>
             <div class="modal-right-actions">
               <button type="button" id="settingsCancelBtn" class="modal-btn cancel-btn">取消</button>
               <button type="submit" class="modal-btn submit-btn">儲存設定</button>
@@ -1345,12 +1372,12 @@
             <div data-card="indexing" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🌐</span>
-                <h3 class="config-card-title">全站收錄與爬蟲 (Indexing & Crawlers)</h3>
+                <h3 class="config-card-title">全站收錄與爬蟲</h3>
               </div>
               <div class="config-card-body">
                 <div class="form-group toggle-group" style="padding-bottom: 8px; border-bottom: 1px dashed var(--border-color); margin-bottom: 2px;">
                   <div class="toggle-row">
-                    <label for="seoRobotsIndex" style="font-weight: 600; color: var(--text-primary);">搜尋引擎收錄 (Search Engine Indexing)</label>
+                    <label for="seoRobotsIndex" style="font-weight: 600; color: var(--text-primary);">搜尋引擎收錄</label>
                     <label class="toggle-switch">
                       <input type="checkbox" id="seoRobotsIndex">
                       <span class="toggle-slider"></span>
@@ -1362,18 +1389,18 @@
                   </div>
                 </div>
                 <div class="form-group">
-                  <label for="seoSiteDescription">全站描述 (Meta Description)</label>
+                  <label for="seoSiteDescription">全站描述</label>
                   <textarea id="seoSiteDescription" rows="2" class="form-textarea" placeholder="輸入搜尋引擎顯示之中文摘要（建議 80~160 字元）"></textarea>
                   <span class="form-hint">出現在 Google 搜尋結果摘要與社群分享卡片（og:description）。</span>
                 </div>
                 <div class="form-group">
-                  <label for="seoKeywords">關鍵字標籤 (Meta Keywords)</label>
+                  <label for="seoKeywords">關鍵字標籤</label>
                   <input type="text" id="seoKeywords" placeholder="以逗號分隔，例如: 佛典, 經論, 大正藏, 佛學辭典">
                   <span class="form-hint">提供搜尋引擎輔助索引的核心主題詞彙。</span>
                 </div>
                 <div class="form-group toggle-group" style="margin-top: 2px;">
                   <div class="toggle-row">
-                    <label for="seoBlockAiBots">封鎖 AI 訓練採集爬蟲 (Block AI Bots)</label>
+                    <label for="seoBlockAiBots">封鎖 AI 訓練採集爬蟲</label>
                     <label class="toggle-switch">
                       <input type="checkbox" id="seoBlockAiBots" checked>
                       <span class="toggle-slider"></span>
@@ -1382,7 +1409,7 @@
                   <span class="form-hint">在 robots.txt 中封鎖 GPTBot、CCBot、ClaudeBot、Bytespider 等 AI 爬蟲。</span>
                 </div>
                 <div class="form-group">
-                  <label for="seoDisallowPaths">自訂排除路徑 (Disallow Paths)</label>
+                  <label for="seoDisallowPaths">自訂排除路徑</label>
                   <textarea id="seoDisallowPaths" rows="2" class="form-textarea" placeholder="/api/&#10;/vendor/"></textarea>
                   <span class="form-hint">每行一個路徑，將自動寫入 robots.txt 的 <code>Disallow</code> 規則。</span>
                 </div>
@@ -1393,11 +1420,11 @@
             <div data-card="og" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📱</span>
-                <h3 class="config-card-title">社群分享卡片與規則 (OpenGraph & Links)</h3>
+                <h3 class="config-card-title">社群分享卡片與規則</h3>
               </div>
               <div class="config-card-body">
                 <div class="form-group">
-                  <label for="seoOgImage">社群預覽圖片 (OG / Twitter Image)</label>
+                  <label for="seoOgImage">社群預覽圖片</label>
                   <input type="text" id="seoOgImage" placeholder="例如: /og-preview.png 或完整 URL">
                   <span class="form-hint">分享至 LINE、Facebook、Twitter 時顯示之卡片縮圖（建議比例 1200×630）。</span>
                 </div>
@@ -1429,7 +1456,7 @@
             <div data-card="webmaster" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🏷️</span>
-                <h3 class="config-card-title">站長平台驗證 (Webmaster Verification)</h3>
+                <h3 class="config-card-title">站長平台驗證</h3>
               </div>
               <div class="config-card-body">
                 <div class="form-group">
@@ -1454,12 +1481,12 @@
             <div data-card="schema" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">🗺️</span>
-                <h3 class="config-card-title">結構化資料與爬蟲 SSR (Schema & SSR)</h3>
+                <h3 class="config-card-title">結構化資料與爬蟲 SSR</h3>
               </div>
               <div class="config-card-body">
                 <div class="form-group toggle-group">
                   <div class="toggle-row">
-                    <label for="seoEnableSearchBox">首頁搜尋端點結構化標記 (WebSite + SearchAction)</label>
+                    <label for="seoEnableSearchBox">首頁搜尋端點結構化標記</label>
                     <label class="toggle-switch">
                       <input type="checkbox" id="seoEnableSearchBox">
                       <span class="toggle-slider"></span>
@@ -1468,7 +1495,7 @@
                   <span class="form-hint">於首頁注入 Schema.org <code>WebSite</code> 與 <code>SearchAction</code>，宣告本站的 <code>?search={search_term_string}</code> 深層連結。Google 已於 2024-11-21 下線 Sitelinks Search Box，故不會在 Google 結果產生檢索框；此標記供 schema.org 消費者與 AI 檢索器辨識站內搜尋用。單機模式不輸出。</span>
                 </div>
                 <div class="form-group">
-                  <label for="seoHomepageSummary">首頁爬蟲導言文章 (Crawler Landing Summary)</label>
+                  <label for="seoHomepageSummary">首頁爬蟲導言文章</label>
                   <textarea id="seoHomepageSummary" rows="2" class="form-textarea" placeholder="輸入對爬蟲渲染之首頁導言介紹…"></textarea>
                   <span class="form-hint">搜尋引擎爬蟲訪問首頁時直接預渲染此內容與經文索引，徹底解決 Soft 404 問題。</span>
                 </div>
@@ -1493,7 +1520,7 @@
                 </div>
                 <div class="seo-actions-row" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
                   <button type="button" class="modal-btn submit-btn small-btn" id="btnRebuildSitemap">🔄 立即重新生成 Sitemap</button>
-                  <button type="button" class="modal-btn cancel-btn small-btn" id="btnPingSearchEngines">📡 提交至搜尋引擎 (Ping)</button>
+                  <button type="button" class="modal-btn cancel-btn small-btn" id="btnPingSearchEngines">📡 提交至搜尋引擎</button>
                 </div>
                 <div id="seoRebuildResultMsg" class="form-hint" style="margin-top: 6px; display: none;"></div>
               </div>
@@ -1506,7 +1533,7 @@
             <div class="modal-left-actions">
               <span id="seoSuccessMsg" class="form-success-text" style="display:none;"></span>
               <span id="seoErrorMsg" class="form-error-text" style="display:none;"></span>
-              <span id="seoUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更 (Cmd+S)</span>
+              <span id="seoUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更</span>
             </div>
             <div class="modal-right-actions">
               <button type="button" class="modal-btn cancel-btn" id="seoCancelBtn">取消</button>
@@ -1579,13 +1606,13 @@
           <div class="hardware-card">
             <div class="hardware-card-header">
               <span class="card-icon">🧠</span>
-              <span class="card-title">記憶體佔用 (Memory)</span>
+              <span class="card-title">記憶體佔用</span>
               <span class="metric-status-badge" id="hwMemStatusBadge">正常</span>
             </div>
             <div class="hardware-card-body">
               <div class="progress-bar-row">
                 <div class="progress-bar-label">
-                  <span>容器常駐記憶體 (RSS)</span>
+                  <span>容器常駐記憶體（RSS）</span>
                   <span id="hwRssText">-- / --</span>
                 </div>
                 <div class="progress-bar-track">
@@ -1603,7 +1630,7 @@
               </div>
               <div class="hardware-sub-metrics">
                 <div class="sub-metric">
-                  <span class="sub-label">V8 外部記憶體 (External)</span>
+                  <span class="sub-label">V8 外部記憶體</span>
                   <span class="sub-val" id="hwExternalText">--</span>
                 </div>
                 <div class="sub-metric">
@@ -1681,7 +1708,7 @@
                       <span class="sub-val" id="hwIndexStatus">--</span>
                     </div>
                     <div class="sub-metric">
-                      <span class="sub-label">索引詞目數 (Units)</span>
+                      <span class="sub-label">索引詞目數</span>
                       <span class="sub-val" id="hwIndexUnits">--</span>
                     </div>
                     <div class="sub-metric">
@@ -1706,7 +1733,7 @@
                       <span class="sub-val" id="hwDictIndexStatus">--</span>
                     </div>
                     <div class="sub-metric">
-                      <span class="sub-label">辭典詞目數 (Units)</span>
+                      <span class="sub-label">辭典詞目數</span>
                       <span class="sub-val" id="hwDictIndexUnits">--</span>
                     </div>
                     <div class="sub-metric">
@@ -1752,7 +1779,7 @@
                   <span class="sub-val" id="hwVaultTotalSize">--</span>
                 </div>
                 <div class="sub-metric full-width">
-                  <span class="sub-label">上次搜尋耗時 (Last Search)</span>
+                  <span class="sub-label">上次搜尋耗時</span>
                   <span class="sub-val" id="hwLastSearchTime">--</span>
                 </div>
               </div>
@@ -1768,7 +1795,7 @@
             <div class="hardware-card-body">
               <div class="hardware-sub-metrics grid-2col">
                 <div class="sub-metric">
-                  <span class="sub-label">實時吞吐量 (RPM)</span>
+                  <span class="sub-label">實時吞吐量</span>
                   <span class="sub-val" id="hwNetworkRpm">0 req/min</span>
                 </div>
                 <div class="sub-metric">
@@ -1857,7 +1884,7 @@
               <input type="number" id="adminRegCap" min="1" max="10000">
               <label class="field-hint" for="adminRegDomains">不接受的信箱網域（一行一個，例如拋棄式信箱）</label>
               <textarea id="adminRegDomains" rows="3" spellcheck="false" placeholder="mailinator.com"></textarea>
-              <button type="button" class="modal-btn submit-btn small-btn" id="adminRegSaveBtn">儲存註冊設定</button>
+              <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminRegSaveBtn">儲存註冊設定</button>
             </div>
           </div>
 
@@ -1869,9 +1896,9 @@
             <div class="config-card-body">
               <p class="field-hint">依序填：可使用次數、幾天後失效（0 為不失效）、備註。產生的邀請碼只顯示一次。</p>
               <div class="account-inline-form">
-                <input type="number" id="adminInviteUses" min="1" max="1000" value="1" aria-label="可使用次數" title="可使用次數">
-                <input type="number" id="adminInviteDays" min="0" max="365" value="14" aria-label="幾天後失效（0 為不失效）" title="幾天後失效（0 為不失效）">
-                <input type="text" id="adminInviteNote" maxlength="200" placeholder="備註（給誰）" aria-label="備註">
+                <input data-no-dirty type="number" id="adminInviteUses" min="1" max="1000" value="1" aria-label="可使用次數" title="可使用次數">
+                <input data-no-dirty type="number" id="adminInviteDays" min="0" max="365" value="14" aria-label="幾天後失效（0 為不失效）" title="幾天後失效（0 為不失效）">
+                <input data-no-dirty type="text" id="adminInviteNote" maxlength="200" placeholder="備註（給誰）" aria-label="備註">
                 <button type="button" class="modal-btn submit-btn small-btn" id="adminInviteCreateBtn">產生</button>
               </div>
               <div id="adminInviteNew" class="invite-new" hidden role="status">
@@ -1929,7 +1956,7 @@
 
       <!-- Tab: 帳號系統（登入方式、寄信、條款頁面、資料庫備份） -->
       <div class="admin-tab-pane" id="adminPaneAccountSystem" style="display: none;">
-        <div id="adminAccountSysNotice" class="form-error" style="display: none;"></div>
+        <div id="adminAccountSysNotice" class="form-error" data-admin-pages="setup" style="display: none;"></div>
         <div class="admin-config-grid">
           <div data-card="setup" class="config-card full-width" id="adminSetupCard">
             <div class="config-card-header">
@@ -2064,11 +2091,33 @@
                 <input type="checkbox" id="adminLegalMajor">
                 <span>重大變更：已註冊的人下次登入時要重新同意</span>
               </label>
-              <button type="button" class="modal-btn submit-btn small-btn" id="adminLegalSaveBtn">發布</button>
+              <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminLegalSaveBtn">發布</button>
             </div>
           </div>
 
-          <div data-card="db" class="config-card full-width">
+        </div>
+      </div>
+
+      <!-- Tab: 備份與還原（網站設定 JSON、帳號資料庫） -->
+      <div class="admin-tab-pane" id="adminPaneBackup" style="display: none;">
+        <div class="admin-config-grid">
+          <!-- Card 6: Config Backup & Restore -->
+          <div data-card="cfgbackup" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">💾</span>
+              <h3 class="config-card-title">設定備份與還原</h3>
+            </div>
+            <div class="config-card-body">
+              <span class="field-hint" style="margin: 0; line-height: 1.5;">匯出包含網站外觀、SEO、推薦與時區之完整設定備份，或上傳先前的 JSON 備份檔進行還原（自動略過密碼雜湊）。</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+                <button type="button" id="btnExportConfig" class="modal-btn submit-btn small-btn">📥 匯出設定備份（JSON）</button>
+                <button type="button" id="btnImportConfig" class="modal-btn cancel-btn small-btn">📤 匯入設定還原</button>
+                <input type="file" id="configImportFileInput" accept=".json" style="display: none;">
+              </div>
+            </div>
+          </div>
+
+          <div data-card="db" class="config-card full-width" data-web-only>
             <div class="config-card-header">
               <span class="config-card-icon">🗄️</span>
               <h3 class="config-card-title">帳號資料庫與備份</h3>
@@ -2099,21 +2148,8 @@
               <p class="field-hint">透過「🔑 帳號系統」設定好的 Resend 寄出，內容有使用者（新註冊、登入、活躍、閱讀同步、安全事件）、流量（閱讀、訪客、熱門文章、每小時／每日圖表）與關鍵字（熱門搜尋、上升最多、查無結果、辭典）。日報寄前一天，週報寄到前一天為止的 7 天，各自和前一期比較。</p>
               <div id="adminReportsNotice" class="setup-result error" style="display: none;"></div>
               <div class="setup-form">
-                <label class="field-hint" for="adminReportsTz">報表時區（決定一天從幾點算起、幾點寄出）</label>
-                <input type="text" id="adminReportsTz" list="adminReportsTzList" spellcheck="false" placeholder="Asia/Taipei">
-                <datalist id="adminReportsTzList">
-                  <option value="Asia/Taipei"></option>
-                  <option value="Asia/Hong_Kong"></option>
-                  <option value="Asia/Shanghai"></option>
-                  <option value="Asia/Singapore"></option>
-                  <option value="Asia/Kuala_Lumpur"></option>
-                  <option value="Asia/Tokyo"></option>
-                  <option value="America/Los_Angeles"></option>
-                  <option value="America/New_York"></option>
-                  <option value="Europe/London"></option>
-                  <option value="Australia/Sydney"></option>
-                  <option value="UTC"></option>
-                </datalist>
+                <input type="hidden" id="adminReportsTz">
+                <p class="field-hint admin-reports-tz">報表時區：<strong id="adminReportsTzText">—</strong>（決定一天從幾點算起、幾點寄出）。要改請到 <button type="button" class="ov-link" data-goto-page="site">網站與經文庫 › 時區</button>。</p>
                 <div class="setup-form-row">
                   <div>
                     <label class="account-consent"><input type="checkbox" id="adminReportsDailyOn"><span>寄每日報表</span></label>
@@ -2134,7 +2170,7 @@
                 <label class="field-hint" for="adminReportsRecipients">收件人（一行一個，最多 10 位；留白 = 寄給所有有 Email 的管理員）</label>
                 <textarea id="adminReportsRecipients" rows="3" spellcheck="false"></textarea>
                 <div class="account-inline-form">
-                  <button type="button" class="modal-btn submit-btn small-btn" id="adminReportsSaveBtn">儲存</button>
+                  <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminReportsSaveBtn">儲存</button>
                 </div>
               </div>
               <div id="adminReportsStatus" class="account-list"></div>
@@ -2215,7 +2251,7 @@
             <button type="button" class="analytics-range-btn" data-range="allTime">全部</button>
           </div>
           <div class="analytics-actions">
-            <span class="analytics-clean-badge" style="font-size: 12px; color: var(--accent); padding: 4px 8px; background: rgba(56, 139, 253, 0.1); border: 1px solid rgba(56, 139, 253, 0.25); border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; margin-right: 4px;">🛡️ 純淨數據（已過濾爬蟲）</span>
+            <span class="analytics-clean-badge">🛡️ 純淨數據（已過濾爬蟲）</span>
             <input type="text" id="analyticsTableFilterInput" class="admin-table-filter" placeholder="🔍 快速篩選文章 / 詞條 / 關鍵字...">
             <button type="button" id="analyticsExportCsvBtn" class="modal-btn submit-btn small-btn">📥 導出 CSV</button>
             <button type="button" id="analyticsExportJsonBtn" class="modal-btn cancel-btn small-btn">📥 導出 JSON</button>
@@ -2229,56 +2265,56 @@
               <div class="analytics-card-icon">📖</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsTotalViews">0</div>
-                <div class="analytics-card-label">總閱讀點閱量 (Total Views) · 真實讀者</div>
+                <div class="analytics-card-label">總閱讀點閱量 · 真實讀者</div>
               </div>
             </div>
             <div class="analytics-card">
               <div class="analytics-card-icon">👥</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsUniqueIps">0</div>
-                <div class="analytics-card-label">獨立訪客 IP (Unique IPs) · 非爬蟲</div>
+                <div class="analytics-card-label">獨立訪客 IP · 非爬蟲</div>
               </div>
             </div>
             <div class="analytics-card">
               <div class="analytics-card-icon">📚</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsActiveFiles">0</div>
-                <div class="analytics-card-label">被閱讀文章數 (Active Docs)</div>
+                <div class="analytics-card-label">被閱讀文章數</div>
               </div>
             </div>
             <div class="analytics-card">
               <div class="analytics-card-icon">🔍</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsTotalSearches">0</div>
-                <div class="analytics-card-label">全文搜尋總次數 (Searches)</div>
+                <div class="analytics-card-label">全文搜尋總次數</div>
               </div>
             </div>
             <div class="analytics-card">
               <div class="analytics-card-icon">🔎</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsDictSearches">0</div>
-                <div class="analytics-card-label">辭典搜尋次數 (Dict Searches)</div>
+                <div class="analytics-card-label">辭典搜尋次數</div>
               </div>
             </div>
             <div class="analytics-card">
               <div class="analytics-card-icon">👁️</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsDictLookups">0</div>
-                <div class="analytics-card-label">辭典查閱次數 (Dict Lookups)</div>
+                <div class="analytics-card-label">辭典查閱次數</div>
               </div>
             </div>
             <div class="analytics-card">
               <div class="analytics-card-icon">📈</div>
               <div class="analytics-card-content">
                 <div class="analytics-card-value" id="analyticsAvgViewsPerDoc">0</div>
-                <div class="analytics-card-label">平均每篇點閱 (Avg Views/Doc)</div>
+                <div class="analytics-card-label">平均每篇點閱</div>
               </div>
             </div>
           </div>
 
           <!-- Trend Chart Section -->
           <div class="analytics-section">
-            <h3 class="analytics-section-title">📈 全站流量與檢索動態趨勢圖 (Traffic & Query Trends)</h3>
+            <h3 class="analytics-section-title">📈 全站流量與檢索動態趨勢圖</h3>
             <div class="analytics-chart-wrapper" id="analyticsTrendChartWrapper" style="position: relative;">
               <div id="chartFloatingTooltip" class="chart-floating-tooltip" style="display: none;"></div>
               <div class="search-loading"><div class="spinner"></div><span>繪製圖表中…</span></div>
@@ -2287,7 +2323,7 @@
 
           <!-- Popular Files Table -->
           <div class="analytics-section">
-            <h3 class="analytics-section-title">🔥 熱門閱讀筆記 Top 50 (Popular Articles)</h3>
+            <h3 class="analytics-section-title">🔥 熱門閱讀筆記 Top 50</h3>
             <div class="analytics-table-wrapper">
               <table class="analytics-table">
                 <thead>
@@ -2309,7 +2345,7 @@
           <!-- Dictionary Lookups & Searches -->
           <div class="analytics-grid-two">
             <div class="analytics-section">
-              <h3 class="analytics-section-title">🔥 熱門查詢辭條 Top 50 (Top Lookups)</h3>
+              <h3 class="analytics-section-title">🔥 熱門查詢辭條 Top 50</h3>
               <div class="analytics-table-wrapper">
                 <table class="analytics-table">
                   <thead>
@@ -2330,7 +2366,7 @@
             </div>
 
             <div class="analytics-section">
-              <h3 class="analytics-section-title">📖 熱門辭典搜尋 (Top Dict Searches)</h3>
+              <h3 class="analytics-section-title">📖 熱門辭典搜尋</h3>
               <div class="analytics-table-wrapper">
                 <table class="analytics-table">
                   <thead>
@@ -2352,7 +2388,7 @@
           <!-- Top Searches & Top IPs Grid -->
           <div class="analytics-grid-two">
             <div class="analytics-section">
-              <h3 class="analytics-section-title">🔍 熱門搜尋關鍵字 (Top Searches)</h3>
+              <h3 class="analytics-section-title">🔍 熱門搜尋關鍵字</h3>
               <div class="analytics-table-wrapper">
                 <table class="analytics-table">
                   <thead>
@@ -2371,7 +2407,7 @@
             </div>
 
             <div class="analytics-section">
-              <h3 class="analytics-section-title">🌐 訪客 IP 存取統計 (Top IPs)</h3>
+              <h3 class="analytics-section-title">🌐 訪客 IP 存取統計</h3>
               <div class="analytics-table-wrapper">
                 <table class="analytics-table">
                   <thead>
@@ -2527,7 +2563,7 @@
           <div id="suggestSuccessMsg" class="form-success" style="display: none;"></div>
           <div class="modal-actions">
             <div class="modal-left-actions">
-              <span id="suggestUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更 (Cmd+S)</span>
+              <span id="suggestUnsavedIndicator" class="unsaved-badge" style="display: none;">⚠️ 有未儲存變更</span>
             </div>
             <div class="modal-right-actions">
               <button type="button" class="modal-btn cancel-btn" id="suggestCancelBtn">取消</button>
@@ -2535,6 +2571,22 @@
             </div>
           </div>
         </form>
+      </div>
+        </div>
+        <div class="admin-savebar" id="adminSaveBar" hidden role="region" aria-label="儲存變更">
+          <span class="admin-savebar-state" id="adminSaveBarState">有未儲存的變更</span>
+          <span class="admin-savebar-spacer"></span>
+          <button type="button" class="modal-btn cancel-btn" id="adminSaveBarRevert">復原</button>
+          <button type="button" class="modal-btn submit-btn" id="adminSaveBarSave">儲存</button>
+        </div>
+      </section>
+      <!-- ⌘K／Ctrl+K：搜尋頁面、卡片、設定項目，或用 Email／名稱找使用者 -->
+      <div class="admin-palette" id="adminPalette" hidden role="dialog" aria-modal="true" aria-label="搜尋後台">
+        <div class="admin-palette-box">
+          <input type="search" id="adminPaletteInput" class="admin-palette-input" placeholder="搜尋頁面、設定項目，或輸入 Email 找使用者" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="adminPaletteList" aria-autocomplete="list" data-no-dirty>
+          <ul class="admin-palette-list" id="adminPaletteList" role="listbox" aria-label="搜尋結果"></ul>
+          <div class="admin-palette-hint"><span>↑↓ 選擇</span><span>Enter 前往</span><span>Esc 關閉</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -2572,14 +2624,14 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.3.1" defer></script>
-  <script src="i18n/zh-TW.js?v=4.3.1" defer></script>
-  <script src="i18n/zh-CN.js?v=4.3.1" defer></script>
-  <script src="i18n/i18n.js?v=4.3.1" defer></script>
-  <script src="i18n/content-terms.js?v=4.3.1" defer></script>
-  <script src="i18n/display-script.js?v=4.3.1" defer></script>
-  <script src="i18n/search-variants.js?v=4.3.1" defer></script>
-  <script src="library-sync.js?v=4.3.1" defer></script>
-  <script src="app.js?v=4.3.1" defer></script>
+  <script src="marked.min.js?v=4.4.1" defer></script>
+  <script src="i18n/zh-TW.js?v=4.4.1" defer></script>
+  <script src="i18n/zh-CN.js?v=4.4.1" defer></script>
+  <script src="i18n/i18n.js?v=4.4.1" defer></script>
+  <script src="i18n/content-terms.js?v=4.4.1" defer></script>
+  <script src="i18n/display-script.js?v=4.4.1" defer></script>
+  <script src="i18n/search-variants.js?v=4.4.1" defer></script>
+  <script src="library-sync.js?v=4.4.1" defer></script>
+  <script src="app.js?v=4.4.1" defer></script>
 </body>
 </html>
