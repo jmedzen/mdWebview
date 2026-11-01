@@ -98,14 +98,28 @@ describe('email tokens (db)', () => {
     assert.equal(db.consumeEmailToken('x'.repeat(201), 'reset'), null);
   });
 
-  test('a newer token of the same purpose revokes the older one; other purposes are untouched', () => {
+  test('only the newest 3 unused tokens of a purpose stay valid; other purposes are untouched', () => {
     const u = newUser();
     const first = db.createEmailToken(u.id, 'reset', DAY);
     const verify = db.createEmailToken(u.id, 'verify', DAY);
     const second = db.createEmailToken(u.id, 'reset', DAY);
-    assert.equal(db.peekEmailToken(first, 'reset'), null, 'old link is dead');
-    assert.ok(db.peekEmailToken(second, 'reset'));
+    assert.ok(db.peekEmailToken(first, 'reset'), 'a third party requesting again does not kill the link you just received');
+    const third = db.createEmailToken(u.id, 'reset', DAY);
+    const fourth = db.createEmailToken(u.id, 'reset', DAY);
+    assert.equal(db.peekEmailToken(first, 'reset'), null, 'the oldest falls off after the 4th');
+    assert.ok(db.peekEmailToken(second, 'reset') && db.peekEmailToken(third, 'reset') && db.peekEmailToken(fourth, 'reset'));
     assert.ok(db.peekEmailToken(verify, 'verify'));
+    assert.equal(db.deleteEmailTokens(u.id, 'reset'), 3);
+    assert.equal(db.peekEmailToken(fourth, 'reset'), null);
+    assert.ok(db.peekEmailToken(verify, 'verify'));
+  });
+
+  test('a newer change_email token replaces the older one (it carries the new address)', () => {
+    const u = newUser();
+    const a = db.createEmailToken(u.id, 'change_email', DAY, 'a@example.org');
+    const b = db.createEmailToken(u.id, 'change_email', DAY, 'b@example.org');
+    assert.equal(db.peekEmailToken(a, 'change_email'), null);
+    assert.ok(db.peekEmailToken(b, 'change_email'));
   });
 
   test('change_email token carries the normalised new address', () => {
