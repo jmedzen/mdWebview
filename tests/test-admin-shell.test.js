@@ -123,6 +123,18 @@ describe('後台外框與導覽', () => {
     assert.doesNotMatch(html, /rgba\(56, 139, 253/);
   });
 
+  test('⌘K／Ctrl+K 搜尋：有入口、索引涵蓋頁面卡片欄位、Esc 先關搜尋', () => {
+    assert.match(html, /id="adminSearchBtn"/);
+    assert.match(html, /id="adminPalette" hidden role="dialog"/);
+    assert.match(html, /id="adminPaletteInput"[^>]*data-no-dirty/);
+    assert.match(app, /function buildAdminSearchIndex\(/);
+    assert.match(app, /kind: 'page'/);
+    assert.match(app, /kind: 'card'/);
+    assert.match(app, /kind: 'field'/);
+    assert.match(app, /\(e\.metaKey \|\| e\.ctrlKey\) && !e\.altKey && \(e\.key === 'k' \|\| e\.key === 'K'\)/);
+    assert.match(app, /if \(e\.key === 'Escape'\) \{\s*if \(isAdminSearchOpen\(\)\) \{\s*closeAdminSearch\(\);/);
+  });
+
   test('手機版：清單與頁面分開顯示', () => {
     assert.match(css, /\.admin-shell\[data-view="list"\] \.admin-main,\s*\.admin-shell\[data-view="page"\] \.admin-side \{\s*display: none;/);
   });

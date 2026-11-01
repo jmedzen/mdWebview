@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.4.0 | 最後更新：2026-11
+> 版本：v4.4.1 | 最後更新：2026-11
 
 ---
 
@@ -833,6 +833,7 @@ flowchart TD
 - **底部儲存列**（`#adminSaveBar`）：導覽項目的 `data-save` 決定這頁屬於哪一組設定（config、seo、suggest、registration、legal、reports）。使用者碰過的欄位記下原值（`adminDirtyFields`），與原值不同才算未儲存；儲存鈕觸發原本的表單 submit 或卡片按鈕（`.admin-legacy-save`，已藏起），各組存檔成功時呼叫 `markAdminSaved(key)`。不用列的欄位加 `data-no-dirty`。寄信、Turnstile、登入方式是「填金鑰→驗證」流程，按鈕留在卡片裡。
 - **時區**：只有「網站與經文庫」一個時區。設成特定地區時，伺服器 `syncReportsTimezone()` 同步給報表信；設成「自動」時報表維持原本的時區。報表頁只顯示目前時區。
 - **單機模式**：只屬於公開網站的頁面以 `data-web-only` 藏起，`isAdminNavAvailable()` 也會擋下。
+- **⌘K／Ctrl+K 搜尋**（v4.4.1，`#adminPalette`）：每次打開時由 `buildAdminSearchIndex()` 從畫面現場建索引——導覽頁面、卡片標題、欄位名稱（`label`、`.toggle-switch-title`），單機模式藏起的不列。查詢以空白分詞、每個詞都要命中；選到後切頁、展開收合的卡片、捲過去標亮，欄位則直接放游標。公開網站另有「在使用者中搜尋」，把字串帶進使用者頁的搜尋欄。新卡片只要有標題與 `label` 就自動被搜尋到。
 - **新增卡片**：在對應分頁加 `data-card`，再把 key 加進某個導覽項目的 `data-cards`；`tests/test-admin-shell.test.js` 會檢查每張卡片都屬於某個頁面。
 
 §21.3 是唯一可獨立測試的子群：`computeNiceScale` 與 `monotonePath` 為純函式，不碰網路與 `state`，由 `tests/test-analytics-chart.test.js` 以原始碼抽取方式實際執行驗證。
@@ -997,7 +998,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.4.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.4.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
