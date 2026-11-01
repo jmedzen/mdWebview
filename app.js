@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.8.0
+   mdWebview — Application Logic (app.js) v4.8.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2218,13 +2218,15 @@
 
   /**
    * 書簽（題簽）上的短經名：「T0251《般若波羅蜜多心經》」→「般若波羅蜜多心經」。
-   * 沒有書名號時去掉開頭的經號（T0251、X1234a…）。
+   * 沒有書名號時去掉開頭的經號（T0251、X1234a…），但只在後面還有經名（含漢字）時才去；
+   * 檔名本身就是編號（「80-01」「T0251」）時整段保留，不然會只剩「01」。
    */
   function bookSlipTitle(title) {
     const t = String(title || '').trim();
     const m = t.match(/《([^》]+)》/);
     if (m) return m[1];
-    return t.replace(/^[A-Za-z]{0,3}\d+[a-z]?[\s_\-‧·.]*/, '') || t;
+    const rest = t.replace(/^[A-Za-z]{0,3}\d+[a-z]?[\s_\-‧·.]*/, '');
+    return /[\u3400-\u9fff]/.test(rest) ? rest : t;
   }
 
   /** 依路徑固定給一個封面色（0–4），同一部經每次都是同一個顏色。 */
@@ -9049,7 +9051,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10935,7 +10937,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11303,7 +11305,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12193,7 +12195,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
