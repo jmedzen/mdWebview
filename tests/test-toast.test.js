@@ -341,7 +341,7 @@ describe('Toast 訊息/型別一致性 (app.js 來源契約)', () => {
   test('T7：失敗訊息採全形冒號，成功訊息無多餘句號', () => {
     const src = toastCallSites();
     assert.doesNotMatch(src, /showToast\('❌ [^']*失敗: '/, '失敗訊息不得使用半形冒號');
-    assert.match(src, /showToast\('❌ 更新密碼失敗：' \+ err\.message, 'error'\)/);
+    // 後台改密碼已移到「我的帳號」（v4.4.0），不再有「更新密碼失敗」這則訊息
     assert.match(src, /showToast\('❌ 匯出備份失敗：' \+ err\.message, 'error'\)/);
     assert.match(src, /showToast\('❌ 還原失敗：' \+ err\.message, 'error'\)/);
     assert.match(src, /showToast\('❌ 清空快取失敗：' \+ err\.message, 'error'\)/);

@@ -5547,6 +5547,444 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   }
 }
 
+/* ── §31b 後台：總覽、底部儲存列、左欄帳號（v4.4.0） ── */
+.admin-nav-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--text-primary);
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  line-height: 16px;
+  text-align: center;
+}
+
+.admin-nav-count + .admin-nav-light {
+  margin-left: 6px;
+}
+
+.admin-nav-count[hidden] {
+  display: none;
+}
+
+.admin-side-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.admin-side-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.admin-side-user {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-side-logout {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+
+.admin-side-logout:hover {
+  border-color: var(--danger);
+  color: var(--text-primary);
+}
+
+.admin-side-logout[hidden] {
+  display: none;
+}
+
+/* 底部儲存列：改了東西才出現 */
+.admin-savebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 28px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.admin-savebar[hidden] {
+  display: none;
+}
+
+.admin-savebar-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+}
+
+.admin-savebar-state::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e0a100;
+}
+
+.admin-savebar-spacer {
+  flex: 1;
+}
+
+.admin-savebar .modal-btn {
+  min-width: 84px;
+}
+
+/* 舊的儲存按鈕與「未儲存」標記交給儲存列；表單底部只留成功／錯誤訊息 */
+.admin-shell .admin-legacy-save,
+.admin-shell .unsaved-badge,
+.admin-shell .admin-tab-pane .modal-actions .modal-right-actions,
+.admin-shell #settingsLogoutBtn {
+  display: none !important;
+}
+
+.admin-shell .admin-tab-pane .modal-actions {
+  position: static;
+  border-top: none;
+  background: none;
+  backdrop-filter: none;
+  padding: 0;
+  margin-top: 0;
+  min-height: 0;
+}
+
+/* 各種卡片統一外觀：與設定卡片同底色、邊框、圓角 */
+.admin-shell .hardware-card,
+.admin-shell .analytics-card,
+.admin-shell .analytics-section,
+.admin-shell .suggest-section,
+.admin-shell .ov-card,
+.admin-shell .ov-kpi {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.analytics-clean-badge {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+  padding: 4px 8px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.admin-reports-tz .ov-link {
+  font-size: inherit;
+}
+
+/* 總覽 */
+.admin-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1040px;
+  padding-bottom: 12px;
+}
+
+.ov-card {
+  padding: 14px 16px;
+}
+
+.ov-title {
+  margin: 0 0 8px;
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ov-sub {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.ov-link {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--link-color, var(--accent));
+  font-family: inherit;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.ov-link:hover {
+  text-decoration: underline;
+}
+
+.admin-reports-tz .ov-link {
+  margin-left: 0;
+}
+
+.ov-empty {
+  color: var(--text-muted);
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  padding: 6px 0;
+}
+
+.ov-todo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ov-todo-more {
+  margin: 8px 0 0;
+}
+
+.ov-todo:first-child {
+  border-top: none;
+}
+
+.ov-todo .admin-nav-light {
+  margin-left: 0;
+}
+
+.ov-todo-text {
+  flex: 1;
+  min-width: 0;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.ov-todo-text small {
+  display: block;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  margin-top: 2px;
+}
+
+.ov-todo-page {
+  margin-left: 8px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.ov-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ov-kpi {
+  padding: 12px 14px;
+}
+
+.ov-kpi-label {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.ov-kpi-value {
+  font-size: calc(24px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-kpi-note {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  min-height: 1em;
+}
+
+.ov-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ov-trend-total {
+  font-size: calc(20px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ov-trend-total small {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.ov-trend-svg {
+  width: 100%;
+  height: 90px;
+  display: block;
+  margin-top: 6px;
+}
+
+.ov-trend-area {
+  fill: var(--accent-dim);
+}
+
+.ov-trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.ov-trend-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.ov-health {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 18px;
+}
+
+.ov-health-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.ov-health-row .admin-nav-light,
+.ov-page .admin-nav-light {
+  margin-left: 0;
+}
+
+.ov-health-val {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-pages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 14px;
+}
+
+.ov-page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.ov-page:hover {
+  background: var(--hover-bg);
+}
+
+.ov-page .admin-nav-light:not(.ok):not(.warn):not(.bad) {
+  background: var(--border);
+}
+
+.ov-page-label {
+  white-space: nowrap;
+}
+
+.ov-page-text {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+}
+
+@media (max-width: 1100px) {
+  .ov-pages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .ov-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ov-row,
+  .ov-health,
+  .ov-pages {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-savebar {
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .admin-side-foot {
+    background: var(--bg-secondary);
+  }
+
+  .admin-nav-group-home .admin-nav-item {
+    border-top: 1px solid var(--border-subtle);
+    border-radius: 12px;
+  }
+
+  .admin-nav-group-home {
+    margin-top: 6px;
+  }
+}
+
 /* ── §31 Admin Tabs & Log Viewer ────────────────────────────── */
 .admin-tab-pane {
   flex: 1;

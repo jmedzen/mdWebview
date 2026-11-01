@@ -86,6 +86,43 @@ describe('後台外框與導覽', () => {
     assert.match(app, /setAdminHash\(null\)/);
   });
 
+  test('總覽是第一頁，打開後台沒有指定頁面時先看總覽', () => {
+    assert.equal(navItems[0].page, 'overview');
+    assert.match(app, /showAdminPage\(fromHash \|\| 'overview'/);
+    for (const id of ['ovTodoList', 'ovKpiViews', 'ovTrend', 'ovHealth', 'ovPages']) {
+      assert.match(html, new RegExp(`id="${id}"`), `總覽缺少 #${id}`);
+    }
+    assert.match(app, /function preloadAdminLights\(/, '打開後台要預載各頁燈號');
+  });
+
+  test('底部儲存列：每個 data-save 都有對應的存檔方式，存檔成功會清掉未儲存紀錄', () => {
+    assert.match(html, /id="adminSaveBar"/);
+    const block = name => (app.match(new RegExp(`const ${name} = \\{([^}]*)\\}`)) || [])[1] || '';
+    const handled = [...(block('ADMIN_SAVE_FORMS') + block('ADMIN_SAVE_BUTTONS')).matchAll(/(\w+):/g)].map(m => m[1]);
+    const keys = [...new Set(navItems.map(n => (html.match(new RegExp(`data-page="${n.page}" data-save="(\\w+)"`)) || [])[1]).filter(Boolean))];
+    assert.ok(keys.length >= 6, `data-save 太少：${keys}`);
+    for (const k of keys) {
+      assert.ok(handled.includes(k), `data-save="${k}" 沒有對應的存檔方式`);
+      assert.match(app, new RegExp(`markAdminSaved\\('${k}'\\)`), `存檔成功時沒有呼叫 markAdminSaved('${k}')`);
+    }
+    // 卡片裡被儲存列取代的按鈕要藏起來
+    for (const id of ['adminRegSaveBtn', 'adminLegalSaveBtn', 'adminReportsSaveBtn']) {
+      assert.match(html, new RegExp(`class="[^"]*admin-legacy-save[^"]*" id="${id}"`), `${id} 應標記 admin-legacy-save`);
+    }
+  });
+
+  test('重複項目已移除：後台改密碼、報表自己的時區欄位', () => {
+    assert.doesNotMatch(html, /data-card="password"/);
+    assert.doesNotMatch(html, /id="btnChangePassword"/);
+    assert.match(html, /<input type="hidden" id="adminReportsTz">/);
+    const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+    assert.match(server, /syncReportsTimezone\(config\.settings\.timezone\)/);
+  });
+
+  test('後台不再寫死藍色徽章', () => {
+    assert.doesNotMatch(html, /rgba\(56, 139, 253/);
+  });
+
   test('手機版：清單與頁面分開顯示', () => {
     assert.match(css, /\.admin-shell\[data-view="list"\] \.admin-main,\s*\.admin-shell\[data-view="page"\] \.admin-side \{\s*display: none;/);
   });
