@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.7.1
+   mdWebview — Application Logic (app.js) v4.8.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2169,6 +2169,7 @@
     renderHomeContinue();
     renderHomeNotice();
     renderHomeSuggest();
+    renderHomeCue();
   }
 
   function renderHomeGreeting() {
@@ -2277,7 +2278,7 @@
     if (!box || !shelf) return;
     const list = homeRecentReads().slice(0, 8);
     _homeShelfItems = list;
-    if (!list.length) { box.hidden = true; shelf.innerHTML = ''; return; }
+    if (!list.length) { box.hidden = true; shelf.innerHTML = ''; renderHomeCue(); return; }
 
     const spines = list.map((r, i) => {
       const pct = libraryProgressPct(r);
@@ -2291,10 +2292,41 @@
         + (i === 0 ? '<i class="home-spine-ribbon" aria-hidden="true"></i>' : '')
         + `</button>`;
     }).join('');
+    // 手機：不畫書架，一列一部經的大按鈕清單（手指好點）；桌機用上面的書架
+    const rows = list.map((r, i) => {
+      const pct = libraryProgressPct(r);
+      const folder = String(libraryFolderOf(r.filePath) || '').split('/').pop().trim().replace(/^[0-9]+/, '');
+      const sub = [i === 0 ? '上次讀到' : '', folder, homeAgo(r.ts)].filter(Boolean).join(' · ');
+      const end = i === 0
+        ? '<b class="home-item-go">' + (pct !== null && pct >= 99 ? '再讀一次' : '繼續讀') + '</b>'
+        : (pct === null ? '' : `<em>${pct >= 99 ? '讀完' : pct + '%'}</em>`) + '<u aria-hidden="true">›</u>';
+      return `<button type="button" class="home-item${i === 0 ? ' is-latest' : ''}" role="listitem" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''}${i === 0 ? ' data-continue="1"' : ''}>`
+        + `<span class="home-cover tone-${bookTone(r.filePath)}" aria-hidden="true"></span>`
+        + `<span class="home-item-main"><span class="home-item-title">${escHtml(bookSlipTitle(libraryTitleOf(r)))}</span>`
+        + `<span class="home-item-sub">${escHtml(sub)}</span>`
+        + (pct === null ? '' : `<span class="home-item-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></span>`)
+        + `</span><span class="home-item-end">${end}</span></button>`;
+    }).join('');
     shelf.innerHTML = `<div class="home-shelf-stage"><div class="home-shelf-books" role="list">${spines}</div><div class="home-shelf-plank" aria-hidden="true"></div></div>`
-      + `<div class="home-shelf-info" id="homeShelfInfo" aria-live="polite"></div>`;
+      + `<div class="home-shelf-info" id="homeShelfInfo" aria-live="polite"></div>`
+      + `<div class="home-shelf-list" role="list">${rows}</div>`;
     renderHomeShelfInfo(0);
     box.hidden = false;
+    renderHomeCue();
+  }
+
+  /** 第一屏底下的「向下」提示：下面沒有書架、公告、今日內容時就不顯示。 */
+  function homeBelowTarget() {
+    for (const id of ['homeContinue', 'homeNotice', 'homeColumns']) {
+      const el = $(id);
+      if (el && !el.hidden) return el;
+    }
+    return null;
+  }
+
+  function renderHomeCue() {
+    const cue = $('homeScrollCue');
+    if (cue) cue.hidden = !homeBelowTarget();
   }
 
   // ── 首頁搜尋 ─────────────────────────────────────────────
@@ -2422,6 +2454,7 @@
     if (reopen) reopen.hidden = !dismissed;
     if (!hasNotice || dismissed) {
       box.hidden = true;
+      renderHomeCue();
       return;
     }
     const text = $('homeNoticeText');
@@ -2430,6 +2463,7 @@
     box.classList.remove('expanded');
     more.textContent = '展開';
     box.hidden = false;
+    renderHomeCue();
     // 超過三行才需要「展開」。要等版面算好才量得到高度；首頁沒顯示時量不到，回首頁會再畫一次。
     requestAnimationFrame(() => {
       more.hidden = !(text.scrollHeight > text.clientHeight + 1);
@@ -2579,6 +2613,11 @@
         input.focus();
       });
     }
+    const cue = $('homeScrollCue');
+    if (cue) cue.addEventListener('click', () => {
+      const t = homeBelowTarget();
+      if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
     const randomBtn = $('homeRandom');
     if (randomBtn) randomBtn.addEventListener('click', openRandomScripture);
     const browseBtn = $('homeBrowse');
@@ -9010,7 +9049,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10896,7 +10935,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11264,7 +11303,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12154,7 +12193,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.7.1
+   mdWebview — Style System (style.css) v4.8.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -2156,7 +2156,7 @@ section.chunk.chunk-error {
 }
 
 /* ── 我的書架 ────────────────────────────────────────────────
-   最近讀過的經立在一塊木板上：書脊直書經名，書衣是傳統顏色（各混兩成主題色），
+   最近讀過的經立在一塊木板上：書脊直書經名，書衣是明亮的粉彩（各混一成主題色），
    高矮厚薄依經名固定，最後一本斜靠。已讀的比例從下往上加深；最近讀的那本插著絲帶。
    指到哪本就微微抽出來，右側說明跟著換。 */
 .home-shelf {
@@ -2200,14 +2200,12 @@ section.chunk.chunk-error {
   height: 12px;
   margin: 0 -10px;
   border-radius: 3px;
-  background: linear-gradient(180deg,
-    color-mix(in srgb, #a07a4f 55%, var(--bg-secondary) 45%) 0%,
-    color-mix(in srgb, #7a5a38 60%, var(--bg-secondary) 40%) 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 8px 14px -6px var(--shadow-color);
+  background: linear-gradient(180deg, #f0e2c8, #d9c4a0);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 8px 14px -6px var(--shadow-color);
 }
 
 .home-spine {
-  --book: color-mix(in srgb, #2d4060 80%, var(--accent) 20%); /* 磁青 */
+  --book: color-mix(in srgb, #c9ddf2 90%, var(--accent) 10%); /* 天藍 */
   --w: 40px;
   --h: 160px;
   position: relative;
@@ -2218,9 +2216,9 @@ section.chunk.chunk-error {
   border: 0;
   border-radius: 3px 3px 1px 1px;
   background:
-    linear-gradient(90deg, rgba(0, 0, 0, 0.28), rgba(255, 255, 255, 0.14) 22%, rgba(255, 255, 255, 0.03) 55%, rgba(0, 0, 0, 0.3)),
+    linear-gradient(90deg, rgba(40, 30, 20, 0.1), rgba(255, 255, 255, 0.4) 22%, rgba(255, 255, 255, 0.1) 55%, rgba(40, 30, 20, 0.09)),
     var(--book);
-  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.12) inset, 2px 0 3px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.5) inset, 2px 0 3px rgba(40, 30, 20, 0.1);
   cursor: pointer;
   transform-origin: 50% 100%;
   transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s ease;
@@ -2234,18 +2232,22 @@ section.chunk.chunk-error {
   left: 3px;
   right: 3px;
   height: 0;
-  border-top: 1px solid rgba(255, 236, 196, 0.42);
-  border-bottom: 1px solid rgba(255, 236, 196, 0.22);
+  border-top: 1px solid rgba(70, 56, 40, 0.3);
+  border-bottom: 1px solid rgba(70, 56, 40, 0.16);
   padding-top: 3px;
 }
 
 .home-spine::before { top: 10px; }
 .home-spine::after { bottom: 10px; }
 
-.home-spine.tone-1 { --book: color-mix(in srgb, #6e3b2b 80%, var(--accent) 20%); } /* 栗殼 */
-.home-spine.tone-2 { --book: color-mix(in srgb, #3c5547 80%, var(--accent) 20%); } /* 黛綠 */
-.home-spine.tone-3 { --book: color-mix(in srgb, #8c5e34 80%, var(--accent) 20%); } /* 赭石 */
-.home-spine.tone-4 { --book: color-mix(in srgb, #4a4b55 80%, var(--accent) 20%); } /* 墨灰 */
+.home-spine.tone-1,
+.home-cover.tone-1 { --book: color-mix(in srgb, #f4cdbd 90%, var(--accent) 10%); } /* 蜜桃 */
+.home-spine.tone-2,
+.home-cover.tone-2 { --book: color-mix(in srgb, #c8e8cc 90%, var(--accent) 10%); } /* 薄荷 */
+.home-spine.tone-3,
+.home-cover.tone-3 { --book: color-mix(in srgb, #f6e3a0 90%, var(--accent) 10%); } /* 奶黃 */
+.home-spine.tone-4,
+.home-cover.tone-4 { --book: color-mix(in srgb, #dcd0f2 90%, var(--accent) 10%); } /* 淡紫 */
 
 .home-spine.size-0 { --w: 34px; --h: 150px; }
 .home-spine.size-1 { --w: 40px; --h: 172px; }
@@ -2259,8 +2261,8 @@ section.chunk.chunk-error {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.18);
-  border-top: 1px solid rgba(255, 236, 196, 0.35);
+  background: rgba(60, 48, 36, 0.09);
+  border-top: 1px solid rgba(60, 48, 36, 0.25);
   border-radius: 0 0 1px 1px;
   pointer-events: none;
 }
@@ -2280,8 +2282,7 @@ section.chunk.chunk-error {
   font-size: 13px;
   line-height: 1;
   letter-spacing: 0.14em;
-  color: rgba(255, 246, 226, 0.92);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  color: rgba(52, 44, 36, 0.88);
 }
 
 /* 書籤絲帶：從最近讀的那本上方垂下 */
@@ -2291,7 +2292,7 @@ section.chunk.chunk-error {
   right: 8px;
   width: 7px;
   height: 30px;
-  background: color-mix(in srgb, #b8322a 80%, var(--accent) 20%);
+  background: #d9777a;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
@@ -2623,6 +2624,365 @@ section.chunk.chunk-error {
 @media (prefers-reduced-motion: reduce) {
   .welcome-lotus {
     animation: none;
+  }
+}
+
+/* ── 首頁「入室」版面（v4.8.0）─────────────────────────────────
+   第一屏只留一句經、一個搜尋框與柔光，像走進禪室；往下滑才是書架與今日。
+   區塊標題上方一條細線，內容置中、不再用卡片框住。
+   手機沒有書架圖：改成一列一部經的大按鈕清單（整列可點，高度 72px 以上）。 */
+.welcome-screen {
+  position: relative;
+  justify-content: flex-start;
+  padding: 0 20px 120px;
+}
+
+.home-greet {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  right: 0;
+  max-width: none;
+  text-align: center;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.26em;
+}
+
+.home-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: none;
+  margin: 0;
+  padding: 96px 0 120px;
+  min-height: calc(100vh - 70px);
+  min-height: calc(100svh - 70px);
+  box-sizing: border-box;
+}
+
+/* 柔光：從經句後面透出一圈主題色 */
+.home-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(60% 55% at 50% 38%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+.home-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.home-hero.has-verse .welcome-lotus {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.home-hero.has-verse .welcome-title {
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+}
+
+.home-verse {
+  max-width: 900px;
+  margin-top: clamp(36px, 7vh, 68px);
+}
+
+/* 經句與區塊標題（我的書架…）同一種粗宋體 */
+.home-verse-text {
+  font-family: var(--cjk-serif), serif;
+  font-size: clamp(26px, 4.6vw, 56px);
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+}
+
+.home-verse-src {
+  margin-top: 26px;
+}
+
+.home-search {
+  max-width: 680px;
+  margin-top: clamp(40px, 8vh, 76px);
+  padding: 0 14px 0 24px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  box-shadow: 0 24px 60px -20px var(--shadow-color);
+}
+
+.home-search-input {
+  height: 64px;
+  font-size: calc(17px * var(--ui-font-scale, 1));
+  letter-spacing: 0.08em;
+}
+
+.home-quick {
+  margin-top: 22px;
+  gap: 12px;
+}
+
+.home-scroll-cue {
+  position: absolute !important;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 0 30px;
+  border: 0;
+  background: linear-gradient(var(--text-muted), var(--text-muted)) bottom center / 1px 22px no-repeat;
+  font: inherit;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.home-scroll-cue:hover,
+.home-scroll-cue:focus-visible {
+  color: var(--accent);
+}
+
+.home-shelf,
+.home-notice,
+.home-columns {
+  max-width: 880px;
+}
+
+.home-sec-title {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 36px;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: calc(19px * var(--ui-font-scale, 1));
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  text-align: center;
+}
+
+.home-sec-title::before {
+  content: '';
+  width: 1px;
+  height: 34px;
+  margin-bottom: 12px;
+  background: var(--accent);
+}
+
+.home-sec-title small {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+}
+
+.home-shelf {
+  margin-top: 24px;
+}
+
+.home-shelf-row {
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 56px;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.home-notice {
+  justify-content: center;
+  align-items: center;
+  margin-top: 96px;
+  padding: 14px 28px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.home-notice-body {
+  text-align: center;
+}
+
+.home-columns {
+  margin-top: 104px;
+  gap: 72px;
+}
+
+.home-columns > * {
+  text-align: center;
+}
+
+.home-word-head {
+  font-size: calc(26px * var(--ui-font-scale, 1));
+  text-align: center;
+}
+
+.home-word-more {
+  align-items: center;
+}
+
+.home-rec-list .suggest-item {
+  justify-content: center;
+}
+
+/* 手機清單：一列一部經，整列可點 */
+.home-shelf-list {
+  display: none;
+}
+
+.home-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px 12px 12px;
+  box-sizing: border-box;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.home-item:active {
+  background: var(--hover-bg);
+}
+
+.home-item.is-latest {
+  min-height: 84px;
+  border-color: var(--accent);
+}
+
+.home-cover {
+  --book: color-mix(in srgb, #c9ddf2 90%, var(--accent) 10%);
+  flex: none;
+  align-self: stretch;
+  width: 12px;
+  border-radius: 5px;
+  background: var(--book);
+}
+
+.home-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.home-item-title {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(17px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-item.is-latest .home-item-title {
+  font-size: calc(18px * var(--ui-font-scale, 1));
+}
+
+.home-item-sub {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-item-bar {
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.home-item-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.home-item-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.home-item-end em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-item-end u {
+  text-decoration: none;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.home-item-go {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 768px) {
+  .home-hero {
+    padding: 84px 0 110px;
+  }
+
+  .home-verse-text {
+    font-size: clamp(26px, 7.4vw, 40px);
+    letter-spacing: 0.14em;
+    text-indent: 0.14em;
+  }
+
+  .home-shelf-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .home-shelf-stage,
+  .home-shelf-info {
+    display: none;
+  }
+
+  .home-shelf-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .home-columns {
+    gap: 56px;
+  }
+
+  .home-notice {
+    padding: 14px 20px;
   }
 }
 
