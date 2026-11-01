@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.8.3
+   mdWebview — Application Logic (app.js) v4.8.4
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -9074,7 +9074,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.3';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.4';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10964,7 +10964,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.3';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.4';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11332,7 +11332,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.3';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.4';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12222,7 +12222,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.3';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.4';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -14629,6 +14629,7 @@
     OAUTH_FAILED: '第三方登入失敗，請再試一次',
     NO_BASE_URL: '網站尚未設定對外網址，暫時無法使用第三方登入',
     LOGIN_REQUIRED: '請先登入',
+    REAUTH_REQUIRED: '請先重新驗證身分，再試一次綁定',
     IDENTITY_MISMATCH: '這不是你綁定的帳號',
     IDENTITY_IN_USE: '這個第三方帳號已經綁定在別的帳號上',
     ALREADY_LINKED: '你已經綁定了這家的另一個帳號',
@@ -14967,7 +14968,7 @@
         b.textContent = '解除綁定';
         b.addEventListener('click', async () => {
           if (!confirm(`確定要解除 ${PROVIDER_LABELS[id] || id} 登入嗎？`)) return;
-          const r = await accountApi(`/api/me/identities/${id}`, { method: 'DELETE' });
+          const r = await withReauth(() => accountApi(`/api/me/identities/${id}`, { method: 'DELETE' }));
           if (r.ok) { setAccountUser(r.data.user); renderAccountSettings(r.data.user); showBox($('accountSettingsMsg'), '已解除綁定'); }
           else showBox($('accountSettingsError'), r.data.error || '解除失敗');
         });
@@ -14977,6 +14978,16 @@
         a.className = 'modal-btn secondary-btn small-btn';
         a.href = `/api/auth/${id}?mode=link`;
         a.textContent = '綁定';
+        // 綁定前要先重新驗證：已驗證過就直接前往，否則先跳出驗證視窗。
+        a.addEventListener('click', async (ev) => {
+          ev.preventDefault();
+          const st = await accountApi('/api/me/reauth');
+          if (!(st.ok && st.data && st.data.recent)) {
+            const passed = await openReauthOverlay();
+            if (!passed) return;
+          }
+          window.location.href = a.href;
+        });
         row.appendChild(a);
       }
       list.appendChild(row);
@@ -15091,7 +15102,7 @@
         showBox($('accountSettingsError'), '請先完成下方的人機驗證，再按一次「變更 Email」');
         return;
       }
-      const r = await accountApi('/api/me/email', { method: 'POST', body: { newEmail: $('accountNewEmail').value.trim(), turnstileToken: emailTurnstileToken } });
+      const r = await withReauth(() => accountApi('/api/me/email', { method: 'POST', body: { newEmail: $('accountNewEmail').value.trim(), turnstileToken: emailTurnstileToken } }));
       emailTurnstileToken = '';
       if (window.turnstile && emailTurnstileWidget !== null) { try { window.turnstile.reset(emailTurnstileWidget); } catch (_) {} }
       if (r.ok) { showBox($('accountSettingsError'), ''); showBox($('accountSettingsMsg'), r.data.message); $('accountNewEmail').value = ''; }

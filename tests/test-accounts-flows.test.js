@@ -474,6 +474,27 @@ describe('account flows over HTTP', () => {
     assert.equal(locked.status, 429);
   });
 
+  test('changing email, unlinking a provider and linking one need a recent re-authentication', async () => {
+    const cookie = await registerAndVerify('stale-sess@example.org', 'stale-sess-pass');
+    const user = db.getUserByEmail('stale-sess@example.org');
+    db.linkIdentity(user.id, 'google', 'g-stale-1', 'stale-sess@example.org');
+    assert.equal((await rq('/api/me/reauth', { cookie })).json.recent, true);
+    staleSession(user.id);
+    assert.equal((await rq('/api/me/reauth', { cookie })).json.recent, false);
+    assert.equal((await post('/api/me/email', { newEmail: 'stale-new@example.org' }, cookie)).json.code, 'REAUTH_REQUIRED');
+    assert.equal((await rq('/api/me/identities/google', { method: 'DELETE', cookie })).json.code, 'REAUTH_REQUIRED');
+    assert.equal(db.listIdentities(user.id).length, 1, 'still linked');
+    process.env.FACEBOOK_APP_ID = '1234567890'; process.env.FACEBOOK_APP_SECRET = 'fb-secret';
+    const start = await rq('/api/auth/facebook?mode=link', { cookie });
+    delete process.env.FACEBOOK_APP_ID; delete process.env.FACEBOOK_APP_SECRET;
+    assert.match(start.headers.location || '', /code=REAUTH_REQUIRED/);
+    // 重新驗證後可以做
+    assert.equal((await post('/api/auth/reauth', { password: 'stale-sess-pass' }, cookie)).status, 200);
+    assert.equal((await rq('/api/me/reauth', { cookie })).json.recent, true);
+    assert.equal((await post('/api/me/email', { newEmail: 'stale-new@example.org' }, cookie)).status, 200);
+    assert.equal((await rq('/api/me/identities/google', { method: 'DELETE', cookie })).status, 200);
+  });
+
   test('change email: confirmation goes to the NEW address, notice to the old one, link works once, takes effect only then', async () => {
     const old = 'old-addr@example.org';
     const neu = 'new-addr@example.org';
