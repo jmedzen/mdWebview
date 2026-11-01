@@ -98,14 +98,28 @@ describe('email tokens (db)', () => {
     assert.equal(db.consumeEmailToken('x'.repeat(201), 'reset'), null);
   });
 
-  test('a newer token of the same purpose revokes the older one; other purposes are untouched', () => {
+  test('only the newest 3 unused tokens of a purpose stay valid; other purposes are untouched', () => {
     const u = newUser();
     const first = db.createEmailToken(u.id, 'reset', DAY);
     const verify = db.createEmailToken(u.id, 'verify', DAY);
     const second = db.createEmailToken(u.id, 'reset', DAY);
-    assert.equal(db.peekEmailToken(first, 'reset'), null, 'old link is dead');
-    assert.ok(db.peekEmailToken(second, 'reset'));
+    assert.ok(db.peekEmailToken(first, 'reset'), 'a third party requesting again does not kill the link you just received');
+    const third = db.createEmailToken(u.id, 'reset', DAY);
+    const fourth = db.createEmailToken(u.id, 'reset', DAY);
+    assert.equal(db.peekEmailToken(first, 'reset'), null, 'the oldest falls off after the 4th');
+    assert.ok(db.peekEmailToken(second, 'reset') && db.peekEmailToken(third, 'reset') && db.peekEmailToken(fourth, 'reset'));
     assert.ok(db.peekEmailToken(verify, 'verify'));
+    assert.equal(db.deleteEmailTokens(u.id, 'reset'), 3);
+    assert.equal(db.peekEmailToken(fourth, 'reset'), null);
+    assert.ok(db.peekEmailToken(verify, 'verify'));
+  });
+
+  test('a newer change_email token replaces the older one (it carries the new address)', () => {
+    const u = newUser();
+    const a = db.createEmailToken(u.id, 'change_email', DAY, 'a@example.org');
+    const b = db.createEmailToken(u.id, 'change_email', DAY, 'b@example.org');
+    assert.equal(db.peekEmailToken(a, 'change_email'), null);
+    assert.ok(db.peekEmailToken(b, 'change_email'));
   });
 
   test('change_email token carries the normalised new address', () => {
@@ -395,11 +409,20 @@ describe('password hashing (edge cases)', () => {
 
   test('length rules count characters (not bytes) and cap at 256', () => {
     assert.ok(passwords.validatePassword('1234567'), '7 chars is too short');
-    assert.equal(passwords.validatePassword('12345678'), null);
+    assert.equal(passwords.validatePassword('71925384'), null);
     assert.equal(passwords.validatePassword('密碼密碼密碼密碼'), null, '8 CJK characters count as 8');
-    assert.equal(passwords.validatePassword('a'.repeat(256)), null);
-    assert.ok(passwords.validatePassword('a'.repeat(257)));
+    assert.equal(passwords.validatePassword('ab'.repeat(128)), null);
+    assert.ok(passwords.validatePassword('ab'.repeat(129)));
     for (const bad of ['', null, undefined, 12345678, {}, []]) assert.ok(passwords.validatePassword(bad), String(bad));
+  });
+
+  test('very common and trivial passwords are refused; admins need 12 characters', () => {
+    for (const bad of ['password', 'Password123', '12345678', '123456789', '87654321', 'aaaaaaaa', 'QWERTYUIOP', 'iloveyou', 'mdwebview']) {
+      assert.match(passwords.validatePassword(bad) || '', /太常見/, bad);
+    }
+    assert.equal(passwords.validatePassword('purple-tractor-92'), null);
+    assert.match(passwords.validatePassword('short-pass9', { admin: true }), /至少需要 12/);
+    assert.equal(passwords.validatePassword('longer-admin-pass', { admin: true }), null);
   });
 
   test('malformed or hostile stored hashes verify as false instead of throwing', async () => {

@@ -77,6 +77,7 @@ describe('account flows over HTTP', () => {
     assert.equal(r.status, 200, r.body);
     return sessionCookie(r);
   }
+  const AK = id => accounts.attemptKey(id, '127.0.0.1');
   async function makeAdmin(email = 'boss@example.org') {
     let user = db.getUserByEmail(email);
     if (!user) {
@@ -160,9 +161,9 @@ describe('account flows over HTTP', () => {
   test('a successful login refunds the failure charge for IP and account', async () => {
     await registerAndVerify('refund@example.org', 'refund-pass-1');
     for (let i = 0; i < 4; i++) await post('/api/auth/login', { identifier: 'refund@example.org', password: 'bad' });
-    assert.equal(accounts.accountAttempts.get('refund@example.org').fails, 4);
+    assert.equal(accounts.accountAttempts.get(AK('refund@example.org')).fails, 4);
     assert.equal((await post('/api/auth/login', { identifier: 'refund@example.org', password: 'refund-pass-1' })).status, 200);
-    assert.equal(accounts.accountAttempts.has('refund@example.org'), false);
+    assert.equal(accounts.accountAttempts.has(AK('refund@example.org')), false);
     // 清零後又有 4 次失敗空間，不會被舊的失敗累積鎖住
     for (let i = 0; i < 4; i++) assert.equal((await post('/api/auth/login', { identifier: 'refund@example.org', password: 'bad' })).status, 401);
   });
@@ -181,21 +182,49 @@ describe('account flows over HTTP', () => {
     assert.equal((await post('/api/auth/login', { identifier: 'other-ok@example.org', password: 'other-ok-pass' })).status, 200);
   });
 
+  test('someone else failing from another address cannot lock the real owner out', async () => {
+    await registerAndVerify('victim-lock@example.org', 'victim-lock-pass');
+    // 攻擊者從 203.0.113.9 連續失敗：鎖的是「帳號＋那個 IP」
+    accounts.accountAttempts.set(accounts.attemptKey('victim-lock@example.org', '203.0.113.9'), { fails: 9, lockUntil: Date.now() + 10 * 60 * 1000 });
+    assert.equal((await post('/api/auth/login', { identifier: 'victim-lock@example.org', password: 'victim-lock-pass' })).status, 200);
+  });
+
+  test('a flood of failures across many addresses suspends password login for that account only', async () => {
+    await registerAndVerify('agg-lock@example.org', 'agg-lock-pass');
+    await registerAndVerify('agg-free@example.org', 'agg-free-pass');
+    for (let i = 0; i < 100; i++) accounts.accountFailures.hit('agg-lock@example.org');
+    const blocked = await post('/api/auth/login', { identifier: 'agg-lock@example.org', password: 'agg-lock-pass' });
+    assert.equal(blocked.status, 429);
+    assert.equal((await post('/api/auth/login', { identifier: 'agg-free@example.org', password: 'agg-free-pass' })).status, 200);
+    accounts.accountFailures.reset('agg-lock@example.org');
+  });
+
+  test('legacy /api/admin/login and /logout refuse cross-site and non-JSON requests', async () => {
+    const evil = await rq('/api/admin/login', { method: 'POST', body: { username: 'x', password: 'y' }, headers: { Origin: 'https://evil.example' } });
+    assert.equal(evil.status, 403);
+    const nullOrigin = await rq('/api/admin/login', { method: 'POST', body: { username: 'x', password: 'y' }, headers: { Origin: 'null' } });
+    assert.equal(nullOrigin.status, 403);
+    const form = await rq('/api/admin/login', { method: 'POST', body: 'username=x&password=y', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    assert.equal(form.status, 415);
+    const logout = await rq('/api/admin/logout', { method: 'POST', body: {}, headers: { Origin: 'https://evil.example' } });
+    assert.equal(logout.status, 403);
+  });
+
   test('lock delay doubles with further failures up to 15 minutes; admin can list and clear lockouts', async () => {
     await registerAndVerify('backoff@example.org', 'backoff-pass');
     const adminCookie = await makeAdmin();
-    accounts.accountAttempts.set('backoff@example.org', { fails: 4, lockUntil: 0 });
+    accounts.accountAttempts.set(AK('backoff@example.org'), { fails: 4, lockUntil: 0 });
     await post('/api/auth/login', { identifier: 'backoff@example.org', password: 'bad' });
-    const a = accounts.accountAttempts.get('backoff@example.org');
+    const a = accounts.accountAttempts.get(AK('backoff@example.org'));
     assert.equal(a.fails, 5);
     assert.ok(Math.abs(a.lockUntil - (Date.now() + 60 * 1000)) < 5000, '5th failure: 1 minute');
-    accounts.accountAttempts.set('backoff@example.org', { fails: 30, lockUntil: 0 });
+    accounts.accountAttempts.set(AK('backoff@example.org'), { fails: 30, lockUntil: 0 });
     await post('/api/auth/login', { identifier: 'backoff@example.org', password: 'bad' }).catch(() => {});
-    assert.ok(accounts.accountAttempts.get('backoff@example.org').lockUntil - Date.now() <= 15 * 60 * 1000 + 1000, 'capped at 15 minutes');
+    assert.ok(accounts.accountAttempts.get(AK('backoff@example.org')).lockUntil - Date.now() <= 15 * 60 * 1000 + 1000, 'capped at 15 minutes');
 
     const list = await rq('/api/admin/lockouts', { cookie: adminCookie });
     assert.equal(list.status, 200);
-    const row = list.json.accounts.find(x => x.key === 'backoff@example.org');
+    const row = list.json.accounts.find(x => x.key === AK('backoff@example.org'));
     assert.ok(row && row.lockedUntil);
     assert.deepEqual([list.json.limits.ipFailLimit, list.json.limits.accountAttempts, list.json.limits.ipWindowMinutes], [20, 5, 15]);
 
@@ -443,6 +472,95 @@ describe('account flows over HTTP', () => {
     for (let i = 0; i < accounts.MAX_ATTEMPTS; i++) assert.equal((await post('/api/auth/reauth', { password: 'bad' }, cookie)).status, 403);
     const locked = await post('/api/auth/reauth', { password: 'reauth-lock-pass' }, cookie);
     assert.equal(locked.status, 429);
+  });
+
+  test('changing email, unlinking a provider and linking one need a recent re-authentication', async () => {
+    const cookie = await registerAndVerify('stale-sess@example.org', 'stale-sess-pass');
+    const user = db.getUserByEmail('stale-sess@example.org');
+    db.linkIdentity(user.id, 'google', 'g-stale-1', 'stale-sess@example.org');
+    assert.equal((await rq('/api/me/reauth', { cookie })).json.recent, true);
+    staleSession(user.id);
+    assert.equal((await rq('/api/me/reauth', { cookie })).json.recent, false);
+    assert.equal((await post('/api/me/email', { newEmail: 'stale-new@example.org' }, cookie)).json.code, 'REAUTH_REQUIRED');
+    assert.equal((await rq('/api/me/identities/google', { method: 'DELETE', cookie })).json.code, 'REAUTH_REQUIRED');
+    assert.equal(db.listIdentities(user.id).length, 1, 'still linked');
+    process.env.FACEBOOK_APP_ID = '1234567890'; process.env.FACEBOOK_APP_SECRET = 'fb-secret';
+    const start = await rq('/api/auth/facebook?mode=link', { cookie });
+    delete process.env.FACEBOOK_APP_ID; delete process.env.FACEBOOK_APP_SECRET;
+    assert.match(start.headers.location || '', /code=REAUTH_REQUIRED/);
+    // 重新驗證後可以做
+    assert.equal((await post('/api/auth/reauth', { password: 'stale-sess-pass' }, cookie)).status, 200);
+    assert.equal((await rq('/api/me/reauth', { cookie })).json.recent, true);
+    assert.equal((await post('/api/me/email', { newEmail: 'stale-new@example.org' }, cookie)).status, 200);
+    assert.equal((await rq('/api/me/identities/google', { method: 'DELETE', cookie })).status, 200);
+  });
+
+  test('reset-request answers without waiting for the mail service (no timing hint about who is registered)', async () => {
+    await registerAndVerify('timing-yes@example.org', 'timing-pass-1');
+    accounts._counters.mailByAddress.clear(); accounts._counters.mailByIp.clear();
+    const realSend = mailer.send;
+    mailer.send = () => new Promise(resolve => setTimeout(() => resolve({ ok: true }), 600));
+    try {
+      const t0 = Date.now();
+      const yes = await post('/api/auth/reset-request', Object.assign({ email: 'timing-yes@example.org' }, human));
+      const yesMs = Date.now() - t0;
+      const t1 = Date.now();
+      const no = await post('/api/auth/reset-request', Object.assign({ email: 'timing-no@example.org' }, human));
+      const noMs = Date.now() - t1;
+      assert.deepEqual([yes.status, yes.json], [no.status, no.json]);
+      assert.ok(yesMs < 400, `registered address answered in ${yesMs}ms`);
+      assert.ok(Math.abs(yesMs - noMs) < 300);
+    } finally { mailer.send = realSend; }
+  });
+
+  test('a rate-limited reset request neither mails nor replaces links; a successful reset kills the other pending links', async () => {
+    await registerAndVerify('reset-keep@example.org', 'reset-keep-pass');
+    const user = db.getUserByEmail('reset-keep@example.org');
+    accounts._counters.mailByAddress.clear(); accounts._counters.mailByIp.clear();
+    mailer.clearOutbox();
+    for (let i = 0; i < 3; i++) await post('/api/auth/reset-request', Object.assign({ email: 'reset-keep@example.org' }, human));
+    const mails = mailer.getOutbox('reset-keep@example.org');
+    assert.equal(mails.length, 3);
+    const countTokens = () => db.getDb().prepare("SELECT COUNT(*) n FROM email_tokens WHERE user_id = ? AND purpose = 'reset' AND used_at IS NULL").get(user.id).n;
+    assert.equal(countTokens(), 3);
+    const limited = await post('/api/auth/reset-request', Object.assign({ email: 'reset-keep@example.org' }, human));
+    assert.equal(limited.status, 200, 'same generic reply');
+    assert.equal(mailer.getOutbox('reset-keep@example.org').length, 3, 'nothing more was sent');
+    assert.equal(countTokens(), 3, 'no new token was created, so no existing link was displaced');
+    // 用最舊那封重設成功後，其餘連結全部失效
+    const tokens = mails.map(m => decodeURIComponent(m.text.match(/auth=reset&token=([^\s&]+)/)[1]));
+    const ok = await post('/api/auth/reset', { token: tokens[0], password: 'reset-keep-new-pass' });
+    assert.equal(ok.status, 200);
+    assert.equal(countTokens(), 0);
+    assert.equal((await post('/api/auth/reset', { token: tokens[2], password: 'another-pass-123' })).status, 400);
+  });
+
+  test('common passwords are refused at sign-up; admins need 12+ characters when changing their password', async () => {
+    const weak = await post('/api/auth/register', Object.assign({ email: 'weak-pw@example.org', password: 'password123', agree: true }, human));
+    assert.equal(weak.status, 400);
+    assert.equal(weak.json.code, 'WEAK_PASSWORD');
+    const adminCookie = await makeAdmin('boss-len@example.org');
+    const short = await post('/api/auth/password', { currentPassword: 'boss-password', newPassword: 'eleven-char' }, adminCookie);
+    assert.equal(short.status, 400);
+    assert.match(short.json.error, /12/);
+    assert.equal((await post('/api/auth/password', { currentPassword: 'boss-password', newPassword: 'twelve-chars!' }, adminCookie)).status, 200);
+    // 一般使用者 8 個字元即可
+    const cookie = await registerAndVerify('eight-ok@example.org', 'reader-pass-1');
+    assert.equal((await post('/api/auth/password', { currentPassword: 'reader-pass-1', newPassword: 'eight-ok' }, cookie)).status, 200);
+  });
+
+  test('an admin session ends after 30 days even if used every day; regular users have no absolute limit', async () => {
+    const adminCookie = await makeAdmin('boss-abs@example.org');
+    const boss = db.getUserByEmail('boss-abs@example.org');
+    assert.equal((await rq('/api/admin/lockouts', { cookie: adminCookie })).status, 200);
+    db.getDb().prepare('UPDATE sessions SET created_at = ? WHERE user_id = ?').run(Date.now() - 31 * DAY, boss.id);
+    assert.equal((await rq('/api/admin/lockouts', { cookie: adminCookie })).status, 401);
+    assert.equal((await rq('/api/me', { cookie: adminCookie })).json.user, null);
+
+    const userCookie = await registerAndVerify('abs-user@example.org', 'abs-user-pass1');
+    const u = db.getUserByEmail('abs-user@example.org');
+    db.getDb().prepare('UPDATE sessions SET created_at = ? WHERE user_id = ?').run(Date.now() - 200 * DAY, u.id);
+    assert.equal((await rq('/api/me', { cookie: userCookie })).json.user.email, 'abs-user@example.org');
   });
 
   test('change email: confirmation goes to the NEW address, notice to the old one, link works once, takes effect only then', async () => {
