@@ -495,6 +495,46 @@ describe('account flows over HTTP', () => {
     assert.equal((await rq('/api/me/identities/google', { method: 'DELETE', cookie })).status, 200);
   });
 
+  test('reset-request answers without waiting for the mail service (no timing hint about who is registered)', async () => {
+    await registerAndVerify('timing-yes@example.org', 'timing-pass-1');
+    accounts._counters.mailByAddress.clear(); accounts._counters.mailByIp.clear();
+    const realSend = mailer.send;
+    mailer.send = () => new Promise(resolve => setTimeout(() => resolve({ ok: true }), 600));
+    try {
+      const t0 = Date.now();
+      const yes = await post('/api/auth/reset-request', Object.assign({ email: 'timing-yes@example.org' }, human));
+      const yesMs = Date.now() - t0;
+      const t1 = Date.now();
+      const no = await post('/api/auth/reset-request', Object.assign({ email: 'timing-no@example.org' }, human));
+      const noMs = Date.now() - t1;
+      assert.deepEqual([yes.status, yes.json], [no.status, no.json]);
+      assert.ok(yesMs < 400, `registered address answered in ${yesMs}ms`);
+      assert.ok(Math.abs(yesMs - noMs) < 300);
+    } finally { mailer.send = realSend; }
+  });
+
+  test('a rate-limited reset request neither mails nor replaces links; a successful reset kills the other pending links', async () => {
+    await registerAndVerify('reset-keep@example.org', 'reset-keep-pass');
+    const user = db.getUserByEmail('reset-keep@example.org');
+    accounts._counters.mailByAddress.clear(); accounts._counters.mailByIp.clear();
+    mailer.clearOutbox();
+    for (let i = 0; i < 3; i++) await post('/api/auth/reset-request', Object.assign({ email: 'reset-keep@example.org' }, human));
+    const mails = mailer.getOutbox('reset-keep@example.org');
+    assert.equal(mails.length, 3);
+    const countTokens = () => db.getDb().prepare("SELECT COUNT(*) n FROM email_tokens WHERE user_id = ? AND purpose = 'reset' AND used_at IS NULL").get(user.id).n;
+    assert.equal(countTokens(), 3);
+    const limited = await post('/api/auth/reset-request', Object.assign({ email: 'reset-keep@example.org' }, human));
+    assert.equal(limited.status, 200, 'same generic reply');
+    assert.equal(mailer.getOutbox('reset-keep@example.org').length, 3, 'nothing more was sent');
+    assert.equal(countTokens(), 3, 'no new token was created, so no existing link was displaced');
+    // 用最舊那封重設成功後，其餘連結全部失效
+    const tokens = mails.map(m => decodeURIComponent(m.text.match(/auth=reset&token=([^\s&]+)/)[1]));
+    const ok = await post('/api/auth/reset', { token: tokens[0], password: 'reset-keep-new-pass' });
+    assert.equal(ok.status, 200);
+    assert.equal(countTokens(), 0);
+    assert.equal((await post('/api/auth/reset', { token: tokens[2], password: 'another-pass-123' })).status, 400);
+  });
+
   test('change email: confirmation goes to the NEW address, notice to the old one, link works once, takes effect only then', async () => {
     const old = 'old-addr@example.org';
     const neu = 'new-addr@example.org';
