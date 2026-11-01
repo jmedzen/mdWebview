@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.3.0
+   mdWebview — Application Logic (app.js) v4.3.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2869,6 +2869,8 @@
         // The document may have been torn down while the response body was
         // streaming; never mutate the DOM from a stale chunk after that await.
         if (state.virtual !== v) return null;
+        // A newer mount window moved elsewhere while this fetch was in flight.
+        if (!chunkKeepsMountedContiguous(v, ci)) return null;
         const sectionEl = document.createElement('section');
         sectionEl.className = 'chunk';
         sectionEl.setAttribute('data-chunk', ci);
@@ -3124,6 +3126,12 @@
     if (!v) return;
     const keep = new Set();
     for (let c = centerCi - radius; c <= centerCi + radius; c++) keep.add(c);
+    // The newest window wins. An older call still awaiting its fetches must not
+    // touch the geometry afterwards, and chunks it (or a prefetch) lands later
+    // must not end up outside this window: spacers assume one contiguous run.
+    const gen = (v._mountGen || 0) + 1;
+    v._mountGen = gen;
+    v._mountKeep = keep;
     for (const [c, data] of Array.from(v.chunks.entries())) {
       if (!keep.has(c)) {
         data.sectionEl.remove();
@@ -3139,9 +3147,28 @@
       mounts.push(ensureChunk(v.chunkRanges[c].from));
     }
     await Promise.all(mounts);
+    if (state.virtual !== v || v._mountGen !== gen) return;
+    for (const [c, data] of Array.from(v.chunks.entries())) {
+      if (!keep.has(c)) {
+        data.sectionEl.remove();
+        v.chunks.delete(c);
+        v.chunkHeights.delete(c);
+      }
+    }
     updateAvgPxPerLine();
     refreshSpacers();
     updateCachedLineAnchors($('markdownBody'));
+  }
+
+  // True when mounting chunk `ci` keeps the mounted chunks one contiguous run
+  // (refreshSpacers derives both spacer heights from the first/last mounted
+  // chunk, so a detached chunk would corrupt the whole scroll geometry).
+  function chunkKeepsMountedContiguous(v, ci) {
+    if (v._mountKeep && v._mountKeep.has(ci)) return true;
+    if (v.chunks.size === 0) return true;
+    let min = Infinity, max = -Infinity;
+    for (const c of v.chunks.keys()) { if (c < min) min = c; if (c > max) max = c; }
+    return ci >= min - 1 && ci <= max + 1;
   }
 
   /**
@@ -3175,15 +3202,36 @@
     const entryIndex = entryIndexForLine(lineNum);
     const ci = chunkIndexForEntry(entryIndex);
 
+    // While a jump is in progress the scroll handler must not manage chunks:
+    // mounting, removing and aligning all fire scroll events whose scrollTop is
+    // the OLD position (or a half-built geometry), and its remount would tear
+    // the target chunk down again — clicking a far heading then landed in the
+    // wrong section. The lock is released when the alignment loop settles.
+    const lock = {};
+    v._jumpLock = lock;
+    const release = () => {
+      if (v._jumpLock !== lock) return;
+      v._jumpLock = null;
+      if (state.virtual !== v) return;
+      updateVirtualScrollSpy(lineNum);
+      updateEntryNav();
+    };
+
+    // Safety net: never leave the scroll handler locked out (e.g. a chunk fetch
+    // that hangs).
+    setTimeout(() => { if (v._jumpLock === lock) release(); }, 4000);
+
     // Mount a contiguous window around the target, then position by the target
     // element's *actual* rect. Spacers keep the layout stable, so this lands
     // exactly on the requested line (large-file jumps were previously drifting
     // because chunks mounted above the target shifted the document mid-scroll).
     await setMountedWindow(ci, 1);
+    if (v._jumpLock !== lock) return; // superseded by a newer jump
 
     let target = document.getElementById('L' + lineNum);
     if (!target) target = anchorAtOrBefore(lineNum);
     if (!target) {
+      release();
       showToast(`⚠️ 找不到第 ${lineNum} 行`, 'warning');
       return;
     }
@@ -3217,18 +3265,22 @@
     // 實際 rect 最多修正 3 次即收斂；任何文件切換、節點卸載或無進展即中止。
     const jumpToken = state._openToken;
     let lastAbs = Infinity;
+    // Release one frame later so the scroll event of the last correction is
+    // still swallowed by the lock.
+    const releaseAfterScroll = () => {
+      v._lineJumpRaf = requestAnimationFrame(() => { v._lineJumpRaf = null; release(); });
+    };
     const alignJump = (attempt) => {
-      if (state.virtual !== v || state._openToken !== jumpToken) return;
-      if (!target.isConnected) return;
+      if (v._jumpLock !== lock) return;
+      if (state.virtual !== v || state._openToken !== jumpToken) { v._jumpLock = null; return; }
       const c = $('content');
-      if (!c) return;
+      if (!target.isConnected || !c) return release();
       const d = (target.getBoundingClientRect().top - c.getBoundingClientRect().top) - 12;
       const abs = Math.abs(d);
-      if (abs <= 2) return;
-      if (abs >= lastAbs || attempt >= 3) return;
+      if (abs <= 2 || abs >= lastAbs || attempt >= 3) return releaseAfterScroll();
       lastAbs = abs;
       const next = Math.max(0, c.scrollTop + d);
-      if (next === c.scrollTop) return; // 已達捲動邊界，視為終止
+      if (next === c.scrollTop) return releaseAfterScroll(); // 已達捲動邊界，視為終止
       c.scrollTop = next;
       // 獨立欄位：不可重用 v._scrollRaf（那是 setupVirtualScroll 的節流閘門）。
       v._lineJumpRaf = requestAnimationFrame(() => { v._lineJumpRaf = null; alignJump(attempt + 1); });
@@ -3275,13 +3327,16 @@
   // `estimateLineFromScrollTop()` drifts by an entry or two and the TOC would
   // highlight the entry below the one the reader is on.
   function topVisibleEntryIndex() {
-    const line = topVisibleLine();
+    const line = virtualTopLine();
     return line > 0 ? entryIndexForLine(line) : -1;
   }
 
   // Source line at the top of the content viewport (see topVisibleEntryIndex),
-  // or -1 when no anchors are mounted yet.
-  function topVisibleLine() {
+  // or -1 when no anchors are mounted yet. Do not rename to topVisibleLine: §18
+  // already declares a function with that name, and the later declaration
+  // silently replaces this one (the scroll spy then fell back to the rough
+  // scrollTop estimate and highlighted the neighbouring heading).
+  function virtualTopLine() {
     const v = state.virtual;
     const content = $('content');
     if (!v || !content || !cachedLineAnchors.length) return -1;
@@ -3342,7 +3397,7 @@
   function updateVirtualScrollSpy(line) {
     const v = state.virtual;
     if (!v || !v._tocItems || v._tocItems.length === 0) return;
-    let topLine = topVisibleLine();
+    let topLine = virtualTopLine();
     if (topLine < 0) topLine = line; // no anchors mounted yet → fall back
 
     // Always clear active class on rendered rows first
@@ -3725,6 +3780,7 @@
 
     const onScroll = () => {
       if (!isVirtualMode()) return;
+      if (v._jumpLock) return; // scrollToLineVirtual owns the geometry until it settles
       // Topmost visible line, estimated arithmetically from scrollTop and the
       // calibrated px-per-line. Deliberately no getBoundingClientRect()/
       // offsetHeight here — those force a synchronous layout on every scroll
@@ -8017,7 +8073,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9903,7 +9959,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10235,7 +10291,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11125,7 +11181,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
