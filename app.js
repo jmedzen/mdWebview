@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.2.7
+   mdWebview — Application Logic (app.js) v4.3.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1632,7 +1632,7 @@
     }
 
     // Tabs that exist only for a public deployment.
-    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn', 'adminTabUsersBtn', 'adminTabAccountSystemBtn'];
+    const webOnlyTabs = ['adminTabSeoBtn', 'adminTabAnalyticsBtn', 'adminTabUsersBtn', 'adminTabAccountSystemBtn', 'adminTabReportsBtn'];
     for (const id of webOnlyTabs) {
       const btn = $(id);
       if (btn) btn.style.display = single ? 'none' : '';
@@ -1642,7 +1642,7 @@
     // configuration tab so the panel is never left showing an empty section.
     if (single) {
       const activePane = document.querySelector('.admin-tab-pane.active');
-      if (activePane && ['adminPaneSeo', 'adminPaneAnalytics', 'adminPaneUsers', 'adminPaneAccountSystem'].includes(activePane.id)) {
+      if (activePane && ['adminPaneSeo', 'adminPaneAnalytics', 'adminPaneUsers', 'adminPaneAccountSystem', 'adminPaneReports'].includes(activePane.id)) {
         const configBtn = $('adminTabConfigBtn');
         if (configBtn) configBtn.click();
       }
@@ -7953,7 +7953,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9839,7 +9839,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10171,7 +10171,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11061,7 +11061,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.2.7';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.3.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -11543,6 +11543,8 @@
     const tabSuggestBtn = $('adminTabSuggestBtn');
     const tabUsersBtn = $('adminTabUsersBtn');
     const tabAccountSystemBtn = $('adminTabAccountSystemBtn');
+    const tabReportsBtn = $('adminTabReportsBtn');
+    const paneReports = $('adminPaneReports');
     const paneUsers = $('adminPaneUsers');
     const paneAccountSystem = $('adminPaneAccountSystem');
     const paneConfig = $('adminPaneConfig');
@@ -11560,8 +11562,8 @@
         clearInterval(hwAutoRefreshTimer);
         hwAutoRefreshTimer = null;
       }
-      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest, paneUsers, paneAccountSystem].forEach(p => { if (p) p.style.display = 'none'; });
-      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn, tabUsersBtn, tabAccountSystemBtn].forEach(b => { if (b) b.classList.remove('active'); });
+      [paneConfig, paneSeo, paneHardware, paneLogs, paneAnalytics, paneSuggest, paneUsers, paneAccountSystem, paneReports].forEach(p => { if (p) p.style.display = 'none'; });
+      [tabConfigBtn, tabSeoBtn, tabHardwareBtn, tabLogsBtn, tabAnalyticsBtn, tabSuggestBtn, tabUsersBtn, tabAccountSystemBtn, tabReportsBtn].forEach(b => { if (b) b.classList.remove('active'); });
     }
 
     function activateTab(btn, pane, callback) {
@@ -11627,6 +11629,15 @@
         activateTab(tabUsersBtn, paneUsers, () => {
           setupAdminAccountEvents();
           loadAdminUsersTab();
+        });
+      });
+    }
+
+    if (tabReportsBtn) {
+      tabReportsBtn.addEventListener('click', () => {
+        activateTab(tabReportsBtn, paneReports, () => {
+          setupAdminReportsEvents();
+          loadAdminReportsTab();
         });
       });
     }
@@ -14262,6 +14273,111 @@
       ${missing}
       <div class="account-list-row"><span>最近一次寄出</span><span>${m.lastSentAt ? escHtml(fmtDateTime(m.lastSentAt)) : '—'}</span></div>
       <div class="account-list-row"><span>24 小時內寄送失敗</span><span>${m.failures24h}</span></div>`;
+  }
+
+
+  // ── 報表信（📬 報表分頁，後端 lib/reports.js） ──────────────
+  const REPORT_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+  let adminReportsEventsReady = false;
+
+  function setupAdminReportsEvents() {
+    if (adminReportsEventsReady) return;
+    adminReportsEventsReady = true;
+    const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+    $('adminReportsDailyHour').innerHTML = hours;
+    $('adminReportsWeeklyHour').innerHTML = hours;
+
+    $('adminReportsSaveBtn').addEventListener('click', async () => {
+      const body = {
+        timezone: $('adminReportsTz').value.trim() || 'Asia/Taipei',
+        recipients: $('adminReportsRecipients').value.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean),
+        daily: { enabled: $('adminReportsDailyOn').checked, hour: Number($('adminReportsDailyHour').value) },
+        weekly: { enabled: $('adminReportsWeeklyOn').checked, weekday: Number($('adminReportsWeeklyDay').value), hour: Number($('adminReportsWeeklyHour').value) }
+      };
+      const r = await accountApi('/api/admin/reports/settings', { method: 'POST', body });
+      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error', 4000); return; }
+      showToast('✅ 報表設定已儲存', 'success');
+      renderAdminReports(r.data);
+    });
+
+    const preview = async (kind) => {
+      const frame = $('adminReportsPreview');
+      const info = $('adminReportsPreviewInfo');
+      info.textContent = '產生中…';
+      const r = await accountApi(`/api/admin/reports/preview?kind=${kind}`);
+      if (!r.ok) { info.textContent = r.data.error || '產生失敗'; return; }
+      info.textContent = `主旨：${r.data.subject}`;
+      frame.hidden = false;
+      frame.srcdoc = r.data.html;
+      $('adminReportsSendKind').value = kind;
+    };
+    $('adminReportsPreviewDailyBtn').addEventListener('click', () => preview('daily'));
+    $('adminReportsPreviewWeeklyBtn').addEventListener('click', () => preview('weekly'));
+
+    $('adminReportsSendBtn').addEventListener('click', async () => {
+      const btn = $('adminReportsSendBtn');
+      btn.disabled = true;
+      const r = await accountApi('/api/admin/reports/send', {
+        method: 'POST',
+        body: { kind: $('adminReportsSendKind').value, to: $('adminReportsTestTo').value.trim() }
+      });
+      btn.disabled = false;
+      if (r.data && r.data.status) renderAdminReports(r.data.status);
+      if (r.ok) showToast(`✅ ${r.data.message}，請到信箱確認（也看看垃圾郵件匣）`, 'success', 5000);
+      else showToast(`❌ ${r.data.error || '寄信失敗'}`, 'error', 5000);
+    });
+  }
+
+  async function loadAdminReportsTab() {
+    const r = await accountApi('/api/admin/reports');
+    if (!r.ok) {
+      $('adminReportsStatus').innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法載入報表設定')}</div>`;
+      setAdminCardLight('reports', 'bad', r.data.error || '無法載入');
+      return;
+    }
+    renderAdminReports(r.data);
+  }
+
+  function renderAdminReports(d) {
+    const s = d.settings;
+    $('adminReportsTz').value = s.timezone;
+    $('adminReportsDailyOn').checked = s.daily.enabled;
+    $('adminReportsDailyHour').value = String(s.daily.hour);
+    $('adminReportsWeeklyOn').checked = s.weekly.enabled;
+    $('adminReportsWeeklyDay').value = String(s.weekly.weekday);
+    $('adminReportsWeeklyHour').value = String(s.weekly.hour);
+    $('adminReportsRecipients').value = s.recipients.join('\n');
+    $('adminReportsRecipients').placeholder = d.adminEmails.length ? `留白會寄給：${d.adminEmails.join('、')}` : '管理員帳號都還沒有 Email，請填收件人';
+
+    const notice = $('adminReportsNotice');
+    const problems = [];
+    if (!d.mail.configured) problems.push('寄信還沒設定好，報表不會寄出。請先到「🔑 帳號系統」設定 Resend。');
+    else if (d.mail.provider === 'log') problems.push('寄信目前是測試模式（只寫進日誌），報表不會真的寄出。');
+    if (!d.recipients.length) problems.push('沒有收件人：請填收件人，或替管理員帳號設定 Email。');
+    notice.textContent = problems.join('\n');
+    notice.style.display = problems.length ? '' : 'none';
+
+    const anyOn = s.daily.enabled || s.weekly.enabled;
+    const lastFail = (d.history || []).find(h => h.trigger !== 'test');
+    setAdminCardLight('reports',
+      !anyOn ? 'off' : problems.length ? 'bad' : lastFail && !lastFail.ok ? 'warn' : 'ok',
+      !anyOn ? '' : problems.length ? '報表寄不出去' : lastFail && !lastFail.ok ? '上次寄送失敗' : '會依排程寄出');
+
+    const when = (ms) => (ms ? fmtDateTime(ms) : '—');
+    $('adminReportsStatus').innerHTML = `
+      <div class="account-list-row"><span>收件人</span><span>${d.recipients.length ? escHtml(d.recipients.join('、')) : '<span class="account-badge danger">沒有收件人</span>'}</span></div>
+      <div class="account-list-row"><span>下次寄日報</span><span>${s.daily.enabled ? escHtml(when(d.nextRun.daily)) : '已關閉'}</span></div>
+      <div class="account-list-row"><span>下次寄週報</span><span>${s.weekly.enabled ? `${escHtml(when(d.nextRun.weekly))}（週${REPORT_WEEKDAYS[s.weekly.weekday]}）` : '已關閉'}</span></div>
+      <div class="account-list-row"><span>排程已處理到</span><span>日報 ${escHtml(d.lastSent.daily || '—')}・週報 ${escHtml(d.lastSent.weekly || '—')}</span></div>
+      <div class="field-hint">時間以你的瀏覽器時區顯示；報表本身以 ${escHtml(s.timezone)} 切日。</div>`;
+
+    const kindName = { daily: '日報', weekly: '週報' };
+    const trig = { schedule: '排程', manual: '手動', test: '測試' };
+    const hist = d.history || [];
+    $('adminReportsHistory').innerHTML = hist.length ? hist.map(h => `
+      <div class="account-list-row"><span>${escHtml(fmtDateTime(h.at))}・${escHtml(kindName[h.kind] || h.kind)} ${escHtml(h.period)}・${escHtml(trig[h.trigger] || h.trigger)}<br><span class="field-hint">${escHtml((h.to || []).join('、'))}${h.error ? `｜${escHtml(h.error)}` : ''}</span></span>
+      <span class="account-badge${h.ok ? '' : ' danger'}">${h.ok ? `已寄 ${h.sent}` : '失敗'}</span></div>`).join('')
+      : '<div class="field-hint">還沒有寄過報表。</div>';
   }
 
   async function loadAdminMailDns() {
