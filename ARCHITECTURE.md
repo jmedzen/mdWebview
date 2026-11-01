@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.3.0 | 最後更新：2026-11
+> 版本：v4.3.1 | 最後更新：2026-11
 
 ---
 
@@ -227,6 +227,8 @@ flowchart TD
 - 用於辭典條目導航（`entryNav` prev/next）與精確分塊邊界
 - 每個 "group"（較淺層的標題，如卷／品／章）的標題、層級、行號（`ls`）與所屬 entry 範圍；磁碟快取格式 `SEX3` 起 group 多存一個 `lineStart`
 - **大綱（v4.2.8）**：`buildVirtualTocNodes()` 依文件順序把 groups 與 entries 合併成 `v._tocNodes`，大綱的收折（`v._collapsedNodes`）、列元素與目前位置都以 node 索引為鍵；點 group 列以 `jumpToTocLine(ls)` 跳轉。v4.2.8 前虛擬大綱只畫 entries，1MB 以上的檔案只看得到最深一層標題
+- **跳轉鎖（v4.3.1）**：`scrollToLineVirtual()` 執行期間設 `v._jumpLock`，捲動處理器在鎖住時不管理區塊；對齊迴圈收斂後才解鎖並更新大綱高亮。`setMountedWindow()` 以 `v._mountGen` 讓最新的視窗勝出，`chunkKeepsMountedContiguous()` 擋下會讓已掛載區塊不連續的遲到區塊（spacer 假設區塊連續）。v4.3.1 前點很後面的標題時，捲動處理器會用舊位置重掛區塊，讀到錯的段落
+- 虛擬大綱的「畫面頂端行」函式叫 `virtualTopLine()`；§18 已有 `topVisibleLine(content)`，同名宣告會互相覆蓋（`tests/test-app-function-names.test.js` 會擋）
 
 **虛擬化判定（`isVirtualizedFile(filePath)`，~L1968）**：一律以 `String(filePath).startsWith('dict:')` 為真，否則再比較 `(state.fileSizes.get(filePath) || 0) >= LARGE_FILE_MIN_BYTES`。此 Helper 存在的理由是：**辭典檔（`dict:`）永遠走虛擬分塊路徑，但它們並不在主樹的 `state.fileSizes` 對照表中**（`/api/tree` 不含任何 `dict:` 節點——實測 7,598 個檔案節點、0 個 dict 節點）。因此單憑檔案大小判斷會把辭典檔誤判為一般檔案，讓 `restoreReadProgress()` 補送延遲的絕對 `content.scrollTo`，覆蓋掉 `openFile` 剛完成的逐行定位。凡需判斷「這是不是虛擬檔案」處都應走此 Helper。
 
@@ -982,7 +984,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.3.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.3.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
