@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.8.1
+   mdWebview — Application Logic (app.js) v4.8.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2153,7 +2153,9 @@
     const enabled = ann.enabled !== undefined ? !!ann.enabled : !!(appConfig && (appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true'));
     const message = String((ann.message !== undefined ? ann.message : (appConfig && appConfig.announcementMessage)) || '').trim();
     const updatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
-    return { enabled, message, updatedAt };
+    const c = parseInt(ann.collapsed, 10);
+    const collapsed = Number.isFinite(c) && c >= 0 ? c : HOME_NOTICE_COLLAPSED;
+    return { enabled, message, updatedAt, collapsed };
   }
 
   function isHomeNoticeDismissed(ann) {
@@ -2461,15 +2463,35 @@
     }
     const text = $('homeNoticeText');
     const more = $('homeNoticeMore');
-    text.textContent = ann.message;
+    // 一行一則；行首的「* 」「- 」「• 」是站長手打的項目符號，改由樣式畫
+    const items = ann.message.split(/\r?\n/).map(l => l.replace(/^\s*(?:[*\-•·]|\d+[.、)])\s+/, '').trim()).filter(Boolean);
+    text.replaceChildren(...items.map(t => {
+      const li = document.createElement('li');
+      li.className = 'home-notice-item';
+      li.textContent = t;
+      return li;
+    }));
+    box.classList.toggle('single', items.length === 1);
+    box.dataset.count = String(items.length);
+    const date = $('homeNoticeDate');
+    if (date) {
+      const d = ann.updatedAt ? new Date(ann.updatedAt) : null;
+      date.textContent = d && !isNaN(d) ? `${d.getMonth() + 1}月${d.getDate()}日更新` : '';
+    }
+    // 預設先列幾則由後台決定（0 = 全部）；超過的標上 is-extra，收合時由 CSS 隱藏
+    const limit = ann.collapsed > 0 ? ann.collapsed : items.length;
+    Array.from(text.children).forEach((li, i) => li.classList.toggle('is-extra', i >= limit));
     box.classList.remove('expanded');
-    more.textContent = '展開';
+    more.textContent = noticeMoreLabel(items.length, false);
+    more.hidden = items.length <= limit;
     box.hidden = false;
     renderHomeCue();
-    // 超過三行才需要「展開」。要等版面算好才量得到高度；首頁沒顯示時量不到，回首頁會再畫一次。
-    requestAnimationFrame(() => {
-      more.hidden = !(text.scrollHeight > text.clientHeight + 1);
-    });
+  }
+
+  const HOME_NOTICE_COLLAPSED = 3; // 後台沒設定時的預設
+
+  function noticeMoreLabel(count, open) {
+    return open ? '收起' : `展開全部 ${count} 則`;
   }
 
   /** 熱門來源（7d／30d／90d）轉成讀者看得懂的字。 */
@@ -2629,7 +2651,8 @@
     if (noticeMore) noticeMore.addEventListener('click', () => {
       const box = $('homeNotice');
       const open = box.classList.toggle('expanded');
-      noticeMore.textContent = open ? '收起' : '展開';
+      noticeMore.textContent = noticeMoreLabel(Number(box.dataset.count) || 0, open);
+      noticeMore.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
     const noticeClose = $('homeNoticeClose');
     if (noticeClose) noticeClose.addEventListener('click', () => {
@@ -9051,7 +9074,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9318,8 +9341,10 @@
     }
     const announcementToggle = $('settingsEnableAnnouncement');
     const announcementInput = $('settingsAnnouncementMessage');
+    const announcementCount = $('settingsAnnouncementCollapsed');
     if (announcementToggle && announcementInput) {
       announcementInput.disabled = !announcementToggle.checked;
+      if (announcementCount) announcementCount.disabled = !announcementToggle.checked;
     }
   }
 
@@ -10787,6 +10812,7 @@
       const dictionaryPath = ($('settingsDictionaryPath') || {}).value;
       const enableAnnouncement = ($('settingsEnableAnnouncement') || {}).checked;
       const announcementMessage = ($('settingsAnnouncementMessage') || {}).value;
+      const announcementCollapsedCount = parseInt(($('settingsAnnouncementCollapsed') || {}).value, 10);
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const defaultSearchMode = ($('settingsDefaultSearchMode') || {}).value || 'loose';
       const timezone = ($('settingsTimezone') || {}).value || 'auto';
@@ -10804,7 +10830,8 @@
             settings: {
               siteName, siteUrl, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
               enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, defaultSearchMode, timezone,
-              enableAnnouncement, announcementMessage
+              enableAnnouncement, announcementMessage,
+              announcementCollapsedCount: Number.isFinite(announcementCollapsedCount) ? announcementCollapsedCount : undefined
             }
           })
         });
@@ -10937,7 +10964,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11305,7 +11332,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12195,7 +12222,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -12239,6 +12266,12 @@
       if (announceToggleEl) announceToggleEl.checked = !!data.settings.enableAnnouncement;
       const announceMsgEl = $('settingsAnnouncementMessage');
       if (announceMsgEl) announceMsgEl.value = data.settings.announcementMessage || '';
+      const announceCountEl = $('settingsAnnouncementCollapsed');
+      if (announceCountEl) {
+        const n = data.settings.announcementCollapsedCount;
+        announceCountEl.value = String(Number.isFinite(n) ? n : HOME_NOTICE_COLLAPSED);
+        if (announceCountEl.value === '') announceCountEl.value = String(HOME_NOTICE_COLLAPSED);
+      }
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');
@@ -15485,7 +15518,7 @@
     if (val('settingsEnableDictionary') && !val('settingsDictionaryPath')) footerIssues.push('已開啟辭典但沒有填辭典路徑');
     L('footer', footerIssues.length ? 'warn' : 'ok', footerIssues.join('；'));
     L('announce', !val('settingsEnableAnnouncement') ? 'off' : val('settingsAnnouncementMessage') ? 'ok' : 'warn',
-      !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
+      !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '首頁顯示中' : '已開啟但沒有訊息內容');
     L('cfgbackup', 'off');
     const robots = val('seoRobotsIndex');
     // 不開放搜尋引擎收錄是站長的選擇（有些站本來就不要被搜尋到），顯示灰燈、不列入待辦。
