@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.4.1 | 最後更新：2026-11
+> 版本：v4.4.2 | 最後更新：2026-11
 
 ---
 
@@ -855,7 +855,7 @@ flowchart TD
 | `fontSize` | `number` | 當前閱讀字體大小（px），使用者可調整 |
 | `textAlign` | `string` | 文字對齊：`justify`|`left` |
 | `lineHeight` | `string` | 行高倍數字串：`'1.6'`|`'1.8'`|`'2.0'` |
-| `maxWidth` | `string` | 閱讀區最大寬度 CSS 值，行動版預設 `95%`，桌面版 `800px` |
+| `maxWidth` | `string` | 閱讀區最大寬度：行動版為 CSS 百分比（預設 `95%`，存 `mdWebview-user-maxwidth`）；桌面版為每行字數段位 `cpl32`／`cpl40`（預設）／`cpl50`／`cpl64`／`full`，寬度 = 字數 × 字級 + 96px，存 `mdWebview-user-maxwidth-desktop`，舊 px 值自動轉段位 |
 | `autoReadProgress` | `boolean` | 是否自動儲存/恢復閱讀進度 |
 | `autoS2T` | `boolean` | 搜尋時是否簡繁字形一併比對（字組比對，§5.3；簡體顯示時不論此值一律開啟）。全站預設 `false`；若使用者從未設定過，且瀏覽器主要語言為簡體中文，首次造訪時自動設為 `true` 並寫入 localStorage（見 §7.3） |
 | `displayScript` | `string` | 繁簡顯示，`'hant'`（預設）或 `'hans'`。規則同 `autoS2T`：從未設定且瀏覽器為簡體中文時，首次造訪自動設為 `'hans'` 並顯示一次提示（見 §7.4） |
@@ -998,7 +998,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.4.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.4.2'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

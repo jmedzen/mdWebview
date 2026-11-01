@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.4.1
+   mdWebview — Application Logic (app.js) v4.4.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -69,6 +69,9 @@
     TEXT_ALIGN: 'mdWebview-user-textalign',
     LINE_HEIGHT: 'mdWebview-user-lineheight',
     MAX_WIDTH: 'mdWebview-user-maxwidth',
+    // 桌面版閱讀寬度（每行字數段位 id，見 DESKTOP_WIDTH_PRESETS）。與手機分開存，
+    // 手機仍沿用 MAX_WIDTH 的百分比值，互不影響。
+    MAX_WIDTH_DESKTOP: 'mdWebview-user-maxwidth-desktop',
     AUTO_S2T: 'mdWebview-auto-s2t',
     // 繁／簡顯示：'hant'（繁體，預設）或 'hans'（簡體）。i18n/boot.js 也直接讀這個鍵。
     DISPLAY_SCRIPT: 'mdWebview-display-script',
@@ -143,6 +146,54 @@
   const userAlign = storage.get(STORAGE_KEYS.TEXT_ALIGN);
   const userLineHeight = storage.get(STORAGE_KEYS.LINE_HEIGHT);
   const userMaxWidth = storage.get(STORAGE_KEYS.MAX_WIDTH);
+  const userMaxWidthDesktop = storage.get(STORAGE_KEYS.MAX_WIDTH_DESKTOP);
+
+  // ── 桌面版閱讀寬度：以「每行字數」為單位 ───
+  // 寬度 = 字數 × 內文字級 + 左右 padding（.content-wrapper 桌面 48px × 2），
+  // 因此使用者調整字級時，每行字數維持不變。'full' = 撐滿閱讀區。
+  const DESKTOP_WIDTH_PAD_PX = 96;
+  const DESKTOP_WIDTH_PRESETS = [
+    { id: 'cpl32', chars: 32, label: '窄', legacy: '680px' },
+    { id: 'cpl40', chars: 40, label: '標準', legacy: '800px' },
+    { id: 'cpl50', chars: 50, label: '寬', legacy: '1000px' },
+    { id: 'cpl64', chars: 64, label: '特寬', legacy: '1000px' },
+    { id: 'full', chars: 0, label: '全寬', legacy: '100%' }
+  ];
+  const DESKTOP_WIDTH_DEFAULT = 'cpl40';
+  // 舊版桌面 px 段位 → 新段位（依原本的窄/中/寬順序對應）
+  const LEGACY_DESKTOP_WIDTH_MAP = { '680px': 'cpl32', '800px': 'cpl40', '1000px': 'cpl50', '100%': 'full' };
+
+  /**
+   * 將任何桌面寬度值（新段位 id、舊版 px / 百分比）正規化為段位 id。
+   * 非舊版段位的 px 值以 16px 字級換算字數，取最接近的段位；百分比（手機值）一律回到預設。
+   */
+  function normalizeDesktopMaxWidth(value) {
+    if (typeof value !== 'string' || !value) return DESKTOP_WIDTH_DEFAULT;
+    const v = value.trim();
+    if (DESKTOP_WIDTH_PRESETS.some(p => p.id === v)) return v;
+    if (LEGACY_DESKTOP_WIDTH_MAP[v]) return LEGACY_DESKTOP_WIDTH_MAP[v];
+    const m = /^(\d+(?:\.\d+)?)px$/.exec(v);
+    if (m) {
+      const chars = (parseFloat(m[1]) - DESKTOP_WIDTH_PAD_PX) / 16;
+      let best = DESKTOP_WIDTH_DEFAULT;
+      let bestDiff = Infinity;
+      DESKTOP_WIDTH_PRESETS.forEach(p => {
+        if (!p.chars) return;
+        const diff = Math.abs(p.chars - chars);
+        if (diff < bestDiff) { bestDiff = diff; best = p.id; }
+      });
+      return best;
+    }
+    return DESKTOP_WIDTH_DEFAULT;
+  }
+
+  /** 段位 id → --content-max-width 的 CSS 值 */
+  function desktopMaxWidthCss(id) {
+    const preset = DESKTOP_WIDTH_PRESETS.find(p => p.id === id)
+      || DESKTOP_WIDTH_PRESETS.find(p => p.id === DESKTOP_WIDTH_DEFAULT);
+    if (!preset.chars) return '100%';
+    return `calc(var(--content-font-size, 16px) * ${preset.chars} + ${DESKTOP_WIDTH_PAD_PX}px)`;
+  }
   const userReadProgress = storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED);
 
   /**
@@ -299,7 +350,8 @@
    * @property {number}       fontSize          - 目前閱讀字體大小（px），使用者可調整
    * @property {string}       textAlign         - 文字對齊 ('justify'|'left')
    * @property {string}       lineHeight        - 行高倍數字串 ('1.6'|'1.8'|'2.0')
-   * @property {string}       maxWidth          - 閱讀區最大寬度 CSS 值 ('800px'|'100%'|…)
+   * @property {string}       maxWidth          - 閱讀區最大寬度：手機為 CSS 百分比 ('85%'…'100%')；
+   *                                               桌面為每行字數段位 id ('cpl32'|'cpl40'|'cpl50'|'cpl64'|'full')
    * @property {boolean}      autoReadProgress  - 是否自動記錄與恢復閱讀進度
    * @property {boolean}      autoS2T           - 搜尋時是否簡繁字形一併比對（預設 false；瀏覽器語言為
    *   簡體中文且使用者從未設定過時，首次造訪會自動開啟並寫入 localStorage）
@@ -384,7 +436,9 @@
     fontSize: userFont ? parseInt(userFont) : (appConfig.defaultFontSize ? parseInt(appConfig.defaultFontSize) : 16),
     textAlign: userAlign || 'justify',
     lineHeight: userLineHeight || '1.8',
-    maxWidth: (isMobile && (!userMaxWidth || userMaxWidth === '100%')) ? '95%' : (userMaxWidth || '800px'),
+    maxWidth: isMobile
+      ? ((!userMaxWidth || userMaxWidth === '100%') ? '95%' : userMaxWidth)
+      : normalizeDesktopMaxWidth(userMaxWidthDesktop || userMaxWidth),
     autoReadProgress: userReadProgress !== 'false',
     autoS2T: userAutoS2T === 'true',
     displayScript: userDisplayScript || 'hant',
@@ -7110,26 +7164,35 @@
     const isMobile = isMobileBrowser();
     let currentVal = state.maxWidth;
     if (!currentVal) {
-      currentVal = isMobile ? '95%' : '800px';
+      currentVal = isMobile ? '95%' : DESKTOP_WIDTH_DEFAULT;
     }
+    if (!isMobile) currentVal = normalizeDesktopMaxWidth(currentVal);
 
     const options = isMobile ? [
       { label: '85%', value: '85%' },
       { label: '90%', value: '90%' },
       { label: '95%', value: '95%' },
       { label: '100% 全寬', value: '100%' }
-    ] : [
-      { label: '680px', value: '680px' },
-      { label: '800px', value: '800px' },
-      { label: '1000px', value: '1000px' }
-    ];
+    ] : DESKTOP_WIDTH_PRESETS.map(p => ({
+      label: p.label,
+      value: p.id,
+      title: p.chars ? `每行約 ${p.chars} 字（隨字級自動調整）` : '撐滿閱讀區'
+    }));
 
     let html = '';
     options.forEach(opt => {
       const active = (currentVal === opt.value) ? ' active' : '';
-      html += `<button type="button" class="segment-btn${active}" data-value="${opt.value}">${opt.label}</button>`;
+      const title = opt.title ? ` title="${opt.title}"` : '';
+      html += `<button type="button" class="segment-btn${active}" data-value="${opt.value}"${title}>${opt.label}</button>`;
     });
     group.innerHTML = html;
+
+    const desc = $('settingMaxWidthDesc');
+    if (desc) {
+      desc.textContent = isMobile
+        ? '控制閱讀內文最佳寬度'
+        : '以每行字數計算，調整字級時字數不變：窄 32、標準 40、寬 50、特寬 64 字';
+    }
 
     $$('.segment-btn', group).forEach(btn => {
       btn.addEventListener('click', () => {
@@ -7140,7 +7203,11 @@
 
   function applyMaxWidth(mw, saveToLocalStorage = true) {
     const isMobile = isMobileBrowser();
-    if (!mw) mw = isMobile ? '95%' : '800px';
+    if (!isMobile) {
+      applyDesktopMaxWidth(mw, saveToLocalStorage);
+      return;
+    }
+    if (!mw) mw = '95%';
     state.maxWidth = mw;
     const topAnchor = isVirtualMode() ? captureTopAnchor() : null;
     document.documentElement.style.setProperty('--content-max-width', mw);
@@ -7156,6 +7223,32 @@
     if (saveToLocalStorage) {
       storage.set(STORAGE_KEYS.MAX_WIDTH, mw);
     }
+  }
+
+  /** 桌面版：套用每行字數段位（存在 MAX_WIDTH_DESKTOP，不動手機的 MAX_WIDTH）。 */
+  function applyDesktopMaxWidth(value, saveToLocalStorage = true) {
+    const id = normalizeDesktopMaxWidth(value);
+    state.maxWidth = id;
+    const topAnchor = isVirtualMode() ? captureTopAnchor() : null;
+    document.documentElement.style.setProperty('--content-max-width', desktopMaxWidthCss(id));
+    recalibrateVirtualGeometry(topAnchor);
+
+    const group = $('settingMaxWidthGroup');
+    if (group) {
+      $$('.segment-btn', group).forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === id);
+      });
+    }
+
+    if (saveToLocalStorage) {
+      storage.set(STORAGE_KEYS.MAX_WIDTH_DESKTOP, id);
+    }
+  }
+
+  /** 匯出用：桌面段位 id → 舊版相容的 CSS 值（給舊版或手機匯入時使用） */
+  function legacyMaxWidthValue(id) {
+    const preset = DESKTOP_WIDTH_PRESETS.find(p => p.id === id);
+    return preset ? preset.legacy : '800px';
   }
 
   function applyAutoReadProgress(enabled, saveToLocalStorage = true) {
@@ -8067,7 +8160,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8080,7 +8173,13 @@
           fontSize: state.fontSize || parseInt(storage.get(STORAGE_KEYS.FONT_SIZE), 10) || 16,
           textAlign: state.textAlign || storage.get(STORAGE_KEYS.TEXT_ALIGN) || 'justify',
           lineHeight: state.lineHeight || storage.get(STORAGE_KEYS.LINE_HEIGHT) || '1.8',
-          maxWidth: state.maxWidth || storage.get(STORAGE_KEYS.MAX_WIDTH) || (isMobileBrowser() ? '95%' : '800px'),
+          // maxWidth：手機的百分比（或舊版 px 值），維持舊格式相容；maxWidthDesktop：桌面每行字數段位
+          maxWidth: isMobileBrowser()
+            ? (state.maxWidth || storage.get(STORAGE_KEYS.MAX_WIDTH) || '95%')
+            : (storage.get(STORAGE_KEYS.MAX_WIDTH) || legacyMaxWidthValue(state.maxWidth)),
+          maxWidthDesktop: isMobileBrowser()
+            ? normalizeDesktopMaxWidth(storage.get(STORAGE_KEYS.MAX_WIDTH_DESKTOP) || storage.get(STORAGE_KEYS.MAX_WIDTH))
+            : normalizeDesktopMaxWidth(state.maxWidth),
           autoS2T: state.autoS2T !== undefined ? state.autoS2T : (storage.get(STORAGE_KEYS.AUTO_S2T) === 'true'),
           displayScript: normalizeDisplayScript(state.displayScript) || normalizeDisplayScript(storage.get(STORAGE_KEYS.DISPLAY_SCRIPT)) || 'hant',
           autoReadProgress: state.autoReadProgress !== undefined ? state.autoReadProgress : (storage.get(STORAGE_KEYS.READ_PROGRESS_ENABLED) !== 'false'),
@@ -8153,8 +8252,21 @@
         if (pref.lineHeight && (typeof pref.lineHeight === 'string' || typeof pref.lineHeight === 'number')) {
           applyLineHeight(String(pref.lineHeight), true);
         }
-        if (pref.maxWidth && typeof pref.maxWidth === 'string') {
-          applyMaxWidth(pref.maxWidth, true);
+        if (isMobileBrowser()) {
+          if (pref.maxWidth && typeof pref.maxWidth === 'string') {
+            applyMaxWidth(pref.maxWidth, true);
+          }
+          if (pref.maxWidthDesktop && typeof pref.maxWidthDesktop === 'string') {
+            storage.set(STORAGE_KEYS.MAX_WIDTH_DESKTOP, normalizeDesktopMaxWidth(pref.maxWidthDesktop));
+          }
+        } else {
+          const desktopVal = (typeof pref.maxWidthDesktop === 'string' && pref.maxWidthDesktop)
+            || (typeof pref.maxWidth === 'string' && pref.maxWidth) || '';
+          if (desktopVal) applyDesktopMaxWidth(desktopVal, true);
+          // 舊格式 maxWidth 照舊寫回手機用的鍵，手機行為不變
+          if (pref.maxWidth && typeof pref.maxWidth === 'string') {
+            storage.set(STORAGE_KEYS.MAX_WIDTH, pref.maxWidth);
+          }
         }
         if (typeof pref.autoS2T === 'boolean') {
           applyAutoS2T(pref.autoS2T, true);
@@ -9948,7 +10060,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10316,7 +10428,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11206,7 +11318,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
