@@ -17,13 +17,13 @@ const serverJs = fs.readFileSync(path.join(ROOT_DIR, 'server.js'), 'utf8');
 // 從 app.js 取出首頁的日期／經句小工具，獨立執行
 function loadHomeHelpers() {
   const start = appJs.indexOf('  const CN_DIGITS');
-  const endMarker = 'function pickDailyVerse(verses, date) {';
+  const endMarker = 'function verseLines(text) {';
   const endStart = appJs.indexOf(endMarker);
   assert.ok(start > 0 && endStart > start, '找不到首頁小工具區段');
   const end = appJs.indexOf('\n  }\n', endStart) + 4;
   // eslint-disable-next-line no-new-func
   return new Function(`${appJs.slice(start, end)}
-    return { cnNumber, homeGreeting, solarTermDay, currentSolarTerm, homeDateLine, localDayIndex, pickDailyVerse };`)();
+    return { cnNumber, homeGreeting, solarTermDay, currentSolarTerm, homeDateLine, localDayIndex, pickDailyVerse, verseLines };`)();
 }
 
 describe('lib/home：每日經文清單', () => {
@@ -152,6 +152,64 @@ describe('首頁：問候、日期與節氣', () => {
   });
 });
 
+describe('首頁：經句分兩行', () => {
+  const h = loadHomeHelpers();
+
+  test('在中間的分句邊界斷開', () => {
+    assert.deepEqual(h.verseLines('諸惡莫作，諸善奉行，自淨其意，是諸佛教。'), ['諸惡莫作，諸善奉行，', '自淨其意，是諸佛教。']);
+    assert.deepEqual(h.verseLines('色不異空，空不異色；色即是空，空即是色。'), ['色不異空，空不異色；', '色即是空，空即是色。']);
+    assert.deepEqual(h.verseLines('應無所住，而生其心。'), ['應無所住，而生其心。']);
+    assert.deepEqual(h.verseLines('若人欲了知，三世一切佛，應觀法界性，一切唯心造。'), ['若人欲了知，三世一切佛，', '應觀法界性，一切唯心造。']);
+  });
+
+  test('沒有標點的長句不拆', () => {
+    assert.deepEqual(h.verseLines('一二三四五六七八九十十一十二'), ['一二三四五六七八九十十一十二']);
+  });
+});
+
+// 取出單一函式原始碼（到同層的「\n  }\n」為止）
+function fnSource(name) {
+  const start = appJs.indexOf(`  function ${name}(`);
+  assert.ok(start > 0, `找不到 ${name}`);
+  return appJs.slice(start, appJs.indexOf('\n  }\n', start) + 4);
+}
+
+describe('首頁：搜尋與書架', () => {
+  // eslint-disable-next-line no-new-func
+  const h = new Function(['bookSlipTitle', 'bookTone', 'homeSearchKey', 'homeTitleMatches'].map(fnSource).join('\n')
+    + '\nreturn { bookSlipTitle, bookTone, homeSearchKey, homeTitleMatches };')();
+
+  test('題簽取書名號內的經名；沒有書名號時去掉經號', () => {
+    assert.equal(h.bookSlipTitle('T0251《般若波羅蜜多心經》'), '般若波羅蜜多心經');
+    assert.equal(h.bookSlipTitle('X1234a 金剛經疏'), '金剛經疏');
+    assert.equal(h.bookSlipTitle('金剛般若經贊述釋記3'), '金剛般若經贊述釋記3');
+  });
+
+  test('封面色依路徑固定，介於 0–4', () => {
+    const t = h.bookTone('a/b.md');
+    assert.equal(h.bookTone('a/b.md'), t);
+    assert.ok(t >= 0 && t <= 4);
+  });
+
+  test('經名比對：去掉書名號與空白、多詞都要出現、經名開頭相符的排前面', () => {
+    const files = [
+      { name: 'T1579《瑜伽師地論》', folder: '14瑜伽部類' },
+      { name: 'T0251《般若波羅蜜多心經》', folder: '03般若部類' },
+      { name: 'T0220《大般若波羅蜜多經》', folder: '03般若部類' }
+    ].map(f => ({ ...f, path: f.name + '.md', key: h.homeSearchKey(f.name + ' ' + f.folder) }));
+    assert.deepEqual(h.homeTitleMatches(files, '般若').map(f => f.name), ['T0251《般若波羅蜜多心經》', 'T0220《大般若波羅蜜多經》']);
+    assert.deepEqual(h.homeTitleMatches(files, '般若 心經').map(f => f.name), ['T0251《般若波羅蜜多心經》']);
+    assert.deepEqual(h.homeTitleMatches(files, '《瑜伽》').map(f => f.name), ['T1579《瑜伽師地論》']);
+    assert.deepEqual(h.homeTitleMatches(files, '  '), []);
+  });
+
+  test('首頁有搜尋框、隨手翻一卷、我的書架', () => {
+    for (const id of ['homeSearch', 'homeSearchInput', 'homeSearchResults', 'homeRandom', 'homeBrowse', 'homeShelf']) {
+      assert.ok(indexHtml.includes(`id="${id}"`), `缺少 #${id}`);
+    }
+  });
+});
+
 describe('首頁：沒有彈窗，公告在首頁一行', () => {
   test('每日訊息彈窗已移除', () => {
     assert.ok(!indexHtml.includes('announcementModalOverlay'));
@@ -180,5 +238,9 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
     assert.match(serverJs, /verses: home\.resolveVerses\(/);
     assert.match(serverJs, /dailyVerses: sl\.dailyVerses !== undefined \? home\.parseVerses\(sl\.dailyVerses\)/);
     assert.ok(indexHtml.includes('id="suggestDailyVerses"'));
+  });
+
+  test('每日一詞不再放「看完整條目」（詞條標題本身可點）', () => {
+    assert.ok(!appJs.includes('看完整條目'));
   });
 });

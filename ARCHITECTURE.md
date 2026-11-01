@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.6.0 | 最後更新：2026-11
+> 版本：v4.7.0 | 最後更新：2026-11
 
 ---
 
@@ -469,9 +469,10 @@ v4.5.0 起首頁不再有「每日訊息」彈窗，公告與推薦都直接放�
 
 1. **問候與日期**：依當地時間「早安／午安／晚安」，日期用中文數字，後面接目前節氣（`currentSolarTerm()`，21 世紀通式，可能差一天）。
 2. **蓮花、站名與每日經文**：經句依讀者當地日期輪替（`pickDailyVerse()`，同一天固定）。經句有路徑就開該經，沒有就用經句在全文搜尋。清單在後台「推薦清單 → 每日經文」設定（`settings.suggestList.dailyVerses`，一行一句：`經句｜出處｜路徑`）；從未設定時用 `lib/home.js` 的 `DEFAULT_DAILY_VERSES`，清空就不顯示經句。
-3. **繼續閱讀**：`recentFiles` 第一篇（略過辭典條目），附進度條與按鈕，下面列最多三篇最近讀過的。沒有紀錄時整塊隱藏。
-4. **公告**：首頁一行，最多顯示三行（CSS `-webkit-line-clamp: 3`），超過時出現「展開」。按 ✕ 收起後，同一則公告不再出現，直到公告文字或更新時間改變。
-5. **每日一詞**（附釋義摘要，`lib/home.js` `readDictExcerpt()` 依 section index 位元組位置讀前 4KB）與**今日推薦**（站長推薦／本週熱門，附人次）左右兩欄；手機上下排。
+3. **首頁搜尋（v4.7.0）**：經句下方一個大搜尋框。打字即時比對經名（`homeTitleMatches()`，從 `/api/tree` 攤平，去掉書名號與空白，多詞都要出現，經名開頭相符的排前面），最多六筆；最後一列與 Enter 是全文搜尋（`activateSearchPanel()`）。首頁按「/」直接聚焦。下面兩顆按鈕：「隨手翻一卷」（隨機開一部）、「瀏覽全部經目」（打開左側檔案瀏覽器）。
+4. **我的書架（v4.7.0）**：`recentFiles` 前八篇（略過辭典條目）立在一塊木板上：書脊直書經名（`bookSlipTitle()` 取書名號內經名），書衣是傳統顏色（磁青、栗殼、黛綠、赭石、墨灰，各混兩成主題色），高矮厚薄依路徑固定（`bookTone()`／`bookSize()`），最後一本斜靠；已讀比例從下往上加深，最近讀的那本插著絲帶。指到（或 Tab 到）哪本就抽出來，右側說明（`renderHomeShelfInfo()`）跟著換；點書脊直接打開。手機上說明在上、書架在下。沒有紀錄時整塊隱藏。
+5. **公告**：首頁一行，最多顯示三行（CSS `-webkit-line-clamp: 3`），超過時出現「展開」。按 ✕ 收起後，同一則公告不再出現，直到公告文字或更新時間改變。
+6. **每日一詞**（附釋義摘要，`lib/home.js` `readDictExcerpt()` 依 section index 位元組位置讀前 4KB）與**今日推薦**（站長推薦／本週熱門，附人次）左右兩欄；手機上下排。
 
 ```mermaid
 flowchart TD
@@ -1002,7 +1003,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.6.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.7.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

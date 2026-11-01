@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.6.0
+   mdWebview — Application Logic (app.js) v4.7.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2107,6 +2107,24 @@
     return verses[((localDayIndex(date) % n) + n) % n] || null;
   }
 
+  /**
+   * 經句分成兩行，像對聯一樣在中間的標點處斷開（左右字數最接近的那個分句邊界）。
+   * 只有一個分句或很短（10 字內）的經句就一行。
+   */
+  function verseLines(text) {
+    const t = String(text || '').trim();
+    const clauses = t.match(/[^，。；：、！？]+[，。；：、！？]*/g) || [t];
+    if (clauses.length < 2 || Array.from(t).length <= 10) return [t];
+    const total = Array.from(t).length;
+    let best = 1, bestDiff = Infinity, acc = 0;
+    for (let k = 1; k < clauses.length; k++) {
+      acc += Array.from(clauses[k - 1]).length;
+      const diff = Math.abs(total - 2 * acc);
+      if (diff < bestDiff) { bestDiff = diff; best = k; }
+    }
+    return [clauses.slice(0, best).join(''), clauses.slice(best).join('')];
+  }
+
   /** 經句轉成搜尋字串：去掉標點與空白，太長就截前 20 字（全文搜尋以二字詞為單位，夠用了）。 */
   function verseSearchText(text) {
     return Array.from(String(text || '').replace(/[\s，。、；：？！「」『』（）《》〈〉,.;:?!"'()]/g, '')).slice(0, 20).join('');
@@ -2171,7 +2189,14 @@
       if (hero) hero.classList.remove('has-verse');
       return;
     }
-    $('homeVerseText').textContent = verse.text;
+    const textEl = $('homeVerseText');
+    textEl.textContent = '';
+    for (const line of verseLines(verse.text)) {
+      const span = document.createElement('span');
+      span.className = 'home-verse-line';
+      span.textContent = line;
+      textEl.appendChild(span);
+    }
     $('homeVerseSource').textContent = verse.source ? `《${verse.source}》` : '';
     const btn = $('homeVerseOpen');
     btn.textContent = verse.path ? '讀這一段 →' : '在經藏中搜尋 →';
@@ -2188,42 +2213,200 @@
     return (state.recentFiles || []).filter(r => r && r.filePath && !String(r.filePath).startsWith('dict:'));
   }
 
+  /**
+   * 書簽（題簽）上的短經名：「T0251《般若波羅蜜多心經》」→「般若波羅蜜多心經」。
+   * 沒有書名號時去掉開頭的經號（T0251、X1234a…）。
+   */
+  function bookSlipTitle(title) {
+    const t = String(title || '').trim();
+    const m = t.match(/《([^》]+)》/);
+    if (m) return m[1];
+    return t.replace(/^[A-Za-z]{0,3}\d+[a-z]?[\s_\-‧·.]*/, '') || t;
+  }
+
+  /** 依路徑固定給一個封面色（0–4），同一部經每次都是同一個顏色。 */
+  function bookTone(path) {
+    let h = 0;
+    for (const ch of String(path || '')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return h % 5;
+  }
+
+  /** 書脊尺寸（0–4）：依路徑固定，書架上才會高矮厚薄不一。 */
+  function bookSize(path) {
+    let h = 7;
+    for (const ch of String(path || '')) h = (h * 131 + ch.codePointAt(0)) >>> 0;
+    return h % 5;
+  }
+
+  let _homeShelfItems = [];
+
+  /** 書架右側的說明：指到哪一本就顯示哪一本，預設是最近讀的那本。 */
+  function renderHomeShelfInfo(idx) {
+    const info = $('homeShelfInfo');
+    const item = _homeShelfItems[idx];
+    if (!info || !item) return;
+    const pct = libraryProgressPct(item);
+    const latest = idx === 0;
+    const done = pct !== null && pct >= 99;
+    const label = latest ? (done ? '剛讀完' : '上次讀到') : `最近讀過${homeAgo(item.ts) ? ' · ' + homeAgo(item.ts) : ''}`;
+    const sub = [libraryFolderOf(item.filePath)];
+    if (latest && homeAgo(item.ts)) sub.push(homeAgo(item.ts));
+    info.innerHTML = `<div class="home-label">${escHtml(label)}</div>`
+      + `<div class="home-continue-title">${escHtml(libraryTitleOf(item))}</div>`
+      + `<div class="home-continue-sub">${escHtml(sub.filter(Boolean).join(' · '))}</div>`
+      + homeBookProgress(pct)
+      + `<button type="button" class="home-continue-btn" data-file="${escHtml(item.filePath)}"${item.line ? ` data-line="${Number(item.line) || ''}"` : ''}${latest ? ' data-continue="1"' : ''}>${done ? '再讀一次' : (latest ? '繼續讀' : '打開')} →</button>`;
+    $('homeShelf').querySelectorAll('.home-spine').forEach((el, i) => el.classList.toggle('is-current', i === idx));
+  }
+
+  function homeBookProgress(pct) {
+    if (pct === null) return '';
+    const w = Math.max(0, Math.min(100, pct));
+    return `<span class="home-book-pct"><i><b style="width:${w}%"></b></i><em>${pct >= 99 ? '讀完' : `${pct}%`}</em></span>`;
+  }
+
+  /**
+   * 我的書架：最近讀過的經立在書架上（書脊直書經名，高矮厚薄依經名固定，最後一本斜靠），
+   * 最近讀的那本插著一條書籤絲帶。指到哪本，右側就說明哪本；點書脊直接打開。
+   */
   function renderHomeContinue() {
     const box = $('homeContinue');
-    if (!box) return;
-    const list = homeRecentReads();
-    const top = list[0];
-    if (!top) { box.hidden = true; return; }
+    const shelf = $('homeShelf');
+    if (!box || !shelf) return;
+    const list = homeRecentReads().slice(0, 8);
+    _homeShelfItems = list;
+    if (!list.length) { box.hidden = true; shelf.innerHTML = ''; return; }
 
-    const pct = libraryProgressPct(top);
-    $('homeContinueTitle').textContent = libraryTitleOf(top);
-    const sub = [libraryFolderOf(top.filePath)];
-    if (pct !== null) sub.push(pct >= 99 ? '已讀完' : `讀到 ${pct}%`);
-    const ago = homeAgo(top.ts);
-    if (ago) sub.push(ago);
-    $('homeContinueSub').textContent = sub.filter(Boolean).join(' · ');
-    const bar = $('homeContinueBar');
-    bar.hidden = pct === null;
-    if (pct !== null) bar.firstElementChild.style.width = `${pct}%`;
-    const btn = $('homeContinueBtn');
-    btn.dataset.file = top.filePath;
-    btn.dataset.line = top.line ? String(top.line) : '';
-    btn.textContent = pct !== null && pct >= 99 ? '再讀一次 →' : '繼續讀 →';
-
-    const recentEl = $('homeRecent');
-    const rest = list.slice(1, 4);
-    if (rest.length) {
-      recentEl.innerHTML = '<span class="home-recent-label">最近讀過</span>' + rest.map(r => {
-        const p = libraryProgressPct(r);
-        const tag = p === null ? '' : `<em>${p >= 99 ? '讀完' : `${p}%`}</em>`;
-        return `<button type="button" class="home-recent-item" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath)}">${escHtml(libraryTitleOf(r))}${tag}</button>`;
-      }).join('');
-      recentEl.hidden = false;
-    } else {
-      recentEl.innerHTML = '';
-      recentEl.hidden = true;
-    }
+    const spines = list.map((r, i) => {
+      const pct = libraryProgressPct(r);
+      const cls = [`home-spine`, `tone-${bookTone(r.filePath)}`, `size-${bookSize(r.filePath)}`];
+      if (i === 0) cls.push('is-latest');
+      if (i === list.length - 1 && list.length >= 4) cls.push('is-leaning');
+      const read = pct === null ? '' : `<span class="home-spine-read" style="height:${Math.max(0, Math.min(100, pct))}%"></span>`;
+      return `<button type="button" class="${cls.join(' ')}" role="listitem" data-idx="${i}" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''}${i === 0 ? ' data-continue="1"' : ''} title="${escHtml(libraryTitleOf(r))}" aria-label="${escHtml(libraryTitleOf(r))}${pct === null ? '' : `，讀到 ${pct}%`}">`
+        + read
+        + `<span class="home-spine-title">${escHtml(bookSlipTitle(libraryTitleOf(r)))}</span>`
+        + (i === 0 ? '<i class="home-spine-ribbon" aria-hidden="true"></i>' : '')
+        + `</button>`;
+    }).join('');
+    shelf.innerHTML = `<div class="home-shelf-stage"><div class="home-shelf-books" role="list">${spines}</div><div class="home-shelf-plank" aria-hidden="true"></div></div>`
+      + `<div class="home-shelf-info" id="homeShelfInfo" aria-live="polite"></div>`;
+    renderHomeShelfInfo(0);
     box.hidden = false;
+  }
+
+  // ── 首頁搜尋 ─────────────────────────────────────────────
+  let _homeFilesSrc = null;
+  let _homeFiles = [];
+
+  /** 檔案樹攤平成 [{path, name, folder, key}]，樹沒變就沿用。 */
+  function homeAllFiles() {
+    if (state.treeData === _homeFilesSrc) return _homeFiles;
+    const out = [];
+    (function walk(nodes, folder) {
+      if (!Array.isArray(nodes)) return;
+      for (const n of nodes) {
+        if (n.type === 'file' && n.path && !String(n.path).startsWith('dict:')) {
+          const name = n.name || String(n.path).split('/').pop().replace(/\.md$/i, '');
+          out.push({ path: n.path, name, folder, key: homeSearchKey(name + ' ' + folder) });
+        }
+        if (n.children) walk(n.children, n.name || '');
+      }
+    })(state.treeData, '');
+    _homeFilesSrc = state.treeData;
+    _homeFiles = out;
+    return out;
+  }
+
+  /** 比對用：去掉書名號、空白、標點，英數轉小寫。 */
+  function homeSearchKey(s) {
+    return String(s || '').toLowerCase().replace(/[《》〈〉「」『』（）()\[\]\s，。、；：·‧_\-]/g, '');
+  }
+
+  /** 經名比對：每個詞都要出現；經名開頭相符、名稱較短的排前面。 */
+  function homeTitleMatches(files, query, limit = 6) {
+    const terms = String(query || '').trim().split(/\s+/).map(homeSearchKey).filter(Boolean);
+    if (!terms.length) return [];
+    const scored = [];
+    for (const f of files) {
+      if (!terms.every(t => f.key.includes(t))) continue;
+      const nameKey = homeSearchKey(f.name);
+      const titleKey = homeSearchKey(bookSlipTitle(f.name));
+      let score = nameKey.length;
+      if (titleKey.startsWith(terms[0])) score -= 1000;
+      else if (nameKey.includes(terms[0])) score -= 500;
+      scored.push([score, f]);
+    }
+    scored.sort((a, b) => a[0] - b[0]);
+    return scored.slice(0, limit).map(x => x[1]);
+  }
+
+  function renderHomeSearchResults() {
+    const input = $('homeSearchInput');
+    const ul = $('homeSearchResults');
+    if (!input || !ul) return;
+    const q = input.value.trim();
+    if (!q) { closeHomeSearchResults(); return; }
+    const hits = homeTitleMatches(homeAllFiles(), q);
+    ul.innerHTML = hits.map((f, i) =>
+      `<li role="option" id="homeSearchOpt${i}" class="home-search-opt" data-path="${escHtml(f.path)}">`
+      + `<span class="home-search-name">${escHtml(f.name)}</span>`
+      + `<span class="home-search-folder">${escHtml(f.folder)}</span></li>`).join('')
+      + `<li role="option" id="homeSearchOpt${hits.length}" class="home-search-opt is-fulltext" data-query="${escHtml(q)}">`
+      + `<span class="home-search-name">在全文中搜尋「${escHtml(q)}」</span><span class="home-search-folder">Enter</span></li>`;
+    ul.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    setHomeSearchActive(-1);
+  }
+
+  function closeHomeSearchResults() {
+    const ul = $('homeSearchResults');
+    const input = $('homeSearchInput');
+    if (ul) { ul.hidden = true; ul.innerHTML = ''; }
+    if (input) { input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); }
+  }
+
+  function setHomeSearchActive(idx) {
+    const ul = $('homeSearchResults');
+    const input = $('homeSearchInput');
+    if (!ul || !input) return;
+    const opts = Array.from(ul.children);
+    opts.forEach((li, i) => li.classList.toggle('active', i === idx));
+    ul.dataset.active = String(idx);
+    if (idx >= 0 && opts[idx]) input.setAttribute('aria-activedescendant', opts[idx].id);
+    else input.removeAttribute('aria-activedescendant');
+  }
+
+  function chooseHomeSearchOption(li) {
+    const input = $('homeSearchInput');
+    if (!li) return;
+    if (li.dataset.path) openFile(li.dataset.path);
+    else if (li.dataset.query) activateSearchPanel(li.dataset.query);
+    closeHomeSearchResults();
+    if (input) { input.value = ''; input.blur(); }
+  }
+
+  /** 隨手翻一卷：從全部經文裡隨機挑一部打開。 */
+  function openRandomScripture() {
+    const files = homeAllFiles();
+    if (!files.length) return;
+    const pick = files[Math.floor(Math.random() * files.length)];
+    openFile(pick.path);
+  }
+
+  /** 瀏覽全部經目：打開左側欄的檔案瀏覽器。 */
+  function openHomeBrowse() {
+    const sidebar = $('sidebar');
+    if (sidebar && sidebar.classList.contains('collapsed')) {
+      sidebar.classList.remove('collapsed');
+      state.sidebarCollapsed = false;
+    }
+    if ((isMobileBrowser() || window.innerWidth <= 768) && state.dictSidebarOpen) toggleDictSidebar(false);
+    updateSidebarBackdrop();
+    const filesTab = document.querySelector('.sidebar-tab[data-tab="files"]');
+    if (filesTab && !filesTab.classList.contains('active')) filesTab.click();
+    const filter = $('fileTreeFilterInput');
+    if (filter && window.innerWidth > 768) filter.focus();
   }
 
   function renderHomeNotice() {
@@ -2275,8 +2458,9 @@
         def.hidden = !w.excerpt;
         const more = $('homeWordMore');
         const others = words.slice(1);
-        more.innerHTML = `<button type="button" class="home-link" data-path="${escHtml(w.path || '')}" data-line="${Number(w.line) || ''}">看完整條目 →</button>`
-          + (others.length ? `<span class="home-word-others">換一個：${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('、')}</span>` : '');
+        // 詞條標題本身就能點開，下面只放「換一個」
+        more.innerHTML = others.length ? `<span class="home-word-others">換一個：${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('、')}</span>` : '';
+        more.hidden = !others.length;
         wordBox.hidden = false;
       } else {
         wordBox.hidden = true;
@@ -2324,21 +2508,74 @@
       else if (verseBtn.dataset.query) activateSearchPanel(verseBtn.dataset.query);
     });
 
-    const contBtn = $('homeContinueBtn');
-    if (contBtn) contBtn.addEventListener('click', () => {
-      const file = contBtn.dataset.file;
-      if (!file) return;
-      // 上次閱讀位置存的就是這一篇時，用它還原（含捲動位置），比行號更準
-      const saved = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
-      if (saved && saved.filePath === file) restoreReadProgress(true, saved);
-      else openFile(file, Number(contBtn.dataset.line) || undefined);
+    const shelf = $('homeShelf');
+    if (shelf) {
+      // 指到（或 Tab 到）哪本書，右側就說明哪本；離開書架回到最近讀的那本
+      const preview = (e) => {
+        const sp = e.target.closest('.home-spine');
+        if (sp) renderHomeShelfInfo(Number(sp.dataset.idx) || 0);
+      };
+      shelf.addEventListener('mouseover', preview);
+      shelf.addEventListener('focusin', preview);
+      shelf.addEventListener('mouseleave', () => renderHomeShelfInfo(0));
+    }
+    if (shelf) shelf.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-file]');
+      if (!b) return;
+      const file = b.dataset.file;
+      if (b.dataset.continue) {
+        // 上次閱讀位置存的就是這一篇時，用它還原（含捲動位置），比行號更準
+        const saved = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
+        if (saved && saved.filePath === file) { restoreReadProgress(true, saved); return; }
+      }
+      openFile(file, Number(b.dataset.line) || undefined);
     });
 
-    const recentEl = $('homeRecent');
-    if (recentEl) recentEl.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-file]');
-      if (b) openFile(b.getAttribute('data-file'), Number(b.getAttribute('data-line')) || undefined);
-    });
+    const form = $('homeSearch');
+    const input = $('homeSearchInput');
+    const results = $('homeSearchResults');
+    if (form && input && results) {
+      input.addEventListener('input', renderHomeSearchResults);
+      input.addEventListener('focus', () => { if (input.value.trim()) renderHomeSearchResults(); });
+      input.addEventListener('keydown', (e) => {
+        const n = results.children.length;
+        const cur = Number(results.dataset.active || -1);
+        if (e.key === 'ArrowDown' && n) { e.preventDefault(); setHomeSearchActive((cur + 1) % n); }
+        else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setHomeSearchActive(cur <= 0 ? n - 1 : cur - 1); }
+        else if (e.key === 'Escape') { closeHomeSearchResults(); input.blur(); }
+      });
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const q = input.value.trim();
+        if (!q) return;
+        const cur = Number(results.dataset.active || -1);
+        const li = !results.hidden && cur >= 0 ? results.children[cur] : null;
+        if (li) chooseHomeSearchOption(li);
+        else { closeHomeSearchResults(); input.value = ''; input.blur(); activateSearchPanel(q); }
+      });
+      // mousedown（而非 click）才不會被 input 的 blur 搶先關掉清單
+      results.addEventListener('mousedown', (e) => {
+        const li = e.target.closest('.home-search-opt');
+        if (!li) return;
+        e.preventDefault();
+        chooseHomeSearchOption(li);
+      });
+      input.addEventListener('blur', () => setTimeout(closeHomeSearchResults, 120));
+      // 首頁上按「/」直接到搜尋框
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || state.currentFile) return;
+        const t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        const welcome = $('welcomeScreen');
+        if (!welcome || welcome.offsetParent === null) return;
+        e.preventDefault();
+        input.focus();
+      });
+    }
+    const randomBtn = $('homeRandom');
+    if (randomBtn) randomBtn.addEventListener('click', openRandomScripture);
+    const browseBtn = $('homeBrowse');
+    if (browseBtn) browseBtn.addEventListener('click', openHomeBrowse);
 
     const noticeMore = $('homeNoticeMore');
     if (noticeMore) noticeMore.addEventListener('click', () => {
@@ -8761,7 +8998,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10647,7 +10884,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11015,7 +11252,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11905,7 +12142,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.6.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
