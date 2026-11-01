@@ -123,6 +123,31 @@ describe('後台外框與導覽', () => {
     assert.doesNotMatch(html, /rgba\(56, 139, 253/);
   });
 
+  test('⌘K／Ctrl+K 搜尋：有入口、索引涵蓋頁面卡片欄位、Esc 先關搜尋', () => {
+    assert.match(html, /id="adminSearchBtn"/);
+    assert.match(html, /id="adminPalette" hidden role="dialog"/);
+    assert.match(html, /id="adminPaletteInput"[^>]*data-no-dirty/);
+    assert.match(app, /function buildAdminSearchIndex\(/);
+    assert.match(app, /kind: 'page'/);
+    assert.match(app, /kind: 'card'/);
+    assert.match(app, /kind: 'field'/);
+    assert.match(app, /\(e\.metaKey \|\| e\.ctrlKey\) && !e\.altKey && \(e\.key === 'k' \|\| e\.key === 'K'\)/);
+    assert.match(app, /if \(e\.key === 'Escape'\) \{\s*if \(isAdminSearchOpen\(\)\) \{\s*closeAdminSearch\(\);/);
+  });
+
+  test('儲存列：換頁不消失、有未儲存的分頁不重新載入', () => {
+    assert.match(app, /bar\.dataset\.goto = page;/, '別頁有未儲存時，儲存列要改成「回去儲存」');
+    assert.match(app, /classList\.toggle\('has-unsaved'/, '導覽要標出有未儲存變更的頁面');
+    assert.match(app, /!adminPaneHasDirty\(paneKey\)\) runAdminPaneLoader\(paneKey\)/, '有未儲存欄位時不可重新載入蓋掉');
+  });
+
+  test('站長刻意關掉的功能是灰燈，不列入待辦', () => {
+    assert.match(app, /L\('indexing', !robots \? 'off'/, '不開放搜尋引擎收錄不是問題');
+    assert.match(app, /setAdminCardLight\('sso', active \? 'ok' : 'off'/);
+    assert.match(app, /setAdminCardLight\('turnstile', t\.configured \? 'ok' : 'off'/);
+    assert.match(app, /setAdminCardLight\('registration', closed \? 'off'/);
+  });
+
   test('手機版：清單與頁面分開顯示', () => {
     assert.match(css, /\.admin-shell\[data-view="list"\] \.admin-main,\s*\.admin-shell\[data-view="page"\] \.admin-side \{\s*display: none;/);
   });

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.4.0
+   mdWebview — Application Logic (app.js) v4.4.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -8067,7 +8067,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9377,8 +9377,21 @@
 
     // ── Keyboard shortcuts ──
     document.addEventListener('keydown', (e) => {
+      // ⌘K／Ctrl+K：後台開著時打開後台搜尋
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+        const ov = $('adminSettingsOverlay');
+        if (ov && ov.style.display === 'flex') {
+          e.preventDefault();
+          if (isAdminSearchOpen()) closeAdminSearch(); else openAdminSearch();
+          return;
+        }
+      }
       // ESC key → Exit open modals / settings overlays / search bar
       if (e.key === 'Escape') {
+        if (isAdminSearchOpen()) {
+          closeAdminSearch();
+          return;
+        }
         if (isUserMenuOpen()) {
           closeUserMenu(true);
           return;
@@ -9935,7 +9948,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10028,6 +10041,7 @@
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
     setAdminHash(null);
+    closeAdminSearch(false);
     const setupOverlay = $('adminSetupOverlay');
     if (setupOverlay) setupOverlay.style.display = 'none';
     document.body.classList.remove('modal-open');
@@ -10085,7 +10099,18 @@
   /** 第一次碰到欄位時記下原值（orig 可由呼叫端給，用於程式改值前）。 */
   function rememberAdminField(el, orig) {
     if (adminDirtyFields.has(el)) return;
-    adminDirtyFields.set(el, { orig: orig === undefined ? adminFieldValue(el) : orig, save: adminCurrentSaveKey() });
+    adminDirtyFields.set(el, { orig: orig === undefined ? adminFieldValue(el) : orig, save: adminCurrentSaveKey(), page: adminCurrentPage });
+  }
+
+  /** 真的改過（與原值不同）的欄位。 */
+  function adminDirtyEntries() {
+    return [...adminDirtyFields].filter(([el, v]) => adminFieldValue(el) !== v.orig);
+  }
+
+  /** 這個分頁裡有沒有還沒儲存的欄位：有的話切回來時不要重新載入，以免蓋掉使用者打的字。 */
+  function adminPaneHasDirty(paneKey) {
+    const pane = $(ADMIN_PANES[paneKey]);
+    return !!pane && adminDirtyEntries().some(([el]) => pane.contains(el));
   }
 
   function adminDirtyCount(save) {
@@ -10102,9 +10127,36 @@
     if (!bar) return;
     const save = adminCurrentSaveKey();
     const n = save ? adminDirtyCount(save) : 0;
-    bar.hidden = n === 0;
-    $('adminSaveBarState').textContent = `有 ${n} 項未儲存`;
-    $('adminSaveBarSave').textContent = ADMIN_SAVE_LABEL[save] || '儲存';
+    const dirty = adminDirtyEntries();
+    // 導覽列標出哪些頁面有未儲存的變更
+    const dirtyPages = new Set(dirty.map(([, v]) => v.page));
+    adminNavItems().forEach(b => b.classList.toggle('has-unsaved', dirtyPages.has(b.dataset.page)));
+    const revert = $('adminSaveBarRevert');
+    const saveBtn = $('adminSaveBarSave');
+    if (n > 0) {
+      delete bar.dataset.goto;
+      bar.hidden = false;
+      revert.hidden = false;
+      $('adminSaveBarState').textContent = `有 ${n} 項未儲存`;
+      saveBtn.textContent = ADMIN_SAVE_LABEL[save] || '儲存';
+      return;
+    }
+    // 目前這頁沒有，但別頁有：列不要消失，改成提醒並帶回那一頁。
+    const other = dirty.find(([, v]) => v.save && v.save !== save);
+    if (other) {
+      const page = other[1].page;
+      const navBtn = adminNavItem(page);
+      const label = navBtn && navBtn.querySelector('.admin-nav-label');
+      const count = dirty.filter(([, v]) => v.save === other[1].save).length;
+      bar.dataset.goto = page;
+      bar.hidden = false;
+      revert.hidden = true;
+      $('adminSaveBarState').textContent = `「${label ? label.textContent : '其他頁面'}」有 ${count} 項未儲存`;
+      saveBtn.textContent = '回去儲存';
+      return;
+    }
+    delete bar.dataset.goto;
+    bar.hidden = true;
   }
 
   /** 某一組設定存檔成功：清掉這組的未儲存紀錄。 */
@@ -10116,6 +10168,8 @@
   }
 
   function saveAdminCurrentPage() {
+    const bar = $('adminSaveBar');
+    if (bar && bar.dataset.goto) { showAdminPage(bar.dataset.goto, { focus: true }); return; }
     const save = adminCurrentSaveKey();
     if (!save) return;
     if (ADMIN_SAVE_FORMS[save]) {
@@ -10262,7 +10316,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11152,7 +11206,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -11745,7 +11799,8 @@
     adminCurrentPage = page;
     setAdminHash(page);
     refreshAdminSaveBar();
-    if (paneChanged || opts.reload) runAdminPaneLoader(paneKey);
+    // 分頁裡還有沒儲存的欄位時不重新載入，否則伺服器的舊值會蓋掉使用者剛改的內容。
+    if ((paneChanged || opts.reload) && !adminPaneHasDirty(paneKey)) runAdminPaneLoader(paneKey);
     if (opts.focus && isAdminNarrow()) {
       const back = $('adminBackBtn');
       if (back) back.focus({ preventScroll: true });
@@ -11988,6 +12043,184 @@
     $('adminSideLogoutBtn').hidden = !!state.isSingleUser;
   }
 
+  // ── ⌘K 搜尋 ──
+  // 索引每次打開時從畫面現場建立：頁面（導覽）、卡片標題、欄位名稱。單機模式
+  // 藏起的頁面不列。查詢以空白分詞，每個詞都要出現在名稱或所在位置裡。
+  // 公開網站另外提供「在使用者中搜尋」，把字串帶進使用者頁的搜尋欄。
+  const ADMIN_SEARCH_LIMIT = 40;
+  let adminSearchIndex = [];
+  let adminSearchResults = [];
+  let adminSearchActive = 0;
+  let adminSearchReturnFocus = null;
+
+  function adminSearchText(el) {
+    return el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+  }
+
+  function buildAdminSearchIndex() {
+    const items = [];
+    const seen = new Set();
+    const add = item => {
+      const key = `${item.page}|${item.text}`;
+      if (!item.text || seen.has(key)) return;
+      seen.add(key);
+      item.hay = `${item.text} ${item.sub || ''} ${item.keywords || ''}`.toLowerCase();
+      items.push(item);
+    };
+    adminNavItems().forEach(btn => {
+      if (!isAdminNavAvailable(btn)) return;
+      const page = btn.dataset.page;
+      const label = adminSearchText(btn.querySelector('.admin-nav-label'));
+      const group = adminSearchText((btn.closest('.admin-nav-group') || btn).querySelector('.admin-nav-group-title'));
+      add({ kind: 'page', icon: adminSearchText(btn.querySelector('.admin-nav-icon')), text: label, sub: group || '後台', page });
+      const pane = $(ADMIN_PANES[btn.dataset.pane]);
+      if (!pane || page === 'overview') return;
+      const keys = (btn.dataset.cards || '').split(',').filter(Boolean);
+      pane.querySelectorAll('.config-card, .hardware-card, .analytics-section, .suggest-section').forEach(card => {
+        if (card.dataset.card && keys.length && !keys.includes(card.dataset.card)) return;
+        if (state.isSingleUser && card.closest('[data-web-only]')) return;
+        const title = adminSearchText(card.querySelector('.config-card-title, .card-title, .analytics-section-title, .suggest-section-title'));
+        if (title && title !== label) add({ kind: 'card', icon: '▤', text: title, sub: label, page, el: card });
+        card.querySelectorAll('label, .toggle-switch-title').forEach(l => {
+          if (state.isSingleUser && l.closest('[data-web-only]')) return;
+          const t = adminSearchText(l);
+          if (!t || t.length > 40) return;
+          const field = (l.htmlFor && $(l.htmlFor)) || l.querySelector('input, select, textarea') ||
+            (l.closest('.form-group, .toggle-row') || l).querySelector('input, select, textarea');
+          add({ kind: 'field', icon: '•', text: t, sub: title ? `${label} › ${title}` : label, page, el: field || l, card });
+        });
+      });
+    });
+    return items;
+  }
+
+  function searchAdmin(q) {
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return adminSearchIndex.filter(i => i.kind === 'page');
+    const rank = { page: 0, card: 1, field: 2 };
+    const scored = [];
+    adminSearchIndex.forEach(item => {
+      if (!terms.every(t => item.hay.includes(t))) return;
+      const text = item.text.toLowerCase();
+      const first = terms[0];
+      const score = (text.startsWith(first) ? 0 : text.includes(first) ? 10 : 20) + rank[item.kind];
+      scored.push([score, item]);
+    });
+    scored.sort((a, b) => a[0] - b[0]);
+    const out = scored.slice(0, ADMIN_SEARCH_LIMIT).map(x => x[1]);
+    if (!state.isSingleUser && q.trim().length >= 2) {
+      out.push({ kind: 'user', icon: '👥', text: `在使用者中搜尋「${q.trim()}」`, sub: '依 Email、名稱或帳號名稱', page: 'users', query: q.trim() });
+    }
+    return out;
+  }
+
+  function renderAdminSearch() {
+    const list = $('adminPaletteList');
+    const q = $('adminPaletteInput').value;
+    adminSearchResults = searchAdmin(q);
+    if (adminSearchActive >= adminSearchResults.length) adminSearchActive = 0;
+    if (!adminSearchResults.length) {
+      list.innerHTML = `<li class="admin-palette-empty">找不到「${escHtml(q.trim())}」</li>`;
+      return;
+    }
+    list.innerHTML = adminSearchResults.map((r, i) => `
+      <li class="admin-palette-item${i === adminSearchActive ? ' active' : ''}" role="option" id="adminPaletteOpt${i}" data-i="${i}" aria-selected="${i === adminSearchActive}">
+        <span class="admin-palette-icon" aria-hidden="true">${escHtml(r.icon || '')}</span>
+        <span class="admin-palette-text">${escHtml(r.text)}</span>
+        <span class="admin-palette-sub">${escHtml(r.sub || '')}</span>
+      </li>`).join('');
+    $('adminPaletteInput').setAttribute('aria-activedescendant', `adminPaletteOpt${adminSearchActive}`);
+    const act = list.querySelector('.active');
+    if (act) act.scrollIntoView({ block: 'nearest' });
+  }
+
+  function openAdminSearch() {
+    const pal = $('adminPalette');
+    if (!pal || !pal.hidden) return;
+    adminSearchReturnFocus = document.activeElement;
+    adminSearchIndex = buildAdminSearchIndex();
+    adminSearchActive = 0;
+    $('adminPaletteInput').value = '';
+    pal.hidden = false;
+    renderAdminSearch();
+    $('adminPaletteInput').focus();
+  }
+
+  function closeAdminSearch(restoreFocus = true) {
+    const pal = $('adminPalette');
+    if (!pal || pal.hidden) return;
+    pal.hidden = true;
+    if (restoreFocus && adminSearchReturnFocus && adminSearchReturnFocus.focus) adminSearchReturnFocus.focus({ preventScroll: true });
+  }
+
+  function isAdminSearchOpen() {
+    const pal = $('adminPalette');
+    return !!pal && !pal.hidden;
+  }
+
+  /** 前往搜尋結果：切頁、展開卡片、捲過去、短暫標亮，欄位則直接游標放進去。 */
+  function goToAdminSearchResult(r) {
+    if (!r) return;
+    closeAdminSearch(false);
+    showAdminPage(r.page, { focus: true });
+    if (r.kind === 'user') {
+      const box = $('adminUsersSearch');
+      if (box) {
+        box.value = r.query;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        box.focus();
+      }
+      return;
+    }
+    const card = r.card || (r.kind === 'card' ? r.el : null);
+    if (card && card.classList.contains('collapsed') && card.dataset.card) setAdminCardCollapsed(card, false, true);
+    const target = r.el;
+    if (!target) return;
+    requestAnimationFrame(() => {
+      const flash = target.closest('.form-group, .toggle-row, .setup-form') || target;
+      flash.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      flash.classList.remove('admin-search-flash');
+      void flash.offsetWidth;
+      flash.classList.add('admin-search-flash');
+      setTimeout(() => flash.classList.remove('admin-search-flash'), 1800);
+      if (target.matches && target.matches('input, select, textarea') && !target.disabled) target.focus({ preventScroll: true });
+    });
+  }
+
+  function setupAdminSearch() {
+    const input = $('adminPaletteInput');
+    if (!input || input._adminSearchReady) return;
+    input._adminSearchReady = true;
+    const kbd = $('adminSearchKbd');
+    if (kbd && !/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) kbd.textContent = 'Ctrl K';
+    $('adminSearchBtn').addEventListener('click', openAdminSearch);
+    input.addEventListener('input', () => { adminSearchActive = 0; renderAdminSearch(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.isComposing) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const n = adminSearchResults.length;
+        if (!n) return;
+        adminSearchActive = (adminSearchActive + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+        renderAdminSearch();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        goToAdminSearchResult(adminSearchResults[adminSearchActive]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeAdminSearch();
+      }
+    });
+    $('adminPaletteList').addEventListener('click', (e) => {
+      const li = e.target.closest('[data-i]');
+      if (li) goToAdminSearchResult(adminSearchResults[Number(li.dataset.i)]);
+    });
+    $('adminPalette').addEventListener('click', (e) => {
+      if (e.target.id === 'adminPalette') closeAdminSearch();
+    });
+  }
+
   /** 「備份與還原」頁：網站設定 JSON 不需載入；帳號資料庫狀態與備份清單只在公開網站有。 */
   async function loadAdminBackupPane() {
     enhanceAdminCards();
@@ -12013,6 +12246,7 @@
     const mainClose = $('adminMainCloseBtn');
     if (mainClose) mainClose.addEventListener('click', () => closeAdminModal());
     $('adminSideLogoutBtn').addEventListener('click', () => $('settingsLogoutBtn').click());
+    setupAdminSearch();
     $('adminShell').addEventListener('click', (e) => {
       const go = e.target.closest('[data-goto-page]');
       if (go) { e.preventDefault(); showAdminPage(go.dataset.gotoPage, { focus: true }); }
@@ -13988,6 +14222,18 @@
 
   const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定對外網址（PUBLIC_BASE_URL 或首頁權威 URL）', MAIL: '尚未設定寄信（MAIL_PROVIDER、MAIL_API_KEY、MAIL_FROM）' };
 
+  let adminRegModeKnown = '';
+  let adminLegalVersionKnown = null;
+
+  /** 條款沒發布只有在開放註冊（含邀請制）時才要提醒；關閉註冊的站不需要。 */
+  function refreshAdminLegalLight() {
+    if (adminLegalVersionKnown === null) return;
+    const v = adminLegalVersionKnown;
+    const needed = adminRegModeKnown && adminRegModeKnown !== 'closed';
+    setAdminCardLight('legal', v ? 'ok' : needed ? 'warn' : 'off',
+      v ? `已發布第 ${v} 版` : needed ? '尚未發布，開放註冊前應先發布' : '尚未發布（關閉註冊時不需要）');
+  }
+
   async function loadAdminRegistration() {
     const r = await accountApi('/api/admin/registration');
     if (!r.ok) return;
@@ -13995,8 +14241,12 @@
     $('adminRegCap').value = r.data.hourlyCap;
     $('adminRegDomains').value = (r.data.disposableDomains || []).join('\n');
     const blockers = (r.data.blockers || []).map(b => REG_BLOCKER_TEXT[b] || b);
-    setAdminCardLight('registration', blockers.length ? 'bad' : r.data.mode === 'closed' ? 'warn' : 'ok',
-      blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'closed' ? '已關閉註冊' : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    adminRegModeKnown = r.data.mode;
+    // 關閉註冊是站長的選擇：灰燈、不列入待辦；開放時缺寄信或網址才是紅燈。
+    const closed = r.data.mode === 'closed';
+    setAdminCardLight('registration', closed ? 'off' : blockers.length ? 'bad' : 'ok',
+      closed ? '已關閉註冊' : blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    refreshAdminLegalLight();
     showBox($('adminRegBlockers'), blockers.length ? `註冊與寄信類功能暫停中：${blockers.join('；')}` : '');
   }
 
@@ -14175,7 +14425,7 @@
     const text = notable || (worst.level === 'off' ? '' : ADMIN_LIGHT_LABEL[worst.level]);
     light.title = text || '這個區塊沒有需要監控的狀態';
     light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[worst.level]}${text ? `，${text}` : ''}`);
-    label.textContent = worst.level === 'off' ? '' : text;
+    label.textContent = text;
     updateAdminNavLights();
   }
 
@@ -14208,9 +14458,11 @@
       !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
     L('cfgbackup', 'off');
     const robots = val('seoRobotsIndex');
-    L('indexing', !robots ? 'warn' : val('seoSiteDescription') ? 'ok' : 'warn',
-      !robots ? '已禁止搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
-    L('og', val('seoOgImage') ? 'ok' : 'warn', val('seoOgImage') ? '已設定分享預覽圖' : '還沒有設定分享預覽圖');
+    // 不開放搜尋引擎收錄是站長的選擇（有些站本來就不要被搜尋到），顯示灰燈、不列入待辦。
+    L('indexing', !robots ? 'off' : val('seoSiteDescription') ? 'ok' : 'warn',
+      !robots ? '未開放搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
+    // 留白時伺服器會用內建的 /og-preview.png，所以不算問題。
+    L('og', 'ok', val('seoOgImage') ? '已設定分享預覽圖' : '使用內建的分享預覽圖');
     const verified = ['googleSiteVerification', 'bingSiteVerification', 'baiduSiteVerification'].filter(id => val(id)).length;
     L('webmaster', verified ? 'ok' : 'off', verified ? `已填 ${verified} 個驗證碼` : '');
     L('schema', val('seoEnableSearchBox') ? 'ok' : 'off', val('seoEnableSearchBox') ? '已啟用站內搜尋框結構化資料' : '');
@@ -14394,7 +14646,8 @@
     list.innerHTML = '';
     const active = r.data.providers.filter(p => p.active).length;
     const idle = r.data.providers.filter(p => p.configured && !p.active).length;
-    setAdminCardLight('sso', active ? 'ok' : 'warn', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
+    // 第三方登入是選用的：沒啟用是灰燈，不列入待辦。
+    setAdminCardLight('sso', active ? 'ok' : 'off', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
     for (const p of r.data.providers) {
       const section = document.createElement('section');
       section.className = 'sso-provider';
@@ -14817,7 +15070,7 @@
   }
 
   function renderAdminTurnstile(t) {
-    setAdminCardLight('turnstile', t.configured ? 'ok' : 'warn', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
+    setAdminCardLight('turnstile', t.configured ? 'ok' : 'off', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
     const yes = text => `<span class="account-badge">${text}</span>`;
     const no = text => `<span class="account-badge danger">${text}</span>`;
     const last = t.lastResult;
@@ -14881,7 +15134,8 @@
     $('adminLegalPrivacy').value = r.data.privacy || '';
     $('adminLegalTerms').value = r.data.terms || '';
     $('adminLegalMajor').checked = false;
-    setAdminCardLight('legal', r.data.version ? 'ok' : 'warn', r.data.version ? `已發布第 ${r.data.version} 版` : '尚未發布，開放註冊前應先發布');
+    adminLegalVersionKnown = r.data.version || 0;
+    refreshAdminLegalLight();
     $('adminLegalVersion').textContent = r.data.version ? `第 ${r.data.version} 版 · ${fmtDateTime(r.data.updatedAt)}` : '尚未發布';
   }
 
