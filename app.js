@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.4.2
+   mdWebview — Application Logic (app.js) v4.5.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7,7 +7,7 @@
    §1  Init & Boot Hooks         loadSettings, initUI, URL params
    §2  Site Name & Footer        updateSiteNameUI, updateWelcomeFooter
    §3  Suggest List              fetchSuggestList, renderSuggestList
-   §4  Announcement Modal        checkAndShowAnnouncementModal, openAnnouncementModal
+   §4  Home                      renderHome：問候與節氣、每日經文、繼續閱讀、首頁公告、每日一詞、今日推薦
    §5  File Tree                 buildTree, renderTree, sortTree
    §6  Markdown Viewer           openFile, virtualized rendering, footnotes
    §6.5 Media Lightbox           openMediaLightbox, zoom, pan, pinch
@@ -425,9 +425,9 @@
    * @property {boolean}      isAdmin            - 目前登入者是否為管理員（session 在 HttpOnly cookie，前端不保存 token）
    * @property {Object}       account            - 帳號狀態：config（/api/auth/config）、user（/api/me）
    *
-   * ── 公告彈窗 ──────────────────────────────────────────────────
-   * @property {Object|null}  _announcementModalContext  - 公告彈窗最後一次開啟時的資料快照（用於判斷是否需要重新顯示）
+   * ── 首頁 ──────────────────────────────────────────────────────
    * @property {Object[]|null} _cachedSuggestItems        - 最後一次 /api/suggest-list 回傳的推薦項目快取
+   * @property {Object|null}  _homeData                   - 最後一次 /api/suggest-list 回傳的整份資料（經文、公告…）
    */
   const state = {
     currentFile: null,
@@ -731,7 +731,7 @@
       storage.set(STORAGE_KEYS.FONT_SIZE, state.fontSize);
     }
 
-    updateWelcomeShortcuts();
+    renderHome();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
     // 帳號：不等網路，避免拖慢第一次開啟經文。
@@ -742,7 +742,7 @@
       state.sidebarCollapsed = true;
     }
     await loadTree();
-    fetchSuggestList(true); // Load recommend & hot list for homepage and check landing announcement modal
+    fetchSuggestList(); // 首頁的每日經文、公告、每日一詞與推薦（不再開站彈窗）
 
     // Open file from URL query or hash on first load; if home/frontpage specified, show welcome screen; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
@@ -1785,6 +1785,7 @@
         }
 
         updateWelcomeFooter(data.settings);
+        renderHomeNotice();
       }
     } catch (err) {
       console.error('Error checking admin status:', err);
@@ -1799,9 +1800,6 @@
     $$('.logo-text').forEach(el => el.textContent = state.siteName);
     $$('.welcome-title').forEach(el => el.textContent = state.siteName);
 
-    const modalTitle = $('announcementModalTitle');
-    if (modalTitle) modalTitle.textContent = `${state.siteName}線上閱讀`;
-
     if (!state.currentFile) {
       document.title = `${state.siteName} — 佛典經論閱讀器`;
     }
@@ -1814,20 +1812,6 @@
 
     const isVersionEnabled = settings.enableVersion === true || settings.enableVersion === 'true';
     const isDownloadEnabled = settings.enableDownload === true || settings.enableDownload === 'true';
-    // Only display '本日訊息' if admin explicitly opened "開啟訊息彈窗" (enableAnnouncement === true)
-    let isAnnouncementEnabled = false;
-    if (settings.enableAnnouncement !== undefined) {
-      isAnnouncementEnabled = settings.enableAnnouncement === true || settings.enableAnnouncement === 'true';
-    } else if (settings.announcement && settings.announcement.enabled !== undefined) {
-      isAnnouncementEnabled = settings.announcement.enabled === true || settings.announcement.enabled === 'true';
-    } else if (typeof appConfig !== 'undefined' && appConfig) {
-      if (appConfig.enableAnnouncement !== undefined) {
-        isAnnouncementEnabled = appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true';
-      } else if (appConfig.announcement && appConfig.announcement.enabled !== undefined) {
-        isAnnouncementEnabled = appConfig.announcement.enabled === true || appConfig.announcement.enabled === 'true';
-      }
-    }
-
     const parts = [];
     if (isVersionEnabled && settings.version && String(settings.version).trim()) {
       parts.push(`<span>版本：${escHtml(String(settings.version).trim())}</span>`);
@@ -1835,21 +1819,10 @@
     if (isDownloadEnabled && settings.downloadUrl && String(settings.downloadUrl).trim()) {
       parts.push(`<span>下載：<a href="${escHtml(String(settings.downloadUrl).trim())}" target="_blank" rel="noopener noreferrer" class="welcome-download-link">離線閱讀完整版</a></span>`);
     }
-    if (isAnnouncementEnabled) {
-      parts.push(`<span><a href="javascript:void(0)" class="welcome-download-link welcome-announcement-link" id="welcomeAnnouncementLink" role="button">本日訊息</a></span>`);
-    }
 
     if (parts.length > 0) {
       footerEl.innerHTML = parts.join('<span class="welcome-footer-sep">·</span>');
       footerEl.style.display = 'flex';
-
-      const announceLink = $('welcomeAnnouncementLink');
-      if (announceLink) {
-        announceLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          showAnnouncementModal();
-        });
-      }
     } else {
       footerEl.innerHTML = '';
       footerEl.style.display = 'none';
@@ -1886,6 +1859,9 @@
     if (welcome) welcome.style.display = 'flex';
     if (wrapper) wrapper.style.display = 'none';
     if (loading) loading.style.display = 'none';
+
+    // 「繼續閱讀」與問候語要反映剛剛讀到哪裡、現在幾點
+    renderHome();
 
     // 回到首頁是唯一適合談安裝的時機（閱讀中打擾最不可取）。每次回首頁
     // 重新評估：使用者可能剛讀完第二篇，正好跨過門檻。
@@ -1926,74 +1902,33 @@
     return 'pc';
   }
 
-  function updateWelcomeShortcuts() {
-    const container = $('welcomeShortcuts');
-    if (!container) return;
-
-    const plat = detectPlatform();
-
-    if (plat === 'mac') {
-      container.innerHTML = `
-        <div class="shortcut-item"><kbd>⌘ Cmd</kbd>+<kbd>F</kbd> 本頁搜尋</div>
-        <div class="shortcut-item"><kbd>⌘ Cmd</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
-      `;
-    } else if (plat === 'iphone' || plat === 'mobile') {
-      container.innerHTML = `
-        <div class="shortcut-item">🔍 點擊右上角按鈕搜尋本頁</div>
-        <div class="shortcut-item">🅰️ 點擊右上角按鈕調整字型</div>
-      `;
-    } else if (plat === 'ios') {
-      container.innerHTML = `
-        <div class="shortcut-item">🔍 點擊右上角按鈕或 <kbd>⌘ Cmd</kbd>+<kbd>F</kbd> 搜尋本頁</div>
-        <div class="shortcut-item">🅰️ 點擊右上角按鈕或 <kbd>⌘ Cmd</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
-      `;
-    } else {
-      container.innerHTML = `
-        <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>F</kbd> 本頁搜尋</div>
-        <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
-      `;
-    }
-  }
-
   // ═══════════════════════════════════════════════════════════
   // §3 SUGGEST LIST (Homepage Recommend & Hot)
   // ═══════════════════════════════════════════════════════════
 
   /**
-   * 從 /api/suggest-list 取得首頁推薦列表與公告資訊，並更新前端狀態。
-   *
-   * @param {boolean} [triggerModal=false] - 是否在取得資料後觸發公告彈窗檢查。
-   *   只有開機 boot 階段（init() 呼叫時）傳 `true`；
-   *   其他呼叫點（切換分頁、開啟使用者設定、後台儲存）一律傳 `false`，
-   *   避免非首次開啟場景重複觸發彈窗。
+   * 從 /api/suggest-list 取得首頁資料（推薦、每日一詞、每日經文、公告），更新首頁與設定頁的推薦清單。
+   * 失敗時保留上一次的內容，首頁只是少了這幾塊，不影響閱讀。
    */
-  async function fetchSuggestList(triggerModal = false) {
+  async function fetchSuggestList() {
     try {
       const res = await fetch('/api/suggest-list');
-      if (!res.ok) {
-        if (triggerModal) checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement, appConfig.suggestListUpdatedAt);
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
       const items = data.items || [];
-      state._cachedSuggestItems = items;
-      renderSuggestList(items, data.enabled !== false);
+      state._homeData = data;
       if (data.suggestListUpdatedAt) {
         appConfig.suggestListUpdatedAt = data.suggestListUpdatedAt;
       }
       if (data.announcement) {
         appConfig.announcement = data.announcement;
         appConfig.enableAnnouncement = !!data.announcement.enabled;
-        updateWelcomeFooter(appConfig);
+        appConfig.announcementMessage = data.announcement.message || '';
+        appConfig.announcementUpdatedAt = data.announcement.updatedAt || 0;
       }
-      if (triggerModal) {
-        checkAndShowAnnouncementModal(items, data.announcement, data.suggestListUpdatedAt);
-      }
-    } catch (_) {
-      if (triggerModal) {
-        checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement, appConfig.suggestListUpdatedAt);
-      }
-    }
+      renderSuggestList(items, data.enabled !== false);
+      renderHome();
+    } catch (_) {}
   }
 
   function resolveSuggestPath(rawPath) {
@@ -2029,13 +1964,9 @@
 
   function renderSuggestList(items, showOnHomepage = true) {
     state._cachedSuggestItems = items || [];
-    renderSuggestListToElement($('suggestList'), items, false);
+    state._suggestOnHome = showOnHomepage;
+    // 首頁的「今日推薦」與「每日一詞」由 renderHome 分開畫；這裡只負責設定頁的完整清單
     renderSuggestListToElement($('menuSuggestList'), items, true);
-
-    const container = $('suggestListContainer');
-    if (container) {
-      container.style.display = (showOnHomepage && items && items.length > 0) ? 'block' : 'none';
-    }
   }
 
   function renderSuggestListToElement(list, items, closeOverlayOnClick = false) {
@@ -2092,266 +2023,358 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §4 ANNOUNCEMENT & DAILY RECOMMEND MODAL (Opening Page Landing Popup)
+  // §4 HOME（首頁）
+  //   由上而下：問候語與節氣 → 每日經文 → 繼續閱讀 → 首頁公告 → 每日一詞＋今日推薦。
+  //   取代舊的開站彈窗：公告不再打斷閱讀，也不再跟著推薦清單的輪替一直重跳。
   // ═══════════════════════════════════════════════════════════
 
-  const ANNOUNCEMENT_ACK_KEY = STORAGE_KEYS.ANNOUNCEMENT_ACK;
+  /**
+   * 首頁公告收起紀錄。沿用舊彈窗「知曉」的 key 與欄位（announcement、announcementUpdatedAt），
+   * 已經按過知曉的讀者，同一則公告不會在首頁再出現一次。
+   */
+  const HOME_NOTICE_KEY = STORAGE_KEYS.ANNOUNCEMENT_ACK;
 
-  function getTodayDateString() {
-    return getTodayDateIso();
+  const CN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  const CN_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+  /** 1–31 轉中文數字（一、十、十一、二十、三十一）。 */
+  function cnNumber(n) {
+    n = Math.floor(Number(n) || 0);
+    if (n < 10) return CN_DIGITS[n];
+    const tens = Math.floor(n / 10);
+    const ones = n % 10;
+    return (tens === 1 ? '' : CN_DIGITS[tens]) + '十' + (ones ? CN_DIGITS[ones] : '');
   }
 
-  function computeItemsSignature(items) {
-    if (!items || !items.length) return '';
-    return items
-      .map(i => `${i.type || ''}:${i.path || ''}:${i.fileName || ''}:${i.line || ''}`)
-      .sort()
-      .join('|');
+  /** 依當地時間的小時給問候語。 */
+  function homeGreeting(hour) {
+    if (hour >= 5 && hour < 11) return '早安';
+    if (hour >= 11 && hour < 18) return '午安';
+    return '晚安';
   }
 
   /**
-   * 根據三個觸發條件決定是否顯示公告彈窗。已閱讀後不會因換日而重複彈出。
-   *
-   * 觸發條件（任一成立即顯示）：
-   *   1. 公告更新：訊息文字變更，或 announcementUpdatedAt 時間戳推進
-   *   2. 推薦項目更新：推薦清單內容簽章（type+path+fileName+line）與已儲存簽章不符
-   *   3. 後台推薦設定更新：suggestListUpdatedAt 時間戳大於已儲存的值
-   *
-   * 注意：舊版依「換日（todayDateKey !== ack.dateKey）」觸發的邏輯已在 v3.4.8 移除。
-   *
-   * @param {Object[]} items           - /api/suggest-list 回傳的推薦項目陣列
-   * @param {Object}   announcementData - 公告物件 { enabled, message, updatedAt }
-   * @param {number}   suggestUpdatedAt - 後台推薦設定最後儲存時間戳（毫秒 epoch）
+   * 二十四節氣（21 世紀通式）：日 = floor(Y × 0.2422 + C) − L，Y 為年份末兩位；
+   * 一、二月的節氣 L = floor((Y − 1) / 4)，其餘 L = floor(Y / 4)。
+   * 個別年份可能差一天，對首頁「現在是什麼節氣」已足夠。
    */
-  function checkAndShowAnnouncementModal(items, announcementData, suggestUpdatedAt) {
-    const ann = announcementData || (appConfig && appConfig.announcement) || {};
-    const isEnabled = ann.enabled !== undefined
-      ? !!ann.enabled
-      : (appConfig && appConfig.enableAnnouncement !== undefined ? !!appConfig.enableAnnouncement : false);
+  const SOLAR_TERMS = [
+    ['小寒', 1, 5.4055], ['大寒', 1, 20.12], ['立春', 2, 3.87], ['雨水', 2, 18.73],
+    ['驚蟄', 3, 5.63], ['春分', 3, 20.646], ['清明', 4, 4.81], ['穀雨', 4, 20.1],
+    ['立夏', 5, 5.52], ['小滿', 5, 21.04], ['芒種', 6, 5.678], ['夏至', 6, 21.37],
+    ['小暑', 7, 7.108], ['大暑', 7, 22.83], ['立秋', 8, 7.5], ['處暑', 8, 23.13],
+    ['白露', 9, 7.646], ['秋分', 9, 23.042], ['寒露', 10, 8.318], ['霜降', 10, 23.438],
+    ['立冬', 11, 7.438], ['小雪', 11, 22.36], ['大雪', 12, 7.18], ['冬至', 12, 21.94]
+  ];
 
-    if (!isEnabled) {
-      return;
-    }
-
-    const rawMsg = ann.message !== undefined
-      ? ann.message
-      : (appConfig && appConfig.announcementMessage ? appConfig.announcementMessage : '');
-    const currentMsg = String(rawMsg || '').trim();
-    const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
-    const currentSuggestUpdatedAt = Number(suggestUpdatedAt || (appConfig && appConfig.suggestListUpdatedAt) || 0);
-
-    const currentItemsSig = computeItemsSignature(items);
-
-    const ack = storage.getJson(STORAGE_KEYS.ANNOUNCEMENT_ACK);
-
-    let shouldShow = false;
-    if (!ack) {
-      // First visit with modal enabled
-      shouldShow = true;
-    } else {
-      // Condition 1: 公告訊息是否有更新（文字變更 或 更新時間戳推進）
-      const announcementUpdated = (currentMsg !== (ack.announcement || '')) ||
-        (currentUpdatedAt > 0 && Number(ack.announcementUpdatedAt || 0) < currentUpdatedAt);
-
-      // Condition 2: 推薦項目是否有更新（推薦清單內容實質變更 或 後台更新推薦設定）
-      // 注意：完全移除換日判斷 (todayDateKey !== ack.dateKey)，使用者閱讀過之後絕不因換日而重複彈出！
-      const suggestItemsChanged = Boolean(
-        currentItemsSig &&
-        ack.itemsSig &&
-        currentItemsSig !== ack.itemsSig
-      );
-      const suggestSettingsUpdated = (currentSuggestUpdatedAt > 0 && Number(ack.suggestUpdatedAt || 0) < currentSuggestUpdatedAt);
-
-      if (announcementUpdated || suggestItemsChanged || suggestSettingsUpdated) {
-        shouldShow = true;
-      }
-    }
-
-    if (shouldShow) {
-      openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
-    }
+  function solarTermDay(year, idx) {
+    const y = ((year % 100) + 100) % 100;
+    const [, month, c] = SOLAR_TERMS[idx];
+    const leap = month <= 2 ? Math.floor((y - 1) / 4) : Math.floor(y / 4);
+    return Math.floor(y * 0.2422 + c) - leap;
   }
 
-  async function showAnnouncementModal() {
-    try {
-      const res = await fetch('/api/suggest-list');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.items) state._cachedSuggestItems = data.items;
-        if (data.suggestListUpdatedAt) {
-          appConfig.suggestListUpdatedAt = data.suggestListUpdatedAt;
-        }
-        if (data.announcement) {
-          appConfig.announcement = data.announcement;
-          appConfig.enableAnnouncement = !!data.announcement.enabled;
-          appConfig.announcementMessage = data.announcement.message || '';
-          appConfig.announcementUpdatedAt = data.announcement.updatedAt || 0;
-          updateWelcomeFooter(appConfig);
-        }
-      }
-    } catch (_) {}
+  /** 傳回某日所在的節氣名（該節氣當天起算，到下一個節氣前一天）。 */
+  function currentSolarTerm(date) {
+    const year = date.getFullYear();
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    for (let i = SOLAR_TERMS.length - 1; i >= 0; i--) {
+      const tm = SOLAR_TERMS[i][1];
+      if (tm < m || (tm === m && solarTermDay(year, i) <= d)) return SOLAR_TERMS[i][0];
+    }
+    return '冬至'; // 一月初、小寒之前，仍在上一年的冬至
+  }
 
+  /** 「十一月一日 星期日 · 霜降」 */
+  function homeDateLine(date) {
+    return `${cnNumber(date.getMonth() + 1)}月${cnNumber(date.getDate())}日 星期${CN_WEEKDAYS[date.getDay()]} · ${currentSolarTerm(date)}`;
+  }
+
+  /** 當地日期的日序號：同一天任何時刻都相同，換日才變。 */
+  function localDayIndex(date) {
+    return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+  }
+
+  /** 依讀者當地日期從清單挑一句；清單空的就回 null。 */
+  function pickDailyVerse(verses, date) {
+    if (!Array.isArray(verses) || !verses.length) return null;
+    const n = verses.length;
+    return verses[((localDayIndex(date) % n) + n) % n] || null;
+  }
+
+  /** 經句轉成搜尋字串：去掉標點與空白，太長就截前 20 字（全文搜尋以二字詞為單位，夠用了）。 */
+  function verseSearchText(text) {
+    return Array.from(String(text || '').replace(/[\s，。、；：？！「」『』（）《》〈〉,.;:?!"'()]/g, '')).slice(0, 20).join('');
+  }
+
+  /** 「剛剛／12 分鐘前／3 小時前／昨天／5 天前／10月3日」 */
+  function homeAgo(ts) {
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) return '';
+    const diff = Date.now() - ts;
+    if (diff < 60 * 1000) return '剛剛';
+    if (diff < 3600 * 1000) return `${Math.floor(diff / 60000)} 分鐘前`;
+    const now = new Date();
+    const then = new Date(ts);
+    const days = localDayIndex(now) - localDayIndex(then);
+    if (days <= 0) return `${Math.floor(diff / 3600000)} 小時前`;
+    if (days === 1) return '昨天';
+    if (days < 7) return `${days} 天前`;
+    return `${then.getMonth() + 1}月${then.getDate()}日`;
+  }
+
+  /** 公告目前的內容（開機時來自 __APP_CONFIG__，之後由 /api/suggest-list 更新）。 */
+  function homeAnnouncement() {
     const ann = (appConfig && appConfig.announcement) || {};
-    const rawMsg = (ann.message !== undefined)
-      ? ann.message
-      : (appConfig && appConfig.announcementMessage !== undefined ? appConfig.announcementMessage : '');
-    const currentMsg = String(rawMsg || '').trim();
-    const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
-    const currentSuggestUpdatedAt = Number(appConfig && appConfig.suggestListUpdatedAt || 0);
-
-    const items = state._cachedSuggestItems || [];
-    const currentItemsSig = computeItemsSignature(items);
-
-    openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
+    const enabled = ann.enabled !== undefined ? !!ann.enabled : !!(appConfig && (appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true'));
+    const message = String((ann.message !== undefined ? ann.message : (appConfig && appConfig.announcementMessage)) || '').trim();
+    const updatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
+    return { enabled, message, updatedAt };
   }
 
-  /**
-   * 開啟公告彈窗並填入推薦列表與公告訊息。
-   * 將本次開啟的資料快照存入 state._announcementModalContext，
-   * 供 closeAnnouncementModal 關閉時寫入 localStorage（作為下次的比對基準）。
-   *
-   * @param {Object[]} items           - 推薦項目陣列（渲染至彈窗內的推薦列表）
-   * @param {string}   message         - 公告訊息文字（空字串則隱藏訊息區塊）
-   * @param {number}   updatedAt       - 公告最後更新時間戳（毫秒 epoch）
-   * @param {number}   suggestUpdatedAt - 後台推薦設定最後儲存時間戳（毫秒 epoch）
-   * @param {string}   itemsSig         - 推薦項目內容簽章（pipe 分隔的 type:path:fileName:line）
-   */
-  function openAnnouncementModal(items, message, updatedAt, suggestUpdatedAt, itemsSig) {
-    const overlay = $('announcementModalOverlay');
-    if (!overlay) return;
-
-    const modalTitle = $('announcementModalTitle');
-    if (modalTitle) {
-      modalTitle.textContent = `${state.siteName || 'mdWebview'}線上閱讀`;
-    }
-
-    state._announcementModalContext = {
-      announcement: message,
-      announcementUpdatedAt: updatedAt,
-      suggestUpdatedAt: suggestUpdatedAt,
-      itemsSig: itemsSig
-    };
-
-    const dateEl = $('announcementModalDate');
-    if (dateEl) {
-      try {
-        dateEl.textContent = new Date().toLocaleDateString(activeLocale(), {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          weekday: 'short'
-        });
-      } catch (_) {
-        dateEl.textContent = getTodayDateString();
-      }
-    }
-
-    const noticeBox = $('announcementNoticeBox');
-    const noticeContent = $('announcementNoticeContent');
-    if (message && message.trim()) {
-      if (noticeContent) noticeContent.textContent = message.trim();
-      if (noticeBox) noticeBox.style.display = 'flex';
-    } else {
-      if (noticeBox) noticeBox.style.display = 'none';
-      if (noticeContent) noticeContent.textContent = '';
-    }
-
-    const listEl = $('announcementSuggestList');
-    if (listEl) {
-      renderAnnouncementSuggestList(listEl, items);
-    }
-
-    const modalBody = overlay.querySelector('.announcement-modal-body');
-    if (modalBody) {
-      modalBody.scrollTop = 0;
-    }
-
-    document.body.classList.add('modal-open');
-    overlay.style.setProperty('display', 'flex', 'important');
-    overlay.style.display = 'flex';
-    overlay.setAttribute('aria-hidden', 'false');
+  function isHomeNoticeDismissed(ann) {
+    const ack = storage.getJson(HOME_NOTICE_KEY);
+    if (!ack) return false;
+    return (ack.announcement || '') === ann.message && Number(ack.announcementUpdatedAt || 0) >= ann.updatedAt;
   }
 
-  /**
-   * 關閉公告彈窗。
-   * 若 markAsAcknowledged 為 true，將 state._announcementModalContext 寫入
-   * localStorage（ANNOUNCEMENT_ACK_KEY），記錄使用者已閱讀的狀態，
-   * 下次開啟時以此為基準判斷是否需要重新顯示。
-   *
-   * 使用 setProperty('display','none','important') 確保覆蓋 CSS !important 規則。
-   *
-   * @param {boolean} [markAsAcknowledged=true] - 是否寫入已讀記錄至 localStorage
-   */
-  function closeAnnouncementModal(markAsAcknowledged = true) {
-    const overlay = $('announcementModalOverlay');
-    if (!overlay) return;
-
-    if (markAsAcknowledged && state._announcementModalContext) {
-      storage.setJson(STORAGE_KEYS.ANNOUNCEMENT_ACK, state._announcementModalContext);
-    }
-
-    document.body.classList.remove('modal-open');
-    overlay.style.setProperty('display', 'none', 'important');
-    overlay.style.display = 'none';
-    overlay.setAttribute('aria-hidden', 'true');
+  /** 重畫整個首頁。在首頁沒顯示時也可以呼叫（只是更新隱藏的節點）。 */
+  function renderHome() {
+    renderHomeGreeting();
+    renderHomeVerse();
+    renderHomeContinue();
+    renderHomeNotice();
+    renderHomeSuggest();
   }
 
-  function renderAnnouncementSuggestList(list, items) {
-    if (!list) return;
-    if (!items || items.length === 0) {
-      list.innerHTML = '<li class="suggest-item" style="cursor:default;"><span class="suggest-item-name">尚無每日推薦經論</span></li>';
+  function renderHomeGreeting() {
+    const el = $('homeGreet');
+    if (!el) return;
+    const now = new Date();
+    el.innerHTML = `<b>${homeGreeting(now.getHours())}</b>${escHtml(homeDateLine(now))}`;
+  }
+
+  function renderHomeVerse() {
+    const box = $('homeVerse');
+    if (!box) return;
+    const data = state._homeData || {};
+    const verse = pickDailyVerse(data.verses, new Date());
+    const subtitle = $('homeSubtitle');
+    const hero = box.closest('.home-hero');
+    if (!verse) {
+      box.hidden = true;
+      if (subtitle) subtitle.hidden = false;
+      if (hero) hero.classList.remove('has-verse');
       return;
     }
+    $('homeVerseText').textContent = verse.text;
+    $('homeVerseSource').textContent = verse.source ? `《${verse.source}》` : '';
+    const btn = $('homeVerseOpen');
+    btn.textContent = verse.path ? '讀這一段 →' : '在經藏中搜尋 →';
+    btn.dataset.path = verse.path || '';
+    btn.dataset.query = verseSearchText(verse.text);
+    box.hidden = false;
+    // 有經文時，站名下的「佛典經論閱讀器」讓位，免得兩行小字擠在一起
+    if (subtitle) subtitle.hidden = true;
+    if (hero) hero.classList.add('has-verse');
+  }
 
-    const frag = document.createDocumentFragment();
-    for (const item of items) {
-      const li = document.createElement('li');
-      li.className = 'suggest-item';
-      const targetPath = resolveSuggestPath(item.path);
-      li.title = targetPath || item.path || '';
+  /** 最近讀過的經文（略過辭典條目，那不算「讀到哪」）。 */
+  function homeRecentReads() {
+    return (state.recentFiles || []).filter(r => r && r.filePath && !String(r.filePath).startsWith('dict:'));
+  }
 
-      const isDict = item.type === 'dict';
-      const isHot = item.type === 'hot';
+  function renderHomeContinue() {
+    const box = $('homeContinue');
+    if (!box) return;
+    const list = homeRecentReads();
+    const top = list[0];
+    if (!top) { box.hidden = true; return; }
 
-      const icon = document.createElement('span');
-      icon.className = 'suggest-item-icon';
-      icon.textContent = isDict ? '📖' : (isHot ? '✨' : '🪷');
+    const pct = libraryProgressPct(top);
+    $('homeContinueTitle').textContent = libraryTitleOf(top);
+    const sub = [libraryFolderOf(top.filePath)];
+    if (pct !== null) sub.push(pct >= 99 ? '已讀完' : `讀到 ${pct}%`);
+    const ago = homeAgo(top.ts);
+    if (ago) sub.push(ago);
+    $('homeContinueSub').textContent = sub.filter(Boolean).join(' · ');
+    const bar = $('homeContinueBar');
+    bar.hidden = pct === null;
+    if (pct !== null) bar.firstElementChild.style.width = `${pct}%`;
+    const btn = $('homeContinueBtn');
+    btn.dataset.file = top.filePath;
+    btn.dataset.line = top.line ? String(top.line) : '';
+    btn.textContent = pct !== null && pct >= 99 ? '再讀一次 →' : '繼續讀 →';
 
-      const name = document.createElement('span');
-      name.className = 'suggest-item-name';
-      if (isDict) {
-        name.innerHTML = `<span class="suggest-dict-word">${escHtml(item.fileName)}</span>` +
-          (item.dictName ? ` <span class="suggest-dict-source">(${escHtml(item.dictName)})</span>` : '');
+    const recentEl = $('homeRecent');
+    const rest = list.slice(1, 4);
+    if (rest.length) {
+      recentEl.innerHTML = '<span class="home-recent-label">最近讀過</span>' + rest.map(r => {
+        const p = libraryProgressPct(r);
+        const tag = p === null ? '' : `<em>${p >= 99 ? '讀完' : `${p}%`}</em>`;
+        return `<button type="button" class="home-recent-item" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath)}">${escHtml(libraryTitleOf(r))}${tag}</button>`;
+      }).join('');
+      recentEl.hidden = false;
+    } else {
+      recentEl.innerHTML = '';
+      recentEl.hidden = true;
+    }
+    box.hidden = false;
+  }
+
+  function renderHomeNotice() {
+    const box = $('homeNotice');
+    if (!box) return;
+    const ann = homeAnnouncement();
+    if (!ann.enabled || !ann.message || isHomeNoticeDismissed(ann)) {
+      box.hidden = true;
+      return;
+    }
+    const text = $('homeNoticeText');
+    const more = $('homeNoticeMore');
+    text.textContent = ann.message;
+    box.classList.remove('expanded');
+    more.textContent = '展開';
+    box.hidden = false;
+    // 超過三行才需要「展開」。要等版面算好才量得到高度；首頁沒顯示時量不到，回首頁會再畫一次。
+    requestAnimationFrame(() => {
+      more.hidden = !(text.scrollHeight > text.clientHeight + 1);
+    });
+  }
+
+  /** 熱門來源（7d／30d／90d）轉成讀者看得懂的字。 */
+  function homeHotLabel(source) {
+    if (source === '7d') return '本週熱門';
+    if (source === '30d') return '本月熱門';
+    if (source === '90d') return '近三月熱門';
+    return '熱門';
+  }
+
+  function renderHomeSuggest() {
+    const items = state._cachedSuggestItems || [];
+    const onHome = state._suggestOnHome !== false;
+    const words = onHome ? items.filter(i => i.type === 'dict') : [];
+    const reads = onHome ? items.filter(i => i.type !== 'dict') : [];
+
+    // 每日一詞：第一個詞附釋義，其餘列成「換一個」
+    const wordBox = $('homeWord');
+    if (wordBox) {
+      const w = words[0];
+      if (w) {
+        const head = $('homeWordOpen');
+        head.textContent = w.fileName;
+        head.dataset.path = w.path || '';
+        head.dataset.line = w.line ? String(w.line) : '';
+        $('homeWordDict').textContent = w.dictName || '';
+        const def = $('homeWordDef');
+        def.textContent = w.excerpt || '';
+        def.hidden = !w.excerpt;
+        const more = $('homeWordMore');
+        const others = words.slice(1);
+        more.innerHTML = `<button type="button" class="home-link" data-path="${escHtml(w.path || '')}" data-line="${Number(w.line) || ''}">看完整條目 →</button>`
+          + (others.length ? `<span class="home-word-others">換一個：${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('、')}</span>` : '');
+        wordBox.hidden = false;
       } else {
-        name.textContent = item.fileName || item.path;
+        wordBox.hidden = true;
       }
-
-      const badge = document.createElement('span');
-      badge.className = 'suggest-item-badge ' + (isDict ? 'suggest-badge-dict' : (isHot ? 'suggest-badge-hot' : 'suggest-badge-admin'));
-      badge.textContent = isDict ? '單詞' : (isHot ? '熱門' : '推薦');
-
-      const arrow = document.createElement('span');
-      arrow.className = 'suggest-item-arrow';
-      arrow.textContent = '→';
-
-      li.appendChild(icon);
-      li.appendChild(name);
-      li.appendChild(badge);
-      li.appendChild(arrow);
-
-      li.addEventListener('click', () => {
-        const pathToOpen = resolveSuggestPath(item.path);
-        if (pathToOpen) {
-          closeAnnouncementModal(true);
-          openFile(pathToOpen, item.line || null);
-        }
-      });
-
-      frag.appendChild(li);
     }
 
-    list.innerHTML = '';
-    list.appendChild(frag);
+    // 今日推薦：站長推薦與熱門（辭典詞條已移到每日一詞）
+    const list = $('suggestList');
+    const container = $('suggestListContainer');
+    if (list && container) {
+      if (reads.length) {
+        list.innerHTML = reads.map(item => {
+          const isHot = item.type === 'hot';
+          const target = resolveSuggestPath(item.path);
+          return `<li class="suggest-item" data-path="${escHtml(item.path || '')}"${item.line ? ` data-line="${Number(item.line) || ''}"` : ''} title="${escHtml(target || item.path || '')}" tabindex="0" role="link">`
+            + `<span class="suggest-item-icon" aria-hidden="true">${isHot ? '✨' : '🪷'}</span>`
+            + `<span class="suggest-item-name">${escHtml(item.fileName || item.path)}</span>`
+            + `<span class="home-rec-meta">${isHot ? homeHotLabel(item.source) : '站長推薦'}</span>`
+            + `</li>`;
+        }).join('');
+        container.style.display = 'block';
+      } else {
+        list.innerHTML = '';
+        container.style.display = 'none';
+      }
+    }
+
+    const cols = $('homeColumns');
+    if (cols) {
+      const shown = (words.length ? 1 : 0) + (reads.length ? 1 : 0);
+      cols.hidden = shown === 0;
+      cols.classList.toggle('single', shown === 1);
+    }
+  }
+
+  function openHomeTarget(path, line) {
+    const target = resolveSuggestPath(path);
+    if (target) openFile(target, Number(line) || null);
+  }
+
+  function setupHome() {
+    const verseBtn = $('homeVerseOpen');
+    if (verseBtn) verseBtn.addEventListener('click', () => {
+      if (verseBtn.dataset.path) openHomeTarget(verseBtn.dataset.path, null);
+      else if (verseBtn.dataset.query) activateSearchPanel(verseBtn.dataset.query);
+    });
+
+    const contBtn = $('homeContinueBtn');
+    if (contBtn) contBtn.addEventListener('click', () => {
+      const file = contBtn.dataset.file;
+      if (!file) return;
+      // 上次閱讀位置存的就是這一篇時，用它還原（含捲動位置），比行號更準
+      const saved = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
+      if (saved && saved.filePath === file) restoreReadProgress(true, saved);
+      else openFile(file, Number(contBtn.dataset.line) || undefined);
+    });
+
+    const recentEl = $('homeRecent');
+    if (recentEl) recentEl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-file]');
+      if (b) openFile(b.getAttribute('data-file'), Number(b.getAttribute('data-line')) || undefined);
+    });
+
+    const noticeMore = $('homeNoticeMore');
+    if (noticeMore) noticeMore.addEventListener('click', () => {
+      const box = $('homeNotice');
+      const open = box.classList.toggle('expanded');
+      noticeMore.textContent = open ? '收起' : '展開';
+    });
+    const noticeClose = $('homeNoticeClose');
+    if (noticeClose) noticeClose.addEventListener('click', () => {
+      const ann = homeAnnouncement();
+      storage.setJson(HOME_NOTICE_KEY, { announcement: ann.message, announcementUpdatedAt: ann.updatedAt });
+      $('homeNotice').hidden = true;
+    });
+
+    const wordBox = $('homeWord');
+    if (wordBox) wordBox.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-path]');
+      if (b && b.dataset.path) openHomeTarget(b.dataset.path, b.dataset.line);
+    });
+
+    const list = $('suggestList');
+    if (list) {
+      const go = (li) => li && openHomeTarget(li.getAttribute('data-path'), li.getAttribute('data-line'));
+      list.addEventListener('click', (e) => go(e.target.closest('.suggest-item')));
+      list.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const li = e.target.closest('.suggest-item');
+        if (!li) return;
+        e.preventDefault();
+        go(li);
+      });
+    }
+
+    // 首頁開著過了午夜或換了時段，回到分頁時更新問候語與今日經文
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && !state.currentFile) {
+        renderHomeGreeting();
+        renderHomeVerse();
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -7869,6 +7892,8 @@
   /** 歷程有變動時，若「書籤與歷程」抽屜開著就重畫。 */
   function renderRecentFilesList() {
     if (isLibraryOpen()) renderLibrary();
+    // 首頁開著時（例如登入後同步回來），「繼續閱讀」跟著更新
+    if (!state.currentFile) renderHomeContinue();
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -8160,7 +8185,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9512,11 +9537,6 @@
           closeLibrary();
           return;
         }
-        const annOverlay = $('announcementModalOverlay');
-        if (annOverlay && annOverlay.style.display !== 'none' && annOverlay.style.display !== '') {
-          closeAnnouncementModal(true);
-          return;
-        }
         const adminOverlay = $('adminSettingsOverlay');
         if (adminOverlay && adminOverlay.style.display !== 'none' && adminOverlay.style.display !== '') {
           closeAdminModal();
@@ -9631,7 +9651,7 @@
           pane.style.display = pane.id === `pane-${tab}` ? 'flex' : 'none';
         });
         if (tab === 'recommended') {
-          fetchSuggestList(false);
+          fetchSuggestList();
         }
       });
     });
@@ -9708,27 +9728,7 @@
       });
     }
 
-    // Announcement Modal Listeners (Ack, Close X, Backdrop Click)
-    const annAckBtn = $('announcementModalAckBtn');
-    if (annAckBtn) {
-      annAckBtn.addEventListener('click', () => {
-        closeAnnouncementModal(true);
-      });
-    }
-    const annCloseBtn = $('announcementModalCloseBtn');
-    if (annCloseBtn) {
-      annCloseBtn.addEventListener('click', () => {
-        closeAnnouncementModal(true);
-      });
-    }
-    const annOverlay = $('announcementModalOverlay');
-    if (annOverlay) {
-      annOverlay.addEventListener('click', (e) => {
-        if (e.target === annOverlay) {
-          closeAnnouncementModal(true);
-        }
-      });
-    }
+    setupHome();
 
     // Menu Sub-Modals (登入 / Admin Vault Settings)
     $('menuOpenAdminLoginBtn').addEventListener('click', () => {
@@ -9984,6 +9984,7 @@
           appConfig.announcement.message = data.settings.announcementMessage || '';
           appConfig.announcement.updatedAt = data.settings.announcementUpdatedAt || 0;
           updateWelcomeFooter(data.settings);
+          renderHomeNotice();
         }
 
         // Reload the file tree and update UI with new paths
@@ -10051,7 +10052,7 @@
 
   function openUserSettingsOverlay() {
     renderMaxWidthControl();
-    fetchSuggestList(false);
+    fetchSuggestList();
 
     const s2tChk = $('settingAutoS2TCheck');
     if (s2tChk) s2tChk.checked = !!state.autoS2T;
@@ -10060,7 +10061,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10428,7 +10429,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11318,7 +11319,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -12696,6 +12697,8 @@
       const dailyWordRotateHour = Number.isFinite(parsedDailyRotate) ? Math.max(1, Math.min(168, parsedDailyRotate)) : 12;
 
       const enabled = !!(($('suggestEnabled') || {}).checked);
+      // 每日經文原樣送出（一行一句），由伺服器 lib/home.js parseVerses 解析與限長
+      const dailyVerses = ($('suggestDailyVerses') || {}).value || '';
 
       // Collect checked dictionaries
       const checkedDicts = [];
@@ -12730,6 +12733,7 @@
                 dailyWordCount,
                 dailyWordDicts: checkedDicts,
                 dailyWordRotateHour,
+                dailyVerses,
                 enabled
               }
             }
@@ -12748,7 +12752,7 @@
         }
         showToast('✅ 推薦閱讀設定已儲存', 'success');
         // Refresh the homepage suggest list
-        fetchSuggestList(false);
+        fetchSuggestList();
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message;
@@ -12759,6 +12763,14 @@
     });
 
     setupAdminSeoEvents();
+  }
+
+  /** 經句陣列 → 後台文字框（一行一句：經句｜出處｜路徑），與 lib/home.js versesToText 相同。 */
+  function dailyVersesToText(verses) {
+    return (Array.isArray(verses) ? verses : [])
+      .map(v => [v.text, v.source, v.path].map(x => String(x || '').trim()))
+      .map(([t, src, path]) => path ? `${t}｜${src}｜${path}` : (src ? `${t}｜${src}` : t))
+      .join('\n');
   }
 
   async function loadSuggestSettings(passedSettings = null) {
@@ -12811,6 +12823,22 @@
       if (dailyCountEl && settings) dailyCountEl.value = sl.dailyWordCount ?? 3;
       if (dailyRotateEl && settings) dailyRotateEl.value = sl.dailyWordRotateHour ?? 12;
       if (enabledEl && settings) enabledEl.checked = sl.enabled === true;
+
+      // 每日經文：從未設定時顯示伺服器的預設清單（首頁 /api/suggest-list 已帶回解析好的版本）
+      const versesEl = $('suggestDailyVerses');
+      if (versesEl && settings) {
+        let verses = sl.dailyVerses;
+        if (verses === undefined) {
+          verses = state._homeData && state._homeData.verses;
+          if (!verses) {
+            try {
+              const r = await fetch('/api/suggest-list');
+              if (r.ok) verses = (await r.json()).verses;
+            } catch (_) {}
+          }
+        }
+        versesEl.value = dailyVersesToText(verses);
+      }
 
       // 3. Render dictionary files
       const dictData = await dictPromise;
