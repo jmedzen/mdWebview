@@ -386,6 +386,7 @@ describe('F4e2e — 登入處理常式端對端記錄', () => {
         assert.ok(!serialized.includes(password), `日誌不得包含密碼：${serialized}`);
         assert.ok(!serialized.includes(savedAdmin.passwordHash), '日誌不得包含既有雜湊');
         assert.ok(!serialized.includes('wrong-password'), '日誌不得包含嘗試的密碼');
+        assert.ok(!serialized.includes('logtest-admin'), '日誌不得包含使用者輸入的帳號欄');
       }
     } finally {
       config.admin = savedAdmin;

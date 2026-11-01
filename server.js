@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.8.2
+ * @version 4.8.3
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -5230,12 +5230,22 @@ const server = http.createServer((req, res) => {
     if (!isAdminSetup()) {
       return sendJSON(res, 400, { error: 'Admin not configured' });
     }
+    // 舊端點也要擋跨站表單：Origin／Referer 有帶就必須同源，且只收 JSON（表單送不出 JSON）。
+    if (!accounts.lenientSameOrigin(req)) {
+      return sendJSON(res, 403, { error: '請求來源不符', code: 'BAD_ORIGIN' });
+    }
+    if (!accounts.isJsonRequest(req)) {
+      return sendJSON(res, 415, { error: '只接受 JSON 請求', code: 'JSON_REQUIRED' });
+    }
     return accounts.handleLegacyAdminLogin(req, res).catch(err => {
       Logger.error('Auth', 'Admin login processing failed', err, req);
       if (!res.headersSent) return sendJSON(res, 500, { error: 'Internal Server Error' });
     });
   }
   if (pathname === '/api/admin/logout' && req.method === 'POST') {
+    if (!accounts.lenientSameOrigin(req)) {
+      return sendJSON(res, 403, { error: '請求來源不符', code: 'BAD_ORIGIN' });
+    }
     return accounts.handleLogout(req, res);
   }
   if (pathname === '/api/admin/settings' && req.method === 'GET') {
