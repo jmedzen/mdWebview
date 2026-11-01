@@ -77,6 +77,7 @@ describe('account flows over HTTP', () => {
     assert.equal(r.status, 200, r.body);
     return sessionCookie(r);
   }
+  const AK = id => accounts.attemptKey(id, '127.0.0.1');
   async function makeAdmin(email = 'boss@example.org') {
     let user = db.getUserByEmail(email);
     if (!user) {
@@ -160,9 +161,9 @@ describe('account flows over HTTP', () => {
   test('a successful login refunds the failure charge for IP and account', async () => {
     await registerAndVerify('refund@example.org', 'refund-pass-1');
     for (let i = 0; i < 4; i++) await post('/api/auth/login', { identifier: 'refund@example.org', password: 'bad' });
-    assert.equal(accounts.accountAttempts.get('refund@example.org').fails, 4);
+    assert.equal(accounts.accountAttempts.get(AK('refund@example.org')).fails, 4);
     assert.equal((await post('/api/auth/login', { identifier: 'refund@example.org', password: 'refund-pass-1' })).status, 200);
-    assert.equal(accounts.accountAttempts.has('refund@example.org'), false);
+    assert.equal(accounts.accountAttempts.has(AK('refund@example.org')), false);
     // 清零後又有 4 次失敗空間，不會被舊的失敗累積鎖住
     for (let i = 0; i < 4; i++) assert.equal((await post('/api/auth/login', { identifier: 'refund@example.org', password: 'bad' })).status, 401);
   });
@@ -181,21 +182,49 @@ describe('account flows over HTTP', () => {
     assert.equal((await post('/api/auth/login', { identifier: 'other-ok@example.org', password: 'other-ok-pass' })).status, 200);
   });
 
+  test('someone else failing from another address cannot lock the real owner out', async () => {
+    await registerAndVerify('victim-lock@example.org', 'victim-lock-pass');
+    // 攻擊者從 203.0.113.9 連續失敗：鎖的是「帳號＋那個 IP」
+    accounts.accountAttempts.set(accounts.attemptKey('victim-lock@example.org', '203.0.113.9'), { fails: 9, lockUntil: Date.now() + 10 * 60 * 1000 });
+    assert.equal((await post('/api/auth/login', { identifier: 'victim-lock@example.org', password: 'victim-lock-pass' })).status, 200);
+  });
+
+  test('a flood of failures across many addresses suspends password login for that account only', async () => {
+    await registerAndVerify('agg-lock@example.org', 'agg-lock-pass');
+    await registerAndVerify('agg-free@example.org', 'agg-free-pass');
+    for (let i = 0; i < 100; i++) accounts.accountFailures.hit('agg-lock@example.org');
+    const blocked = await post('/api/auth/login', { identifier: 'agg-lock@example.org', password: 'agg-lock-pass' });
+    assert.equal(blocked.status, 429);
+    assert.equal((await post('/api/auth/login', { identifier: 'agg-free@example.org', password: 'agg-free-pass' })).status, 200);
+    accounts.accountFailures.reset('agg-lock@example.org');
+  });
+
+  test('legacy /api/admin/login and /logout refuse cross-site and non-JSON requests', async () => {
+    const evil = await rq('/api/admin/login', { method: 'POST', body: { username: 'x', password: 'y' }, headers: { Origin: 'https://evil.example' } });
+    assert.equal(evil.status, 403);
+    const nullOrigin = await rq('/api/admin/login', { method: 'POST', body: { username: 'x', password: 'y' }, headers: { Origin: 'null' } });
+    assert.equal(nullOrigin.status, 403);
+    const form = await rq('/api/admin/login', { method: 'POST', body: 'username=x&password=y', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    assert.equal(form.status, 415);
+    const logout = await rq('/api/admin/logout', { method: 'POST', body: {}, headers: { Origin: 'https://evil.example' } });
+    assert.equal(logout.status, 403);
+  });
+
   test('lock delay doubles with further failures up to 15 minutes; admin can list and clear lockouts', async () => {
     await registerAndVerify('backoff@example.org', 'backoff-pass');
     const adminCookie = await makeAdmin();
-    accounts.accountAttempts.set('backoff@example.org', { fails: 4, lockUntil: 0 });
+    accounts.accountAttempts.set(AK('backoff@example.org'), { fails: 4, lockUntil: 0 });
     await post('/api/auth/login', { identifier: 'backoff@example.org', password: 'bad' });
-    const a = accounts.accountAttempts.get('backoff@example.org');
+    const a = accounts.accountAttempts.get(AK('backoff@example.org'));
     assert.equal(a.fails, 5);
     assert.ok(Math.abs(a.lockUntil - (Date.now() + 60 * 1000)) < 5000, '5th failure: 1 minute');
-    accounts.accountAttempts.set('backoff@example.org', { fails: 30, lockUntil: 0 });
+    accounts.accountAttempts.set(AK('backoff@example.org'), { fails: 30, lockUntil: 0 });
     await post('/api/auth/login', { identifier: 'backoff@example.org', password: 'bad' }).catch(() => {});
-    assert.ok(accounts.accountAttempts.get('backoff@example.org').lockUntil - Date.now() <= 15 * 60 * 1000 + 1000, 'capped at 15 minutes');
+    assert.ok(accounts.accountAttempts.get(AK('backoff@example.org')).lockUntil - Date.now() <= 15 * 60 * 1000 + 1000, 'capped at 15 minutes');
 
     const list = await rq('/api/admin/lockouts', { cookie: adminCookie });
     assert.equal(list.status, 200);
-    const row = list.json.accounts.find(x => x.key === 'backoff@example.org');
+    const row = list.json.accounts.find(x => x.key === AK('backoff@example.org'));
     assert.ok(row && row.lockedUntil);
     assert.deepEqual([list.json.limits.ipFailLimit, list.json.limits.accountAttempts, list.json.limits.ipWindowMinutes], [20, 5, 15]);
 
