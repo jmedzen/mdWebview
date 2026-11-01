@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.7.1 | 最後更新：2026-11
+> 版本：v4.8.0 | 最後更新：2026-11
 
 ---
 
@@ -488,6 +488,17 @@ flowchart TD
 - Key: `mdWebview-home-notice-dismissed`（v4.7.1 起；不沿用舊彈窗的 `mdWebview-announcement-modal-ack`，否則讀過彈窗的人在首頁完全看不到公告）。收起後首頁留一個「顯示公告」連結，可隨時叫回。
 - Value: `{announcement: 公告文字, announcementUpdatedAt: timestamp}`
 - 只比對公告本身；推薦清單輪替不會讓公告重新出現（舊彈窗每個輪替時段都重跳的問題因此消失）。
+
+### 經藏全景（v4.8.0）
+
+首頁「我的書架」與公告之間的 `#homeAtlas`：把整個檔案樹畫成一塊可點的版圖，讓第一次來的人一眼看到這裡收了什麼、有多少。
+
+- **資料**：純前端，直接用 `/api/tree`（`state.treeData`），不新增 API。`atlasModel()` 把樹整理成「藏 → 部類」兩層：第一層資料夾是藏（多個藏時出現分頁，選擇存在 `mdWebview-home-atlas-canon`），藏底下的資料夾是部類，直接放在藏底下的散經歸到「其他」。全部不到兩類就不顯示。
+- **格子**：寬度依部數開根號（`--w`），底色是 `--accent` 混進 `--bg-primary` 的濃淡（`--ink`）；格子夠寬（container query ≥140px）才顯示一句導讀（`ATLAS_DESC`，依資料夾名稱關鍵字比對，阿含、般若、法華…）。手機只留名稱與部數。
+- **點亮**：最近閱讀＋書籤裡的路徑落在哪一類，那一格就點亮（左側主題色線、右上一盞燈、「讀過 N」）。底下足跡列顯示「走過幾類、幾部」，並有「去一類還沒讀過的 →」隨機展開一個沒讀過的部類。
+- **展開**：點一格，在同一列的最後一格後面插入說明面板（不打亂版圖）：導讀、你讀過的、還沒讀過的前 8 部、「從這一類隨手翻一部」、「在經目中看全部 N 部」（`revealInFileTree`）。視窗寬度改變時重新定位。
+- 首頁的「瀏覽全部經目」改為捲到全景（沒有全景時仍打開側欄經目）。
+- 顏色一律取主題變數（`--accent`、`--bold-color`、`--bg-primary`、`--border`…），各主題自動適用。
 
 ---
 
@@ -1004,7 +1015,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.7.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.8.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

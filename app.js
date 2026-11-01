@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.7.1
+   mdWebview — Application Logic (app.js) v4.8.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -745,6 +745,8 @@
       const sidebar = $('sidebar');
       if (sidebar) sidebar.classList.add('collapsed');
       state.sidebarCollapsed = true;
+      // 遮罩可能在收合前已被打開；不同步的話手機首頁會整片模糊
+      updateSidebarBackdrop();
     }
     await loadTree();
     fetchSuggestList(); // 首頁的每日經文、公告、每日一詞與推薦（不再開站彈窗）
@@ -2167,6 +2169,7 @@
     renderHomeGreeting();
     renderHomeVerse();
     renderHomeContinue();
+    renderHomeAtlas();
     renderHomeNotice();
     renderHomeSuggest();
   }
@@ -2295,6 +2298,293 @@
       + `<div class="home-shelf-info" id="homeShelfInfo" aria-live="polite"></div>`;
     renderHomeShelfInfo(0);
     box.hidden = false;
+  }
+
+  // ── 經藏全景 ─────────────────────────────────────────────
+  /**
+   * 部類的一句話導讀。依資料夾名稱關鍵字比對（大正藏、卍續藏等常見分類），
+   * 比對不到的類別就只顯示名稱與部數。
+   */
+  const ATLAS_DESC = [
+    [/阿含/, '佛陀親說的早期經典：四阿含與單本小經，四諦、十二因緣、八正道都從這裡開始'],
+    [/本緣/, '本生、譬喻、因緣故事：佛陀過去世的修行，讀來最像故事'],
+    [/般若/, '空性智慧：大般若、金剛經、心經都在這一類'],
+    [/法華/, '一乘妙法：妙法蓮華經與相關經典，開權顯實、人人皆可成佛'],
+    [/華嚴/, '法界緣起：華嚴經諸譯與十地、入法界品'],
+    [/寶積/, '大寶積經與淨土三經之一：無量壽、阿彌陀經'],
+    [/涅槃/, '佛陀入滅前所說：佛性常住，一切眾生悉有佛性'],
+    [/大集/, '大方等大集經：諸方菩薩雲集，說陀羅尼與末法'],
+    [/經集/, '大乘諸經總匯：維摩、楞伽、楞嚴、地藏、藥師、圓覺'],
+    [/密教/, '真言、陀羅尼與儀軌：大日經、金剛頂經與諸尊咒'],
+    [/律疏/, '戒律的註釋：南山律學與菩薩戒疏'],
+    [/律/, '出家戒律與僧團規範：四分律、十誦律、梵網經'],
+    [/釋經論/, '印度論師解經之論：大智度論、十住毘婆沙論'],
+    [/毘曇|毗曇/, '阿毘達磨：把一切法分析到最細，俱舍論是入門'],
+    [/中觀/, '龍樹、提婆的中道：中論、百論、十二門論'],
+    [/瑜伽/, '唯識與瑜伽行派：瑜伽師地論、成唯識論、攝大乘論'],
+    [/論集/, '諸論彙集：大乘起信論、因明與菩薩行論'],
+    [/經疏/, '中國祖師為經作的註解：讀經卡關時的好幫手'],
+    [/論疏/, '論典的註解：中觀論疏、成唯識論述記'],
+    [/諸宗/, '天台、華嚴、禪、淨土諸宗的根本著作：摩訶止觀、六祖壇經'],
+    [/史傳/, '高僧傳記與佛教史：高僧傳、傳燈錄、大唐西域記'],
+    [/事彙/, '佛教類書與辭彙：法苑珠林、翻譯名義集、一切經音義'],
+    [/外教/, '佛教以外的宗教文獻，供比較研究'],
+    [/目錄/, '歷代經錄：一部經什麼時候、由誰譯出'],
+    [/古逸/, '敦煌等地出土、久已失傳的古逸文獻'],
+    [/疑似/, '歷來被疑為後人撰作的經典'],
+    [/印度撰述/, '印度論師的著作與註釋'],
+    [/中國撰述/, '中國歷代祖師的著述與註疏'],
+  ];
+
+  /** 「01阿含部類」→「阿含」；「02-卍續藏」→「卍續藏」。 */
+  function atlasShortName(name) {
+    const s = String(name || '').replace(/^[0-9A-Za-z]+[\s_\-‧·.]*/, '').trim() || String(name || '');
+    return s.replace(/部類$|部$/, '') || s;
+  }
+
+  function atlasDesc(name) {
+    const hit = ATLAS_DESC.find(([re]) => re.test(name));
+    return hit ? hit[1] : '';
+  }
+
+  /** 收集一個節點底下的全部經文 [{path, name}]（依樹的順序）。 */
+  function atlasFilesUnder(node) {
+    const out = [];
+    (function walk(n) {
+      if (!n) return;
+      if (n.type === 'file') {
+        if (n.path && !String(n.path).startsWith('dict:')) out.push({ path: n.path, name: n.name || String(n.path).split('/').pop().replace(/\.md$/i, '') });
+        return;
+      }
+      (n.children || []).forEach(walk);
+    })(node);
+    return out;
+  }
+
+  let _atlasSrc = null;
+  let _atlasCanons = [];
+
+  /**
+   * 把檔案樹整理成「藏 → 部類」兩層：第一層資料夾是藏，藏底下的資料夾是部類，
+   * 直接放在藏底下的散經歸到「其他」。樹沒變就沿用上次的結果。
+   */
+  function atlasModel() {
+    if (state.treeData === _atlasSrc) return _atlasCanons;
+    const roots = (Array.isArray(state.treeData) ? state.treeData : [])
+      .filter(n => n && n.type !== 'file' && !String(n.path || '').startsWith('dict:'));
+    _atlasCanons = roots.map(root => {
+      const cats = [];
+      const loose = { type: 'directory', children: [] };
+      for (const c of root.children || []) {
+        if (c.type === 'file') loose.children.push(c);
+        else cats.push({ name: c.name, path: c.path, files: atlasFilesUnder(c) });
+      }
+      if (loose.children.length) cats.push({ name: '其他', path: root.path, files: atlasFilesUnder(loose) });
+      return { name: root.name, path: root.path, cats: cats.filter(c => c.files.length) };
+    }).filter(c => c.cats.length);
+    _atlasSrc = state.treeData;
+    return _atlasCanons;
+  }
+
+  const ATLAS_CANON_KEY = 'mdWebview-home-atlas-canon';
+  let _atlasOpen = null; // 目前展開的部類 path
+
+  /** 讀過的經：最近閱讀＋書籤，都只看路徑。 */
+  function atlasReadSet() {
+    const set = new Set(homeRecentReads().map(r => r.filePath));
+    for (const b of (state.bookmarks || [])) {
+      const p = b && (b.filePath || b.path);
+      if (p) set.add(p);
+    }
+    return set;
+  }
+
+  /**
+   * 經藏全景：整部藏經畫成一塊版圖，每一格是一個部類，格子大小依部數、
+   * 顏色深淺依份量；讀過的部類會點亮。點一格就在那一列下方展開導讀、
+   * 開頭幾部經與「隨手翻一部」。底下的足跡列鼓勵往沒讀過的類別走。
+   */
+  function renderHomeAtlas() {
+    const box = $('homeAtlas');
+    const body = $('homeAtlasBody');
+    if (!box || !body) return;
+    const canons = atlasModel();
+    const totalCats = canons.reduce((n, c) => n + c.cats.length, 0);
+    if (totalCats < 2) { box.hidden = true; body.innerHTML = ''; return; }
+
+    let idx = canons.findIndex(c => c.path === storage.get(ATLAS_CANON_KEY));
+    if (idx < 0) idx = 0;
+    const canon = canons[idx];
+    const read = atlasReadSet();
+    const max = Math.max(...canon.cats.map(c => c.files.length));
+    const totalFiles = canons.reduce((n, c) => n + c.cats.reduce((m, k) => m + k.files.length, 0), 0);
+
+    const tabs = canons.length > 1
+      ? `<div class="home-atlas-tabs" role="tablist">${canons.map((c, i) => {
+        const n = c.cats.reduce((m, k) => m + k.files.length, 0);
+        return `<button type="button" role="tab" class="home-atlas-tab" aria-selected="${i === idx}" data-canon="${escHtml(c.path)}">${escHtml(atlasShortName(c.name))}<small>${n.toLocaleString()}</small></button>`;
+      }).join('')}</div>`
+      : '';
+
+    let litCats = 0;
+    let litFiles = 0;
+    const tiles = canon.cats.map((c, i) => {
+      const mine = c.files.reduce((n, f) => n + (read.has(f.path) ? 1 : 0), 0);
+      if (mine) { litCats++; litFiles += mine; }
+      const n = c.files.length;
+      // 份量：開根號後映到 0–1，大類不會把小類擠到看不見
+      const weight = Math.sqrt(n / max);
+      const desc = atlasDesc(c.name);
+      const cls = ['home-atlas-tile'];
+      if (mine) cls.push('is-lit');
+      if (_atlasOpen === c.path) cls.push('is-open');
+      return `<button type="button" class="${cls.join(' ')}" data-cat="${escHtml(c.path)}" aria-expanded="${_atlasOpen === c.path}"`
+        + ` style="--w:${(0.6 + weight * 2.4).toFixed(2)};--ink:${Math.round(6 + weight * 22)}%"`
+        + ` title="${escHtml(c.name)}${desc ? '：' + escHtml(desc) : ''}">`
+        + `<span class="home-atlas-no">${String(i + 1).padStart(2, '0')}</span>`
+        + `<b class="home-atlas-name">${escHtml(atlasShortName(c.name))}</b>`
+        + (desc ? `<span class="home-atlas-desc">${escHtml(desc)}</span>` : '')
+        + `<span class="home-atlas-count">${n.toLocaleString()} 部${mine ? `<em>讀過 ${mine}</em>` : ''}</span>`
+        + `</button>`;
+    }).join('');
+
+    const allCats = canon.cats.length;
+    const pct = Math.round(litCats / allCats * 100);
+    const foot = `<div class="home-atlas-foot">`
+      + `<span class="home-atlas-trail"><i><b style="width:${pct}%"></b></i>`
+      + (litCats
+        ? `你在${escHtml(atlasShortName(canon.name))}走過 <strong>${litCats}</strong> / ${allCats} 類、${litFiles} 部`
+        : `${escHtml(atlasShortName(canon.name))}共 ${allCats} 類，從任何一類開始都好`)
+      + `</span>`
+      + (litCats < allCats ? `<button type="button" class="home-link" id="homeAtlasWander">${litCats ? '去一類還沒讀過的 →' : '替我挑一類 →'}</button>` : '')
+      + `</div>`;
+
+    $('homeAtlasSub').textContent = `${totalFiles.toLocaleString()} 部經論 · ${totalCats} 類，點一格看看裡面有什麼`;
+    body.innerHTML = tabs + `<div class="home-atlas-map" id="homeAtlasMap">${tiles}</div>` + foot;
+    box.hidden = false;
+    if (_atlasOpen) {
+      const tile = body.querySelector(`.home-atlas-tile[data-cat="${CSS.escape(_atlasOpen)}"]`);
+      if (tile) openAtlasPanel(tile, false); else _atlasOpen = null;
+    }
+  }
+
+  function atlasFindCat(path) {
+    for (const c of atlasModel()) {
+      const hit = c.cats.find(k => k.path === path);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /** 在被點那一格所在的「列尾」插入說明面板，版圖其他格不會被擠亂。 */
+  function openAtlasPanel(tile, scroll = true) {
+    const map = $('homeAtlasMap');
+    const cat = atlasFindCat(tile.dataset.cat);
+    if (!map || !cat) return;
+    map.querySelectorAll('.home-atlas-panel').forEach(el => el.remove());
+    map.querySelectorAll('.home-atlas-tile').forEach(el => {
+      const on = el === tile;
+      el.classList.toggle('is-open', on);
+      el.setAttribute('aria-expanded', String(on));
+    });
+    _atlasOpen = cat.path;
+
+    const read = atlasReadSet();
+    const mine = cat.files.filter(f => read.has(f.path));
+    const firsts = cat.files.filter(f => !read.has(f.path)).slice(0, 8);
+    const desc = atlasDesc(cat.name);
+    const item = (f, lit) => `<li><button type="button" class="home-atlas-book${lit ? ' is-read' : ''}" data-path="${escHtml(f.path)}">${escHtml(bookSlipTitle(f.name))}</button></li>`;
+    const panel = document.createElement('div');
+    panel.className = 'home-atlas-panel';
+    panel.setAttribute('role', 'region');
+    panel.setAttribute('aria-label', cat.name);
+    panel.innerHTML = `<div class="home-atlas-panel-head">`
+      + `<div><b>${escHtml(cat.name.replace(/^[0-9]+[\s_\-‧·.]*/, ''))}</b><span>${cat.files.length.toLocaleString()} 部</span></div>`
+      + `<button type="button" class="home-notice-close" data-atlas-close title="收起" aria-label="收起">✕</button></div>`
+      + (desc ? `<p class="home-atlas-panel-desc">${escHtml(desc)}</p>` : '')
+      + (mine.length ? `<div class="home-atlas-panel-label">你讀過</div><ul class="home-atlas-books">${mine.slice(0, 6).map(f => item(f, true)).join('')}</ul>` : '')
+      + (firsts.length ? `<div class="home-atlas-panel-label">${mine.length ? '還沒讀過的' : '從這幾部開始'}</div><ul class="home-atlas-books">${firsts.map(f => item(f, false)).join('')}</ul>` : '')
+      + `<div class="home-atlas-panel-actions">`
+      + `<button type="button" class="home-continue-btn" data-atlas-random>從這一類隨手翻一部</button>`
+      + `<button type="button" class="home-link" data-atlas-reveal="${escHtml(cat.path)}">在經目中看全部 ${cat.files.length.toLocaleString()} 部 →</button>`
+      + `</div>`;
+
+    // 找出和這一格同一列的最後一格，面板插在它後面（獨佔一整列）
+    const tiles = Array.from(map.querySelectorAll('.home-atlas-tile'));
+    const top = tile.offsetTop;
+    let last = tile;
+    for (const t of tiles) if (Math.abs(t.offsetTop - top) < 4) last = t;
+    last.after(panel);
+    if (scroll) requestAnimationFrame(() => panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  }
+
+  function closeAtlasPanel() {
+    _atlasOpen = null;
+    const map = $('homeAtlasMap');
+    if (!map) return;
+    map.querySelectorAll('.home-atlas-panel').forEach(el => el.remove());
+    map.querySelectorAll('.home-atlas-tile').forEach(el => { el.classList.remove('is-open'); el.setAttribute('aria-expanded', 'false'); });
+  }
+
+  /** 挑一個還沒讀過的部類展開（都讀過就隨便挑一類）。 */
+  function atlasWander() {
+    const map = $('homeAtlasMap');
+    if (!map) return;
+    const tiles = Array.from(map.querySelectorAll('.home-atlas-tile'));
+    const fresh = tiles.filter(t => !t.classList.contains('is-lit') && t.dataset.cat !== _atlasOpen);
+    const pool = fresh.length ? fresh : tiles;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (pick) { openAtlasPanel(pick); pick.focus({ preventScroll: true }); }
+  }
+
+  /** 「瀏覽全部經目」：有全景就捲到全景，否則打開側欄經目。 */
+  function scrollToHomeAtlas() {
+    const box = $('homeAtlas');
+    if (!box || box.hidden) return false;
+    box.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const first = box.querySelector('.home-atlas-tile');
+    if (first) setTimeout(() => first.focus({ preventScroll: true }), 400);
+    return true;
+  }
+
+  function setupHomeAtlas() {
+    const box = $('homeAtlas');
+    if (!box) return;
+    box.addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-canon]');
+      if (tab) {
+        storage.set(ATLAS_CANON_KEY, tab.dataset.canon);
+        _atlasOpen = null;
+        renderHomeAtlas();
+        return;
+      }
+      if (e.target.closest('[data-atlas-close]')) { closeAtlasPanel(); return; }
+      if (e.target.closest('#homeAtlasWander')) { atlasWander(); return; }
+      const book = e.target.closest('.home-atlas-book');
+      if (book) { openFile(book.dataset.path); return; }
+      if (e.target.closest('[data-atlas-random]')) {
+        const cat = atlasFindCat(_atlasOpen);
+        if (cat && cat.files.length) openFile(cat.files[Math.floor(Math.random() * cat.files.length)].path);
+        return;
+      }
+      const reveal = e.target.closest('[data-atlas-reveal]');
+      if (reveal) { revealInFileTree(reveal.dataset.atlasReveal); return; }
+      const tile = e.target.closest('.home-atlas-tile');
+      if (tile) {
+        if (tile.dataset.cat === _atlasOpen) closeAtlasPanel();
+        else openAtlasPanel(tile);
+      }
+    });
+    // 視窗寬度改變時列的斷點會變，重新安排面板位置
+    let rz = null;
+    window.addEventListener('resize', () => {
+      if (!_atlasOpen || state.currentFile) return;
+      clearTimeout(rz);
+      rz = setTimeout(() => {
+        const tile = document.querySelector(`.home-atlas-tile[data-cat="${CSS.escape(_atlasOpen)}"]`);
+        if (tile) openAtlasPanel(tile, false);
+      }, 150);
+    });
   }
 
   // ── 首頁搜尋 ─────────────────────────────────────────────
@@ -2582,7 +2872,8 @@
     const randomBtn = $('homeRandom');
     if (randomBtn) randomBtn.addEventListener('click', openRandomScripture);
     const browseBtn = $('homeBrowse');
-    if (browseBtn) browseBtn.addEventListener('click', openHomeBrowse);
+    if (browseBtn) browseBtn.addEventListener('click', () => { if (!scrollToHomeAtlas()) openHomeBrowse(); });
+    setupHomeAtlas();
 
     const noticeMore = $('homeNoticeMore');
     if (noticeMore) noticeMore.addEventListener('click', () => {
@@ -2645,6 +2936,7 @@
       populateSearchFolderSelect(state.treeData);
       renderFileTree();
       reconcileMovedLibraryFiles();
+      renderHomeAtlas();
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
       showToast('檔案目錄載入失敗，請重新整理', 'error');
@@ -8185,7 +8477,7 @@
   function renderRecentFilesList() {
     if (isLibraryOpen()) renderLibrary();
     // 首頁開著時（例如登入後同步回來），「繼續閱讀」跟著更新
-    if (!state.currentFile) renderHomeContinue();
+    if (!state.currentFile) { renderHomeContinue(); renderHomeAtlas(); }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -9010,7 +9302,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10896,7 +11188,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11264,7 +11556,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12154,7 +12446,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

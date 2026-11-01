@@ -246,3 +246,61 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
     assert.ok(!appJs.includes('看完整條目'));
   });
 });
+
+// ── 經藏全景（v4.8.0）────────────────────────────────────────
+function loadAtlasHelpers(treeData) {
+  const start = appJs.indexOf('  const ATLAS_DESC');
+  const end = appJs.indexOf('  const ATLAS_CANON_KEY');
+  assert.ok(start > 0 && end > start, '找不到經藏全景區段');
+  // eslint-disable-next-line no-new-func
+  return new Function('state', `${appJs.slice(start, end)}
+    return { atlasShortName, atlasDesc, atlasFilesUnder, atlasModel };`)({ treeData });
+}
+
+describe('首頁：經藏全景', () => {
+  const f = (p) => ({ type: 'file', name: p.split('/').pop().replace(/\.md$/, ''), path: p });
+  const tree = [
+    { type: 'directory', name: '01-大正藏', path: '01-大正藏', children: [
+      { type: 'directory', name: '01阿含部類', path: '01-大正藏/01阿含部類', children: [f('01-大正藏/01阿含部類/T0001《長阿含經》.md'), f('01-大正藏/01阿含部類/T0026《中阿含經》.md')] },
+      { type: 'directory', name: '03般若部類', path: '01-大正藏/03般若部類', children: [
+        { type: 'directory', name: '心經', path: '01-大正藏/03般若部類/心經', children: [f('01-大正藏/03般若部類/心經/T0251《般若波羅蜜多心經》.md')] },
+      ] },
+      { type: 'directory', name: '空的', path: '01-大正藏/空的', children: [] },
+      f('01-大正藏/散經.md'),
+    ] },
+    { type: 'directory', name: '辭典', path: 'dict:辭典', children: [f('dict:辭典/a.md')] },
+  ];
+
+  test('藏 → 部類兩層；子資料夾的經算進部類；空類略過；散經歸「其他」；辭典不算', () => {
+    const { atlasModel } = loadAtlasHelpers(tree);
+    const canons = atlasModel();
+    assert.equal(canons.length, 1);
+    assert.deepEqual(canons[0].cats.map(c => [c.name, c.files.length]), [['01阿含部類', 2], ['03般若部類', 1], ['其他', 1]]);
+  });
+
+  test('短名去掉編號與「部類」；導讀依關鍵字比對，比不到就空白', () => {
+    const { atlasShortName, atlasDesc } = loadAtlasHelpers([]);
+    assert.equal(atlasShortName('01阿含部類'), '阿含');
+    assert.equal(atlasShortName('02-卍續藏'), '卍續藏');
+    assert.equal(atlasShortName('12釋經論部類'), '釋經論');
+    assert.match(atlasDesc('03般若部類'), /心經/);
+    assert.match(atlasDesc('18律疏部類'), /註釋/);
+    assert.match(atlasDesc('11律部類'), /戒律/);
+    assert.equal(atlasDesc('自訂資料夾'), '');
+  });
+
+  test('index.html 有全景區塊；瀏覽全部經目改捲到全景；樣式只用主題變數', () => {
+    assert.ok(indexHtml.includes('id="homeAtlas"'));
+    assert.ok(indexHtml.includes('id="homeAtlasBody"'));
+    assert.match(appJs, /scrollToHomeAtlas\(\)\) openHomeBrowse\(\)/);
+    const a = styleCss.indexOf('/* ── 經藏全景');
+    const b = styleCss.indexOf('.welcome-footer {', a);
+    const block = styleCss.slice(a, b);
+    assert.ok(block.length > 500);
+    assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b/, '經藏全景不應寫死顏色');
+  });
+
+  test('手機載入時收合側欄後同步遮罩（首頁不會整片模糊）', () => {
+    assert.match(appJs, /state\.sidebarCollapsed = true;\n\s*\/\/ 遮罩[^\n]*\n\s*updateSidebarBackdrop\(\);\n\s*\}\n\s*await loadTree\(\);/);
+  });
+});
