@@ -223,11 +223,10 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
     }
   });
 
-  test('公告最多顯示三行，可展開', () => {
-    const m = styleCss.match(/\.home-notice-text\s*\{[^}]*\}/);
-    assert.ok(m, '找不到 .home-notice-text');
-    assert.match(m[0], /-webkit-line-clamp:\s*3/);
-    assert.match(styleCss, /\.home-notice\.expanded\s+\.home-notice-text/);
+  test('公告一則一行，預設只列前三則，可展開全部', () => {
+    assert.match(styleCss, /\.home-notice:not\(\.expanded\)\s+\.home-notice-item:nth-child\(n \+ 4\)\s*\{[^}]*display:\s*none/);
+    assert.match(appJs, /const HOME_NOTICE_COLLAPSED = 3;/);
+    assert.ok(indexHtml.includes('id="homeNoticeDate"'));
   });
 
   test('首頁公告用自己的收起紀錄（不沿用舊彈窗的知曉紀錄），收起後可再顯示', () => {

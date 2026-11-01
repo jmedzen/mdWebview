@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.8.1
+   mdWebview — Application Logic (app.js) v4.8.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2461,15 +2461,32 @@
     }
     const text = $('homeNoticeText');
     const more = $('homeNoticeMore');
-    text.textContent = ann.message;
+    // 一行一則；行首的「* 」「- 」「• 」是站長手打的項目符號，改由樣式畫
+    const items = ann.message.split(/\r?\n/).map(l => l.replace(/^\s*(?:[*\-•·]|\d+[.、)])\s+/, '').trim()).filter(Boolean);
+    text.replaceChildren(...items.map(t => {
+      const li = document.createElement('li');
+      li.className = 'home-notice-item';
+      li.textContent = t;
+      return li;
+    }));
+    box.classList.toggle('single', items.length === 1);
+    box.dataset.count = String(items.length);
+    const date = $('homeNoticeDate');
+    if (date) {
+      const d = ann.updatedAt ? new Date(ann.updatedAt) : null;
+      date.textContent = d && !isNaN(d) ? `${d.getMonth() + 1}月${d.getDate()}日更新` : '';
+    }
     box.classList.remove('expanded');
-    more.textContent = '展開';
+    more.textContent = noticeMoreLabel(items.length, false);
+    more.hidden = items.length <= HOME_NOTICE_COLLAPSED;
     box.hidden = false;
     renderHomeCue();
-    // 超過三行才需要「展開」。要等版面算好才量得到高度；首頁沒顯示時量不到，回首頁會再畫一次。
-    requestAnimationFrame(() => {
-      more.hidden = !(text.scrollHeight > text.clientHeight + 1);
-    });
+  }
+
+  const HOME_NOTICE_COLLAPSED = 3;
+
+  function noticeMoreLabel(count, open) {
+    return open ? '收起' : `展開全部 ${count} 則`;
   }
 
   /** 熱門來源（7d／30d／90d）轉成讀者看得懂的字。 */
@@ -2629,7 +2646,8 @@
     if (noticeMore) noticeMore.addEventListener('click', () => {
       const box = $('homeNotice');
       const open = box.classList.toggle('expanded');
-      noticeMore.textContent = open ? '收起' : '展開';
+      noticeMore.textContent = noticeMoreLabel(Number(box.dataset.count) || 0, open);
+      noticeMore.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
     const noticeClose = $('homeNoticeClose');
     if (noticeClose) noticeClose.addEventListener('click', () => {
@@ -9051,7 +9069,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10937,7 +10955,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11305,7 +11323,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12195,7 +12213,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.2';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
