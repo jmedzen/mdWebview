@@ -2678,7 +2678,7 @@ section.chunk.chunk-error {
 }
 
 .home-hero.has-verse .welcome-lotus {
-  font-size: 48px;
+  font-size: 60px;
   margin-bottom: 8px;
 }
 
@@ -2953,6 +2953,10 @@ section.chunk.chunk-error {
 @media (max-width: 768px) {
   .home-hero {
     padding: 84px 0 110px;
+  }
+
+  .home-hero.has-verse .welcome-lotus {
+    font-size: 48px;
   }
 
   .home-verse-text {

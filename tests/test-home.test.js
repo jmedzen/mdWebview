@@ -280,6 +280,9 @@ describe('首頁：入室版面', () => {
   test('蓮花仍是會漂浮的 emoji', () => {
     assert.ok(indexHtml.includes('<div class="welcome-lotus" aria-hidden="true">🪷</div>'));
     assert.match(styleCss, /\.welcome-lotus \{[^}]*animation: float/);
+    // 桌機 60px，手機 48px
+    assert.match(styleCss, /\.home-hero\.has-verse \.welcome-lotus \{\s*font-size: 60px;\s*margin-bottom: 8px;/);
+    assert.match(styleCss, /@media \(max-width: 768px\) \{\s*\.home-hero \{\s*padding: 84px 0 110px;\s*\}\s*\.home-hero\.has-verse \.welcome-lotus \{\s*font-size: 48px;/);
   });
 });
 
