@@ -95,6 +95,7 @@ function scanSections(text) {
       groups.push({
         headword: h.headword,
         level: h.level,
+        lineStart: h.lineStart,
         firstEntry: entries.length,
         lastEntry: entries.length
       });

@@ -83,6 +83,7 @@ describe('全文搜尋與 Bigram 倒排索引演算法測試', () => {
     assert.equal(result.entries.length, 2);
     assert.equal(result.groups.length, 1);
     assert.equal(result.groups[0].headword, '第一卷 本地分');
+    assert.equal(result.groups[0].lineStart, 1, 'group 需帶行號，大綱才能跳轉到上層標題');
     assert.equal(result.entries[0].headword, '第一節 五識相應地');
     assert.equal(result.entries[1].headword, '第二節 意地');
     assert.ok(result.totalBytes > 0);
