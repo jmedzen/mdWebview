@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.3.1
+ * @version 4.4.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -4919,6 +4919,19 @@ async function handleAnalyticsExport(req, res, query) {
 // docker-compose secret); otherwise one is generated per process and printed
 // to the console at boot. It is never written to config, the log buffer or
 // the jsonl access logs.
+// 後台只有一個「時區」設定（網站與經文庫頁）。選了特定地區時，報表信也改用它；
+// 「自動」是看後台的人的瀏覽器時區，伺服器無從得知，報表信就維持原本的時區。
+function syncReportsTimezone(tz) {
+  if (!tz || tz === 'auto') return;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch (_) { return; }
+  try {
+    const reports = require('./lib/reports');
+    if (reports.getSettings().timezone !== tz) reports.saveSettings({ timezone: tz });
+  } catch (err) {
+    Logger.warn('Reports', `Could not sync report timezone: ${err.message}`);
+  }
+}
+
 let setupTokenValue = null;
 function getSetupToken() {
   if (!setupTokenValue) {
@@ -5332,6 +5345,7 @@ const server = http.createServer((req, res) => {
         }
         if (timezone !== undefined) {
           config.settings.timezone = String(timezone).trim() || 'auto';
+          syncReportsTimezone(config.settings.timezone);
         }
         if (enableVersion !== undefined) {
           config.settings.enableVersion = !!enableVersion;

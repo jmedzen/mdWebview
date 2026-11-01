@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.3.1 | 最後更新：2026-11
+> 版本：v4.4.0 | 最後更新：2026-11
 
 ---
 
@@ -816,11 +816,24 @@ flowchart TD
 | 子群 | 內容 | 代表函式 |
 | :--- | :--- | :--- |
 | §21.1 | 面板開關與髒值追蹤 | `closeAdminModal`、`setAdminDirty`、`setupAdminDirtyTracking` |
-| §21.2 | 帳號與設定維護 | `setupChangePassword`、`setupConfigBackupAndRestore`、`setupPathDiagnostics`、`setupHardwareClearCache` |
+| §21.2 | 設定維護 | `setupConfigBackupAndRestore`、`setupPathDiagnostics`、`setupHardwareClearCache` |
 | §21.3 | 流量趨勢圖繪製 | `computeNiceScale`、`monotonePath`、`renderAnalyticsTrendChart` |
 | §21.4 | 硬體監控儀表板 | `formatBytes`、`formatUptime`、`loadHardwareStats`、`renderHardwareDashboard`、`setupHardwareIndexRebuild` |
 | §21.5 | 日誌與流量報表 | `openSettingsOverlay`、`filterLogEntries`、`fetchAdminLogs`、`loadAdminAnalytics`、`renderAdminAnalytics` |
 | §21.6 | 設定表單與 SEO | `setupAdminTabEvents`、`setupArticlePicker`、`setupSuggestFormEvents`、`loadSeoSettings`、`setupAdminSeoEvents` |
+
+#### 1.2 後台外框與頁面導覽（v4.4.0）
+
+後台是全頁畫面（`#adminSettingsOverlay > .admin-shell`）：左欄 `#adminNav` 依「網站／讀者與登入／外部服務／營運／系統」分組列出頁面，右側一次只顯示一頁。手機（≤768px）先顯示分組清單（`data-view="list"`），點進去才看頁面，左上「‹ 後台」回清單。
+
+- **頁面＝導覽項目**：每個 `.admin-nav-item` 以 `data-pane` 指向內部分頁（`ADMIN_PANES`：config、seo、users、accountsys、backup…），`data-cards` 列出這頁要顯示的卡片（`data-card`），留白表示整個分頁。`showAdminPage()` 只在換分頁時呼叫 `runAdminPaneLoader()` 載入資料；同分頁換頁只切換卡片顯示（`.admin-page-hidden`）。分頁內帶 `data-admin-pages` 的元素只在列出的頁面出現。
+- **網址與記憶**：目前頁面寫在 `#admin/<頁面>`（`history.replaceState`，不增加上一頁紀錄），重新整理後 `checkAdminStatus()` 會直接開回該頁；關閉後台時清掉。閱讀用的網址解析（`parseUrlParams`）不認得 `#admin`，因此不受影響。沒有網址時打開「總覽」（手機停在分組清單）。
+- **燈號**：`renderAdminCardLight()` 之後 `updateAdminNavLights()` 把每頁卡片中最嚴重的燈帶到導覽上。尚未載入過的分頁沒有燈。
+- **總覽**（`adminPaneOverview`）：待辦＝所有卡片中亮紅、黃燈的項目（`collectAdminTodos()`，另加管理員沒有 Email），數字與 7 天趨勢來自 `/api/admin/analytics`，系統健康來自 `/api/admin/hardware`，各頁狀態來自導覽燈號。打開後台時 `preloadAdminLights()` 在背後載入 SEO、使用者、帳號系統、報表的資料，燈號與待辦不必逐頁點開才出現。
+- **底部儲存列**（`#adminSaveBar`）：導覽項目的 `data-save` 決定這頁屬於哪一組設定（config、seo、suggest、registration、legal、reports）。使用者碰過的欄位記下原值（`adminDirtyFields`），與原值不同才算未儲存；儲存鈕觸發原本的表單 submit 或卡片按鈕（`.admin-legacy-save`，已藏起），各組存檔成功時呼叫 `markAdminSaved(key)`。不用列的欄位加 `data-no-dirty`。寄信、Turnstile、登入方式是「填金鑰→驗證」流程，按鈕留在卡片裡。
+- **時區**：只有「網站與經文庫」一個時區。設成特定地區時，伺服器 `syncReportsTimezone()` 同步給報表信；設成「自動」時報表維持原本的時區。報表頁只顯示目前時區。
+- **單機模式**：只屬於公開網站的頁面以 `data-web-only` 藏起，`isAdminNavAvailable()` 也會擋下。
+- **新增卡片**：在對應分頁加 `data-card`，再把 key 加進某個導覽項目的 `data-cards`；`tests/test-admin-shell.test.js` 會檢查每張卡片都屬於某個頁面。
 
 §21.3 是唯一可獨立測試的子群：`computeNiceScale` 與 `monotonePath` 為純函式，不碰網路與 `state`，由 `tests/test-analytics-chart.test.js` 以原始碼抽取方式實際執行驗證。
 
@@ -984,7 +997,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.3.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.4.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
