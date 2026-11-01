@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.5.0
+   mdWebview — Application Logic (app.js) v4.5.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2103,6 +2103,24 @@
     return verses[((localDayIndex(date) % n) + n) % n] || null;
   }
 
+  /**
+   * 經句分成兩行，像對聯一樣在中間的標點處斷開（左右字數最接近的那個分句邊界）。
+   * 只有一個分句或很短（10 字內）的經句就一行。
+   */
+  function verseLines(text) {
+    const t = String(text || '').trim();
+    const clauses = t.match(/[^，。；：、！？]+[，。；：、！？]*/g) || [t];
+    if (clauses.length < 2 || Array.from(t).length <= 10) return [t];
+    const total = Array.from(t).length;
+    let best = 1, bestDiff = Infinity, acc = 0;
+    for (let k = 1; k < clauses.length; k++) {
+      acc += Array.from(clauses[k - 1]).length;
+      const diff = Math.abs(total - 2 * acc);
+      if (diff < bestDiff) { bestDiff = diff; best = k; }
+    }
+    return [clauses.slice(0, best).join(''), clauses.slice(best).join('')];
+  }
+
   /** 經句轉成搜尋字串：去掉標點與空白，太長就截前 20 字（全文搜尋以二字詞為單位，夠用了）。 */
   function verseSearchText(text) {
     return Array.from(String(text || '').replace(/[\s，。、；：？！「」『』（）《》〈〉,.;:?!"'()]/g, '')).slice(0, 20).join('');
@@ -2167,7 +2185,14 @@
       if (hero) hero.classList.remove('has-verse');
       return;
     }
-    $('homeVerseText').textContent = verse.text;
+    const textEl = $('homeVerseText');
+    textEl.textContent = '';
+    for (const line of verseLines(verse.text)) {
+      const span = document.createElement('span');
+      span.className = 'home-verse-line';
+      span.textContent = line;
+      textEl.appendChild(span);
+    }
     $('homeVerseSource').textContent = verse.source ? `《${verse.source}》` : '';
     const btn = $('homeVerseOpen');
     btn.textContent = verse.path ? '讀這一段 →' : '在經藏中搜尋 →';
@@ -2209,11 +2234,17 @@
     const recentEl = $('homeRecent');
     const rest = list.slice(1, 4);
     if (rest.length) {
-      recentEl.innerHTML = '<span class="home-recent-label">最近讀過</span>' + rest.map(r => {
+      recentEl.innerHTML = '<div class="home-recent-label">最近讀過</div><div class="home-recent-grid">' + rest.map(r => {
         const p = libraryProgressPct(r);
-        const tag = p === null ? '' : `<em>${p >= 99 ? '讀完' : `${p}%`}</em>`;
-        return `<button type="button" class="home-recent-item" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath)}">${escHtml(libraryTitleOf(r))}${tag}</button>`;
-      }).join('');
+        const pctText = p === null ? '' : (p >= 99 ? '讀完' : `${p}%`);
+        const bar = p === null ? '' : `<i class="home-recent-bar"><b style="width:${Math.max(0, Math.min(100, p))}%"></b></i>`;
+        const folder = libraryFolderOf(r.filePath).split(" / ").pop();
+        return `<button type="button" class="home-recent-item" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''} title="${escHtml(r.filePath)}">`
+          + `<span class="home-recent-name">${escHtml(libraryTitleOf(r))}</span>`
+          + (folder ? `<span class="home-recent-folder">${escHtml(folder)}</span>` : '')
+          + `<span class="home-recent-meta">${bar}<em>${pctText}</em></span>`
+          + `</button>`;
+      }).join('') + '</div>';
       recentEl.hidden = false;
     } else {
       recentEl.innerHTML = '';
@@ -2271,8 +2302,9 @@
         def.hidden = !w.excerpt;
         const more = $('homeWordMore');
         const others = words.slice(1);
-        more.innerHTML = `<button type="button" class="home-link" data-path="${escHtml(w.path || '')}" data-line="${Number(w.line) || ''}">看完整條目 →</button>`
-          + (others.length ? `<span class="home-word-others">換一個：${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('、')}</span>` : '');
+        // 詞條標題本身就能點開，下面只放「換一個」
+        more.innerHTML = others.length ? `<span class="home-word-others">換一個：${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('、')}</span>` : '';
+        more.hidden = !others.length;
         wordBox.hidden = false;
       } else {
         wordBox.hidden = true;
@@ -8185,7 +8217,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10061,7 +10093,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10429,7 +10461,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11319,7 +11351,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.5.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

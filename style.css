@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.5.0
+   mdWebview — Style System (style.css) v4.5.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1808,7 +1808,10 @@ section.chunk.chunk-error {
 }
 
 .home-greet {
-  align-self: stretch;
+  align-self: center;
+  width: 100%;
+  max-width: 720px;
+  box-sizing: border-box;
   text-align: left;
   font-family: var(--cjk-serif), serif;
   font-size: calc(13.5px * var(--ui-font-scale, 1));
@@ -1863,27 +1866,33 @@ section.chunk.chunk-error {
 
 .home-hero.has-verse .welcome-title {
   font-family: var(--cjk-serif), serif;
-  font-size: calc(15px * var(--ui-font-scale, 1));
+  font-size: calc(14px * var(--ui-font-scale, 1));
   font-weight: 500;
   color: var(--text-muted);
-  letter-spacing: 0.5em;
-  text-indent: 0.5em;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
 }
 
 .home-verse {
-  margin: 26px 0 0;
+  margin: 30px auto 0;
+  max-width: 640px;
 }
 
+/* 經句：字距適中（太寬時標點會被拉開），行高留足，讓兩行像對聯一樣穩 */
 .home-verse-text {
   margin: 0;
   font-family: var(--cjk-serif), serif;
-  font-size: calc(30px * var(--ui-font-scale, 1));
-  font-weight: 500;
-  line-height: 1.6;
+  font-size: calc(27px * var(--ui-font-scale, 1));
+  font-weight: 400;
+  line-height: 1.75;
   color: var(--heading-color);
-  letter-spacing: 0.3em;
-  text-indent: 0.3em;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
   text-wrap: balance;
+}
+
+.home-verse-line {
+  display: block;
 }
 
 .home-verse-src {
@@ -1891,12 +1900,17 @@ section.chunk.chunk-error {
   flex-wrap: wrap;
   justify-content: center;
   align-items: baseline;
-  gap: 4px 12px;
-  margin-top: 12px;
+  gap: 4px 18px;
+  margin-top: 14px;
   font-family: var(--cjk-serif), serif;
   font-size: calc(13px * var(--ui-font-scale, 1));
   color: var(--text-muted);
-  letter-spacing: 0.15em;
+  letter-spacing: 0.08em;
+}
+
+.home-verse-src .home-link {
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.04em;
 }
 
 .home-link {
@@ -1927,22 +1941,22 @@ section.chunk.chunk-error {
 .home-continue {
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 20px 24px;
-  box-shadow: 0 14px 44px var(--shadow-color);
+  border-radius: 16px;
+  padding: 22px 26px 18px;
+  box-shadow: 0 10px 36px var(--shadow-color);
 }
 
 .home-label {
-  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
   color: var(--text-muted);
-  letter-spacing: 0.2em;
-  margin-bottom: 6px;
+  letter-spacing: 0.16em;
+  margin-bottom: 8px;
 }
 
 .home-continue-row {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 24px;
 }
 
 .home-continue-main {
@@ -1951,23 +1965,27 @@ section.chunk.chunk-error {
 }
 
 .home-continue-title {
-  font-size: calc(18px * var(--ui-font-scale, 1));
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(19px * var(--ui-font-scale, 1));
   font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
   color: var(--text-primary);
   overflow-wrap: anywhere;
 }
 
 .home-continue-sub {
-  font-size: calc(13px * var(--ui-font-scale, 1));
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
   color: var(--text-muted);
-  margin-top: 3px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .home-progress {
-  height: 4px;
-  border-radius: 4px;
+  height: 3px;
+  border-radius: 3px;
   background: var(--border);
-  margin-top: 10px;
+  margin-top: 12px;
   overflow: hidden;
 }
 
@@ -1985,9 +2003,10 @@ section.chunk.chunk-error {
   color: var(--bg-primary);
   border: 0;
   border-radius: 999px;
-  padding: 9px 18px;
-  font-size: calc(14px * var(--ui-font-scale, 1));
+  padding: 9px 20px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
   font-weight: 600;
+  letter-spacing: 0.06em;
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -1996,17 +2015,26 @@ section.chunk.chunk-error {
   background: var(--accent-hover);
 }
 
+/* 最近讀過：分隔線下方一排小卡，每篇各自一張（篇名、所在資料夾、進度） */
 .home-recent {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 14px;
-  margin-top: 12px;
-  font-size: calc(13px * var(--ui-font-scale, 1));
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle, var(--border));
   color: var(--text-muted);
 }
 
-.home-recent-item,
+.home-recent-label {
+  margin-bottom: 10px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.16em;
+}
+
+.home-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .home-word-alt {
   background: none;
   border: 0;
@@ -2016,13 +2044,78 @@ section.chunk.chunk-error {
   cursor: pointer;
 }
 
-.home-recent-item em {
-  font-style: normal;
-  color: var(--text-muted);
-  margin-left: 6px;
+.home-recent-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px 11px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
 .home-recent-item:hover,
+.home-recent-item:focus-visible {
+  border-color: var(--accent);
+  background: var(--hover-bg);
+  transform: translateY(-1px);
+}
+
+.home-recent-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-recent-folder {
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-recent-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.home-recent-bar {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.home-recent-bar b {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+.home-recent-meta em {
+  flex: none;
+  font-style: normal;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .home-word-alt:hover {
   color: var(--accent);
 }
@@ -2095,30 +2188,33 @@ section.chunk.chunk-error {
 .home-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 34px;
-  margin-top: 26px;
+  gap: 48px;
+  margin-top: 40px;
 }
 
 .home-columns.single {
   grid-template-columns: 1fr;
 }
 
+/* 兩欄標題同高、同一條細線，左右對齊 */
 .home-sec-title {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  margin: 0 0 12px;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
   font-family: var(--cjk-serif), serif;
-  font-size: calc(15px * var(--ui-font-scale, 1));
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
   font-weight: 600;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.14em;
   color: var(--text-primary);
 }
 
 .home-sec-title small {
-  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
   font-weight: 400;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--text-muted);
 }
 
@@ -2127,25 +2223,42 @@ section.chunk.chunk-error {
   border: 0;
   padding: 0;
   font-family: var(--cjk-serif), serif;
-  font-size: calc(22px * var(--ui-font-scale, 1));
-  letter-spacing: 0.2em;
+  font-size: calc(21px * var(--ui-font-scale, 1));
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
   color: var(--bold-color);
   cursor: pointer;
   text-align: left;
 }
 
+.home-word-head:hover {
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  text-decoration-thickness: 1px;
+}
+
+/* 釋義最多四行，詳情點進條目看 */
 .home-word-def {
-  margin: 6px 0 0;
-  font-size: calc(14.5px * var(--ui-font-scale, 1));
-  line-height: 1.95;
+  margin: 10px 0 0;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+  text-align: justify;
   color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .home-word-more {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
   font-size: calc(12.5px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
@@ -2160,13 +2273,28 @@ section.chunk.chunk-error {
 }
 
 .home-rec-list .suggest-item {
-  gap: 8px;
-  padding: 9px 2px;
+  gap: 10px;
+  padding: 10px 4px;
   background: none;
   border: 0;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px dashed var(--border-subtle, var(--border));
   border-radius: 0;
   box-shadow: none;
+}
+
+.home-rec-list .suggest-item:last-child {
+  border-bottom: 0;
+}
+
+.home-rec-list .suggest-item-icon {
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  opacity: 0.75;
+}
+
+.home-rec-list .suggest-item-name {
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 
 .home-rec-list .suggest-item:hover,
@@ -2179,7 +2307,8 @@ section.chunk.chunk-error {
 
 .home-rec-meta {
   flex: none;
-  font-size: calc(12px * var(--ui-font-scale, 1));
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.06em;
   color: var(--text-muted);
 }
 
@@ -2193,9 +2322,14 @@ section.chunk.chunk-error {
   }
 
   .home-verse-text {
-    font-size: calc(23px * var(--ui-font-scale, 1));
-    letter-spacing: 0.2em;
-    text-indent: 0.2em;
+    font-size: calc(22px * var(--ui-font-scale, 1));
+    letter-spacing: 0.1em;
+    text-indent: 0.1em;
+  }
+
+  .home-recent-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
   }
 
   .home-continue {
@@ -2213,7 +2347,8 @@ section.chunk.chunk-error {
 
   .home-columns {
     grid-template-columns: 1fr;
-    gap: 26px;
+    gap: 36px;
+    margin-top: 32px;
   }
 }
 
