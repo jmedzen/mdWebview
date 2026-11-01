@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.8.3 | 最後更新：2026-11
+> 版本：v4.8.4 | 最後更新：2026-11
 
 ---
 
@@ -1010,7 +1010,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.8.3'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.8.4'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1448,6 +1448,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | :--- | :--- |
 | 登入 | 同一「帳號＋來源 IP」連續失敗 5 次後鎖 1、2、4… 分鐘（最多 15）；同一 IP 15 分鐘 20 次失敗暫停；設定 Turnstile 時失敗 3 次後要人機驗證 |
 | 登入（分散式） | 同一帳號不分來源 15 分鐘內累計 25 次失敗要求 Turnstile，100 次暫停該帳號密碼登入；別人亂試只會鎖到他自己的 IP，鎖不到本人。失敗日誌只記帳號編號，不記輸入的帳號欄 |
+| 敏感操作 | 改登入 Email、綁定／解除第三方登入、刪帳號都要「10 分鐘內重新驗證過」（登入本身算一次）；前端 `withReauth()` 遇到 `REAUTH_REQUIRED` 會先跳驗證視窗再重試，綁定前以 `GET /api/me/reauth` 先確認 |
 | 註冊 | 隱藏欄位、填表少於 2 秒、Turnstile、每 IP 每小時 3 次、全站每小時上限（後台可調）、拒絕的信箱網域 |
 | 寄信 | 每個信箱每小時 3 封、每 IP 每小時 10 封；回應一律相同，不洩露帳號是否存在 |
 
