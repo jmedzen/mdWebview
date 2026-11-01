@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.7.0
+   mdWebview — Style System (style.css) v4.7.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -2413,6 +2413,19 @@ section.chunk.chunk-error {
 .home-notice-more {
   margin-top: 4px;
   font-size: calc(12.5px * var(--ui-font-scale, 1));
+}
+
+.home-notice-reopen-row {
+  width: 100%;
+  max-width: 720px;
+  text-align: right;
+}
+
+.home-notice-reopen {
+  margin-top: 10px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
 }
 
 .home-notice-close {

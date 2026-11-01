@@ -230,8 +230,10 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
     assert.match(styleCss, /\.home-notice\.expanded\s+\.home-notice-text/);
   });
 
-  test('收起公告沿用舊的知曉 key，公告改字才會再出現', () => {
-    assert.match(appJs, /const HOME_NOTICE_KEY = STORAGE_KEYS\.ANNOUNCEMENT_ACK;/);
+  test('首頁公告用自己的收起紀錄（不沿用舊彈窗的知曉紀錄），收起後可再顯示', () => {
+    assert.match(appJs, /const HOME_NOTICE_KEY = STORAGE_KEYS\.HOME_NOTICE_DISMISSED;/);
+    assert.match(appJs, /HOME_NOTICE_DISMISSED: 'mdWebview-home-notice-dismissed'/);
+    assert.ok(indexHtml.includes('id="homeNoticeReopen"'));
   });
 
   test('/api/suggest-list 帶每日經文；後台可存經文清單', () => {

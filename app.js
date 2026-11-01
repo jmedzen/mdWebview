@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.7.0
+   mdWebview — Application Logic (app.js) v4.7.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -87,6 +87,7 @@
     FORCE_FULL: 'mdWebview-force-full',
     SEARCH_MODE: 'mdWebview-search-mode',
     ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack',
+    HOME_NOTICE_DISMISSED: 'mdWebview-home-notice-dismissed',
     // 安裝引導狀態。DISMISSED 存「以後再說」的時間戳（用來算靜默期），
     // INSTALLED 存 '1'（一旦安裝就永久不再提）。
     INSTALL_DISMISSED: 'mdWebview-install-dismissed',
@@ -2033,10 +2034,11 @@
   // ═══════════════════════════════════════════════════════════
 
   /**
-   * 首頁公告收起紀錄。沿用舊彈窗「知曉」的 key 與欄位（announcement、announcementUpdatedAt），
-   * 已經按過知曉的讀者，同一則公告不會在首頁再出現一次。
+   * 首頁公告收起紀錄（只記在首頁按 ✕ 的那一則）。
+   * 不沿用舊彈窗的「知曉」紀錄：那是在彈窗裡按的，讀者並沒有選擇「不在首頁看到」，
+   * 沿用會讓已讀過彈窗的人在首頁完全看不到公告。
    */
-  const HOME_NOTICE_KEY = STORAGE_KEYS.ANNOUNCEMENT_ACK;
+  const HOME_NOTICE_KEY = STORAGE_KEYS.HOME_NOTICE_DISMISSED;
 
   const CN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
   const CN_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
@@ -2413,7 +2415,12 @@
     const box = $('homeNotice');
     if (!box) return;
     const ann = homeAnnouncement();
-    if (!ann.enabled || !ann.message || isHomeNoticeDismissed(ann)) {
+    const reopen = $('homeNoticeReopen');
+    const hasNotice = ann.enabled && !!ann.message;
+    const dismissed = hasNotice && isHomeNoticeDismissed(ann);
+    // 收起後留一個小小的「公告」連結，想再看隨時點得回來
+    if (reopen) reopen.hidden = !dismissed;
+    if (!hasNotice || dismissed) {
       box.hidden = true;
       return;
     }
@@ -2587,7 +2594,12 @@
     if (noticeClose) noticeClose.addEventListener('click', () => {
       const ann = homeAnnouncement();
       storage.setJson(HOME_NOTICE_KEY, { announcement: ann.message, announcementUpdatedAt: ann.updatedAt });
-      $('homeNotice').hidden = true;
+      renderHomeNotice();
+    });
+    const noticeReopen = $('homeNoticeReopen');
+    if (noticeReopen) noticeReopen.addEventListener('click', () => {
+      storage.remove(HOME_NOTICE_KEY);
+      renderHomeNotice();
     });
 
     const wordBox = $('homeWord');
@@ -8998,7 +9010,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10884,7 +10896,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11252,7 +11264,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12142,7 +12154,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.7.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
