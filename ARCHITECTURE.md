@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.8.1 | 最後更新：2026-11
+> 版本：v4.8.2 | 最後更新：2026-11
 
 ---
 
@@ -471,7 +471,7 @@ v4.5.0 起首頁不再有「每日訊息」彈窗，公告與推薦都直接放�
 2. **蓮花、站名與每日經文**：經句依讀者當地日期輪替（`pickDailyVerse()`，同一天固定）。經句有路徑就開該經，沒有就用經句在全文搜尋。清單在後台「推薦清單 → 每日經文」設定（`settings.suggestList.dailyVerses`，一行一句：`經句｜出處｜路徑`）；從未設定時用 `lib/home.js` 的 `DEFAULT_DAILY_VERSES`，清空就不顯示經句。
 3. **首頁搜尋（v4.7.0）**：經句下方一個大搜尋框。打字即時比對經名（`homeTitleMatches()`，從 `/api/tree` 攤平，去掉書名號與空白，多詞都要出現，經名開頭相符的排前面），最多六筆；最後一列與 Enter 是全文搜尋（`activateSearchPanel()`）。首頁按「/」直接聚焦。下面兩顆按鈕：「隨手翻一卷」（隨機開一部）、「瀏覽全部經目」（打開左側檔案瀏覽器）。
 4. **我的書架（v4.7.0）**：`recentFiles` 前八篇（略過辭典條目）立在一塊木板上：書脊直書經名（`bookSlipTitle()` 取書名號內經名），書衣是傳統顏色（磁青、栗殼、黛綠、赭石、墨灰，各混兩成主題色），高矮厚薄依路徑固定（`bookTone()`／`bookSize()`），最後一本斜靠；已讀比例從下往上加深，最近讀的那本插著絲帶。指到（或 Tab 到）哪本就抽出來，右側說明（`renderHomeShelfInfo()`）跟著換；點書脊直接打開。手機上說明在上、書架在下。沒有紀錄時整塊隱藏。
-5. **公告**：首頁一行，最多顯示三行（CSS `-webkit-line-clamp: 3`），超過時出現「展開」。按 ✕ 收起後，同一則公告不再出現，直到公告文字或更新時間改變。
+5. **公告**（v4.8.2 改版）：圓角卡片、左側主題色細邊；標題列「公告」＋更新日期＋✕。公告文字一行一則，行首手打的「* 」「- 」「• 」會去掉，改由樣式畫小圓點；只有一則時當一般段落。預設先列幾則由後台「首頁公告 → 預設顯示則數」決定（`settings.announcementCollapsedCount`，預設 3，0 = 全部顯示；改這個不會更新 `announcementUpdatedAt`，已收起的讀者不會被重新打擾）；超過的項目被標上 `is-extra`，收合時由 CSS 隱藏，並出現「展開全部 N 則」。按 ✕ 收起後，同一則公告不再出現，直到公告文字或更新時間改變。
 6. **每日一詞**（附釋義摘要，`lib/home.js` `readDictExcerpt()` 依 section index 位元組位置讀前 4KB）與**今日推薦**（站長推薦／本週熱門，附人次）左右兩欄；手機上下排。
 
 ```mermaid
@@ -480,7 +480,7 @@ flowchart TD
     Fetch --> Data["items（推薦、熱門、每日一詞＋excerpt）\nverses（每日經文）\nannouncement*"]
     Data --> Render["renderHome()"]
     Render --> Notice{"enableAnnouncement 且有文字，\n且未被收起？"}
-    Notice -- "是" --> ShowNotice["顯示公告（最多三行）"]
+    Notice -- "是" --> ShowNotice["顯示公告（預設前三則）"]
     Notice -- "否" --> HideNotice["不顯示"]
 ```
 
@@ -492,7 +492,7 @@ flowchart TD
 ### 首頁「入室」版面（v4.8.0）
 
 - 第一屏（`.home-hero`，`min-height: calc(100svh - 70px)`）只留問候、浮動蓮花 emoji、每日經文、搜尋框與兩顆快捷鈕，背後一圈主題色柔光；底部的 `#homeScrollCue`「向下」會捲到下方第一個有內容的區塊，下面什麼都沒有時隱藏（`renderHomeCue()`）。
-- 往下是書架、公告（膠囊）、每日一詞＋今日推薦；區塊標題置中、上方一條主題色細線，不再用卡片框住。經句與區塊標題同為 `--cjk-serif` 字重 600。
+- 往下是書架、公告（卡片）、每日一詞＋今日推薦；區塊標題置中、上方一條主題色細線，不再用卡片框住。經句與區塊標題同為 `--cjk-serif` 字重 600。
 - 書架：書衣是明亮的粉彩（天藍／蜜桃／薄荷／奶黃／淡紫，各混一成主題色），書名深墨色。**手機（≤768px）不畫書架**，`renderHomeContinue()` 同時輸出 `.home-shelf-list`：一列一部經（`.home-item`，≥72px，整列可點、`data-file`／`data-continue` 沿用書架的點擊處理），最近讀的有主題色邊框與「繼續讀」；桌機隱藏清單、手機隱藏書架與說明欄。
 
 ---
@@ -1010,7 +1010,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.8.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.8.2'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

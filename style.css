@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.8.1
+   mdWebview — Style System (style.css) v4.8.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -2392,52 +2392,81 @@ section.chunk.chunk-error {
 }
 
 .home-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
   margin-top: 22px;
-  padding: 12px 4px;
-  border-bottom: 1px dashed var(--border);
-  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  padding: 14px 20px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
   color: var(--text-secondary);
 }
 
+.home-notice-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
 .home-notice-tag {
-  flex: none;
   color: var(--accent);
   font-weight: 600;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.3em;
   white-space: nowrap;
-  line-height: 1.7;
 }
 
-.home-notice-body {
+.home-notice-date {
   flex: 1;
-  min-width: 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 最多三行；超過時由 app.js 顯示「展開」 */
+/* 一則一行，行首小圓點；預設只列前三則，其餘由「展開全部」顯示 */
 .home-notice-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.7;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.home-notice.expanded .home-notice-text {
-  display: block;
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
-  overflow: visible;
+.home-notice-item {
+  position: relative;
+  padding: 3px 0 3px 18px;
+  line-height: 1.75;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.home-notice-item::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0.95em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.home-notice.single .home-notice-item {
+  padding-left: 0;
+}
+
+.home-notice.single .home-notice-item::before {
+  display: none;
+}
+
+.home-notice:not(.expanded) .home-notice-item.is-extra {
+  display: none;
 }
 
 .home-notice-more {
-  margin-top: 4px;
-  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  display: block;
+  margin: 6px 0 0 18px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
 }
 
 .home-notice-reopen-row {
@@ -2651,7 +2680,7 @@ section.chunk.chunk-error {
   }
 }
 
-/* ── 首頁「入室」版面（v4.8.1）─────────────────────────────────
+/* ── 首頁「入室」版面（v4.8.2）─────────────────────────────────
    第一屏只留一句經、一個搜尋框與柔光，像走進禪室；往下滑才是書架與今日。
    區塊標題上方一條細線，內容置中、不再用卡片框住。
    手機沒有書架圖：改成一列一部經的大按鈕清單（整列可點，高度 72px 以上）。 */
@@ -2822,16 +2851,8 @@ section.chunk.chunk-error {
 }
 
 .home-notice {
-  justify-content: center;
-  align-items: center;
+  max-width: 680px;
   margin-top: 96px;
-  padding: 14px 28px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-
-.home-notice-body {
-  text-align: center;
 }
 
 .home-columns {
@@ -3011,7 +3032,7 @@ section.chunk.chunk-error {
   }
 
   .home-notice {
-    padding: 14px 20px;
+    padding: 12px 16px 10px;
   }
 }
 

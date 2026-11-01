@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.8.1
+ * @version 4.8.2
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -4304,7 +4304,8 @@ async function handleSuggestList(req, res) {
       announcement: {
         enabled: !!config.settings.enableAnnouncement,
         message: config.settings.announcementMessage || '',
-        updatedAt: config.settings.announcementUpdatedAt || 0
+        updatedAt: config.settings.announcementUpdatedAt || 0,
+        collapsed: config.settings.announcementCollapsedCount ?? 3
       }
     });
   } catch (err) {
@@ -5273,7 +5274,7 @@ const server = http.createServer((req, res) => {
       const {
         mdRoot, defaultFontSize, defaultTheme, siteName, siteUrl, timezone, createIfNotExists,
         enableVersion, version, enableDownload, downloadUrl, suggestList, maxProximityDistance, defaultSearchMode,
-        dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage,
+        dictionaryEnabled, dictionaryPath, enableAnnouncement, announcementMessage, announcementCollapsedCount,
         seoSiteDescription, seoKeywords, seoOgImage, seoRobotsIndex, seoBlockAiBots, seoDisallowPaths,
         googleSiteVerification, bingSiteVerification, baiduSiteVerification, seoEnableSearchBox, seoHomepageSummary
       } = incomingSettings;
@@ -5378,6 +5379,11 @@ const server = http.createServer((req, res) => {
             config.settings.announcementMessage = cleanMsg;
             config.settings.announcementUpdatedAt = Date.now();
           }
+        }
+        if (announcementCollapsedCount !== undefined) {
+          const n = parseInt(announcementCollapsedCount, 10);
+          // 只是顯示方式，不算公告內容改變：不更新 announcementUpdatedAt，已收起公告的讀者不會被重新打擾
+          if (Number.isFinite(n)) config.settings.announcementCollapsedCount = Math.max(0, Math.min(20, n));
         }
         if (maxProximityDistance !== undefined) {
           const dist = parseInt(maxProximityDistance);
