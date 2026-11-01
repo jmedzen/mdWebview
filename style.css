@@ -5657,6 +5657,22 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   flex: 1;
 }
 
+.admin-savebar .modal-btn[hidden] {
+  display: none;
+}
+
+/* 導覽：有未儲存變更的頁面在名稱後加一個「未儲存」小標 */
+.admin-nav-item.has-unsaved .admin-nav-label::after {
+  content: '未儲存';
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  vertical-align: 1px;
+}
+
 .admin-savebar .modal-btn {
   min-width: 84px;
 }

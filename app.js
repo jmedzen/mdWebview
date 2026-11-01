@@ -10099,7 +10099,18 @@
   /** 第一次碰到欄位時記下原值（orig 可由呼叫端給，用於程式改值前）。 */
   function rememberAdminField(el, orig) {
     if (adminDirtyFields.has(el)) return;
-    adminDirtyFields.set(el, { orig: orig === undefined ? adminFieldValue(el) : orig, save: adminCurrentSaveKey() });
+    adminDirtyFields.set(el, { orig: orig === undefined ? adminFieldValue(el) : orig, save: adminCurrentSaveKey(), page: adminCurrentPage });
+  }
+
+  /** 真的改過（與原值不同）的欄位。 */
+  function adminDirtyEntries() {
+    return [...adminDirtyFields].filter(([el, v]) => adminFieldValue(el) !== v.orig);
+  }
+
+  /** 這個分頁裡有沒有還沒儲存的欄位：有的話切回來時不要重新載入，以免蓋掉使用者打的字。 */
+  function adminPaneHasDirty(paneKey) {
+    const pane = $(ADMIN_PANES[paneKey]);
+    return !!pane && adminDirtyEntries().some(([el]) => pane.contains(el));
   }
 
   function adminDirtyCount(save) {
@@ -10116,9 +10127,36 @@
     if (!bar) return;
     const save = adminCurrentSaveKey();
     const n = save ? adminDirtyCount(save) : 0;
-    bar.hidden = n === 0;
-    $('adminSaveBarState').textContent = `有 ${n} 項未儲存`;
-    $('adminSaveBarSave').textContent = ADMIN_SAVE_LABEL[save] || '儲存';
+    const dirty = adminDirtyEntries();
+    // 導覽列標出哪些頁面有未儲存的變更
+    const dirtyPages = new Set(dirty.map(([, v]) => v.page));
+    adminNavItems().forEach(b => b.classList.toggle('has-unsaved', dirtyPages.has(b.dataset.page)));
+    const revert = $('adminSaveBarRevert');
+    const saveBtn = $('adminSaveBarSave');
+    if (n > 0) {
+      delete bar.dataset.goto;
+      bar.hidden = false;
+      revert.hidden = false;
+      $('adminSaveBarState').textContent = `有 ${n} 項未儲存`;
+      saveBtn.textContent = ADMIN_SAVE_LABEL[save] || '儲存';
+      return;
+    }
+    // 目前這頁沒有，但別頁有：列不要消失，改成提醒並帶回那一頁。
+    const other = dirty.find(([, v]) => v.save && v.save !== save);
+    if (other) {
+      const page = other[1].page;
+      const navBtn = adminNavItem(page);
+      const label = navBtn && navBtn.querySelector('.admin-nav-label');
+      const count = dirty.filter(([, v]) => v.save === other[1].save).length;
+      bar.dataset.goto = page;
+      bar.hidden = false;
+      revert.hidden = true;
+      $('adminSaveBarState').textContent = `「${label ? label.textContent : '其他頁面'}」有 ${count} 項未儲存`;
+      saveBtn.textContent = '回去儲存';
+      return;
+    }
+    delete bar.dataset.goto;
+    bar.hidden = true;
   }
 
   /** 某一組設定存檔成功：清掉這組的未儲存紀錄。 */
@@ -10130,6 +10168,8 @@
   }
 
   function saveAdminCurrentPage() {
+    const bar = $('adminSaveBar');
+    if (bar && bar.dataset.goto) { showAdminPage(bar.dataset.goto, { focus: true }); return; }
     const save = adminCurrentSaveKey();
     if (!save) return;
     if (ADMIN_SAVE_FORMS[save]) {
@@ -11759,7 +11799,8 @@
     adminCurrentPage = page;
     setAdminHash(page);
     refreshAdminSaveBar();
-    if (paneChanged || opts.reload) runAdminPaneLoader(paneKey);
+    // 分頁裡還有沒儲存的欄位時不重新載入，否則伺服器的舊值會蓋掉使用者剛改的內容。
+    if ((paneChanged || opts.reload) && !adminPaneHasDirty(paneKey)) runAdminPaneLoader(paneKey);
     if (opts.focus && isAdminNarrow()) {
       const back = $('adminBackBtn');
       if (back) back.focus({ preventScroll: true });
@@ -14181,6 +14222,18 @@
 
   const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定對外網址（PUBLIC_BASE_URL 或首頁權威 URL）', MAIL: '尚未設定寄信（MAIL_PROVIDER、MAIL_API_KEY、MAIL_FROM）' };
 
+  let adminRegModeKnown = '';
+  let adminLegalVersionKnown = null;
+
+  /** 條款沒發布只有在開放註冊（含邀請制）時才要提醒；關閉註冊的站不需要。 */
+  function refreshAdminLegalLight() {
+    if (adminLegalVersionKnown === null) return;
+    const v = adminLegalVersionKnown;
+    const needed = adminRegModeKnown && adminRegModeKnown !== 'closed';
+    setAdminCardLight('legal', v ? 'ok' : needed ? 'warn' : 'off',
+      v ? `已發布第 ${v} 版` : needed ? '尚未發布，開放註冊前應先發布' : '尚未發布（關閉註冊時不需要）');
+  }
+
   async function loadAdminRegistration() {
     const r = await accountApi('/api/admin/registration');
     if (!r.ok) return;
@@ -14188,8 +14241,12 @@
     $('adminRegCap').value = r.data.hourlyCap;
     $('adminRegDomains').value = (r.data.disposableDomains || []).join('\n');
     const blockers = (r.data.blockers || []).map(b => REG_BLOCKER_TEXT[b] || b);
-    setAdminCardLight('registration', blockers.length ? 'bad' : r.data.mode === 'closed' ? 'warn' : 'ok',
-      blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'closed' ? '已關閉註冊' : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    adminRegModeKnown = r.data.mode;
+    // 關閉註冊是站長的選擇：灰燈、不列入待辦；開放時缺寄信或網址才是紅燈。
+    const closed = r.data.mode === 'closed';
+    setAdminCardLight('registration', closed ? 'off' : blockers.length ? 'bad' : 'ok',
+      closed ? '已關閉註冊' : blockers.length ? `註冊暫停中：${blockers.join('；')}` : r.data.mode === 'invite' ? '需邀請碼註冊' : '開放註冊');
+    refreshAdminLegalLight();
     showBox($('adminRegBlockers'), blockers.length ? `註冊與寄信類功能暫停中：${blockers.join('；')}` : '');
   }
 
@@ -14368,7 +14425,7 @@
     const text = notable || (worst.level === 'off' ? '' : ADMIN_LIGHT_LABEL[worst.level]);
     light.title = text || '這個區塊沒有需要監控的狀態';
     light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[worst.level]}${text ? `，${text}` : ''}`);
-    label.textContent = worst.level === 'off' ? '' : text;
+    label.textContent = text;
     updateAdminNavLights();
   }
 
@@ -14401,9 +14458,11 @@
       !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
     L('cfgbackup', 'off');
     const robots = val('seoRobotsIndex');
-    L('indexing', !robots ? 'warn' : val('seoSiteDescription') ? 'ok' : 'warn',
-      !robots ? '已禁止搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
-    L('og', val('seoOgImage') ? 'ok' : 'warn', val('seoOgImage') ? '已設定分享預覽圖' : '還沒有設定分享預覽圖');
+    // 不開放搜尋引擎收錄是站長的選擇（有些站本來就不要被搜尋到），顯示灰燈、不列入待辦。
+    L('indexing', !robots ? 'off' : val('seoSiteDescription') ? 'ok' : 'warn',
+      !robots ? '未開放搜尋引擎收錄' : val('seoSiteDescription') ? '允許收錄，已填網站描述' : '允許收錄，但還沒有填網站描述');
+    // 留白時伺服器會用內建的 /og-preview.png，所以不算問題。
+    L('og', 'ok', val('seoOgImage') ? '已設定分享預覽圖' : '使用內建的分享預覽圖');
     const verified = ['googleSiteVerification', 'bingSiteVerification', 'baiduSiteVerification'].filter(id => val(id)).length;
     L('webmaster', verified ? 'ok' : 'off', verified ? `已填 ${verified} 個驗證碼` : '');
     L('schema', val('seoEnableSearchBox') ? 'ok' : 'off', val('seoEnableSearchBox') ? '已啟用站內搜尋框結構化資料' : '');
@@ -14587,7 +14646,8 @@
     list.innerHTML = '';
     const active = r.data.providers.filter(p => p.active).length;
     const idle = r.data.providers.filter(p => p.configured && !p.active).length;
-    setAdminCardLight('sso', active ? 'ok' : 'warn', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
+    // 第三方登入是選用的：沒啟用是灰燈，不列入待辦。
+    setAdminCardLight('sso', active ? 'ok' : 'off', active ? `${active} 個登入方式啟用中${idle ? `，${idle} 個已關閉` : ''}` : idle ? '金鑰已設定但全部關閉' : '還沒有啟用任何第三方登入（選用）');
     for (const p of r.data.providers) {
       const section = document.createElement('section');
       section.className = 'sso-provider';
@@ -15010,7 +15070,7 @@
   }
 
   function renderAdminTurnstile(t) {
-    setAdminCardLight('turnstile', t.configured ? 'ok' : 'warn', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
+    setAdminCardLight('turnstile', t.configured ? 'ok' : 'off', t.configured ? '已設定' : '未設定（選用，用來擋機器人註冊）');
     const yes = text => `<span class="account-badge">${text}</span>`;
     const no = text => `<span class="account-badge danger">${text}</span>`;
     const last = t.lastResult;
@@ -15074,7 +15134,8 @@
     $('adminLegalPrivacy').value = r.data.privacy || '';
     $('adminLegalTerms').value = r.data.terms || '';
     $('adminLegalMajor').checked = false;
-    setAdminCardLight('legal', r.data.version ? 'ok' : 'warn', r.data.version ? `已發布第 ${r.data.version} 版` : '尚未發布，開放註冊前應先發布');
+    adminLegalVersionKnown = r.data.version || 0;
+    refreshAdminLegalLight();
     $('adminLegalVersion').textContent = r.data.version ? `第 ${r.data.version} 版 · ${fmtDateTime(r.data.updatedAt)}` : '尚未發布';
   }
 
