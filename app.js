@@ -2227,10 +2227,32 @@
     return h % 5;
   }
 
-  function homeBookCover(item, cls) {
-    const title = libraryTitleOf(item);
-    return `<span class="home-book-cover tone-${bookTone(item.filePath)}${cls ? ' ' + cls : ''}" aria-hidden="true">`
-      + `<span class="home-book-slip">${escHtml(bookSlipTitle(title))}</span></span>`;
+  /** 書脊尺寸（0–4）：依路徑固定，書架上才會高矮厚薄不一。 */
+  function bookSize(path) {
+    let h = 7;
+    for (const ch of String(path || '')) h = (h * 131 + ch.codePointAt(0)) >>> 0;
+    return h % 5;
+  }
+
+  let _homeShelfItems = [];
+
+  /** 書架右側的說明：指到哪一本就顯示哪一本，預設是最近讀的那本。 */
+  function renderHomeShelfInfo(idx) {
+    const info = $('homeShelfInfo');
+    const item = _homeShelfItems[idx];
+    if (!info || !item) return;
+    const pct = libraryProgressPct(item);
+    const latest = idx === 0;
+    const done = pct !== null && pct >= 99;
+    const label = latest ? (done ? '剛讀完' : '上次讀到') : `最近讀過${homeAgo(item.ts) ? ' · ' + homeAgo(item.ts) : ''}`;
+    const sub = [libraryFolderOf(item.filePath)];
+    if (latest && homeAgo(item.ts)) sub.push(homeAgo(item.ts));
+    info.innerHTML = `<div class="home-label">${escHtml(label)}</div>`
+      + `<div class="home-continue-title">${escHtml(libraryTitleOf(item))}</div>`
+      + `<div class="home-continue-sub">${escHtml(sub.filter(Boolean).join(' · '))}</div>`
+      + homeBookProgress(pct)
+      + `<button type="button" class="home-continue-btn" data-file="${escHtml(item.filePath)}"${item.line ? ` data-line="${Number(item.line) || ''}"` : ''}${latest ? ' data-continue="1"' : ''}>${done ? '再讀一次' : (latest ? '繼續讀' : '打開')} →</button>`;
+    $('homeShelf').querySelectorAll('.home-spine').forEach((el, i) => el.classList.toggle('is-current', i === idx));
   }
 
   function homeBookProgress(pct) {
@@ -2239,38 +2261,33 @@
     return `<span class="home-book-pct"><i><b style="width:${w}%"></b></i><em>${pct >= 99 ? '讀完' : `${pct}%`}</em></span>`;
   }
 
-  /** 我的書架：第一本放大附「繼續讀」，其餘幾本排成一列封面。 */
+  /**
+   * 我的書架：最近讀過的經立在書架上（書脊直書經名，高矮厚薄依經名固定，最後一本斜靠），
+   * 最近讀的那本插著一條書籤絲帶。指到哪本，右側就說明哪本；點書脊直接打開。
+   */
   function renderHomeContinue() {
     const box = $('homeContinue');
     const shelf = $('homeShelf');
     if (!box || !shelf) return;
-    const list = homeRecentReads().slice(0, 7);
-    const top = list[0];
-    if (!top) { box.hidden = true; shelf.innerHTML = ''; return; }
+    const list = homeRecentReads().slice(0, 8);
+    _homeShelfItems = list;
+    if (!list.length) { box.hidden = true; shelf.innerHTML = ''; return; }
 
-    const pct = libraryProgressPct(top);
-    const sub = [libraryFolderOf(top.filePath)];
-    const ago = homeAgo(top.ts);
-    if (ago) sub.push(ago);
-    const lineAttr = (r) => r.line ? ` data-line="${Number(r.line) || ''}"` : '';
-    const featured = `<div class="home-feature">`
-      + `<button type="button" class="home-book is-feature" data-continue="1" data-file="${escHtml(top.filePath)}"${lineAttr(top)} title="${escHtml(top.filePath)}">${homeBookCover(top)}</button>`
-      + `<div class="home-feature-info">`
-      +   `<div class="home-label">${pct !== null && pct >= 99 ? '剛讀完' : '上次讀到'}</div>`
-      +   `<div class="home-continue-title">${escHtml(libraryTitleOf(top))}</div>`
-      +   `<div class="home-continue-sub">${escHtml(sub.filter(Boolean).join(' · '))}</div>`
-      +   homeBookProgress(pct)
-      +   `<button type="button" class="home-continue-btn" data-continue="1" data-file="${escHtml(top.filePath)}"${lineAttr(top)}>${pct !== null && pct >= 99 ? '再讀一次' : '繼續讀'} →</button>`
-      + `</div></div>`;
-    const rest = list.slice(1).map(r => {
-      const title = libraryTitleOf(r);
-      return `<button type="button" class="home-book" data-file="${escHtml(r.filePath)}"${lineAttr(r)} title="${escHtml(r.filePath)}">`
-        + homeBookCover(r)
-        + `<span class="home-book-name">${escHtml(title)}</span>`
-        + homeBookProgress(libraryProgressPct(r))
+    const spines = list.map((r, i) => {
+      const pct = libraryProgressPct(r);
+      const cls = [`home-spine`, `tone-${bookTone(r.filePath)}`, `size-${bookSize(r.filePath)}`];
+      if (i === 0) cls.push('is-latest');
+      if (i === list.length - 1 && list.length >= 4) cls.push('is-leaning');
+      const read = pct === null ? '' : `<span class="home-spine-read" style="height:${Math.max(0, Math.min(100, pct))}%"></span>`;
+      return `<button type="button" class="${cls.join(' ')}" role="listitem" data-idx="${i}" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''}${i === 0 ? ' data-continue="1"' : ''} title="${escHtml(libraryTitleOf(r))}" aria-label="${escHtml(libraryTitleOf(r))}${pct === null ? '' : `，讀到 ${pct}%`}">`
+        + read
+        + `<span class="home-spine-title">${escHtml(bookSlipTitle(libraryTitleOf(r)))}</span>`
+        + (i === 0 ? '<i class="home-spine-ribbon" aria-hidden="true"></i>' : '')
         + `</button>`;
     }).join('');
-    shelf.innerHTML = featured + (rest ? `<div class="home-shelf-books">${rest}</div>` : '');
+    shelf.innerHTML = `<div class="home-shelf-stage"><div class="home-shelf-books" role="list">${spines}</div><div class="home-shelf-plank" aria-hidden="true"></div></div>`
+      + `<div class="home-shelf-info" id="homeShelfInfo" aria-live="polite"></div>`;
+    renderHomeShelfInfo(0);
     box.hidden = false;
   }
 
@@ -2488,6 +2505,16 @@
     });
 
     const shelf = $('homeShelf');
+    if (shelf) {
+      // 指到（或 Tab 到）哪本書，右側就說明哪本；離開書架回到最近讀的那本
+      const preview = (e) => {
+        const sp = e.target.closest('.home-spine');
+        if (sp) renderHomeShelfInfo(Number(sp.dataset.idx) || 0);
+      };
+      shelf.addEventListener('mouseover', preview);
+      shelf.addEventListener('focusin', preview);
+      shelf.addEventListener('mouseleave', () => renderHomeShelfInfo(0));
+    }
     if (shelf) shelf.addEventListener('click', (e) => {
       const b = e.target.closest('[data-file]');
       if (!b) return;
