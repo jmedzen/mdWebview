@@ -167,6 +167,49 @@ describe('首頁：經句分兩行', () => {
   });
 });
 
+// 取出單一函式原始碼（到同層的「\n  }\n」為止）
+function fnSource(name) {
+  const start = appJs.indexOf(`  function ${name}(`);
+  assert.ok(start > 0, `找不到 ${name}`);
+  return appJs.slice(start, appJs.indexOf('\n  }\n', start) + 4);
+}
+
+describe('首頁：搜尋與書架', () => {
+  // eslint-disable-next-line no-new-func
+  const h = new Function(['bookSlipTitle', 'bookTone', 'homeSearchKey', 'homeTitleMatches'].map(fnSource).join('\n')
+    + '\nreturn { bookSlipTitle, bookTone, homeSearchKey, homeTitleMatches };')();
+
+  test('題簽取書名號內的經名；沒有書名號時去掉經號', () => {
+    assert.equal(h.bookSlipTitle('T0251《般若波羅蜜多心經》'), '般若波羅蜜多心經');
+    assert.equal(h.bookSlipTitle('X1234a 金剛經疏'), '金剛經疏');
+    assert.equal(h.bookSlipTitle('金剛般若經贊述釋記3'), '金剛般若經贊述釋記3');
+  });
+
+  test('封面色依路徑固定，介於 0–4', () => {
+    const t = h.bookTone('a/b.md');
+    assert.equal(h.bookTone('a/b.md'), t);
+    assert.ok(t >= 0 && t <= 4);
+  });
+
+  test('經名比對：去掉書名號與空白、多詞都要出現、經名開頭相符的排前面', () => {
+    const files = [
+      { name: 'T1579《瑜伽師地論》', folder: '14瑜伽部類' },
+      { name: 'T0251《般若波羅蜜多心經》', folder: '03般若部類' },
+      { name: 'T0220《大般若波羅蜜多經》', folder: '03般若部類' }
+    ].map(f => ({ ...f, path: f.name + '.md', key: h.homeSearchKey(f.name + ' ' + f.folder) }));
+    assert.deepEqual(h.homeTitleMatches(files, '般若').map(f => f.name), ['T0251《般若波羅蜜多心經》', 'T0220《大般若波羅蜜多經》']);
+    assert.deepEqual(h.homeTitleMatches(files, '般若 心經').map(f => f.name), ['T0251《般若波羅蜜多心經》']);
+    assert.deepEqual(h.homeTitleMatches(files, '《瑜伽》').map(f => f.name), ['T1579《瑜伽師地論》']);
+    assert.deepEqual(h.homeTitleMatches(files, '  '), []);
+  });
+
+  test('首頁有搜尋框、隨手翻一卷、我的書架', () => {
+    for (const id of ['homeSearch', 'homeSearchInput', 'homeSearchResults', 'homeRandom', 'homeBrowse', 'homeShelf']) {
+      assert.ok(indexHtml.includes(`id="${id}"`), `缺少 #${id}`);
+    }
+  });
+});
+
 describe('首頁：沒有彈窗，公告在首頁一行', () => {
   test('每日訊息彈窗已移除', () => {
     assert.ok(!indexHtml.includes('announcementModalOverlay'));

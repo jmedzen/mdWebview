@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.5.1
+   mdWebview — Style System (style.css) v4.6.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -1929,7 +1929,7 @@ section.chunk.chunk-error {
   text-decoration: underline;
 }
 
-.home-continue,
+.home-shelf,
 .home-notice,
 .home-columns {
   width: 100%;
@@ -1938,13 +1938,6 @@ section.chunk.chunk-error {
   text-align: left;
 }
 
-.home-continue {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 22px 26px 18px;
-  box-shadow: 0 10px 36px var(--shadow-color);
-}
 
 .home-label {
   font-size: calc(11.5px * var(--ui-font-scale, 1));
@@ -1953,16 +1946,7 @@ section.chunk.chunk-error {
   margin-bottom: 8px;
 }
 
-.home-continue-row {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
 
-.home-continue-main {
-  flex: 1;
-  min-width: 0;
-}
 
 .home-continue-title {
   font-family: var(--cjk-serif), serif;
@@ -1981,21 +1965,7 @@ section.chunk.chunk-error {
   font-variant-numeric: tabular-nums;
 }
 
-.home-progress {
-  height: 3px;
-  border-radius: 3px;
-  background: var(--border);
-  margin-top: 12px;
-  overflow: hidden;
-}
 
-.home-progress i {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--accent);
-  border-radius: 4px;
-}
 
 .home-continue-btn {
   flex: none;
@@ -2015,26 +1985,6 @@ section.chunk.chunk-error {
   background: var(--accent-hover);
 }
 
-/* 最近讀過：分隔線下方一排小卡，每篇各自一張（篇名、所在資料夾、進度） */
-.home-recent {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle, var(--border));
-  color: var(--text-muted);
-}
-
-.home-recent-label {
-  margin-bottom: 10px;
-  font-size: calc(11.5px * var(--ui-font-scale, 1));
-  letter-spacing: 0.16em;
-}
-
-.home-recent-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
 .home-word-alt {
   background: none;
   border: 0;
@@ -2044,56 +1994,325 @@ section.chunk.chunk-error {
   cursor: pointer;
 }
 
-.home-recent-item {
+
+
+
+
+
+
+
+
+.home-word-alt:hover {
+  color: var(--accent);
+}
+
+/* ── 首頁搜尋（經藏之門）──────────────────────────────────────
+   首頁最重要的事是「找到要讀的經」，所以搜尋框放在經句正下方，
+   打字即時比對經名；Enter 改做全文搜尋。 */
+.home-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  margin: 30px auto 0;
+  padding: 0 14px 0 18px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 28px var(--shadow-color);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  text-align: left;
+}
+
+.home-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent), 0 10px 32px var(--shadow-color);
+}
+
+.home-search-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.home-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 50px;
+  border: 0;
+  outline: 0;
+  background: none;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(15px * var(--ui-font-scale, 1));
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.home-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.home-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.home-search-kbd {
+  flex: none;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: 12px/1.5 ui-monospace, monospace;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.home-search:focus-within .home-search-kbd {
+  visibility: hidden;
+}
+
+.home-search-results {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px var(--shadow-color);
+}
+
+.home-search-opt {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.home-search-opt.active,
+.home-search-opt:hover {
+  background: var(--hover-bg);
+}
+
+.home-search-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.home-search-folder {
+  flex: none;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.home-search-opt.is-fulltext {
+  margin-top: 4px;
+  border-top: 1px solid var(--border-subtle, var(--border));
+  border-radius: 0 0 9px 9px;
+}
+
+.home-search-opt.is-fulltext .home-search-name {
+  color: var(--accent);
+}
+
+.home-quick {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.home-chip {
+  padding: 6px 14px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.home-chip:hover,
+.home-chip:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+
+/* ── 我的書架 ────────────────────────────────────────────────
+   最近讀過的經做成線裝書：封面色依經名固定、右側裝訂線、左上角直書題簽。
+   第一本放大，旁邊是「上次讀到」與繼續讀按鈕；其餘排成一列，手機可橫滑。 */
+.home-shelf {
+  margin-top: 8px;
+}
+
+.home-shelf-row {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 3px;
+  gap: 22px;
+}
+
+.home-feature {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 22px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 10px 36px var(--shadow-color);
+}
+
+.home-feature-info {
+  flex: 1;
   min-width: 0;
-  padding: 10px 12px 11px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle, var(--border));
-  border-radius: 10px;
+}
+
+.home-feature-info .home-continue-btn {
+  margin-top: 14px;
+}
+
+.home-shelf-books {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 20px;
+}
+
+.home-book {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  flex: none;
+  width: 96px;
+  padding: 0;
+  background: none;
+  border: 0;
   font: inherit;
   text-align: left;
   color: var(--text-primary);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
-.home-recent-item:hover,
-.home-recent-item:focus-visible {
-  border-color: var(--accent);
-  background: var(--hover-bg);
-  transform: translateY(-1px);
+.home-book.is-feature {
+  width: auto;
 }
 
-.home-recent-name {
+.home-book-cover {
+  --book: color-mix(in srgb, #2d4060 80%, var(--accent) 20%); /* 磁青 */
+  position: relative;
+  display: block;
+  width: 96px;
+  height: 132px;
+  border-radius: 3px 6px 6px 3px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 30%, rgba(0, 0, 0, 0.08)),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 4px),
+    var(--book);
+  box-shadow:
+    inset -9px 0 0 rgba(0, 0, 0, 0.14),
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 6px 14px var(--shadow-color);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+/* 右側裝訂線：四眼釘法的線 */
+.home-book-cover::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 4px;
+  width: 1px;
+  background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0 10px, transparent 10px 26px);
+  opacity: 0.6;
+}
+
+.home-book.is-feature .home-book-cover {
+  width: 104px;
+  height: 144px;
+}
+
+/* 傳統書衣顏色（磁青、栗殼、黛綠、赭石、墨灰），各混入兩成主題色，換主題時仍協調 */
+.home-book-cover.tone-1 { --book: color-mix(in srgb, #6e3b2b 80%, var(--accent) 20%); }
+.home-book-cover.tone-2 { --book: color-mix(in srgb, #3c5547 80%, var(--accent) 20%); }
+.home-book-cover.tone-3 { --book: color-mix(in srgb, #8c5e34 80%, var(--accent) 20%); }
+.home-book-cover.tone-4 { --book: color-mix(in srgb, #4a4b55 80%, var(--accent) 20%); }
+
+/* 題簽：左上角一條米色紙，直書經名 */
+.home-book-slip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  max-height: calc(100% - 26px);
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 7px 3px;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  background: #f7f1e1;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
   font-family: var(--cjk-serif), serif;
-  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-size: 11.5px;
+  line-height: 1.15;
+  letter-spacing: 0.12em;
+  color: #2f2a22;
+}
+
+.home-book.is-feature .home-book-slip {
+  font-size: 12.5px;
+}
+
+.home-book:hover .home-book-cover,
+.home-book:focus-visible .home-book-cover {
+  transform: translateY(-5px) rotate(-1.2deg);
+  box-shadow: inset -9px 0 0 rgba(0, 0, 0, 0.14), 0 14px 26px var(--shadow-color);
+}
+
+.home-book-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
   line-height: 1.45;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--text-secondary);
 }
 
-.home-recent-folder {
-  font-size: calc(11px * var(--ui-font-scale, 1));
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.home-book:hover .home-book-name {
+  color: var(--accent);
 }
 
-.home-recent-meta {
+.home-book-pct {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 5px;
+  width: 100%;
 }
 
-.home-recent-bar {
+.home-book-pct i {
   flex: 1;
   height: 2px;
   border-radius: 2px;
@@ -2101,14 +2320,13 @@ section.chunk.chunk-error {
   overflow: hidden;
 }
 
-.home-recent-bar b {
+.home-book-pct b {
   display: block;
   height: 100%;
   background: var(--accent);
-  opacity: 0.8;
 }
 
-.home-recent-meta em {
+.home-book-pct em {
   flex: none;
   font-style: normal;
   font-size: calc(11px * var(--ui-font-scale, 1));
@@ -2116,8 +2334,12 @@ section.chunk.chunk-error {
   font-variant-numeric: tabular-nums;
 }
 
-.home-word-alt:hover {
-  color: var(--accent);
+.home-feature-info .home-book-pct {
+  margin-top: 12px;
+}
+
+.home-feature-info .home-book-pct i {
+  height: 3px;
 }
 
 .home-notice {
@@ -2327,22 +2549,38 @@ section.chunk.chunk-error {
     text-indent: 0.1em;
   }
 
-  .home-recent-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+  .home-search-input {
+    font-size: 16px; /* iOS 小於 16px 會自動放大畫面 */
   }
 
-  .home-continue {
-    padding: 16px 18px;
+  .home-search-kbd {
+    display: none;
   }
 
-  .home-continue-row {
-    flex-wrap: wrap;
+  .home-feature {
+    gap: 16px;
   }
 
-  .home-continue-btn {
-    width: 100%;
-    padding: 11px 18px;
+  .home-book-cover.is-feature,
+  .home-book.is-feature .home-book-cover {
+    width: 84px;
+    height: 116px;
+  }
+
+  .home-shelf-books {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding: 6px 2px 10px;
+    scrollbar-width: none;
+  }
+
+  .home-shelf-books::-webkit-scrollbar {
+    display: none;
+  }
+
+  .home-book {
+    scroll-snap-align: start;
   }
 
   .home-columns {
