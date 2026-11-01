@@ -409,11 +409,20 @@ describe('password hashing (edge cases)', () => {
 
   test('length rules count characters (not bytes) and cap at 256', () => {
     assert.ok(passwords.validatePassword('1234567'), '7 chars is too short');
-    assert.equal(passwords.validatePassword('12345678'), null);
+    assert.equal(passwords.validatePassword('71925384'), null);
     assert.equal(passwords.validatePassword('密碼密碼密碼密碼'), null, '8 CJK characters count as 8');
-    assert.equal(passwords.validatePassword('a'.repeat(256)), null);
-    assert.ok(passwords.validatePassword('a'.repeat(257)));
+    assert.equal(passwords.validatePassword('ab'.repeat(128)), null);
+    assert.ok(passwords.validatePassword('ab'.repeat(129)));
     for (const bad of ['', null, undefined, 12345678, {}, []]) assert.ok(passwords.validatePassword(bad), String(bad));
+  });
+
+  test('very common and trivial passwords are refused; admins need 12 characters', () => {
+    for (const bad of ['password', 'Password123', '12345678', '123456789', '87654321', 'aaaaaaaa', 'QWERTYUIOP', 'iloveyou', 'mdwebview']) {
+      assert.match(passwords.validatePassword(bad) || '', /太常見/, bad);
+    }
+    assert.equal(passwords.validatePassword('purple-tractor-92'), null);
+    assert.match(passwords.validatePassword('short-pass9', { admin: true }), /至少需要 12/);
+    assert.equal(passwords.validatePassword('longer-admin-pass', { admin: true }), null);
   });
 
   test('malformed or hostile stored hashes verify as false instead of throwing', async () => {

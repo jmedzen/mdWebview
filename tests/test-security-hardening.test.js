@@ -255,7 +255,7 @@ describe('B/C2. HTTP endpoints', () => {
     try {
       const setup = (extra) => request('/api/admin/setup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'intruder', password: 'password123', siteUrl: 'https://x.example', ...extra })
+        body: JSON.stringify({ username: 'intruder', password: 'intruder-pass-123', siteUrl: 'https://x.example', ...extra })
       });
       const missing = await setup({});
       assert.equal(missing.statusCode, 403);
