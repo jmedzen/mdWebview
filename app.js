@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.4.2
+   mdWebview — Application Logic (app.js) v4.8.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -7,7 +7,7 @@
    §1  Init & Boot Hooks         loadSettings, initUI, URL params
    §2  Site Name & Footer        updateSiteNameUI, updateWelcomeFooter
    §3  Suggest List              fetchSuggestList, renderSuggestList
-   §4  Announcement Modal        checkAndShowAnnouncementModal, openAnnouncementModal
+   §4  Home                      renderHome：問候與節氣、每日經文、繼續閱讀、首頁公告、每日一詞、今日推薦
    §5  File Tree                 buildTree, renderTree, sortTree
    §6  Markdown Viewer           openFile, virtualized rendering, footnotes
    §6.5 Media Lightbox           openMediaLightbox, zoom, pan, pinch
@@ -87,11 +87,15 @@
     FORCE_FULL: 'mdWebview-force-full',
     SEARCH_MODE: 'mdWebview-search-mode',
     ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack',
+    HOME_NOTICE_DISMISSED: 'mdWebview-home-notice-dismissed',
     // 安裝引導狀態。DISMISSED 存「以後再說」的時間戳（用來算靜默期），
     // INSTALLED 存 '1'（一旦安裝就永久不再提）。
     INSTALL_DISMISSED: 'mdWebview-install-dismissed',
     INSTALL_INSTALLED: 'mdWebview-install-done',
-    SYNC_META: 'mdWebview-sync-meta'
+    SYNC_META: 'mdWebview-sync-meta',
+    // 劃重點（每處一筆，隨書籤同步）與「找不到原處」的標記（只存本機）
+    HIGHLIGHTS: 'mdWebview-user-highlights',
+    HIGHLIGHTS_LOST: 'mdWebview-highlights-lost'
   };
 
   // ── 安全 LocalStorage 存取工具 (Safe Storage Helper) ───────
@@ -425,9 +429,9 @@
    * @property {boolean}      isAdmin            - 目前登入者是否為管理員（session 在 HttpOnly cookie，前端不保存 token）
    * @property {Object}       account            - 帳號狀態：config（/api/auth/config）、user（/api/me）
    *
-   * ── 公告彈窗 ──────────────────────────────────────────────────
-   * @property {Object|null}  _announcementModalContext  - 公告彈窗最後一次開啟時的資料快照（用於判斷是否需要重新顯示）
+   * ── 首頁 ──────────────────────────────────────────────────────
    * @property {Object[]|null} _cachedSuggestItems        - 最後一次 /api/suggest-list 回傳的推薦項目快取
+   * @property {Object|null}  _homeData                   - 最後一次 /api/suggest-list 回傳的整份資料（經文、公告…）
    */
   const state = {
     currentFile: null,
@@ -445,6 +449,7 @@
     isMobile: isMobile,
     recentFiles: safeJsonParse('mdWebview-user-recentfiles', []),
     bookmarks: safeJsonParse('mdWebview-user-bookmarks', []),
+    highlights: safeJsonParse('mdWebview-user-highlights', []),
     sidebarTab: 'files',
     sidebarCollapsed: false,
     treeData: null,
@@ -731,7 +736,7 @@
       storage.set(STORAGE_KEYS.FONT_SIZE, state.fontSize);
     }
 
-    updateWelcomeShortcuts();
+    renderHome();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
     // 帳號：不等網路，避免拖慢第一次開啟經文。
@@ -742,7 +747,7 @@
       state.sidebarCollapsed = true;
     }
     await loadTree();
-    fetchSuggestList(true); // Load recommend & hot list for homepage and check landing announcement modal
+    fetchSuggestList(); // 首頁的每日經文、公告、每日一詞與推薦（不再開站彈窗）
 
     // Open file from URL query or hash on first load; if home/frontpage specified, show welcome screen; if none, attempt restoring last read progress
     const urlInfo = getFileFromURL();
@@ -1785,6 +1790,7 @@
         }
 
         updateWelcomeFooter(data.settings);
+        renderHomeNotice();
       }
     } catch (err) {
       console.error('Error checking admin status:', err);
@@ -1799,9 +1805,6 @@
     $$('.logo-text').forEach(el => el.textContent = state.siteName);
     $$('.welcome-title').forEach(el => el.textContent = state.siteName);
 
-    const modalTitle = $('announcementModalTitle');
-    if (modalTitle) modalTitle.textContent = `${state.siteName}線上閱讀`;
-
     if (!state.currentFile) {
       document.title = `${state.siteName} — 佛典經論閱讀器`;
     }
@@ -1814,20 +1817,6 @@
 
     const isVersionEnabled = settings.enableVersion === true || settings.enableVersion === 'true';
     const isDownloadEnabled = settings.enableDownload === true || settings.enableDownload === 'true';
-    // Only display '本日訊息' if admin explicitly opened "開啟訊息彈窗" (enableAnnouncement === true)
-    let isAnnouncementEnabled = false;
-    if (settings.enableAnnouncement !== undefined) {
-      isAnnouncementEnabled = settings.enableAnnouncement === true || settings.enableAnnouncement === 'true';
-    } else if (settings.announcement && settings.announcement.enabled !== undefined) {
-      isAnnouncementEnabled = settings.announcement.enabled === true || settings.announcement.enabled === 'true';
-    } else if (typeof appConfig !== 'undefined' && appConfig) {
-      if (appConfig.enableAnnouncement !== undefined) {
-        isAnnouncementEnabled = appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true';
-      } else if (appConfig.announcement && appConfig.announcement.enabled !== undefined) {
-        isAnnouncementEnabled = appConfig.announcement.enabled === true || appConfig.announcement.enabled === 'true';
-      }
-    }
-
     const parts = [];
     if (isVersionEnabled && settings.version && String(settings.version).trim()) {
       parts.push(`<span>版本：${escHtml(String(settings.version).trim())}</span>`);
@@ -1835,21 +1824,10 @@
     if (isDownloadEnabled && settings.downloadUrl && String(settings.downloadUrl).trim()) {
       parts.push(`<span>下載：<a href="${escHtml(String(settings.downloadUrl).trim())}" target="_blank" rel="noopener noreferrer" class="welcome-download-link">離線閱讀完整版</a></span>`);
     }
-    if (isAnnouncementEnabled) {
-      parts.push(`<span><a href="javascript:void(0)" class="welcome-download-link welcome-announcement-link" id="welcomeAnnouncementLink" role="button">本日訊息</a></span>`);
-    }
 
     if (parts.length > 0) {
       footerEl.innerHTML = parts.join('<span class="welcome-footer-sep">·</span>');
       footerEl.style.display = 'flex';
-
-      const announceLink = $('welcomeAnnouncementLink');
-      if (announceLink) {
-        announceLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          showAnnouncementModal();
-        });
-      }
     } else {
       footerEl.innerHTML = '';
       footerEl.style.display = 'none';
@@ -1886,6 +1864,9 @@
     if (welcome) welcome.style.display = 'flex';
     if (wrapper) wrapper.style.display = 'none';
     if (loading) loading.style.display = 'none';
+
+    // 「繼續閱讀」與問候語要反映剛剛讀到哪裡、現在幾點
+    renderHome();
 
     // 回到首頁是唯一適合談安裝的時機（閱讀中打擾最不可取）。每次回首頁
     // 重新評估：使用者可能剛讀完第二篇，正好跨過門檻。
@@ -1926,74 +1907,33 @@
     return 'pc';
   }
 
-  function updateWelcomeShortcuts() {
-    const container = $('welcomeShortcuts');
-    if (!container) return;
-
-    const plat = detectPlatform();
-
-    if (plat === 'mac') {
-      container.innerHTML = `
-        <div class="shortcut-item"><kbd>⌘ Cmd</kbd>+<kbd>F</kbd> 本頁搜尋</div>
-        <div class="shortcut-item"><kbd>⌘ Cmd</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
-      `;
-    } else if (plat === 'iphone' || plat === 'mobile') {
-      container.innerHTML = `
-        <div class="shortcut-item">🔍 點擊右上角按鈕搜尋本頁</div>
-        <div class="shortcut-item">🅰️ 點擊右上角按鈕調整字型</div>
-      `;
-    } else if (plat === 'ios') {
-      container.innerHTML = `
-        <div class="shortcut-item">🔍 點擊右上角按鈕或 <kbd>⌘ Cmd</kbd>+<kbd>F</kbd> 搜尋本頁</div>
-        <div class="shortcut-item">🅰️ 點擊右上角按鈕或 <kbd>⌘ Cmd</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
-      `;
-    } else {
-      container.innerHTML = `
-        <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>F</kbd> 本頁搜尋</div>
-        <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
-      `;
-    }
-  }
-
   // ═══════════════════════════════════════════════════════════
   // §3 SUGGEST LIST (Homepage Recommend & Hot)
   // ═══════════════════════════════════════════════════════════
 
   /**
-   * 從 /api/suggest-list 取得首頁推薦列表與公告資訊，並更新前端狀態。
-   *
-   * @param {boolean} [triggerModal=false] - 是否在取得資料後觸發公告彈窗檢查。
-   *   只有開機 boot 階段（init() 呼叫時）傳 `true`；
-   *   其他呼叫點（切換分頁、開啟使用者設定、後台儲存）一律傳 `false`，
-   *   避免非首次開啟場景重複觸發彈窗。
+   * 從 /api/suggest-list 取得首頁資料（推薦、每日一詞、每日經文、公告），更新首頁與設定頁的推薦清單。
+   * 失敗時保留上一次的內容，首頁只是少了這幾塊，不影響閱讀。
    */
-  async function fetchSuggestList(triggerModal = false) {
+  async function fetchSuggestList() {
     try {
       const res = await fetch('/api/suggest-list');
-      if (!res.ok) {
-        if (triggerModal) checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement, appConfig.suggestListUpdatedAt);
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
       const items = data.items || [];
-      state._cachedSuggestItems = items;
-      renderSuggestList(items, data.enabled !== false);
+      state._homeData = data;
       if (data.suggestListUpdatedAt) {
         appConfig.suggestListUpdatedAt = data.suggestListUpdatedAt;
       }
       if (data.announcement) {
         appConfig.announcement = data.announcement;
         appConfig.enableAnnouncement = !!data.announcement.enabled;
-        updateWelcomeFooter(appConfig);
+        appConfig.announcementMessage = data.announcement.message || '';
+        appConfig.announcementUpdatedAt = data.announcement.updatedAt || 0;
       }
-      if (triggerModal) {
-        checkAndShowAnnouncementModal(items, data.announcement, data.suggestListUpdatedAt);
-      }
-    } catch (_) {
-      if (triggerModal) {
-        checkAndShowAnnouncementModal(state._cachedSuggestItems || [], appConfig.announcement, appConfig.suggestListUpdatedAt);
-      }
-    }
+      renderSuggestList(items, data.enabled !== false);
+      renderHome();
+    } catch (_) {}
   }
 
   function resolveSuggestPath(rawPath) {
@@ -2029,13 +1969,9 @@
 
   function renderSuggestList(items, showOnHomepage = true) {
     state._cachedSuggestItems = items || [];
-    renderSuggestListToElement($('suggestList'), items, false);
+    state._suggestOnHome = showOnHomepage;
+    // 首頁的「今日推薦」與「每日一詞」由 renderHome 分開畫；這裡只負責設定頁的完整清單
     renderSuggestListToElement($('menuSuggestList'), items, true);
-
-    const container = $('suggestListContainer');
-    if (container) {
-      container.style.display = (showOnHomepage && items && items.length > 0) ? 'block' : 'none';
-    }
   }
 
   function renderSuggestListToElement(list, items, closeOverlayOnClick = false) {
@@ -2092,266 +2028,647 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  // §4 ANNOUNCEMENT & DAILY RECOMMEND MODAL (Opening Page Landing Popup)
+  // §4 HOME（首頁）
+  //   由上而下：問候語與節氣 → 每日經文 → 繼續閱讀 → 首頁公告 → 每日一詞＋今日推薦。
+  //   取代舊的開站彈窗：公告不再打斷閱讀，也不再跟著推薦清單的輪替一直重跳。
   // ═══════════════════════════════════════════════════════════
 
-  const ANNOUNCEMENT_ACK_KEY = STORAGE_KEYS.ANNOUNCEMENT_ACK;
+  /**
+   * 首頁公告收起紀錄（只記在首頁按 ✕ 的那一則）。
+   * 不沿用舊彈窗的「知曉」紀錄：那是在彈窗裡按的，讀者並沒有選擇「不在首頁看到」，
+   * 沿用會讓已讀過彈窗的人在首頁完全看不到公告。
+   */
+  const HOME_NOTICE_KEY = STORAGE_KEYS.HOME_NOTICE_DISMISSED;
 
-  function getTodayDateString() {
-    return getTodayDateIso();
+  const CN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  const CN_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+  /** 1–31 轉中文數字（一、十、十一、二十、三十一）。 */
+  function cnNumber(n) {
+    n = Math.floor(Number(n) || 0);
+    if (n < 10) return CN_DIGITS[n];
+    const tens = Math.floor(n / 10);
+    const ones = n % 10;
+    return (tens === 1 ? '' : CN_DIGITS[tens]) + '十' + (ones ? CN_DIGITS[ones] : '');
   }
 
-  function computeItemsSignature(items) {
-    if (!items || !items.length) return '';
-    return items
-      .map(i => `${i.type || ''}:${i.path || ''}:${i.fileName || ''}:${i.line || ''}`)
-      .sort()
-      .join('|');
+  /** 依當地時間的小時給問候語。 */
+  function homeGreeting(hour) {
+    if (hour >= 5 && hour < 11) return '早安';
+    if (hour >= 11 && hour < 18) return '午安';
+    return '晚安';
   }
 
   /**
-   * 根據三個觸發條件決定是否顯示公告彈窗。已閱讀後不會因換日而重複彈出。
-   *
-   * 觸發條件（任一成立即顯示）：
-   *   1. 公告更新：訊息文字變更，或 announcementUpdatedAt 時間戳推進
-   *   2. 推薦項目更新：推薦清單內容簽章（type+path+fileName+line）與已儲存簽章不符
-   *   3. 後台推薦設定更新：suggestListUpdatedAt 時間戳大於已儲存的值
-   *
-   * 注意：舊版依「換日（todayDateKey !== ack.dateKey）」觸發的邏輯已在 v3.4.8 移除。
-   *
-   * @param {Object[]} items           - /api/suggest-list 回傳的推薦項目陣列
-   * @param {Object}   announcementData - 公告物件 { enabled, message, updatedAt }
-   * @param {number}   suggestUpdatedAt - 後台推薦設定最後儲存時間戳（毫秒 epoch）
+   * 二十四節氣（21 世紀通式）：日 = floor(Y × 0.2422 + C) − L，Y 為年份末兩位；
+   * 一、二月的節氣 L = floor((Y − 1) / 4)，其餘 L = floor(Y / 4)。
+   * 個別年份可能差一天，對首頁「現在是什麼節氣」已足夠。
    */
-  function checkAndShowAnnouncementModal(items, announcementData, suggestUpdatedAt) {
-    const ann = announcementData || (appConfig && appConfig.announcement) || {};
-    const isEnabled = ann.enabled !== undefined
-      ? !!ann.enabled
-      : (appConfig && appConfig.enableAnnouncement !== undefined ? !!appConfig.enableAnnouncement : false);
+  const SOLAR_TERMS = [
+    ['小寒', 1, 5.4055], ['大寒', 1, 20.12], ['立春', 2, 3.87], ['雨水', 2, 18.73],
+    ['驚蟄', 3, 5.63], ['春分', 3, 20.646], ['清明', 4, 4.81], ['穀雨', 4, 20.1],
+    ['立夏', 5, 5.52], ['小滿', 5, 21.04], ['芒種', 6, 5.678], ['夏至', 6, 21.37],
+    ['小暑', 7, 7.108], ['大暑', 7, 22.83], ['立秋', 8, 7.5], ['處暑', 8, 23.13],
+    ['白露', 9, 7.646], ['秋分', 9, 23.042], ['寒露', 10, 8.318], ['霜降', 10, 23.438],
+    ['立冬', 11, 7.438], ['小雪', 11, 22.36], ['大雪', 12, 7.18], ['冬至', 12, 21.94]
+  ];
 
-    if (!isEnabled) {
-      return;
-    }
-
-    const rawMsg = ann.message !== undefined
-      ? ann.message
-      : (appConfig && appConfig.announcementMessage ? appConfig.announcementMessage : '');
-    const currentMsg = String(rawMsg || '').trim();
-    const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
-    const currentSuggestUpdatedAt = Number(suggestUpdatedAt || (appConfig && appConfig.suggestListUpdatedAt) || 0);
-
-    const currentItemsSig = computeItemsSignature(items);
-
-    const ack = storage.getJson(STORAGE_KEYS.ANNOUNCEMENT_ACK);
-
-    let shouldShow = false;
-    if (!ack) {
-      // First visit with modal enabled
-      shouldShow = true;
-    } else {
-      // Condition 1: 公告訊息是否有更新（文字變更 或 更新時間戳推進）
-      const announcementUpdated = (currentMsg !== (ack.announcement || '')) ||
-        (currentUpdatedAt > 0 && Number(ack.announcementUpdatedAt || 0) < currentUpdatedAt);
-
-      // Condition 2: 推薦項目是否有更新（推薦清單內容實質變更 或 後台更新推薦設定）
-      // 注意：完全移除換日判斷 (todayDateKey !== ack.dateKey)，使用者閱讀過之後絕不因換日而重複彈出！
-      const suggestItemsChanged = Boolean(
-        currentItemsSig &&
-        ack.itemsSig &&
-        currentItemsSig !== ack.itemsSig
-      );
-      const suggestSettingsUpdated = (currentSuggestUpdatedAt > 0 && Number(ack.suggestUpdatedAt || 0) < currentSuggestUpdatedAt);
-
-      if (announcementUpdated || suggestItemsChanged || suggestSettingsUpdated) {
-        shouldShow = true;
-      }
-    }
-
-    if (shouldShow) {
-      openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
-    }
+  function solarTermDay(year, idx) {
+    const y = ((year % 100) + 100) % 100;
+    const [, month, c] = SOLAR_TERMS[idx];
+    const leap = month <= 2 ? Math.floor((y - 1) / 4) : Math.floor(y / 4);
+    return Math.floor(y * 0.2422 + c) - leap;
   }
 
-  async function showAnnouncementModal() {
-    try {
-      const res = await fetch('/api/suggest-list');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.items) state._cachedSuggestItems = data.items;
-        if (data.suggestListUpdatedAt) {
-          appConfig.suggestListUpdatedAt = data.suggestListUpdatedAt;
-        }
-        if (data.announcement) {
-          appConfig.announcement = data.announcement;
-          appConfig.enableAnnouncement = !!data.announcement.enabled;
-          appConfig.announcementMessage = data.announcement.message || '';
-          appConfig.announcementUpdatedAt = data.announcement.updatedAt || 0;
-          updateWelcomeFooter(appConfig);
-        }
-      }
-    } catch (_) {}
+  /** 傳回某日所在的節氣名（該節氣當天起算，到下一個節氣前一天）。 */
+  function currentSolarTerm(date) {
+    const year = date.getFullYear();
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    for (let i = SOLAR_TERMS.length - 1; i >= 0; i--) {
+      const tm = SOLAR_TERMS[i][1];
+      if (tm < m || (tm === m && solarTermDay(year, i) <= d)) return SOLAR_TERMS[i][0];
+    }
+    return '冬至'; // 一月初、小寒之前，仍在上一年的冬至
+  }
 
+  /** 「十一月一日 星期日 · 霜降」 */
+  function homeDateLine(date) {
+    return `${cnNumber(date.getMonth() + 1)}月${cnNumber(date.getDate())}日 星期${CN_WEEKDAYS[date.getDay()]} · ${currentSolarTerm(date)}`;
+  }
+
+  /** 當地日期的日序號：同一天任何時刻都相同，換日才變。 */
+  function localDayIndex(date) {
+    return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+  }
+
+  /** 依讀者當地日期從清單挑一句；清單空的就回 null。 */
+  function pickDailyVerse(verses, date) {
+    if (!Array.isArray(verses) || !verses.length) return null;
+    const n = verses.length;
+    return verses[((localDayIndex(date) % n) + n) % n] || null;
+  }
+
+  /**
+   * 經句分成兩行，像對聯一樣在中間的標點處斷開（左右字數最接近的那個分句邊界）。
+   * 只有一個分句或很短（10 字內）的經句就一行。
+   */
+  function verseLines(text) {
+    const t = String(text || '').trim();
+    const clauses = t.match(/[^，。；：、！？]+[，。；：、！？]*/g) || [t];
+    if (clauses.length < 2 || Array.from(t).length <= 10) return [t];
+    const total = Array.from(t).length;
+    let best = 1, bestDiff = Infinity, acc = 0;
+    for (let k = 1; k < clauses.length; k++) {
+      acc += Array.from(clauses[k - 1]).length;
+      const diff = Math.abs(total - 2 * acc);
+      if (diff < bestDiff) { bestDiff = diff; best = k; }
+    }
+    return [clauses.slice(0, best).join(''), clauses.slice(best).join('')];
+  }
+
+  /** 經句轉成搜尋字串：去掉標點與空白，太長就截前 20 字（全文搜尋以二字詞為單位，夠用了）。 */
+  function verseSearchText(text) {
+    return Array.from(String(text || '').replace(/[\s，。、；：？！「」『』（）《》〈〉,.;:?!"'()]/g, '')).slice(0, 20).join('');
+  }
+
+  /** 「剛剛／12 分鐘前／3 小時前／昨天／5 天前／10月3日」 */
+  function homeAgo(ts) {
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) return '';
+    const diff = Date.now() - ts;
+    if (diff < 60 * 1000) return '剛剛';
+    if (diff < 3600 * 1000) return `${Math.floor(diff / 60000)} 分鐘前`;
+    const now = new Date();
+    const then = new Date(ts);
+    const days = localDayIndex(now) - localDayIndex(then);
+    if (days <= 0) return `${Math.floor(diff / 3600000)} 小時前`;
+    if (days === 1) return '昨天';
+    if (days < 7) return `${days} 天前`;
+    return `${then.getMonth() + 1}月${then.getDate()}日`;
+  }
+
+  /** 公告目前的內容（開機時來自 __APP_CONFIG__，之後由 /api/suggest-list 更新）。 */
+  function homeAnnouncement() {
     const ann = (appConfig && appConfig.announcement) || {};
-    const rawMsg = (ann.message !== undefined)
-      ? ann.message
-      : (appConfig && appConfig.announcementMessage !== undefined ? appConfig.announcementMessage : '');
-    const currentMsg = String(rawMsg || '').trim();
-    const currentUpdatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
-    const currentSuggestUpdatedAt = Number(appConfig && appConfig.suggestListUpdatedAt || 0);
-
-    const items = state._cachedSuggestItems || [];
-    const currentItemsSig = computeItemsSignature(items);
-
-    openAnnouncementModal(items, currentMsg, currentUpdatedAt, currentSuggestUpdatedAt, currentItemsSig);
+    const enabled = ann.enabled !== undefined ? !!ann.enabled : !!(appConfig && (appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true'));
+    const message = String((ann.message !== undefined ? ann.message : (appConfig && appConfig.announcementMessage)) || '').trim();
+    const updatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
+    return { enabled, message, updatedAt };
   }
 
-  /**
-   * 開啟公告彈窗並填入推薦列表與公告訊息。
-   * 將本次開啟的資料快照存入 state._announcementModalContext，
-   * 供 closeAnnouncementModal 關閉時寫入 localStorage（作為下次的比對基準）。
-   *
-   * @param {Object[]} items           - 推薦項目陣列（渲染至彈窗內的推薦列表）
-   * @param {string}   message         - 公告訊息文字（空字串則隱藏訊息區塊）
-   * @param {number}   updatedAt       - 公告最後更新時間戳（毫秒 epoch）
-   * @param {number}   suggestUpdatedAt - 後台推薦設定最後儲存時間戳（毫秒 epoch）
-   * @param {string}   itemsSig         - 推薦項目內容簽章（pipe 分隔的 type:path:fileName:line）
-   */
-  function openAnnouncementModal(items, message, updatedAt, suggestUpdatedAt, itemsSig) {
-    const overlay = $('announcementModalOverlay');
-    if (!overlay) return;
-
-    const modalTitle = $('announcementModalTitle');
-    if (modalTitle) {
-      modalTitle.textContent = `${state.siteName || 'mdWebview'}線上閱讀`;
-    }
-
-    state._announcementModalContext = {
-      announcement: message,
-      announcementUpdatedAt: updatedAt,
-      suggestUpdatedAt: suggestUpdatedAt,
-      itemsSig: itemsSig
-    };
-
-    const dateEl = $('announcementModalDate');
-    if (dateEl) {
-      try {
-        dateEl.textContent = new Date().toLocaleDateString(activeLocale(), {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          weekday: 'short'
-        });
-      } catch (_) {
-        dateEl.textContent = getTodayDateString();
-      }
-    }
-
-    const noticeBox = $('announcementNoticeBox');
-    const noticeContent = $('announcementNoticeContent');
-    if (message && message.trim()) {
-      if (noticeContent) noticeContent.textContent = message.trim();
-      if (noticeBox) noticeBox.style.display = 'flex';
-    } else {
-      if (noticeBox) noticeBox.style.display = 'none';
-      if (noticeContent) noticeContent.textContent = '';
-    }
-
-    const listEl = $('announcementSuggestList');
-    if (listEl) {
-      renderAnnouncementSuggestList(listEl, items);
-    }
-
-    const modalBody = overlay.querySelector('.announcement-modal-body');
-    if (modalBody) {
-      modalBody.scrollTop = 0;
-    }
-
-    document.body.classList.add('modal-open');
-    overlay.style.setProperty('display', 'flex', 'important');
-    overlay.style.display = 'flex';
-    overlay.setAttribute('aria-hidden', 'false');
+  function isHomeNoticeDismissed(ann) {
+    const ack = storage.getJson(HOME_NOTICE_KEY);
+    if (!ack) return false;
+    return (ack.announcement || '') === ann.message && Number(ack.announcementUpdatedAt || 0) >= ann.updatedAt;
   }
 
-  /**
-   * 關閉公告彈窗。
-   * 若 markAsAcknowledged 為 true，將 state._announcementModalContext 寫入
-   * localStorage（ANNOUNCEMENT_ACK_KEY），記錄使用者已閱讀的狀態，
-   * 下次開啟時以此為基準判斷是否需要重新顯示。
-   *
-   * 使用 setProperty('display','none','important') 確保覆蓋 CSS !important 規則。
-   *
-   * @param {boolean} [markAsAcknowledged=true] - 是否寫入已讀記錄至 localStorage
-   */
-  function closeAnnouncementModal(markAsAcknowledged = true) {
-    const overlay = $('announcementModalOverlay');
-    if (!overlay) return;
-
-    if (markAsAcknowledged && state._announcementModalContext) {
-      storage.setJson(STORAGE_KEYS.ANNOUNCEMENT_ACK, state._announcementModalContext);
-    }
-
-    document.body.classList.remove('modal-open');
-    overlay.style.setProperty('display', 'none', 'important');
-    overlay.style.display = 'none';
-    overlay.setAttribute('aria-hidden', 'true');
+  /** 重畫整個首頁。在首頁沒顯示時也可以呼叫（只是更新隱藏的節點）。 */
+  function renderHome() {
+    renderHomeGreeting();
+    renderHomeVerse();
+    renderHomeContinue();
+    renderHomeNotice();
+    renderHomeSuggest();
+    renderHomeCue();
   }
 
-  function renderAnnouncementSuggestList(list, items) {
-    if (!list) return;
-    if (!items || items.length === 0) {
-      list.innerHTML = '<li class="suggest-item" style="cursor:default;"><span class="suggest-item-name">尚無每日推薦經論</span></li>';
+  function renderHomeGreeting() {
+    const el = $('homeGreet');
+    if (!el) return;
+    const now = new Date();
+    el.innerHTML = `<b>${homeGreeting(now.getHours())}</b>${escHtml(homeDateLine(now))}`;
+  }
+
+  function renderHomeVerse() {
+    const box = $('homeVerse');
+    if (!box) return;
+    const data = state._homeData || {};
+    const verse = pickDailyVerse(data.verses, new Date());
+    const subtitle = $('homeSubtitle');
+    const hero = box.closest('.home-hero');
+    if (!verse) {
+      box.hidden = true;
+      if (subtitle) subtitle.hidden = false;
+      if (hero) hero.classList.remove('has-verse');
       return;
     }
+    const textEl = $('homeVerseText');
+    textEl.textContent = '';
+    for (const line of verseLines(verse.text)) {
+      const span = document.createElement('span');
+      span.className = 'home-verse-line';
+      span.textContent = line;
+      textEl.appendChild(span);
+    }
+    $('homeVerseSource').textContent = verse.source ? `《${verse.source}》` : '';
+    const btn = $('homeVerseOpen');
+    btn.textContent = verse.path ? '讀這一段 →' : '在經藏中搜尋 →';
+    btn.dataset.path = verse.path || '';
+    btn.dataset.query = verseSearchText(verse.text);
+    box.hidden = false;
+    // 有經文時，站名下的「佛典經論閱讀器」讓位，免得兩行小字擠在一起
+    if (subtitle) subtitle.hidden = true;
+    if (hero) hero.classList.add('has-verse');
+  }
 
-    const frag = document.createDocumentFragment();
-    for (const item of items) {
-      const li = document.createElement('li');
-      li.className = 'suggest-item';
-      const targetPath = resolveSuggestPath(item.path);
-      li.title = targetPath || item.path || '';
+  /** 最近讀過的經文（略過辭典條目，那不算「讀到哪」）。 */
+  function homeRecentReads() {
+    return (state.recentFiles || []).filter(r => r && r.filePath && !String(r.filePath).startsWith('dict:'));
+  }
 
-      const isDict = item.type === 'dict';
-      const isHot = item.type === 'hot';
+  /**
+   * 書簽（題簽）上的短經名：「T0251《般若波羅蜜多心經》」→「般若波羅蜜多心經」。
+   * 沒有書名號時去掉開頭的經號（T0251、X1234a…），但只在後面還有經名（含漢字）時才去；
+   * 檔名本身就是編號（「80-01」「T0251」）時整段保留，不然會只剩「01」。
+   */
+  function bookSlipTitle(title) {
+    const t = String(title || '').trim();
+    const m = t.match(/《([^》]+)》/);
+    if (m) return m[1];
+    const rest = t.replace(/^[A-Za-z]{0,3}\d+[a-z]?[\s_\-‧·.]*/, '');
+    return /[\u3400-\u9fff]/.test(rest) ? rest : t;
+  }
 
-      const icon = document.createElement('span');
-      icon.className = 'suggest-item-icon';
-      icon.textContent = isDict ? '📖' : (isHot ? '✨' : '🪷');
+  /** 依路徑固定給一個封面色（0–4），同一部經每次都是同一個顏色。 */
+  function bookTone(path) {
+    let h = 0;
+    for (const ch of String(path || '')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return h % 5;
+  }
 
-      const name = document.createElement('span');
-      name.className = 'suggest-item-name';
-      if (isDict) {
-        name.innerHTML = `<span class="suggest-dict-word">${escHtml(item.fileName)}</span>` +
-          (item.dictName ? ` <span class="suggest-dict-source">(${escHtml(item.dictName)})</span>` : '');
-      } else {
-        name.textContent = item.fileName || item.path;
-      }
+  /** 書脊尺寸（0–4）：依路徑固定，書架上才會高矮厚薄不一。 */
+  function bookSize(path) {
+    let h = 7;
+    for (const ch of String(path || '')) h = (h * 131 + ch.codePointAt(0)) >>> 0;
+    return h % 5;
+  }
 
-      const badge = document.createElement('span');
-      badge.className = 'suggest-item-badge ' + (isDict ? 'suggest-badge-dict' : (isHot ? 'suggest-badge-hot' : 'suggest-badge-admin'));
-      badge.textContent = isDict ? '單詞' : (isHot ? '熱門' : '推薦');
+  let _homeShelfItems = [];
 
-      const arrow = document.createElement('span');
-      arrow.className = 'suggest-item-arrow';
-      arrow.textContent = '→';
+  /** 書架右側的說明：指到哪一本就顯示哪一本，預設是最近讀的那本。 */
+  function renderHomeShelfInfo(idx) {
+    const info = $('homeShelfInfo');
+    const item = _homeShelfItems[idx];
+    if (!info || !item) return;
+    const pct = libraryProgressPct(item);
+    const latest = idx === 0;
+    const done = pct !== null && pct >= 99;
+    const label = latest ? (done ? '剛讀完' : '上次讀到') : `最近讀過${homeAgo(item.ts) ? ' · ' + homeAgo(item.ts) : ''}`;
+    const sub = [libraryFolderOf(item.filePath)];
+    if (latest && homeAgo(item.ts)) sub.push(homeAgo(item.ts));
+    info.innerHTML = `<div class="home-label">${escHtml(label)}</div>`
+      + `<div class="home-continue-title">${escHtml(libraryTitleOf(item))}</div>`
+      + `<div class="home-continue-sub">${escHtml(sub.filter(Boolean).join(' · '))}</div>`
+      + homeBookProgress(pct)
+      + `<button type="button" class="home-continue-btn" data-file="${escHtml(item.filePath)}"${item.line ? ` data-line="${Number(item.line) || ''}"` : ''}${latest ? ' data-continue="1"' : ''}>${done ? '再讀一次' : (latest ? '繼續讀' : '打開')} →</button>`;
+    $('homeShelf').querySelectorAll('.home-spine').forEach((el, i) => el.classList.toggle('is-current', i === idx));
+  }
 
-      li.appendChild(icon);
-      li.appendChild(name);
-      li.appendChild(badge);
-      li.appendChild(arrow);
+  function homeBookProgress(pct) {
+    if (pct === null) return '';
+    const w = Math.max(0, Math.min(100, pct));
+    return `<span class="home-book-pct"><i><b style="width:${w}%"></b></i><em>${pct >= 99 ? '讀完' : `${pct}%`}</em></span>`;
+  }
 
-      li.addEventListener('click', () => {
-        const pathToOpen = resolveSuggestPath(item.path);
-        if (pathToOpen) {
-          closeAnnouncementModal(true);
-          openFile(pathToOpen, item.line || null);
+  /**
+   * 我的書架：最近讀過的經立在書架上（書脊直書經名，高矮厚薄依經名固定，最後一本斜靠），
+   * 最近讀的那本插著一條書籤絲帶。指到哪本，右側就說明哪本；點書脊直接打開。
+   */
+  function renderHomeContinue() {
+    const box = $('homeContinue');
+    const shelf = $('homeShelf');
+    if (!box || !shelf) return;
+    const list = homeRecentReads().slice(0, 8);
+    _homeShelfItems = list;
+    if (!list.length) { box.hidden = true; shelf.innerHTML = ''; renderHomeCue(); return; }
+
+    const spines = list.map((r, i) => {
+      const pct = libraryProgressPct(r);
+      const cls = [`home-spine`, `tone-${bookTone(r.filePath)}`, `size-${bookSize(r.filePath)}`];
+      if (i === 0) cls.push('is-latest');
+      if (i === list.length - 1 && list.length >= 4) cls.push('is-leaning');
+      const read = pct === null ? '' : `<span class="home-spine-read" style="height:${Math.max(0, Math.min(100, pct))}%"></span>`;
+      return `<button type="button" class="${cls.join(' ')}" role="listitem" data-idx="${i}" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''}${i === 0 ? ' data-continue="1"' : ''} title="${escHtml(libraryTitleOf(r))}" aria-label="${escHtml(libraryTitleOf(r))}${pct === null ? '' : `，讀到 ${pct}%`}">`
+        + read
+        + `<span class="home-spine-title">${escHtml(bookSlipTitle(libraryTitleOf(r)))}</span>`
+        + (i === 0 ? '<i class="home-spine-ribbon" aria-hidden="true"></i>' : '')
+        + `</button>`;
+    }).join('');
+    // 手機：不畫書架，一列一部經的大按鈕清單（手指好點）；桌機用上面的書架
+    const rows = list.map((r, i) => {
+      const pct = libraryProgressPct(r);
+      const folder = String(libraryFolderOf(r.filePath) || '').split('/').pop().trim().replace(/^[0-9]+/, '');
+      const sub = [i === 0 ? '上次讀到' : '', folder, homeAgo(r.ts)].filter(Boolean).join(' · ');
+      const end = i === 0
+        ? '<b class="home-item-go">' + (pct !== null && pct >= 99 ? '再讀一次' : '繼續讀') + '</b>'
+        : (pct === null ? '' : `<em>${pct >= 99 ? '讀完' : pct + '%'}</em>`) + '<u aria-hidden="true">›</u>';
+      return `<button type="button" class="home-item${i === 0 ? ' is-latest' : ''}" role="listitem" data-file="${escHtml(r.filePath)}"${r.line ? ` data-line="${Number(r.line) || ''}"` : ''}${i === 0 ? ' data-continue="1"' : ''}>`
+        + `<span class="home-cover tone-${bookTone(r.filePath)}" aria-hidden="true"></span>`
+        + `<span class="home-item-main"><span class="home-item-title">${escHtml(bookSlipTitle(libraryTitleOf(r)))}</span>`
+        + `<span class="home-item-sub">${escHtml(sub)}</span>`
+        + (pct === null ? '' : `<span class="home-item-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></span>`)
+        + `</span><span class="home-item-end">${end}</span></button>`;
+    }).join('');
+    shelf.innerHTML = `<div class="home-shelf-stage"><div class="home-shelf-books" role="list">${spines}</div><div class="home-shelf-plank" aria-hidden="true"></div></div>`
+      + `<div class="home-shelf-info" id="homeShelfInfo" aria-live="polite"></div>`
+      + `<div class="home-shelf-list" role="list">${rows}</div>`;
+    renderHomeShelfInfo(0);
+    box.hidden = false;
+    renderHomeCue();
+  }
+
+  /** 第一屏底下的「向下」提示：下面沒有書架、公告、今日內容時就不顯示。 */
+  function homeBelowTarget() {
+    for (const id of ['homeContinue', 'homeNotice', 'homeColumns']) {
+      const el = $(id);
+      if (el && !el.hidden) return el;
+    }
+    return null;
+  }
+
+  function renderHomeCue() {
+    const cue = $('homeScrollCue');
+    if (cue) cue.hidden = !homeBelowTarget();
+  }
+
+  // ── 首頁搜尋 ─────────────────────────────────────────────
+  let _homeFilesSrc = null;
+  let _homeFiles = [];
+
+  /** 檔案樹攤平成 [{path, name, folder, key}]，樹沒變就沿用。 */
+  function homeAllFiles() {
+    if (state.treeData === _homeFilesSrc) return _homeFiles;
+    const out = [];
+    (function walk(nodes, folder) {
+      if (!Array.isArray(nodes)) return;
+      for (const n of nodes) {
+        if (n.type === 'file' && n.path && !String(n.path).startsWith('dict:')) {
+          const name = n.name || String(n.path).split('/').pop().replace(/\.md$/i, '');
+          out.push({ path: n.path, name, folder, key: homeSearchKey(name + ' ' + folder) });
         }
-      });
+        if (n.children) walk(n.children, n.name || '');
+      }
+    })(state.treeData, '');
+    _homeFilesSrc = state.treeData;
+    _homeFiles = out;
+    return out;
+  }
 
-      frag.appendChild(li);
+  /** 比對用：去掉書名號、空白、標點，英數轉小寫。 */
+  function homeSearchKey(s) {
+    return String(s || '').toLowerCase().replace(/[《》〈〉「」『』（）()\[\]\s，。、；：·‧_\-]/g, '');
+  }
+
+  /** 經名比對：每個詞都要出現；經名開頭相符、名稱較短的排前面。 */
+  function homeTitleMatches(files, query, limit = 6) {
+    const terms = String(query || '').trim().split(/\s+/).map(homeSearchKey).filter(Boolean);
+    if (!terms.length) return [];
+    const scored = [];
+    for (const f of files) {
+      if (!terms.every(t => f.key.includes(t))) continue;
+      const nameKey = homeSearchKey(f.name);
+      const titleKey = homeSearchKey(bookSlipTitle(f.name));
+      let score = nameKey.length;
+      if (titleKey.startsWith(terms[0])) score -= 1000;
+      else if (nameKey.includes(terms[0])) score -= 500;
+      scored.push([score, f]);
+    }
+    scored.sort((a, b) => a[0] - b[0]);
+    return scored.slice(0, limit).map(x => x[1]);
+  }
+
+  function renderHomeSearchResults() {
+    const input = $('homeSearchInput');
+    const ul = $('homeSearchResults');
+    if (!input || !ul) return;
+    const q = input.value.trim();
+    if (!q) { closeHomeSearchResults(); return; }
+    const hits = homeTitleMatches(homeAllFiles(), q);
+    ul.innerHTML = hits.map((f, i) =>
+      `<li role="option" id="homeSearchOpt${i}" class="home-search-opt" data-path="${escHtml(f.path)}">`
+      + `<span class="home-search-name">${escHtml(f.name)}</span>`
+      + `<span class="home-search-folder">${escHtml(f.folder)}</span></li>`).join('')
+      + `<li role="option" id="homeSearchOpt${hits.length}" class="home-search-opt is-fulltext" data-query="${escHtml(q)}">`
+      + `<span class="home-search-name">在全文中搜尋「${escHtml(q)}」</span><span class="home-search-folder">Enter</span></li>`;
+    ul.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    setHomeSearchActive(-1);
+  }
+
+  function closeHomeSearchResults() {
+    const ul = $('homeSearchResults');
+    const input = $('homeSearchInput');
+    if (ul) { ul.hidden = true; ul.innerHTML = ''; }
+    if (input) { input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); }
+  }
+
+  function setHomeSearchActive(idx) {
+    const ul = $('homeSearchResults');
+    const input = $('homeSearchInput');
+    if (!ul || !input) return;
+    const opts = Array.from(ul.children);
+    opts.forEach((li, i) => li.classList.toggle('active', i === idx));
+    ul.dataset.active = String(idx);
+    if (idx >= 0 && opts[idx]) input.setAttribute('aria-activedescendant', opts[idx].id);
+    else input.removeAttribute('aria-activedescendant');
+  }
+
+  function chooseHomeSearchOption(li) {
+    const input = $('homeSearchInput');
+    if (!li) return;
+    if (li.dataset.path) openFile(li.dataset.path);
+    else if (li.dataset.query) activateSearchPanel(li.dataset.query);
+    closeHomeSearchResults();
+    if (input) { input.value = ''; input.blur(); }
+  }
+
+  /** 隨手翻一卷：從全部經文裡隨機挑一部打開。 */
+  function openRandomScripture() {
+    const files = homeAllFiles();
+    if (!files.length) return;
+    const pick = files[Math.floor(Math.random() * files.length)];
+    openFile(pick.path);
+  }
+
+  /** 瀏覽全部經目：打開左側欄的檔案瀏覽器。 */
+  function openHomeBrowse() {
+    const sidebar = $('sidebar');
+    if (sidebar && sidebar.classList.contains('collapsed')) {
+      sidebar.classList.remove('collapsed');
+      state.sidebarCollapsed = false;
+    }
+    if ((isMobileBrowser() || window.innerWidth <= 768) && state.dictSidebarOpen) toggleDictSidebar(false);
+    updateSidebarBackdrop();
+    const filesTab = document.querySelector('.sidebar-tab[data-tab="files"]');
+    if (filesTab && !filesTab.classList.contains('active')) filesTab.click();
+    const filter = $('fileTreeFilterInput');
+    if (filter && window.innerWidth > 768) filter.focus();
+  }
+
+  function renderHomeNotice() {
+    const box = $('homeNotice');
+    if (!box) return;
+    const ann = homeAnnouncement();
+    const reopen = $('homeNoticeReopen');
+    const hasNotice = ann.enabled && !!ann.message;
+    const dismissed = hasNotice && isHomeNoticeDismissed(ann);
+    // 收起後留一個小小的「公告」連結，想再看隨時點得回來
+    if (reopen) reopen.hidden = !dismissed;
+    if (!hasNotice || dismissed) {
+      box.hidden = true;
+      renderHomeCue();
+      return;
+    }
+    const text = $('homeNoticeText');
+    const more = $('homeNoticeMore');
+    text.textContent = ann.message;
+    box.classList.remove('expanded');
+    more.textContent = '展開';
+    box.hidden = false;
+    renderHomeCue();
+    // 超過三行才需要「展開」。要等版面算好才量得到高度；首頁沒顯示時量不到，回首頁會再畫一次。
+    requestAnimationFrame(() => {
+      more.hidden = !(text.scrollHeight > text.clientHeight + 1);
+    });
+  }
+
+  /** 熱門來源（7d／30d／90d）轉成讀者看得懂的字。 */
+  function homeHotLabel(source) {
+    if (source === '7d') return '本週熱門';
+    if (source === '30d') return '本月熱門';
+    if (source === '90d') return '近三月熱門';
+    return '熱門';
+  }
+
+  function renderHomeSuggest() {
+    const items = state._cachedSuggestItems || [];
+    const onHome = state._suggestOnHome !== false;
+    const words = onHome ? items.filter(i => i.type === 'dict') : [];
+    const reads = onHome ? items.filter(i => i.type !== 'dict') : [];
+
+    // 每日一詞：第一個詞附釋義，其餘列成「換一個」
+    const wordBox = $('homeWord');
+    if (wordBox) {
+      const w = words[0];
+      if (w) {
+        const head = $('homeWordOpen');
+        head.textContent = w.fileName;
+        head.dataset.path = w.path || '';
+        head.dataset.line = w.line ? String(w.line) : '';
+        $('homeWordDict').textContent = w.dictName || '';
+        const def = $('homeWordDef');
+        def.textContent = w.excerpt || '';
+        def.hidden = !w.excerpt;
+        const more = $('homeWordMore');
+        const others = words.slice(1);
+        // 詞條標題本身就能點開，下面只放「換一個」
+        more.innerHTML = others.length ? `<span class="home-word-others"><span class="home-word-others-label">換一個</span><span class="home-word-chips">${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('')}</span></span>` : '';
+        more.hidden = !others.length;
+        wordBox.hidden = false;
+      } else {
+        wordBox.hidden = true;
+      }
     }
 
-    list.innerHTML = '';
-    list.appendChild(frag);
+    // 今日推薦：站長推薦與熱門（辭典詞條已移到每日一詞）
+    const list = $('suggestList');
+    const container = $('suggestListContainer');
+    if (list && container) {
+      if (reads.length) {
+        list.innerHTML = reads.map(item => {
+          const isHot = item.type === 'hot';
+          const target = resolveSuggestPath(item.path);
+          return `<li class="suggest-item" data-path="${escHtml(item.path || '')}"${item.line ? ` data-line="${Number(item.line) || ''}"` : ''} title="${escHtml(target || item.path || '')}" tabindex="0" role="link">`
+            + `<span class="suggest-item-icon" aria-hidden="true">${isHot ? '✨' : '🪷'}</span>`
+            + `<span class="suggest-item-name">${escHtml(item.fileName || item.path)}</span>`
+            + `<span class="home-rec-meta">${isHot ? homeHotLabel(item.source) : '站長推薦'}</span>`
+            + `</li>`;
+        }).join('');
+        container.style.display = 'block';
+      } else {
+        list.innerHTML = '';
+        container.style.display = 'none';
+      }
+    }
+
+    const cols = $('homeColumns');
+    if (cols) {
+      const shown = (words.length ? 1 : 0) + (reads.length ? 1 : 0);
+      cols.hidden = shown === 0;
+      cols.classList.toggle('single', shown === 1);
+    }
+  }
+
+  function openHomeTarget(path, line) {
+    const target = resolveSuggestPath(path);
+    if (target) openFile(target, Number(line) || null);
+  }
+
+  function setupHome() {
+    const verseBtn = $('homeVerseOpen');
+    if (verseBtn) verseBtn.addEventListener('click', () => {
+      if (verseBtn.dataset.path) openHomeTarget(verseBtn.dataset.path, null);
+      else if (verseBtn.dataset.query) activateSearchPanel(verseBtn.dataset.query);
+    });
+
+    const shelf = $('homeShelf');
+    if (shelf) {
+      // 指到（或 Tab 到）哪本書，右側就說明哪本；離開書架回到最近讀的那本
+      const preview = (e) => {
+        const sp = e.target.closest('.home-spine');
+        if (sp) renderHomeShelfInfo(Number(sp.dataset.idx) || 0);
+      };
+      shelf.addEventListener('mouseover', preview);
+      shelf.addEventListener('focusin', preview);
+      shelf.addEventListener('mouseleave', () => renderHomeShelfInfo(0));
+    }
+    if (shelf) shelf.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-file]');
+      if (!b) return;
+      const file = b.dataset.file;
+      if (b.dataset.continue) {
+        // 上次閱讀位置存的就是這一篇時，用它還原（含捲動位置），比行號更準
+        const saved = storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS);
+        if (saved && saved.filePath === file) { restoreReadProgress(true, saved); return; }
+      }
+      openFile(file, Number(b.dataset.line) || undefined);
+    });
+
+    const form = $('homeSearch');
+    const input = $('homeSearchInput');
+    const results = $('homeSearchResults');
+    if (form && input && results) {
+      input.addEventListener('input', renderHomeSearchResults);
+      input.addEventListener('focus', () => { if (input.value.trim()) renderHomeSearchResults(); });
+      input.addEventListener('keydown', (e) => {
+        const n = results.children.length;
+        const cur = Number(results.dataset.active || -1);
+        if (e.key === 'ArrowDown' && n) { e.preventDefault(); setHomeSearchActive((cur + 1) % n); }
+        else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setHomeSearchActive(cur <= 0 ? n - 1 : cur - 1); }
+        else if (e.key === 'Escape') { closeHomeSearchResults(); input.blur(); }
+      });
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const q = input.value.trim();
+        if (!q) return;
+        const cur = Number(results.dataset.active || -1);
+        const li = !results.hidden && cur >= 0 ? results.children[cur] : null;
+        if (li) chooseHomeSearchOption(li);
+        else { closeHomeSearchResults(); input.value = ''; input.blur(); activateSearchPanel(q); }
+      });
+      // mousedown（而非 click）才不會被 input 的 blur 搶先關掉清單
+      results.addEventListener('mousedown', (e) => {
+        const li = e.target.closest('.home-search-opt');
+        if (!li) return;
+        e.preventDefault();
+        chooseHomeSearchOption(li);
+      });
+      input.addEventListener('blur', () => setTimeout(closeHomeSearchResults, 120));
+      // 首頁上按「/」直接到搜尋框
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || state.currentFile) return;
+        const t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        const welcome = $('welcomeScreen');
+        if (!welcome || welcome.offsetParent === null) return;
+        e.preventDefault();
+        input.focus();
+      });
+    }
+    const cue = $('homeScrollCue');
+    if (cue) cue.addEventListener('click', () => {
+      const t = homeBelowTarget();
+      if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    const randomBtn = $('homeRandom');
+    if (randomBtn) randomBtn.addEventListener('click', openRandomScripture);
+    const browseBtn = $('homeBrowse');
+    if (browseBtn) browseBtn.addEventListener('click', openHomeBrowse);
+
+    const noticeMore = $('homeNoticeMore');
+    if (noticeMore) noticeMore.addEventListener('click', () => {
+      const box = $('homeNotice');
+      const open = box.classList.toggle('expanded');
+      noticeMore.textContent = open ? '收起' : '展開';
+    });
+    const noticeClose = $('homeNoticeClose');
+    if (noticeClose) noticeClose.addEventListener('click', () => {
+      const ann = homeAnnouncement();
+      storage.setJson(HOME_NOTICE_KEY, { announcement: ann.message, announcementUpdatedAt: ann.updatedAt });
+      renderHomeNotice();
+    });
+    const noticeReopen = $('homeNoticeReopen');
+    if (noticeReopen) noticeReopen.addEventListener('click', () => {
+      storage.remove(HOME_NOTICE_KEY);
+      renderHomeNotice();
+    });
+
+    const wordBox = $('homeWord');
+    if (wordBox) wordBox.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-path]');
+      if (b && b.dataset.path) openHomeTarget(b.dataset.path, b.dataset.line);
+    });
+
+    const list = $('suggestList');
+    if (list) {
+      const go = (li) => li && openHomeTarget(li.getAttribute('data-path'), li.getAttribute('data-line'));
+      list.addEventListener('click', (e) => go(e.target.closest('.suggest-item')));
+      list.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const li = e.target.closest('.suggest-item');
+        if (!li) return;
+        e.preventDefault();
+        go(li);
+      });
+    }
+
+    // 首頁開著過了午夜或換了時段，回到分頁時更新問候語與今日經文
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && !state.currentFile) {
+        renderHomeGreeting();
+        renderHomeVerse();
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2368,6 +2685,7 @@
       buildFileSizeMap(state.treeData);
       populateSearchFolderSelect(state.treeData);
       renderFileTree();
+      reconcileMovedLibraryFiles();
     } catch (err) {
       container.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>載入失敗: ${escHtml(err.message)}</span></div>`;
       showToast('檔案目錄載入失敗，請重新整理', 'error');
@@ -2378,9 +2696,12 @@
   // whether to take the virtualized path without an extra network round-trip.
   function buildFileSizeMap(nodes) {
     state.fileSizes.clear();
+    const files = new Set();
+    state.treeFileSet = files;
     (function walk(list) {
       if (!Array.isArray(list)) return;
       for (const n of list) {
+        if (n.type === 'file' && n.path) files.add(n.path);
         if (n.type === 'file' && typeof n.size === 'number') {
           state.fileSizes.set(n.path, n.size);
         }
@@ -7503,7 +7824,7 @@
   // 本機 localStorage 永遠是第一手資料（離線可用）。登入後，異動以「路徑 + 時間戳」
   // 逐筆送到伺服器，並拉回其他裝置的異動；規則見 library-sync.js（時間戳大者勝，刪除留墓碑）。
   // 中繼資料（meta）：uid 這份本機資料屬於誰、cursor 上次拉到的伺服器序號、
-  // tb/th 書籤／歷程的墓碑、db/dh 尚未送出的路徑。
+  // tb/th 書籤／歷程的墓碑、db/dh 尚未送出的路徑；劃重點以 id 為 key，墓碑 tl、待送出 dl。
   // ═══════════════════════════════════════════════════════════
   const SYNC_URL = '/api/me/sync';
   const SYNC_PUSH_DELAY_MS = 4000;
@@ -7512,7 +7833,7 @@
   const SYNC_BEACON_MAX_BYTES = 60000;
   const LibSync = window.MdwLibrarySync;
 
-  const librarySnap = { b: new Map(), h: new Map() };
+  const librarySnap = { b: new Map(), h: new Map(), l: new Map() };
   let syncMetaMemory = null; // localStorage 不能用（Safari 私密模式等）時的後備
   const syncRt = { timer: null, inflight: null, lastPullAt: 0, user: null, status: 'local', retryAt: 0 };
 
@@ -7520,6 +7841,7 @@
     let m = storage.getJson(STORAGE_KEYS.SYNC_META, null) || syncMetaMemory;
     if (!m || typeof m !== 'object') m = {};
     m.tb = m.tb || {}; m.th = m.th || {}; m.db = m.db || {}; m.dh = m.dh || {};
+    m.tl = m.tl || {}; m.dl = m.dl || {};
     m.cursor = Number(m.cursor) || 0;
     m.uid = m.uid || null;
     return m;
@@ -7533,29 +7855,37 @@
   function rebuildLibrarySnap() {
     librarySnap.b = new Map((state.bookmarks || []).map(i => [i.filePath, i.ts]));
     librarySnap.h = new Map((state.recentFiles || []).map(i => [i.filePath, i.ts]));
+    librarySnap.l = new Map((state.highlights || []).map(i => [i.id, i.ts]));
   }
+
+  const LIBRARY_KINDS = {
+    b: { list: () => state.bookmarks, key: 'filePath', storageKey: () => STORAGE_KEYS.BOOKMARKS, tombs: 'tb', dirty: 'db' },
+    h: { list: () => state.recentFiles, key: 'filePath', storageKey: () => STORAGE_KEYS.RECENT_FILES, tombs: 'th', dirty: 'dh' },
+    l: { list: () => state.highlights, key: 'id', storageKey: () => STORAGE_KEYS.HIGHLIGHTS, tombs: 'tl', dirty: 'dl' }
+  };
 
   /**
    * 把 state.bookmarks（'b'）或 state.recentFiles（'h'）寫回 localStorage，並與上次的快照比對：
    * 新增或時間戳變動的記為待送出，消失的記為墓碑。所有本機異動都經過這裡。
    */
   function persistLibrary(kind) {
-    const isB = kind === 'b';
-    const list = (isB ? state.bookmarks : state.recentFiles) || [];
+    const K = LIBRARY_KINDS[kind];
+    const list = K.list() || [];
     const snap = librarySnap[kind];
     const m = syncMeta();
-    const tombs = isB ? m.tb : m.th;
-    const dirty = isB ? m.db : m.dh;
+    const tombs = m[K.tombs];
+    const dirty = m[K.dirty];
     const now = Date.now();
     const seen = new Set();
     for (const it of list) {
       if (!it.ts) it.ts = now;
-      seen.add(it.filePath);
-      if (snap.get(it.filePath) !== it.ts) {
-        dirty[it.filePath] = 1;
-        delete tombs[it.filePath];
+      const key = it[K.key];
+      seen.add(key);
+      if (snap.get(key) !== it.ts) {
+        dirty[key] = 1;
+        delete tombs[key];
       }
-      snap.set(it.filePath, it.ts);
+      snap.set(key, it.ts);
     }
     for (const p of Array.from(snap.keys())) {
       if (seen.has(p)) continue;
@@ -7563,12 +7893,13 @@
       tombs[p] = Math.max(now, (tombs[p] || 0) + 1);
       dirty[p] = 1;
     }
-    storage.setJson(isB ? STORAGE_KEYS.BOOKMARKS : STORAGE_KEYS.RECENT_FILES, list);
+    storage.setJson(K.storageKey(), list);
     saveSyncMeta(m);
     scheduleLibrarySync();
   }
 
   function wireFromLocal(kind, path, m) {
+    if (kind === 'l') return highlightWireFromLocal(path, m);
     const isB = kind === 'b';
     const list = (isB ? state.bookmarks : state.recentFiles) || [];
     const it = list.find(i => i.filePath === path);
@@ -7583,17 +7914,29 @@
     return null;
   }
 
+  function highlightWireFromLocal(id, m) {
+    const it = (state.highlights || []).find(i => i.id === id);
+    const tomb = m.tl[id] || 0;
+    if (it && (it.ts || 0) >= tomb) {
+      return { id, path: it.filePath, updatedAt: it.ts, line: it.line, off: it.off, q: it.q, pre: it.pre || '', suf: it.suf || '', c: it.c };
+    }
+    if (tomb) return { id, path: (it && it.filePath) || '-', updatedAt: tomb, deleted: true };
+    return null;
+  }
+
   function buildSyncBody(m) {
-    const b = [], h = [];
+    const b = [], h = [], l = [];
     for (const p of Object.keys(m.db)) { const w = wireFromLocal('b', p, m); if (w) b.push(w); }
     for (const p of Object.keys(m.dh)) { const w = wireFromLocal('h', p, m); if (w) h.push(w); }
+    for (const p of Object.keys(m.dl)) { const w = wireFromLocal('l', p, m); if (w) l.push(w); }
     const cap = LibSync.LIMITS.maxItemsPerRequest;
-    return { cursor: m.cursor, bookmarks: b.slice(0, cap), history: h.slice(0, cap) };
+    const hlCap = window.MdwHighlights ? window.MdwHighlights.LIMITS.maxPerRequest : 200;
+    return { cursor: m.cursor, bookmarks: b.slice(0, cap), history: h.slice(0, cap), highlights: l.slice(0, hlCap) };
   }
 
   function hasPendingSync() {
     const m = syncMeta();
-    return Object.keys(m.db).length > 0 || Object.keys(m.dh).length > 0;
+    return Object.keys(m.db).length > 0 || Object.keys(m.dh).length > 0 || Object.keys(m.dl).length > 0;
   }
 
   function scheduleLibrarySync(delay = SYNC_PUSH_DELAY_MS) {
@@ -7640,9 +7983,11 @@
   function applyRemoteLibrary(res, m) {
     const mb = LibSync.mergeRemote(state.bookmarks, m.tb, res.bookmarks, { make: w => libraryItemFromWire('b', w) });
     const mh = LibSync.mergeRemote(state.recentFiles, m.th, res.history, { make: w => libraryItemFromWire('h', w), cap: 20 });
+    const ml = LibSync.mergeRemote(state.highlights, m.tl, res.highlights || [], { make: highlightFromWire, localKey: 'id', wireKey: 'id' });
     if (mb.changed) { state.bookmarks = mb.list; m.tb = mb.tombs; }
     if (mh.changed) { state.recentFiles = mh.list; m.th = mh.tombs; }
-    return mb.changed || mh.changed;
+    if (ml.changed) { state.highlights = ml.list; m.tl = ml.tombs; }
+    return mb.changed || mh.changed || ml.changed;
   }
 
   /** 跨裝置的「繼續閱讀」：其他裝置讀得比較新時，以歷程第一筆為準（沒有捲動位置，用行號）。 */
@@ -7657,9 +8002,11 @@
 
   function refreshLibraryUi() {
     rebuildLibrarySnap();
+    ensureBookmarksForHighlights();
     renderBookmarksList();
     renderRecentFilesList();
     if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+    scheduleHighlightPaint();
   }
 
   function runLibrarySync(reason) {
@@ -7671,7 +8018,8 @@
         const body = buildSyncBody(m0);
         const sent = {
           b: Object.fromEntries(body.bookmarks.map(w => [w.path, w.updatedAt])),
-          h: Object.fromEntries(body.history.map(w => [w.path, w.updatedAt]))
+          h: Object.fromEntries(body.history.map(w => [w.path, w.updatedAt])),
+          l: Object.fromEntries(body.highlights.map(w => [w.id, w.updatedAt]))
         };
         setSyncStatus('syncing');
         const r = await accountApi(SYNC_URL, { method: 'POST', body });
@@ -7690,7 +8038,7 @@
         syncRt.retryAt = 0;
         const m = syncMeta();
         // 送出期間若又改過同一筆，保留待送出狀態
-        for (const [kind, dirty, tombs] of [['b', m.db, m.tb], ['h', m.dh, m.th]]) {
+        for (const [kind, dirty, tombs] of [['b', m.db, m.tb], ['h', m.dh, m.th], ['l', m.dl, m.tl]]) {
           for (const p of Object.keys(sent[kind])) {
             const cur = Math.max(librarySnap[kind].get(p) || 0, tombs[p] || 0);
             if (cur === sent[kind][p]) delete dirty[p];
@@ -7701,9 +8049,11 @@
         m.uid = syncRt.user.id;
         m.tb = LibSync.pruneTombs(m.tb, Date.now());
         m.th = LibSync.pruneTombs(m.th, Date.now());
+        m.tl = LibSync.pruneTombs(m.tl, Date.now());
         if (changed) {
           storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
           storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+          storage.setJson(STORAGE_KEYS.HIGHLIGHTS, state.highlights);
           adoptNewestHistoryAsResume();
         }
         saveSyncMeta(m);
@@ -7763,8 +8113,10 @@
       m2.cursor = 0;
       for (const i of state.bookmarks || []) { if (!i.ts) i.ts = Date.now(); m2.db[i.filePath] = 1; }
       for (const i of state.recentFiles || []) { if (!i.ts) i.ts = Date.now(); m2.dh[i.filePath] = 1; }
+      for (const i of state.highlights || []) { if (!i.ts) i.ts = Date.now(); m2.dl[i.id] = 1; }
       storage.setJson(STORAGE_KEYS.BOOKMARKS, state.bookmarks);
       storage.setJson(STORAGE_KEYS.RECENT_FILES, state.recentFiles);
+      storage.setJson(STORAGE_KEYS.HIGHLIGHTS, state.highlights);
     }
     m2.uid = syncRt.user.id;
     saveSyncMeta(m2);
@@ -7775,8 +8127,11 @@
   function clearLocalLibrary() {
     state.bookmarks = [];
     state.recentFiles = [];
+    state.highlights = [];
     storage.remove(STORAGE_KEYS.BOOKMARKS);
     storage.remove(STORAGE_KEYS.RECENT_FILES);
+    storage.remove(STORAGE_KEYS.HIGHLIGHTS);
+    storage.remove(STORAGE_KEYS.HIGHLIGHTS_LOST);
     storage.remove(STORAGE_KEYS.LAST_READ_PROGRESS);
     storage.remove(STORAGE_KEYS.SYNC_META);
     syncMetaMemory = null;
@@ -7810,9 +8165,10 @@
     setInterval(pullLibraryIfStale, SYNC_POLL_MS);
     // 同一個瀏覽器的其他分頁改了資料：重新讀取並重畫（storage 事件只在「其他」分頁觸發）
     window.addEventListener('storage', (e) => {
-      if (e.key !== null && ![STORAGE_KEYS.BOOKMARKS, STORAGE_KEYS.RECENT_FILES, STORAGE_KEYS.SYNC_META].includes(e.key)) return;
+      if (e.key !== null && ![STORAGE_KEYS.BOOKMARKS, STORAGE_KEYS.RECENT_FILES, STORAGE_KEYS.HIGHLIGHTS, STORAGE_KEYS.SYNC_META].includes(e.key)) return;
       state.bookmarks = safeJsonParse(STORAGE_KEYS.BOOKMARKS, []);
       state.recentFiles = safeJsonParse(STORAGE_KEYS.RECENT_FILES, []);
+      state.highlights = safeJsonParse(STORAGE_KEYS.HIGHLIGHTS, []);
       refreshLibraryUi();
     });
   }
@@ -7869,6 +8225,8 @@
   /** 歷程有變動時，若「書籤與歷程」抽屜開著就重畫。 */
   function renderRecentFilesList() {
     if (isLibraryOpen()) renderLibrary();
+    // 首頁開著時（例如登入後同步回來），「繼續閱讀」跟著更新
+    if (!state.currentFile) renderHomeContinue();
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -7982,7 +8340,9 @@
     let isBookmarked = false;
 
     if (idx >= 0) {
+      if (!confirmRemoveBookmarkHighlights([filePath])) return true;
       list.splice(idx, 1);
+      removeHighlightsOfFiles([filePath]);
       isBookmarked = false;
       showToast('🗑️ 已從書籤移除', 'success');
     } else {
@@ -8030,6 +8390,537 @@
   function renderBookmarksList() {
     if (isLibraryOpen()) renderLibrary();
     updateLibraryCount();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §17b HIGHLIGHTS（劃重點：朱筆底線，隸屬書籤）
+  //
+  // 選取經文 → 選字彈窗的色點 → 在字下畫一條有色細線。每處劃線一筆，存在
+  // state.highlights（localStorage，登入後隨書籤同步，見 §14b 的 'l'），並一定掛在
+  // 一個書籤下：劃線時檔案還不是書籤就自動加入；移除書籤會一併刪掉劃線。
+  //
+  // 畫線用 CSS Custom Highlight API（CSS.highlights + ::highlight()），不改動 DOM，
+  // 所以不影響繁簡轉換、虛擬捲動與頁內搜尋。位置由 highlights.js 依「行號＋原文＋
+  // 前後文」找回；經文改版後找到新位置就悄悄更新，找不到就標「找不到原處」，不刪資料。
+  // ═══════════════════════════════════════════════════════════
+  const HL = window.MdwHighlights;
+  const HL_COLOR_NAMES = { r: '朱', y: '黃', g: '綠', b: '藍' };
+  const HL_PAINT_DELAY_MS = 150;
+  const HL_FLASH_MS = 1600;
+  const hlRt = {
+    painted: [],          // [{ id, range }] 目前畫在畫面上的劃線
+    timer: null,
+    observer: null,
+    observed: null,
+    flashId: null,
+    lost: safeJsonParse(STORAGE_KEYS.HIGHLIGHTS_LOST, {}) || {}
+  };
+  // 點已劃線處時叫出的彈窗；由 setupSelectionPopup 提供（共用選字彈窗）
+  let hlShowEditPopup = null;
+
+  function hlSupported() {
+    return !!(window.CSS && CSS.highlights && typeof window.Highlight === 'function');
+  }
+
+  function highlightFromWire(w) {
+    return { id: w.id, filePath: w.path, line: w.line, off: w.off, q: w.q, pre: w.pre || '', suf: w.suf || '', c: w.c, ts: w.updatedAt };
+  }
+
+  function highlightsOf(filePath) {
+    return (state.highlights || []).filter(h => h.filePath === filePath)
+      .sort((a, b) => (a.line - b.line) || ((a.off || 0) - (b.off || 0)));
+  }
+
+  function isHighlightLost(id) {
+    return !!hlRt.lost[id];
+  }
+
+  function saveHighlightLost() {
+    storage.setJson(STORAGE_KEYS.HIGHLIGHTS_LOST, hlRt.lost);
+  }
+
+  /** 主樹已載入、且檔案不在其中（辭典條目不判斷）。 */
+  function isLibraryFileMissing(filePath) {
+    if (!filePath || filePath.startsWith('dict:')) return false;
+    const set = state.treeFileSet;
+    return !!(set && set.size && !set.has(filePath));
+  }
+
+  function makeBookmarkEntry(filePath, title) {
+    const fileName = title || filePath.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
+    const entry = { filePath, fileName, time: new Date().toLocaleDateString(activeLocale()), ts: Date.now() };
+    const seen = (state.recentFiles || []).find(r => r.filePath === filePath);
+    if (seen && typeof seen.pct === 'number') { entry.pct = seen.pct; entry.line = seen.line || null; }
+    return entry;
+  }
+
+  /** 劃線一定掛在書籤下：有劃線、卻沒有書籤的檔案補上書籤（例如另一台裝置同步過來）。 */
+  function ensureBookmarksForHighlights() {
+    const have = new Set((state.bookmarks || []).map(b => b.filePath));
+    const tombs = syncMeta().tb;
+    const newest = new Map();
+    for (const h of state.highlights || []) {
+      newest.set(h.filePath, Math.max(newest.get(h.filePath) || 0, h.ts || 0));
+    }
+    let added = false;
+    for (const [fp, ts] of newest) {
+      if (have.has(fp)) continue;
+      // 書籤是在這些劃線之後才刪的：劃線的刪除也會跟著同步過來，不要把書籤救回來
+      if ((tombs[fp] || 0) > ts) continue;
+      state.bookmarks = state.bookmarks || [];
+      state.bookmarks.unshift(makeBookmarkEntry(fp));
+      added = true;
+    }
+    if (added) persistLibrary('b');
+    return added;
+  }
+
+  function confirmRemoveBookmarkHighlights(filePaths) {
+    const set = new Set(filePaths);
+    const n = (state.highlights || []).filter(h => set.has(h.filePath)).length;
+    if (!n) return true;
+    return confirm(`這個書籤下有 ${n} 處劃線，移除書籤會一併刪除。確定要移除嗎？`);
+  }
+
+  function removeHighlightsOfFiles(filePaths) {
+    const set = new Set(filePaths);
+    const before = (state.highlights || []).length;
+    state.highlights = (state.highlights || []).filter(h => {
+      if (!set.has(h.filePath)) return true;
+      delete hlRt.lost[h.id];
+      return false;
+    });
+    if (state.highlights.length !== before) {
+      persistLibrary('l');
+      saveHighlightLost();
+      scheduleHighlightPaint();
+    }
+  }
+
+  /**
+   * 書籤指向的檔案不在文庫了：用同檔名或同經號找到唯一的新位置就搬過去（劃線一起搬）；
+   * 找不到就保留原樣，抽屜裡標「此文件已不在文庫」。
+   */
+  function reconcileMovedLibraryFiles() {
+    if (!HL || !state.treeFileSet || !state.treeFileSet.size) return;
+    const files = Array.from(state.treeFileSet);
+    const now = Date.now();
+    let changedB = false;
+    let changedL = false;
+    const paths = new Set((state.bookmarks || []).map(b => b.filePath).concat((state.highlights || []).map(h => h.filePath)));
+    for (const oldPath of paths) {
+      if (!isLibraryFileMissing(oldPath)) continue;
+      const target = HL.findMovedFile(oldPath, files);
+      if (!target) continue;
+      const bm = (state.bookmarks || []).find(b => b.filePath === oldPath);
+      const already = (state.bookmarks || []).some(b => b.filePath === target);
+      if (bm) {
+        if (already) state.bookmarks = state.bookmarks.filter(b => b !== bm);
+        else { bm.filePath = target; bm.ts = now; }
+        changedB = true;
+      }
+      for (const h of state.highlights || []) {
+        if (h.filePath === oldPath) { h.filePath = target; h.ts = now; changedL = true; }
+      }
+      log.info(`書籤檔案已搬移：${oldPath} → ${target}`);
+    }
+    if (changedB) persistLibrary('b');
+    if (changedL) persistLibrary('l');
+    if (changedB || changedL || isLibraryOpen()) renderBookmarksList();
+  }
+
+  // ── 內文的文字索引：所有文字節點依序接起來（原文），並記下每一行的起點 ──
+  function buildHighlightTextIndex(body) {
+    const ds = window.mdDisplayScript;
+    const conv = !!(ds && ds.isActive());
+    const nodes = [];
+    const nodeIndex = new Map();
+    const lineStarts = [];
+    let text = '';
+    let lastLine = 0;
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        if (n.nodeType === 3) return NodeFilter.FILTER_ACCEPT;
+        const tag = n.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'svg' || tag === 'SVG') return NodeFilter.FILTER_REJECT;
+        if (n.classList.contains('mermaid-container') || n.classList.contains('katex-mathml')) return NodeFilter.FILTER_REJECT;
+        return n.classList.contains('line-anchor') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n.nodeType === 1) {
+        const line = parseInt(n.getAttribute('data-line'), 10);
+        if (line > lastLine) { lineStarts.push({ line, pos: text.length }); lastLine = line; }
+        continue;
+      }
+      const orig = conv ? ds.originalText(n) : n.data;
+      if (!orig.length) continue;
+      nodeIndex.set(n, nodes.length);
+      nodes.push({ n, pos: text.length, len: orig.length, dlen: n.data.length });
+      text += orig;
+    }
+    return { text, nodes, nodeIndex, lineStarts, conv };
+  }
+
+  function hlNodeAt(idx, pos) {
+    let lo = 0, hi = idx.nodes.length - 1, ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (idx.nodes[mid].pos <= pos) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  function hlScale(off, from, to) {
+    return from === to ? off : Math.round(off * to / Math.max(1, from));
+  }
+
+  /** 文字索引的 [s, e) 轉成 DOM Range。 */
+  function hlRangeOf(idx, s, e) {
+    if (e <= s || !idx.nodes.length) return null;
+    const i = hlNodeAt(idx, s);
+    const j = hlNodeAt(idx, e - 1);
+    if (i < 0 || j < 0) return null;
+    const a = idx.nodes[i];
+    const b = idx.nodes[j];
+    try {
+      const r = document.createRange();
+      r.setStart(a.n, Math.min(a.dlen, hlScale(s - a.pos, a.len, a.dlen)));
+      r.setEnd(b.n, Math.min(b.dlen, hlScale(e - b.pos, b.len, b.dlen)));
+      return r;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** DOM 上的一點（Range 的端點）在文字索引裡的位置。 */
+  function hlOffsetOf(idx, container, offset) {
+    if (container && container.nodeType === 3 && idx.nodeIndex.has(container)) {
+      const nd = idx.nodes[idx.nodeIndex.get(container)];
+      return nd.pos + Math.min(nd.len, hlScale(offset, nd.dlen, nd.len));
+    }
+    // 端點在元素上：取該點之後第一個文字節點的起點
+    const probe = document.createRange();
+    try { probe.setStart(container, offset); } catch (_) { return null; }
+    probe.collapse(true);
+    let lo = 0, hi = idx.nodes.length - 1, ans = idx.nodes.length;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      let cmp;
+      try { cmp = probe.comparePoint(idx.nodes[mid].n, 0); } catch (_) { cmp = 1; }
+      if (cmp >= 0) { ans = mid; hi = mid - 1; } else lo = mid + 1;
+    }
+    return ans < idx.nodes.length ? idx.nodes[ans].pos : idx.text.length;
+  }
+
+  function clearHighlightPaint() {
+    hlRt.painted = [];
+    if (!hlSupported()) return;
+    for (const c of HL.COLORS) CSS.highlights.delete(`mdw-hl-${c}`);
+  }
+
+  function ensureHighlightObserver(body) {
+    if (!body || hlRt.observed === body || typeof MutationObserver !== 'function') return;
+    if (hlRt.observer) hlRt.observer.disconnect();
+    // 內文重畫、虛擬捲動載入新段落、繁簡轉換改寫文字，都要重新定位劃線
+    hlRt.observer = new MutationObserver(() => scheduleHighlightPaint());
+    hlRt.observer.observe(body, { childList: true, subtree: true, characterData: true });
+    hlRt.observed = body;
+  }
+
+  function scheduleHighlightPaint(delay = HL_PAINT_DELAY_MS) {
+    if (!HL) return;
+    if (hlRt.timer) clearTimeout(hlRt.timer);
+    hlRt.timer = setTimeout(paintHighlights, delay);
+  }
+
+  function paintHighlights() {
+    hlRt.timer = null;
+    const body = $('markdownBody');
+    if (!HL || !body) return;
+    ensureHighlightObserver(body);
+    const fp = state.currentFile;
+    const list = fp ? highlightsOf(fp) : [];
+    if (!list.length) {
+      clearHighlightPaint();
+      updateHighlightLostBar();
+      return;
+    }
+    const idx = buildHighlightTextIndex(body);
+    const ls = idx.lineStarts;
+    const virtual = isVirtualMode();
+    const minLine = ls.length ? ls[0].line : 0;
+    const maxLine = ls.length ? ls[ls.length - 1].line : 0;
+    // 簡體顯示時，被切開的文字節點可能只剩簡體字，比對結果不足以改寫資料或判定遺失
+    const trustworthy = !idx.conv;
+    const byColor = {};
+    for (const c of HL.COLORS) byColor[c] = [];
+    const painted = [];
+    let changed = false;
+    let lostChanged = false;
+    const now = Date.now();
+    for (const h of list) {
+      // 大檔只載入了一部分：這處劃線所在的段落還沒載入，先不判斷
+      if (virtual && (h.line < minLine || h.line > maxLine)) continue;
+      const loc = idx.text ? HL.locate(idx.text, h, ls) : null;
+      if (!loc) {
+        if (trustworthy && idx.text && !hlRt.lost[h.id]) { hlRt.lost[h.id] = 1; lostChanged = true; }
+        continue;
+      }
+      if (hlRt.lost[h.id]) { delete hlRt.lost[h.id]; lostChanged = true; }
+      if (trustworthy) {
+        const a = HL.makeAnchor(idx.text, loc.s, loc.e, ls);
+        if (a && (a.line !== h.line || a.off !== h.off || a.q !== h.q)) {
+          Object.assign(h, a, { ts: Math.max(now, (h.ts || 0) + 1) });
+          changed = true;
+        }
+      }
+      const range = hlRangeOf(idx, loc.s, loc.e);
+      if (!range) continue;
+      (byColor[h.c] || byColor[HL.COLORS[0]]).push(range);
+      painted.push({ id: h.id, range });
+    }
+    hlRt.painted = painted;
+    if (hlSupported()) {
+      for (const c of HL.COLORS) {
+        if (byColor[c].length) CSS.highlights.set(`mdw-hl-${c}`, new Highlight(...byColor[c]));
+        else CSS.highlights.delete(`mdw-hl-${c}`);
+      }
+    }
+    if (changed) persistLibrary('l');
+    if (lostChanged) { saveHighlightLost(); renderBookmarksList(); }
+    updateHighlightLostBar();
+    if (hlRt.flashId) flashHighlight(hlRt.flashId);
+  }
+
+  function flashHighlight(id) {
+    const p = hlRt.painted.find(x => x.id === id);
+    if (!p) return;
+    hlRt.flashId = null;
+    const rect = p.range.getBoundingClientRect();
+    const scroller = $('content');
+    if (scroller && rect.height && (rect.top < 60 || rect.bottom > window.innerHeight - 40)) {
+      scroller.scrollTop += rect.top - window.innerHeight / 3;
+    }
+    if (!hlSupported()) return;
+    CSS.highlights.set('mdw-hl-flash', new Highlight(p.range));
+    setTimeout(() => CSS.highlights.delete('mdw-hl-flash'), HL_FLASH_MS);
+  }
+
+  /** 這一篇有劃線找不到原處時，在內文上方提示。 */
+  function updateHighlightLostBar() {
+    const body = $('markdownBody');
+    if (!body || !body.parentNode) return;
+    let bar = $('hlLostBar');
+    const fp = state.currentFile;
+    const n = fp ? highlightsOf(fp).filter(h => hlRt.lost[h.id]).length : 0;
+    if (!n) { if (bar) bar.hidden = true; return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'hlLostBar';
+      bar.className = 'hl-lost-bar';
+      bar.setAttribute('role', 'status');
+      bar.innerHTML = '<span class="hl-lost-text"></span><button type="button" class="hl-lost-view">查看</button>';
+      bar.querySelector('.hl-lost-view').addEventListener('click', () => {
+        if (!state.currentFile) return;
+        libraryUi.hlOpen[state.currentFile] = true;
+        saveLibraryPrefs();
+        openLibrary('bookmarks');
+      });
+    }
+    if (bar.nextSibling !== body) body.parentNode.insertBefore(bar, body);
+    bar.querySelector('.hl-lost-text').textContent = `這一篇有 ${n} 處劃線在目前的經文裡找不到原處（經文可能已修改），劃線內容仍保留在書籤裡。`;
+    bar.hidden = false;
+  }
+
+  /**
+   * 以選取的範圍新增一處劃線。與既有劃線重疊時合併成一處（顏色用這次選的）。
+   * @returns {boolean} 是否新增
+   */
+  function createHighlightFromRange(range, color) {
+    const fp = state.currentFile;
+    const body = $('markdownBody');
+    if (!HL || !fp || !body || !range || !body.contains(range.commonAncestorContainer)) return false;
+    const idx = buildHighlightTextIndex(body);
+    const s0 = hlOffsetOf(idx, range.startContainer, range.startOffset);
+    const e0 = hlOffsetOf(idx, range.endContainer, range.endOffset);
+    if (s0 == null || e0 == null) return false;
+    let t = HL.trimRange(idx.text, s0, e0);
+    if (!t) return false;
+    // 與這一篇既有的劃線重疊：併成一處
+    const merged = [];
+    for (const h of highlightsOf(fp)) {
+      const loc = HL.locate(idx.text, h, idx.lineStarts);
+      if (loc && loc.s < t.e && loc.e > t.s) {
+        merged.push(h.id);
+        t = { s: Math.min(t.s, loc.s), e: Math.max(t.e, loc.e) };
+      }
+    }
+    if (t.e - t.s > HL.LIMITS.maxQuote) {
+      showToast(`一次最多劃 ${HL.LIMITS.maxQuote} 個字，請分段劃線`, 'warning');
+      return false;
+    }
+    const a = HL.makeAnchor(idx.text, t.s, t.e, idx.lineStarts);
+    if (!a) return false;
+    const c = HL.COLORS.includes(color) ? color : HL.COLORS[0];
+    state.highlights = (state.highlights || []).filter(h => !merged.includes(h.id));
+    state.highlights.push(Object.assign({ id: HL.newId(), filePath: fp }, a, { c, ts: Date.now() }));
+    persistLibrary('l');
+
+    let addedBookmark = false;
+    if (!(state.bookmarks || []).some(b => b.filePath === fp)) {
+      const titleEl = document.querySelector('#contentHeader .file-title');
+      state.bookmarks = state.bookmarks || [];
+      state.bookmarks.unshift(makeBookmarkEntry(fp, titleEl ? titleEl.textContent : ''));
+      persistLibrary('b');
+      updateBookmarkButtonUI(fp);
+      addedBookmark = true;
+    }
+    renderBookmarksList();
+    paintHighlights();
+    if (!hlSupported()) showToast('已劃線並存入書籤；這個瀏覽器版本無法顯示底線，請更新瀏覽器', 'warning', 4000);
+    else if (addedBookmark) showToast('已劃線，並把這一篇加入書籤', 'success');
+    return true;
+  }
+
+  function recolorHighlight(id, color) {
+    const h = (state.highlights || []).find(x => x.id === id);
+    if (!h || !HL.COLORS.includes(color) || h.c === color) return;
+    h.c = color;
+    h.ts = Math.max(Date.now(), (h.ts || 0) + 1);
+    persistLibrary('l');
+    renderBookmarksList();
+    paintHighlights();
+  }
+
+  function removeHighlight(id) {
+    const before = (state.highlights || []).length;
+    state.highlights = (state.highlights || []).filter(h => h.id !== id);
+    if (state.highlights.length === before) return;
+    delete hlRt.lost[id];
+    saveHighlightLost();
+    persistLibrary('l');
+    renderBookmarksList();
+    paintHighlights();
+  }
+
+  function copyHighlightText(id) {
+    const h = (state.highlights || []).find(x => x.id === id);
+    if (!h) return;
+    const ds = window.mdDisplayScript;
+    const text = isHansDisplay() && ds && ds.isLoaded() ? ds.toContent(h.q) : h.q;
+    const ok = () => showToast('已複製劃線文字', 'success');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(() => { if (fallbackCopy(text)) ok(); else showToast('❌ 複製失敗', 'error'); });
+    } else if (fallbackCopy(text)) ok();
+    else showToast('❌ 複製失敗', 'error');
+  }
+
+  /** 點在哪一處劃線上（以底線所在的行框判斷，含下方一點空間）。 */
+  function highlightAtPoint(x, y) {
+    for (const p of hlRt.painted) {
+      const rects = p.range.getClientRects();
+      for (const r of rects) {
+        if (x >= r.left - 1 && x <= r.right + 1 && y >= r.top - 1 && y <= r.bottom + 6) return p;
+      }
+    }
+    return null;
+  }
+
+  function openHighlightInReader(id) {
+    const h = (state.highlights || []).find(x => x.id === id);
+    if (!h) return;
+    if (isLibraryFileMissing(h.filePath)) { showToast('此文件已不在文庫', 'warning'); return; }
+    closeLibrary(false);
+    hlRt.flashId = id;
+    if (state.currentFile === h.filePath) {
+      scrollToLine(h.line);
+      scheduleHighlightPaint(60);
+    } else {
+      openFile(h.filePath, h.line);
+    }
+  }
+
+  /** 書籤下的劃線清單（抽屜用）。 */
+  function libraryHighlightsHtml(filePath, q) {
+    const list = highlightsOf(filePath);
+    if (!list.length) return '';
+    const matchQ = !!q && list.some(h => h.q.toLowerCase().includes(q));
+    const open = !!libraryUi.hlOpen[filePath] || matchQ;
+    const lost = list.filter(h => hlRt.lost[h.id]).length;
+    let html = `<button type="button" class="library-hl-toggle" data-hl-toggle="${escHtml(filePath)}" aria-expanded="${open}">`
+      + `<span class="library-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>`
+      + `<span>${list.length} 處劃線</span>`
+      + (lost ? `<span class="library-hl-lost">${lost} 處找不到原處</span>` : '')
+      + `</button>`;
+    if (!open) return html;
+    html += '<ul class="library-hl-list">';
+    for (const h of list) {
+      const isLost = !!hlRt.lost[h.id];
+      const quote = h.q.length > 80 ? `${h.q.slice(0, 80)}…` : h.q;
+      html += `<li class="library-hl-item${isLost ? ' lost' : ''}" data-color="${escHtml(h.c)}">`
+        + `<button type="button" class="library-hl-open" data-hl-open="${escHtml(h.id)}" title="${isLost ? '找不到原處：經文可能已修改' : `第 ${h.line} 行`}">`
+        + `<span class="library-hl-mark" aria-label="${HL_COLOR_NAMES[h.c] || ''}色"></span>`
+        + `<span class="library-hl-quote">${escHtml(quote)}</span>`
+        + (isLost ? '<span class="library-hl-lost">找不到原處</span>' : '')
+        + `</button>`
+        + `<button type="button" class="library-hl-act" data-hl-copy="${escHtml(h.id)}" title="複製劃線文字" aria-label="複製劃線文字">⧉</button>`
+        + `<button type="button" class="library-hl-act" data-del-hl="${escHtml(h.id)}" title="刪除這處劃線" aria-label="刪除這處劃線">✕</button>`
+        + `</li>`;
+    }
+    return html + '</ul>';
+  }
+
+  /** 抽屜裡與劃線有關的點擊；處理了就回傳 true。 */
+  function handleHighlightLibraryClick(e) {
+    const toggle = e.target.closest('[data-hl-toggle]');
+    if (toggle) {
+      const fp = toggle.getAttribute('data-hl-toggle');
+      if (libraryUi.hlOpen[fp]) delete libraryUi.hlOpen[fp];
+      else libraryUi.hlOpen[fp] = true;
+      saveLibraryPrefs();
+      renderLibrary();
+      return true;
+    }
+    const copy = e.target.closest('[data-hl-copy]');
+    if (copy) { copyHighlightText(copy.getAttribute('data-hl-copy')); return true; }
+    const del = e.target.closest('[data-del-hl]');
+    if (del) { removeHighlight(del.getAttribute('data-del-hl')); return true; }
+    const open = e.target.closest('[data-hl-open]');
+    if (open) { openHighlightInReader(open.getAttribute('data-hl-open')); return true; }
+    const missing = e.target.closest('[data-missing-file]');
+    if (missing) {
+      const fp = missing.getAttribute('data-missing-file');
+      if (highlightsOf(fp).length) {
+        libraryUi.hlOpen[fp] = true;
+        saveLibraryPrefs();
+        renderLibrary();
+      } else {
+        showToast('此文件已不在文庫', 'warning');
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function setupHighlights() {
+    if (!HL) return;
+    ensureBookmarksForHighlights();
+    ensureHighlightObserver($('markdownBody'));
+    const body = $('markdownBody');
+    if (!body) return;
+    // 點一下已劃線的地方：叫出改色／複製／取消的彈窗
+    body.addEventListener('click', (e) => {
+      if (!hlRt.painted.length) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+      if (e.target.closest('a, button, input, textarea, .line-anchor')) return;
+      const hit = highlightAtPoint(e.clientX, e.clientY);
+      if (!hit) return;
+      const h = (state.highlights || []).find(x => x.id === hit.id);
+      if (h && hlShowEditPopup) hlShowEditPopup(h, hit.range);
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -8160,7 +9051,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -8188,6 +9079,7 @@
         readProgress: storage.getJson(STORAGE_KEYS.LAST_READ_PROGRESS, null),
         recentFiles: state.recentFiles || [],
         bookmarks: state.bookmarks || [],
+        highlights: state.highlights || [],
         dictionary: {
           fileOrder: state.dictFileOrder || [],
           fileSelected: loadDictFileSelect() || []
@@ -8282,12 +9174,20 @@
           setSearchMode(pref.searchMode, { rerun: false });
         }
 
-        // 2. 還原書籤最愛
+        // 2. 還原書籤最愛（與其下的劃重點）
+        if (Array.isArray(data.highlights)) {
+          state.highlights = data.highlights.filter(h => h && typeof h.id === 'string' && typeof h.filePath === 'string' && typeof h.q === 'string');
+          persistLibrary('l');
+        }
         if (Array.isArray(data.bookmarks)) {
           state.bookmarks = data.bookmarks;
           persistLibrary('b');
+        }
+        if (Array.isArray(data.bookmarks) || Array.isArray(data.highlights)) {
+          ensureBookmarksForHighlights();
           renderBookmarksList();
           if (state.currentFile) updateBookmarkButtonUI(state.currentFile);
+          scheduleHighlightPaint();
         }
 
         // 3. 還原最近開啟檔案紀錄
@@ -9512,11 +10412,6 @@
           closeLibrary();
           return;
         }
-        const annOverlay = $('announcementModalOverlay');
-        if (annOverlay && annOverlay.style.display !== 'none' && annOverlay.style.display !== '') {
-          closeAnnouncementModal(true);
-          return;
-        }
         const adminOverlay = $('adminSettingsOverlay');
         if (adminOverlay && adminOverlay.style.display !== 'none' && adminOverlay.style.display !== '') {
           closeAdminModal();
@@ -9616,6 +10511,7 @@
     setupResizeHandle();
     setupDictResizeHandle();
     setupSelectionPopup();
+    setupHighlights();
 
     // ── 右上角整合選單 ──
     setupUserMenu();
@@ -9631,7 +10527,7 @@
           pane.style.display = pane.id === `pane-${tab}` ? 'flex' : 'none';
         });
         if (tab === 'recommended') {
-          fetchSuggestList(false);
+          fetchSuggestList();
         }
       });
     });
@@ -9708,27 +10604,7 @@
       });
     }
 
-    // Announcement Modal Listeners (Ack, Close X, Backdrop Click)
-    const annAckBtn = $('announcementModalAckBtn');
-    if (annAckBtn) {
-      annAckBtn.addEventListener('click', () => {
-        closeAnnouncementModal(true);
-      });
-    }
-    const annCloseBtn = $('announcementModalCloseBtn');
-    if (annCloseBtn) {
-      annCloseBtn.addEventListener('click', () => {
-        closeAnnouncementModal(true);
-      });
-    }
-    const annOverlay = $('announcementModalOverlay');
-    if (annOverlay) {
-      annOverlay.addEventListener('click', (e) => {
-        if (e.target === annOverlay) {
-          closeAnnouncementModal(true);
-        }
-      });
-    }
+    setupHome();
 
     // Menu Sub-Modals (登入 / Admin Vault Settings)
     $('menuOpenAdminLoginBtn').addEventListener('click', () => {
@@ -9984,6 +10860,7 @@
           appConfig.announcement.message = data.settings.announcementMessage || '';
           appConfig.announcement.updatedAt = data.settings.announcementUpdatedAt || 0;
           updateWelcomeFooter(data.settings);
+          renderHomeNotice();
         }
 
         // Reload the file tree and update UI with new paths
@@ -10051,7 +10928,7 @@
 
   function openUserSettingsOverlay() {
     renderMaxWidthControl();
-    fetchSuggestList(false);
+    fetchSuggestList();
 
     const s2tChk = $('settingAutoS2TCheck');
     if (s2tChk) s2tChk.checked = !!state.autoS2T;
@@ -10060,7 +10937,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -10428,7 +11305,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -11318,7 +12195,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.4.2';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -12696,6 +13573,8 @@
       const dailyWordRotateHour = Number.isFinite(parsedDailyRotate) ? Math.max(1, Math.min(168, parsedDailyRotate)) : 12;
 
       const enabled = !!(($('suggestEnabled') || {}).checked);
+      // 每日經文原樣送出（一行一句），由伺服器 lib/home.js parseVerses 解析與限長
+      const dailyVerses = ($('suggestDailyVerses') || {}).value || '';
 
       // Collect checked dictionaries
       const checkedDicts = [];
@@ -12730,6 +13609,7 @@
                 dailyWordCount,
                 dailyWordDicts: checkedDicts,
                 dailyWordRotateHour,
+                dailyVerses,
                 enabled
               }
             }
@@ -12748,7 +13628,7 @@
         }
         showToast('✅ 推薦閱讀設定已儲存', 'success');
         // Refresh the homepage suggest list
-        fetchSuggestList(false);
+        fetchSuggestList();
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message;
@@ -12759,6 +13639,14 @@
     });
 
     setupAdminSeoEvents();
+  }
+
+  /** 經句陣列 → 後台文字框（一行一句：經句｜出處｜路徑），與 lib/home.js versesToText 相同。 */
+  function dailyVersesToText(verses) {
+    return (Array.isArray(verses) ? verses : [])
+      .map(v => [v.text, v.source, v.path].map(x => String(x || '').trim()))
+      .map(([t, src, path]) => path ? `${t}｜${src}｜${path}` : (src ? `${t}｜${src}` : t))
+      .join('\n');
   }
 
   async function loadSuggestSettings(passedSettings = null) {
@@ -12811,6 +13699,22 @@
       if (dailyCountEl && settings) dailyCountEl.value = sl.dailyWordCount ?? 3;
       if (dailyRotateEl && settings) dailyRotateEl.value = sl.dailyWordRotateHour ?? 12;
       if (enabledEl && settings) enabledEl.checked = sl.enabled === true;
+
+      // 每日經文：從未設定時顯示伺服器的預設清單（首頁 /api/suggest-list 已帶回解析好的版本）
+      const versesEl = $('suggestDailyVerses');
+      if (versesEl && settings) {
+        let verses = sl.dailyVerses;
+        if (verses === undefined) {
+          verses = state._homeData && state._homeData.verses;
+          if (!verses) {
+            try {
+              const r = await fetch('/api/suggest-list');
+              if (r.ok) verses = (await r.json()).verses;
+            } catch (_) {}
+          }
+        }
+        versesEl.value = dailyVersesToText(verses);
+      }
 
       // 3. Render dictionary files
       const dictData = await dictPromise;
@@ -13281,13 +14185,15 @@
       tab: saved.tab === 'recent' ? 'recent' : 'bookmarks',
       sort: saved.sort === 'name' ? 'name' : 'new',
       collapsed: (saved.collapsed && typeof saved.collapsed === 'object') ? saved.collapsed : {},
+      // 書籤下的劃重點清單哪些是展開的（以檔案路徑為 key）
+      hlOpen: (saved.hlOpen && typeof saved.hlOpen === 'object') ? saved.hlOpen : {},
       q: ''
     };
   })();
   let libraryCloseTimer = null;
 
   function saveLibraryPrefs() {
-    storage.setJson(STORAGE_KEYS.LIBRARY_PREFS, { tab: libraryUi.tab, sort: libraryUi.sort, collapsed: libraryUi.collapsed });
+    storage.setJson(STORAGE_KEYS.LIBRARY_PREFS, { tab: libraryUi.tab, sort: libraryUi.sort, collapsed: libraryUi.collapsed, hlOpen: libraryUi.hlOpen });
   }
 
   function isLibraryOpen() {
@@ -13393,7 +14299,8 @@
     const q = libraryUi.q.trim().toLowerCase();
     let html = '';
     if (isBm) {
-      const items = bookmarks.map((b, i) => ({ b, i })).filter(x => libraryMatches(x.b, q));
+      const items = bookmarks.map((b, i) => ({ b, i }))
+        .filter(x => libraryMatches(x.b, q) || (q && highlightsOf(x.b.filePath).some(h => h.q.toLowerCase().includes(q))));
       if (libraryUi.sort === 'name') {
         items.sort((x, y) => libraryTitleOf(x.b).localeCompare(libraryTitleOf(y.b), 'zh-Hant'));
       }
@@ -13422,15 +14329,21 @@
             // 與「歷程」一致的進度呈現：細進度條 + 右側百分比。
             // 進度沿用同一組 .library-bar / .library-pct 樣式，兩邊視覺才不會各說各話。
             const pct = libraryProgressPct(prog);
-            html += `<div class="library-item${current}">`
-              + `<button type="button" class="library-open" data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''} title="${escHtml(b.filePath || '')}">`
+            // 檔案已不在文庫：不能開啟，但書籤與其下的劃線都保留
+            const missing = isLibraryFileMissing(b.filePath);
+            const openAttr = missing ? `data-missing-file="${escHtml(b.filePath)}"` : `data-file="${escHtml(b.filePath)}"${progLine ? ` data-line="${progLine}"` : ''}`;
+            html += `<div class="library-item${current}${missing ? ' missing' : ''}">`
+              + `<button type="button" class="library-open" ${openAttr} title="${escHtml(b.filePath || '')}">`
               + `<span class="library-item-title">${escHtml(libraryTitleOf(b))}</span>`
-              + (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : '')
-              + libraryProgressBarHtml(pct)
+              + (missing
+                ? '<span class="library-item-sub library-missing">此文件已不在文庫</span>'
+                : (b.time ? `<span class="library-item-sub">加入於 ${escHtml(b.time)}</span>` : ''))
+              + (missing ? '' : libraryProgressBarHtml(pct))
               + `</button>`
-              + (pct !== null ? `<span class="library-pct" title="上次讀到的位置">${pct}%</span>` : '')
+              + (pct !== null && !missing ? `<span class="library-pct" title="上次讀到的位置">${pct}%</span>` : '')
               + `<button type="button" class="library-del" data-del-bookmark="${escHtml(b.filePath)}" title="移除書籤" aria-label="移除書籤：${escHtml(libraryTitleOf(b))}">✕</button>`
-              + `</div>`;
+              + `</div>`
+              + libraryHighlightsHtml(b.filePath, q);
           }
         }
       }
@@ -13538,7 +14451,9 @@
     });
     $('libraryClearBtn').addEventListener('click', () => {
       if (libraryUi.tab === 'bookmarks') {
-        if (!confirm('確定要清除所有書籤？')) return;
+        const nHl = (state.highlights || []).length;
+        if (!confirm(nHl ? `確定要清除所有書籤？其下的 ${nHl} 處劃線也會一併刪除。` : '確定要清除所有書籤？')) return;
+        removeHighlightsOfFiles((state.bookmarks || []).map(b => b.filePath).concat((state.highlights || []).map(h => h.filePath)));
         state.bookmarks = [];
         persistLibrary('b');
         renderBookmarksList();
@@ -13561,9 +14476,12 @@
         renderRecentFilesList();
         return;
       }
+      if (handleHighlightLibraryClick(e)) return;
       const del = e.target.closest('[data-del-bookmark]');
       if (del) {
         const file = del.getAttribute('data-del-bookmark');
+        if (!confirmRemoveBookmarkHighlights([file])) return;
+        removeHighlightsOfFiles([file]);
         state.bookmarks = (state.bookmarks || []).filter(i => i.filePath !== file);
         persistLibrary('b');
         renderBookmarksList();
@@ -15553,6 +16471,21 @@
       popup.id = 'selectionSharePopup';
       popup.className = 'selection-share-popup';
       popup.innerHTML = `
+        <div class="hl-swatches" role="group" aria-label="劃重點">
+          <button type="button" class="hl-swatch" data-hl-color="r" title="朱色劃線" aria-label="朱色劃線"><i></i></button>
+          <button type="button" class="hl-swatch" data-hl-color="y" title="黃色劃線" aria-label="黃色劃線"><i></i></button>
+          <button type="button" class="hl-swatch" data-hl-color="g" title="綠色劃線" aria-label="綠色劃線"><i></i></button>
+          <button type="button" class="hl-swatch" data-hl-color="b" title="藍色劃線" aria-label="藍色劃線"><i></i></button>
+        </div>
+        <div class="popup-divider hl-divider"></div>
+        <button type="button" id="selectionHlCopyBtn" class="hl-edit-only" title="複製劃線文字">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5a1 1 0 011-1h6.5"/></svg>
+          <span>複製</span>
+        </button>
+        <button type="button" id="selectionHlRemoveBtn" class="hl-edit-only" title="取消這處劃線">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>
+          <span>取消劃線</span>
+        </button>
         <button id="selectionSearchBtn" title="在全文庫中搜尋此文字">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
@@ -15582,6 +16515,8 @@
     const shareBtn = $('selectionShareBtn');
     const shareLabel = $('selectionShareLabel');
     let currentShareUrl = '';
+    let currentRange = null;     // 選取範圍（劃線用）
+    let editHighlightId = null;  // 點已劃線處叫出彈窗時，那一處的 id
     let currentLineNum = null;
     // 簡體顯示時盡量還原成繁體原文，搜尋框與網址顯示的就是經文原字；
     // 無法還原時保留畫面上的簡體字，由字組比對涵蓋。
@@ -15599,48 +16534,9 @@
     let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
 
     const hidePopup = () => popup.classList.remove('visible');
-    const scheduleSelectionCheck = (delay) => {
-      clearTimeout(selectionTimer);
-      selectionTimer = setTimeout(updateSelectionPopup, delay);
-    };
 
-    function updateSelectionPopup() {
-      selectionTimer = null;
-      const selection = window.getSelection();
-      const text = selection ? selection.toString().trim() : '';
-
-      if (!text || !state.currentFile || selection.rangeCount === 0) {
-        if (Date.now() >= popupTouchGuardUntil) hidePopup();
-        return;
-      }
-
-      // Check if the selection is inside markdownBody
-      const range = selection.getRangeAt(0);
-      const container = $('markdownBody');
-      if (!container || !container.contains(range.commonAncestorContainer)) {
-        hidePopup();
-        return;
-      }
-
-      // Get the line number of the start of selection
-      const lineNum = getSelectionLineNumber(selection);
-      if (!lineNum) {
-        hidePopup();
-        return;
-      }
-
-      currentSelectedText = text;
-      const ds = window.mdDisplayScript;
-      if (isHansDisplay() && ds && ds.isActive()) {
-        const orig = ds.originalTextOfRange(range);
-        if (orig && orig.trim()) currentSelectedText = orig.trim();
-      }
-      currentLineNum = lineNum;
-
-      // Show popup
-      popup.classList.toggle('touch', lastInputWasTouch);
-      popup.classList.add('visible');
-
+    // 彈窗放在 range 旁：觸控放下方（避開系統選單），滑鼠放上方
+    function placePopupNear(range) {
       const popupWidth = popup.offsetWidth || 280;
       const popupHeight = popup.offsetHeight || 34;
       const rect = range.getBoundingClientRect();
@@ -15681,6 +16577,73 @@
 
       popup.style.top = `${Math.max(0, top + window.scrollY)}px`;
       popup.style.left = `${Math.max(0, left + window.scrollX)}px`;
+    }
+
+    function setPopupMode(editId, color) {
+      editHighlightId = editId;
+      popup.classList.toggle('hl-edit', !!editId);
+      popup.querySelectorAll('.hl-swatch').forEach(b => {
+        const on = !!editId && b.getAttribute('data-hl-color') === color;
+        b.classList.toggle('current', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    // 點已劃線處：同一個彈窗換成「改色／複製／取消劃線」
+    hlShowEditPopup = (h, range) => {
+      clearTimeout(selectionTimer);
+      selectionTimer = null;
+      currentRange = null;
+      setPopupMode(h.id, h.c);
+      popup.classList.toggle('touch', lastInputWasTouch);
+      popup.classList.add('visible');
+      popupTouchGuardUntil = Date.now() + 700;
+      placePopupNear(range);
+    };
+    const scheduleSelectionCheck = (delay) => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(updateSelectionPopup, delay);
+    };
+
+    function updateSelectionPopup() {
+      selectionTimer = null;
+      const selection = window.getSelection();
+      const text = selection ? selection.toString().trim() : '';
+
+      if (!text || !state.currentFile || selection.rangeCount === 0) {
+        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        return;
+      }
+
+      // Check if the selection is inside markdownBody
+      const range = selection.getRangeAt(0);
+      const container = $('markdownBody');
+      if (!container || !container.contains(range.commonAncestorContainer)) {
+        hidePopup();
+        return;
+      }
+
+      // Get the line number of the start of selection
+      const lineNum = getSelectionLineNumber(selection);
+      if (!lineNum) {
+        hidePopup();
+        return;
+      }
+
+      currentSelectedText = text;
+      const ds = window.mdDisplayScript;
+      if (isHansDisplay() && ds && ds.isActive()) {
+        const orig = ds.originalTextOfRange(range);
+        if (orig && orig.trim()) currentSelectedText = orig.trim();
+      }
+      currentLineNum = lineNum;
+      currentRange = range.cloneRange();
+
+      // Show popup
+      setPopupMode(null);
+      popup.classList.toggle('touch', lastInputWasTouch);
+      popup.classList.add('visible');
+      placePopupNear(range);
 
       // Update share link using unencoded Chinese URL
       const baseUrl = window.location.origin + window.location.pathname;
@@ -15734,6 +16697,35 @@
     popup.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
+    });
+
+    // 0. 劃重點：選字時點色點＝劃線；點已劃線處時點色點＝改色
+    popup.querySelectorAll('.hl-swatch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.getAttribute('data-hl-color');
+        if (editHighlightId) {
+          recolorHighlight(editHighlightId, color);
+          setPopupMode(editHighlightId, color);
+          return;
+        }
+        const range = currentRange;
+        popup.classList.remove('visible');
+        if (!range) return;
+        if (createHighlightFromRange(range, color)) {
+          const sel = window.getSelection();
+          if (sel) sel.removeAllRanges();
+        }
+        currentRange = null;
+      });
+    });
+    $('selectionHlCopyBtn').addEventListener('click', () => {
+      if (editHighlightId) copyHighlightText(editHighlightId);
+      popup.classList.remove('visible');
+    });
+    $('selectionHlRemoveBtn').addEventListener('click', () => {
+      if (editHighlightId) removeHighlight(editHighlightId);
+      setPopupMode(null);
+      popup.classList.remove('visible');
     });
 
     // 1. 全文庫搜尋按鈕

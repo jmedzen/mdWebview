@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.4.2 | 最後更新：2026-11
+> 版本：v4.8.1 | 最後更新：2026-11
 
 ---
 
@@ -17,7 +17,7 @@
    - [5.1 辭典全文搜尋：游標分頁模型](#51-辭典全文搜尋游標分頁模型)
    - [5.2 已知限制：辭典詞條邊界造成多詞鄰近查詢漏失](#52-已知限制辭典詞條邊界造成多詞鄰近查詢漏失)
    - [5.3 字組比對：簡繁變體互相命中](#53-字組比對簡繁變體互相命中v3110)
-6. [公告彈窗顯示邏輯](#6-公告彈窗顯示邏輯)
+6. [首頁（晨嵐）與公告](#6-首頁晨嵐與公告)
 7. [使用者偏好與排版控制](#7-使用者偏好與排版控制)
    - [7.1 集中式常數池與安全儲存封裝](#71-集中式常數池與安全儲存封裝)
    - [7.2 偏好備份與還原機制](#72-偏好備份與還原機制)
@@ -180,7 +180,7 @@ sequenceDiagram
     S-->>B: JSON 檔案樹
     B->>S: GET /api/suggest-list
     S-->>B: JSON 推薦清單 + 公告資料
-    Note over B: DOMContentLoaded → init()<br/>→ renderTree() → fetchSuggestList()<br/>→ checkAndShowAnnouncementModal()
+    Note over B: DOMContentLoaded → init()<br/>→ renderTree() → fetchSuggestList()<br/>→ renderHome()
 ```
 
 ### 搜尋引擎爬蟲（SSR）
@@ -463,27 +463,37 @@ sequenceDiagram
 
 ---
 
-## 6. 公告彈窗顯示邏輯
+## 6. 首頁（晨嵐）與公告
+
+v4.5.0 起首頁不再有「每日訊息」彈窗，公告與推薦都直接放在首頁上，由上而下：
+
+1. **問候與日期**：依當地時間「早安／午安／晚安」，日期用中文數字，後面接目前節氣（`currentSolarTerm()`，21 世紀通式，可能差一天）。
+2. **蓮花、站名與每日經文**：經句依讀者當地日期輪替（`pickDailyVerse()`，同一天固定）。經句有路徑就開該經，沒有就用經句在全文搜尋。清單在後台「推薦清單 → 每日經文」設定（`settings.suggestList.dailyVerses`，一行一句：`經句｜出處｜路徑`）；從未設定時用 `lib/home.js` 的 `DEFAULT_DAILY_VERSES`，清空就不顯示經句。
+3. **首頁搜尋（v4.7.0）**：經句下方一個大搜尋框。打字即時比對經名（`homeTitleMatches()`，從 `/api/tree` 攤平，去掉書名號與空白，多詞都要出現，經名開頭相符的排前面），最多六筆；最後一列與 Enter 是全文搜尋（`activateSearchPanel()`）。首頁按「/」直接聚焦。下面兩顆按鈕：「隨手翻一卷」（隨機開一部）、「瀏覽全部經目」（打開左側檔案瀏覽器）。
+4. **我的書架（v4.7.0）**：`recentFiles` 前八篇（略過辭典條目）立在一塊木板上：書脊直書經名（`bookSlipTitle()` 取書名號內經名），書衣是傳統顏色（磁青、栗殼、黛綠、赭石、墨灰，各混兩成主題色），高矮厚薄依路徑固定（`bookTone()`／`bookSize()`），最後一本斜靠；已讀比例從下往上加深，最近讀的那本插著絲帶。指到（或 Tab 到）哪本就抽出來，右側說明（`renderHomeShelfInfo()`）跟著換；點書脊直接打開。手機上說明在上、書架在下。沒有紀錄時整塊隱藏。
+5. **公告**：首頁一行，最多顯示三行（CSS `-webkit-line-clamp: 3`），超過時出現「展開」。按 ✕ 收起後，同一則公告不再出現，直到公告文字或更新時間改變。
+6. **每日一詞**（附釋義摘要，`lib/home.js` `readDictExcerpt()` 依 section index 位元組位置讀前 4KB）與**今日推薦**（站長推薦／本週熱門，附人次）左右兩欄；手機上下排。
 
 ```mermaid
 flowchart TD
-    Boot["頁面載入完成\n→ fetchSuggestList()"] --> GetAnn["取得 /api/suggest-list\n（含 announcement 資料）"]
-    GetAnn --> CheckEnabled{"enableAnnouncement\n=== true?"}
-    CheckEnabled -- "否" --> HideFooterBtn["首頁底部\n「本日訊息」按鈕：隱藏"]
-    CheckEnabled -- "是" --> ShowFooterBtn["首頁底部\n「本日訊息」按鈕：顯示"]
-    ShowFooterBtn --> AutoShow["checkAndShowAnnouncementModal()"]
-    AutoShow --> CheckAck{"今日是否已確認\n或內容未變？"}
-    CheckAck -- "已確認" --> NoAutoShow["不自動彈出\n（使用者可手動點選）"]
-    CheckAck -- "新內容或新日期" --> OpenModal["openAnnouncementModal()\n顯示公告彈窗"]
-    OpenModal --> CheckMsg{"announcementMessage\n是否有內容？"}
-    CheckMsg -- "有內容" --> ShowNoticeBox["顯示 Notice Box\n（呼吸微光小點 + Glow 邊框）"]
-    CheckMsg -- "空白" --> HideNoticeBox["隱藏 Notice Box\n只顯示每日推薦"]
+    Boot["頁面載入 / 回到首頁\n→ renderHome()"] --> Fetch["fetchSuggestList()\nGET /api/suggest-list"]
+    Fetch --> Data["items（推薦、熱門、每日一詞＋excerpt）\nverses（每日經文）\nannouncement*"]
+    Data --> Render["renderHome()"]
+    Render --> Notice{"enableAnnouncement 且有文字，\n且未被收起？"}
+    Notice -- "是" --> ShowNotice["顯示公告（最多三行）"]
+    Notice -- "否" --> HideNotice["不顯示"]
 ```
 
-**確認機制（localStorage）：**
-- Key: `mdWebview-announcement-modal-ack`
-- Value: `{dateKey: 'YYYY-MM-DD', updatedAt: timestamp, itemsSig: hash}`
-- 當日期、公告更新時間或推薦清單有任何變化時，強制重新顯示
+**收起紀錄（localStorage）：**
+- Key: `mdWebview-home-notice-dismissed`（v4.7.1 起；不沿用舊彈窗的 `mdWebview-announcement-modal-ack`，否則讀過彈窗的人在首頁完全看不到公告）。收起後首頁留一個「顯示公告」連結，可隨時叫回。
+- Value: `{announcement: 公告文字, announcementUpdatedAt: timestamp}`
+- 只比對公告本身；推薦清單輪替不會讓公告重新出現（舊彈窗每個輪替時段都重跳的問題因此消失）。
+
+### 首頁「入室」版面（v4.8.0）
+
+- 第一屏（`.home-hero`，`min-height: calc(100svh - 70px)`）只留問候、浮動蓮花 emoji、每日經文、搜尋框與兩顆快捷鈕，背後一圈主題色柔光；底部的 `#homeScrollCue`「向下」會捲到下方第一個有內容的區塊，下面什麼都沒有時隱藏（`renderHomeCue()`）。
+- 往下是書架、公告（膠囊）、每日一詞＋今日推薦；區塊標題置中、上方一條主題色細線，不再用卡片框住。經句與區塊標題同為 `--cjk-serif` 字重 600。
+- 書架：書衣是明亮的粉彩（天藍／蜜桃／薄荷／奶黃／淡紫，各混一成主題色），書名深墨色。**手機（≤768px）不畫書架**，`renderHomeContinue()` 同時輸出 `.home-shelf-list`：一列一部經（`.home-item`，≥72px，整列可點、`data-file`／`data-continue` 沿用書架的點擊處理），最近讀的有主題色邊框與「繼續讀」；桌機隱藏清單、手機隱藏書架與說明欄。
 
 ---
 
@@ -525,7 +535,8 @@ flowchart TD
 | `DICT_FILE_SELECT` | `mdWebview-dict-selected` | 當前選中辭典索引標籤 |
 | `FORCE_FULL` | `mdWebview-force-full` | 虛擬化超大經文強制全量展開旗標 |
 | `SEARCH_MODE` | `mdWebview-search-mode` | 全文搜尋模式偏好（`'loose'` 或 `'strict'`） |
-| `ANNOUNCEMENT_ACK` | `mdWebview-announcement-modal-ack` | 今日公告已確認紀錄簽章 |
+| `ANNOUNCEMENT_ACK` | `mdWebview-announcement-modal-ack` | 舊版彈窗的知曉紀錄（v4.7.1 起不再使用） |
+| `HOME_NOTICE_DISMISSED` | `mdWebview-home-notice-dismissed` | 首頁公告已收起的那一則 |
 | `INSTALL_DISMISSED` | `mdWebview-install-dismissed` | 婉拒安裝引導的時間戳（3 天內不再提示，見 §17） |
 | `INSTALL_INSTALLED` | `mdWebview-install-done` | 已安裝至桌面的旗標，一旦寫入即永久停用所有安裝提示 |
 
@@ -739,7 +750,7 @@ flowchart TD
 | `/api/dict-event` | POST | `handleDictEvent()` | ❌ | 辭典查閱行為日誌 Beacon |
 | `/api/tree-filter-event` | POST | `handleTreeFilterEvent()` | ❌ | 檔案瀏覽器篩選日誌與搜尋統計 Beacon（前端於注音/拼音組字結束且輸入靜止 1.2s 後發送） |
 | `/api/dict-files` | GET | `handleDictFiles()` | ❌ | 辭典來源檔案清單 |
-| `/api/suggest-list` | GET | `handleSuggestList()` | ❌ | 首頁推薦經論、熱門榜與每日單詞 |
+| `/api/suggest-list` | GET | `handleSuggestList()` | ❌ | 首頁推薦經論、熱門榜、每日單詞（附釋義摘要）、每日經文與公告 |
 | `/api/admin/setup` | POST | 伺服器首次管理員初始化 | ❌ | 首次部署管理員帳號與 siteUrl 設定 |
 | `/api/admin/login` | POST | PBKDF2 驗證 (`lib/auth.js`) | ❌ | 管理員登入（防暴力破解鎖定 15m） |
 | `/api/admin/logout` | POST | Session 註銷 (`lib/auth.js`) | ✅ | 登出並使 Token 失效 |
@@ -783,7 +794,7 @@ flowchart TD
 | `§16.5` | 719 | 956 | PWA Install Prompt | 首頁安裝卡片、iOS 三步驟教學 Modal、設定常駐入口（見 §17） |
 | `§2` | 1675 | 158 | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
 | `§3` | 1833 | 136 | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
-| `§4` | 1969 | 263 | Announcement Modal | 公告訊息彈窗顯示與今日已讀簽章驗證 |
+| `§4` | 1969 | 263 | Home | 首頁：問候與節氣、每日經文、繼續閱讀、公告、每日一詞與今日推薦 |
 | `§5` | 2232 | 262 | File Tree | 經論目錄樹建置、過濾、排序與非同步渲染 |
 | `§6` | 2494 | 1,748 | Markdown Viewer | 小型經論渲染、標題錨點、雙向註腳跳轉、大檔虛擬化 |
 | `§7` | 4242 | 221 | Wikilink Resolver | 內部經文雙鏈快速跳轉與索引比對 |
@@ -901,7 +912,7 @@ flowchart TD
 | `dictHeadwordsETag` | `string|null` | 辭典 headwords 的 ETag（用於 304 Not Modified） |
 | `dictPollTimer` | `number|null` | 辭典輪詢 timer ID（檢查辭典更新） |
 | `adminToken` | `string|null` | 管理員 session token（持久化於 localStorage） |
-| `_announcementModalContext` | `Object|null` | 公告彈窗最後開啟時的資料快照（用於判斷是否重複顯示） |
+| `_homeData` | `Object|null` | 最後一次 `/api/suggest-list` 的首頁資料（推薦、經文） |
 | `_cachedSuggestItems` | `Object[]|null` | 最後一次 `/api/suggest-list` 的推薦項目快取 |
 
 ### 9.3 URL 路由參數與全庫搜尋深層連結（v3.9.1）
@@ -962,9 +973,9 @@ flowchart TD
 | `settings.downloadUrl` | `string` | `''` | `DOWNLOAD_URL` | 下載連結 URL |
 | `settings.dictionaryEnabled` | `boolean` | `false` | `DICTIONARY_ENABLED` | 是否啟用辭典側邊欄 |
 | `settings.dictionaryPath` | `string` | `./dicts` | `DICTIONARY_PATH` | 辭典目錄路徑 |
-| `settings.enableAnnouncement` | `boolean` | `false` | `ENABLE_ANNOUNCEMENT` | 是否開啟公告訊息彈窗（同時控制底部「本日訊息」按鈕顯示） |
-| `settings.announcementMessage` | `string` | `''` | `ANNOUNCEMENT_MESSAGE` | 公告訊息文字（空白 = 只顯示每日推薦） |
-| `settings.announcementUpdatedAt` | `number` | `0` | — | 公告最後更新時間戳（ms，用於觸發使用者重新顯示） |
+| `settings.enableAnnouncement` | `boolean` | `false` | `ENABLE_ANNOUNCEMENT` | 是否在首頁顯示公告 |
+| `settings.announcementMessage` | `string` | `''` | `ANNOUNCEMENT_MESSAGE` | 公告文字（空白 = 不顯示公告） |
+| `settings.announcementUpdatedAt` | `number` | `0` | — | 公告最後更新時間戳（ms，改了之後已收起的讀者會再看到） |
 | `settings.timezone` | `string` | `'auto'` | — | Analytics 時區（`'auto'` 或 IANA 時區，如 `'Asia/Taipei'`） |
 | `settings.maxProximityDistance` | `number` | `150` | — | 全文搜尋鄰近詞距上限（字元數） |
 | `settings.defaultSearchMode` | `string` | `'loose'` | `DEFAULT_SEARCH_MODE` | 全站預設全文搜尋模式（`'loose'` 或 `'strict'`），管理員可於後台調整 |
@@ -976,6 +987,7 @@ flowchart TD
 | `settings.suggestList.dailyWordCount` | `number` | `3` | — | 每日法語詞條顯示數量 |
 | `settings.suggestList.dailyWordDicts` | `string[]` | `[]` | — | 每日法語來源辭典清單 |
 | `settings.suggestList.dailyWordRotateHour` | `number` | `12` | — | 每日法語輪換時間（小時，0-23） |
+| `settings.suggestList.dailyVerses` | `{text,source,path}[]` | （未設定＝預設七句） | — | 首頁每日經文清單；空陣列＝不顯示經句 |
 | `settings.seoEnableSearchBox` | `boolean` | `false` | `SEO_ENABLE_SEARCH_BOX` | 是否於**首頁**注入 `WebSite` + `SearchAction` JSON-LD（詳見 §9.4）。單機模式一律不輸出 |
 | `settings.seoHomepageSummary` | `string` | `''` | `SEO_HOMEPAGE_SUMMARY` | 首頁爬蟲導言（爬蟲 SSR 用；空 = 退回 `seoSiteDescription`） |
 | `admin.username` | `string` | — | — | 管理員帳號 |
@@ -998,7 +1010,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.4.2'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.8.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1217,7 +1229,6 @@ flowchart TD
 | 斷點條件 | 定義區塊 | 核心職責與適用範圍 |
 |---------|---------|-------------------|
 | `@media (max-width: 768px)` | L2569 | **主要行動端佈局**：App Shell 轉為單欄、頁首緊湊化、左側目錄/搜尋/大綱抽屜化、全螢幕毛玻璃遮罩（Backdrop）、浮動查詞操作面板自適應、使用者偏好設定彈窗雙欄轉單欄流動佈局 |
-| `@media (max-width: 600px)` | L6673 | **公告訊息彈窗**：專屬緊湊視窗適配，縮小 modal padding 與字型大小，按鈕轉為垂直流動排列以防溢出 |
 | `@media (max-width: 520px)` | L2931 | **小型螢幕微調**：各類操作按鈕（font-size 調整、複製連結、查詞）縮減內距與邊框，避免在 5.5 吋以下手機出現橫向捲軸 |
 | `@media (max-width: 480px)` | L2947 | **極窄手機體驗**：頁首標題自動隱藏或省略（text-overflow）、彈窗關閉按鈕放大觸控熱區、各級標題字級動態縮減 |
 | `@media (max-width: 360px)` | L2998 | **超微型裝置自適應**：針對極小手持設備（如 Galaxy Fold 封面螢幕）進行最後一哩字級微調 |
@@ -1493,6 +1504,17 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **登出**：先送出待同步異動，成功才清掉本機書籤與歷程；送不出去（離線）就保留本機資料。
 - **跨裝置繼續閱讀**：同步後若歷程第一筆比本機的上次閱讀新，「繼續閱讀」改用那一筆（以行號定位）。
 - 偏好設定（主題、字級等）目前不同步。
+
+### 劃重點（v4.6.0）
+
+選取經文後，選字彈窗最前面有四個色點（朱、黃、綠、藍），點一下就在字下畫一條有色細線（「朱筆底線」樣式）。點已劃線的地方，同一個彈窗換成「改色／複製／取消劃線」。
+
+- **隸屬書籤**：劃線一定掛在書籤下。劃線時檔案還不是書籤就自動加入；移除書籤（或清除全部書籤）會先確認，再一併刪除其下劃線。抽屜「書籤」分頁的每本書籤下有可收折的「N 處劃線」清單（展開狀態存在 `mdWebview-user-library` 的 `hlOpen`），可開啟到原處（短暫標底色）、複製、刪除；篩選框也比對劃線文字。
+- **畫法**：CSS Custom Highlight API（`CSS.highlights` + `::highlight(mdw-hl-r|y|g|b)`，`app.js` §17b `paintHighlights`），不改動 DOM，所以不影響繁簡轉換、虛擬捲動、頁內搜尋。`#markdownBody` 的 MutationObserver 在內文重畫、載入新段落、繁簡改寫時重新定位（去抖 150ms）。不支援的瀏覽器（Safari < 17.2、Firefox < 140）劃線仍會存下，只是看不到底線。
+- **定位**（`highlights.js`，瀏覽器與伺服器共用的純函式）：每處記 `line`（起始行）、`off`（行內位移）、`q`（原文，簡體顯示時取繁體原文；上限 500 字）、`pre`／`suf`（前後文各 24 字）、`c`（顏色）。文字索引是 `#markdownBody` 所有文字節點依序接起來的原文，行號取自 `.line-anchor[data-line]`。找回順序：全篇相同文字（以前後文吻合度與離原位置距離挑一處）→ 原位置前後 2500 字內近似比對（容許約 1/4 字不同）→ 以前後文夾出中間那段 → 找不到。
+- **經文改版**：找到新位置就更新 `line`／`off`／`q`（會同步）；找不到就標「找不到原處」（只存本機 `mdWebview-highlights-lost`，不同步、不刪資料），內文上方出現提示列，抽屜裡該劃線標紅。大檔（虛擬捲動）只判斷已載入段落範圍內的劃線；簡體顯示時只畫線，不改寫資料也不判定遺失（被切開的文字節點可能只剩簡體）。
+- **檔案搬移／刪除**：主樹載入後（`reconcileMovedLibraryFiles`），書籤或劃線指向的檔案不在了，先找同檔名、再找同經號（如 T0251），恰好一個候選就把書籤與劃線一起搬過去；找不到就保留，抽屜顯示「此文件已不在文庫」，劃線仍可展開、複製、刪除。
+- **同步**：同書籤的規則，本機異動走 `persistLibrary('l')`（以 id 為 key，墓碑 `tl`、待送出 `dl`）。`POST /api/me/sync` 多一個 `highlights[]`（每次最多 200 筆，每帳號 5000 處）；資料庫遷移 v4 新增 `highlights` 表（`user_id, id, path, data(JSON), updated_at, deleted_at, seq`）。`/api/me/export` 與偏好設定匯出入都包含劃線。
 
 ### 每日／每週報表信（v4.3.0）
 

@@ -61,7 +61,7 @@ describe('PWA 安裝引導 (Install Prompt)', () => {
     test('iOS 教學的示意圖必須是 inline SVG，不可依賴外部圖檔', () => {
       // 教學內容最需要在離線時顯示，而外部圖檔正是離線最容易缺失的部分。
       const guideStart = indexHtml.indexOf('id="installGuideOverlay"');
-      const guideEnd = indexHtml.indexOf('id="announcementModalOverlay"');
+      const guideEnd = indexHtml.indexOf('id="accountAuthOverlay"');
       assert.ok(guideStart > 0 && guideEnd > guideStart, '應能界定教學 Modal 的範圍');
       const guideHtml = indexHtml.slice(guideStart, guideEnd);
       const svgCount = (guideHtml.match(/<svg/g) || []).length;

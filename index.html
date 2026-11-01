@@ -11,14 +11,13 @@
                 #panelSearch — 全文搜尋（目錄篩選、輸入框、結果列表）
                 #panelToc    — 本頁大綱（TOC）
   §CONTENT    <main>.content：主閱讀區
-                #welcomeScreen    — 首頁歡迎畫面（suggestList、快捷鍵、底部按鈕）
+                #welcomeScreen    — 首頁（問候、每日經文、繼續閱讀、公告、每日一詞、今日推薦、底部連結）
                 #contentWrapper   — 檔案閱讀區（.markdown-body、entryNav）
                 #contentLoading   — 載入遮罩 spinner
   §DICT       .dict-resize-handle + .dict-sidebar：辭典側邊欄（右側隱藏面板）
   §PAGESEARCH #pageSearchBar：浮動頁內搜尋框（Ctrl+F）
   §MODALS     模態視窗區塊：
                 #userSettingsOverlay — 使用者偏好設定 Modal
-                #announcementModal   — 公告訊息 & 每日推薦 Modal
                 #adminSettingsOverlay — 後台管理系統 Modal
                   ├─ 系統設定 Tab (config)
                   ├─ 搜尋優化 Tab (seo)
@@ -33,12 +32,11 @@
   ── 動態注入（由 server.js getIndexHtml() 處理）────────────────────────
   - <script nonce="..."> 注入 window.__APP_CONFIG__（含 siteName、theme、fontSize、announcement 等）
   - .welcome-title 文字 → config.settings.siteName
-  - #announcementModalTitle → "${siteName}線上閱讀"
   - SSR 爬蟲模式另由 handleCrawlerSsr() 注入 OG、JSON-LD、預渲染內容
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.4.2'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.8.1'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -53,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.4.2">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.4.2">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.4.2">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.4.2">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.4.2">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.8.1">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.8.1">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.8.1">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.8.1">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.8.1">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -79,9 +77,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.4.2">
+  <link rel="stylesheet" href="style.css?v=4.8.1">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.4.2"></script>
+  <script src="i18n/boot.js?v=4.8.1"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -342,24 +340,72 @@
 
       <!-- ── §CONTENT ───────────────────────────────────────── -->
       <main class="content" id="content">
-        <!-- Welcome Screen -->
+        <!--
+          Welcome Screen（首頁）
+
+          不再用開站彈窗。由上而下：問候語與節氣 → 浮動蓮花、站名、每日一句經文 →
+          繼續閱讀 → 一行公告（最多三行，可展開、可收起）→ 每日一詞（附釋義）＋今日推薦。
+          內容由 app.js renderHome() 依 /api/suggest-list 與本機閱讀紀錄填入；
+          沒有資料的區塊保持 hidden，不留空殼。
+        -->
         <div class="welcome-screen" id="welcomeScreen">
-          <div class="welcome-lotus">🪷</div>
-          <h1 class="welcome-title">mdWebview</h1>
-          <p class="welcome-subtitle">佛典經論閱讀器</p>
-          <div class="welcome-divider"></div>
-          <p class="welcome-hint">左側選擇檔案開始閱讀．右側查詢佛學辭典與閱讀設定</p>
-          <!-- Suggest List: recommended & hot readings -->
-          <div class="suggest-list-container" id="suggestListContainer" style="display:none">
-            <div class="suggest-list-header">
-              <span class="suggest-list-label">📖 成多聞慧，成無漏慧</span>
+          <div class="home-greet" id="homeGreet" aria-live="off"></div>
+          <div class="home-hero">
+            <div class="welcome-lotus" aria-hidden="true">🪷</div>
+            <h1 class="welcome-title">mdWebview</h1>
+            <p class="welcome-subtitle" id="homeSubtitle">佛典經論閱讀器</p>
+            <figure class="home-verse" id="homeVerse" hidden>
+              <blockquote class="home-verse-text" id="homeVerseText"></blockquote>
+              <figcaption class="home-verse-src">
+                <span id="homeVerseSource"></span>
+                <button type="button" class="home-link" id="homeVerseOpen"></button>
+              </figcaption>
+            </figure>
+
+            <!-- 首頁搜尋：打字即時比對經名；Enter 改做全文搜尋 -->
+            <form class="home-search" id="homeSearch" role="search" autocomplete="off">
+              <svg class="home-search-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input type="search" class="home-search-input" id="homeSearchInput" placeholder="想讀哪一部經？輸入經名或經文" aria-label="搜尋經藏" role="combobox" aria-expanded="false" aria-controls="homeSearchResults" aria-autocomplete="list" enterkeyhint="search">
+              <kbd class="home-search-kbd" aria-hidden="true">/</kbd>
+              <ul class="home-search-results" id="homeSearchResults" role="listbox" hidden></ul>
+            </form>
+            <div class="home-quick">
+              <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
+              <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>
             </div>
-            <ul class="suggest-list" id="suggestList"></ul>
+            <button type="button" class="home-scroll-cue" id="homeScrollCue" hidden>向下 · 我的書架與今日</button>
           </div>
-          <div class="welcome-shortcuts" id="welcomeShortcuts">
-            <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>F</kbd> 本頁搜尋</div>
-            <div class="shortcut-item"><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>−</kbd> 調整字型</div>
+
+          <!-- 我的書架：最近讀過的經，一本一本像書一樣擺著；第一本放大，附「繼續讀」 -->
+          <section class="home-shelf" id="homeContinue" hidden aria-labelledby="homeShelfLabel">
+            <h2 class="home-sec-title" id="homeShelfLabel">我的書架<small>從上次停下的地方接著讀</small></h2>
+            <div class="home-shelf-row" id="homeShelf"></div>
+          </section>
+
+          <div class="home-notice" id="homeNotice" hidden role="note">
+            <span class="home-notice-tag">公告</span>
+            <div class="home-notice-body">
+              <div class="home-notice-text" id="homeNoticeText"></div>
+              <button type="button" class="home-link home-notice-more" id="homeNoticeMore" hidden>展開</button>
+            </div>
+            <button type="button" class="home-notice-close" id="homeNoticeClose" title="收起公告" aria-label="收起公告">✕</button>
           </div>
+          <div class="home-notice-reopen-row"><button type="button" class="home-link home-notice-reopen" id="homeNoticeReopen" hidden>顯示公告</button></div>
+
+          <div class="home-columns" id="homeColumns">
+            <section class="home-word" id="homeWord" hidden aria-labelledby="homeWordLabel">
+              <h2 class="home-sec-title" id="homeWordLabel">每日一詞<small id="homeWordDict"></small></h2>
+              <button type="button" class="home-word-head" id="homeWordOpen"></button>
+              <p class="home-word-def" id="homeWordDef"></p>
+              <div class="home-word-more" id="homeWordMore"></div>
+            </section>
+            <!-- Suggest List: recommended & hot readings -->
+            <section class="suggest-list-container" id="suggestListContainer" style="display:none" aria-labelledby="homeRecLabel">
+              <h2 class="home-sec-title" id="homeRecLabel">今日推薦<small>成多聞慧，成無漏慧</small></h2>
+              <ul class="suggest-list home-rec-list" id="suggestList"></ul>
+            </section>
+          </div>
+
           <div class="welcome-footer" id="welcomeFooter" style="display: none;"></div>
           <p class="welcome-legal-links" id="welcomeLegalLinks" hidden>
             <a href="/privacy" id="welcomePrivacyLink" hidden>隱私權政策</a>
@@ -725,7 +771,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.4.2</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.8.1</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -762,7 +808,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.4.2</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.8.1</span>
       </div>
     </div>
   </div>
@@ -840,63 +886,6 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="modal-btn submit-btn" id="installGuideDoneBtn">知道了</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Announcement & Daily Recommend Modal (Opening Page Landing Popup - 方案二：現代微光玻璃浮島) -->
-  <div class="modal-overlay announcement-modal-overlay" id="announcementModalOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="announcementModalTitle">
-    <div class="modal-card announcement-modal-card">
-      <!-- Modal Header -->
-      <div class="announcement-modal-header">
-        <div class="announcement-header-left">
-          <span class="announcement-header-icon" aria-hidden="true">🪷</span>
-          <div class="announcement-header-text">
-            <div class="announcement-header-title-row">
-              <h2 class="announcement-header-title" id="announcementModalTitle">mdWebview線上閱讀</h2>
-              <span class="announcement-header-badge">每日推薦</span>
-            </div>
-            <span class="announcement-header-date" id="announcementModalDate"></span>
-          </div>
-        </div>
-        <button type="button" class="modal-close-btn" id="announcementModalCloseBtn" title="關閉" aria-label="關閉">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
-          </svg>
-        </button>
-      </div>
-
-      <!-- Modal Body -->
-      <div class="announcement-modal-body">
-        <!-- Section 1: 公告訊息 Notice Box (現代微光膠囊款，若空白則自動隱藏) -->
-        <div class="announcement-notice-box" id="announcementNoticeBox" style="display: none;">
-          <div class="announcement-notice-header">
-            <div class="announcement-notice-tag-wrapper">
-              <span class="announcement-notice-tag">📢 系統公告</span>
-              <span class="announcement-notice-dot" aria-hidden="true"></span>
-            </div>
-          </div>
-          <div class="announcement-notice-content" id="announcementNoticeContent"></div>
-        </div>
-
-        <!-- Section 2: 每日推薦閱讀 -->
-        <div class="announcement-recommend-section" id="announcementRecommendSection">
-          <div class="announcement-section-header">
-            <span class="announcement-section-icon">📖</span>
-            <span class="announcement-section-title">每日推薦閱讀</span>
-            <span class="announcement-section-sub">成多聞慧，成無漏慧</span>
-          </div>
-          <ul class="suggest-list announcement-suggest-list" id="announcementSuggestList">
-            <!-- Populated dynamically -->
-          </ul>
-        </div>
-      </div>
-
-      <!-- Modal Footer -->
-      <div class="announcement-modal-footer">
-        <button type="button" class="modal-btn submit-btn announcement-ack-btn" id="announcementModalAckBtn">
-          知曉
-        </button>
       </div>
     </div>
   </div>
@@ -1089,7 +1078,7 @@
       <aside class="admin-side" aria-label="後台導覽">
         <div class="admin-side-top">
           <span class="admin-side-brand"><span aria-hidden="true">⚙️</span> 後台</span>
-          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.4.2</span>
+          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.8.1</span>
           <button type="button" class="admin-side-close" id="settingsCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
         </div>
         <button type="button" class="admin-search-btn" id="adminSearchBtn" aria-haspopup="dialog" aria-controls="adminPalette">
@@ -1328,7 +1317,7 @@
             <div data-card="announce" class="config-card">
               <div class="config-card-header">
                 <span class="config-card-icon">📢</span>
-                <h3 class="config-card-title">開啟頁面訊息彈窗</h3>
+                <h3 class="config-card-title">首頁公告</h3>
               </div>
               <div class="config-card-body">
                 <div class="footer-setting-item" style="margin-bottom: 8px;">
@@ -1337,13 +1326,13 @@
                       <input type="checkbox" id="settingsEnableAnnouncement">
                       <span class="toggle-switch-slider"></span>
                     </label>
-                    <span class="toggle-switch-title">開啟訊息彈窗</span>
+                    <span class="toggle-switch-title">在首頁顯示公告</span>
                   </div>
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                   <label for="settingsAnnouncementMessage">公告訊息內容 (支援多行文字)</label>
-                  <textarea id="settingsAnnouncementMessage" class="announcement-textarea" rows="3" placeholder="請輸入欲在開啟頁面時向讀者展示的公告訊息…"></textarea>
-                  <span class="field-hint">當啟用時，訪客開啟頁面將展示此公告與每日推薦閱讀。使用者確認知曉後，僅在公告更新或每日推薦內容更新時再次彈出。</span>
+                  <textarea id="settingsAnnouncementMessage" class="announcement-textarea" rows="3" placeholder="請輸入要在首頁顯示的公告…"></textarea>
+                  <span class="field-hint">公告顯示在首頁「繼續閱讀」下方，不再彈窗打斷閱讀。超過三行會先收起，讀者可點「展開」看全文。讀者按 ✕ 收起後，要等公告內容修改才會再出現。</span>
                 </div>
               </div>
             </div>
@@ -2452,7 +2441,19 @@
                     <span class="toggle-slider"></span>
                   </label>
                 </div>
-                <span class="suggest-hint">關閉後，首頁不會顯示推薦與熱門閱讀清單。</span>
+                <span class="suggest-hint">關閉後，首頁不會顯示「每日一詞」與「今日推薦」。</span>
+              </div>
+
+              <!-- Daily Verse -->
+              <div class="suggest-section">
+                <div class="suggest-section-header">
+                  <div class="suggest-section-title">
+                    <span class="suggest-section-icon">🪷</span>
+                    每日經文
+                  </div>
+                </div>
+                <textarea id="suggestDailyVerses" class="suggest-textarea" rows="7" spellcheck="false" placeholder="每行一句：經句｜出處｜經文路徑（出處與路徑可省略），例如：&#10;應無所住，而生其心。｜金剛般若波羅蜜經&#10;色即是空，空即是色。｜般若波羅蜜多心經｜01-大正藏/03般若部類/T0251《般若波羅蜜多心經》.md"></textarea>
+                <span class="suggest-hint">首頁正中間每天換一句，依讀者當地日期輪替，不受上方「推薦閱讀」開關影響。有填路徑時「讀這一段」會開啟該經文；沒填就改為在經藏中搜尋這一句。全部清空則首頁不顯示經文。</span>
               </div>
 
               <!-- Admin Picks -->
@@ -2625,14 +2626,15 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.4.2" defer></script>
-  <script src="i18n/zh-TW.js?v=4.4.2" defer></script>
-  <script src="i18n/zh-CN.js?v=4.4.2" defer></script>
-  <script src="i18n/i18n.js?v=4.4.2" defer></script>
-  <script src="i18n/content-terms.js?v=4.4.2" defer></script>
-  <script src="i18n/display-script.js?v=4.4.2" defer></script>
-  <script src="i18n/search-variants.js?v=4.4.2" defer></script>
-  <script src="library-sync.js?v=4.4.2" defer></script>
-  <script src="app.js?v=4.4.2" defer></script>
+  <script src="marked.min.js?v=4.8.1" defer></script>
+  <script src="i18n/zh-TW.js?v=4.8.1" defer></script>
+  <script src="i18n/zh-CN.js?v=4.8.1" defer></script>
+  <script src="i18n/i18n.js?v=4.8.1" defer></script>
+  <script src="i18n/content-terms.js?v=4.8.1" defer></script>
+  <script src="i18n/display-script.js?v=4.8.1" defer></script>
+  <script src="i18n/search-variants.js?v=4.8.1" defer></script>
+  <script src="library-sync.js?v=4.8.1" defer></script>
+  <script src="highlights.js?v=4.8.1" defer></script>
+  <script src="app.js?v=4.8.1" defer></script>
 </body>
 </html>

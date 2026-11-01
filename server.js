@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.4.2
+ * @version 4.8.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -93,6 +93,7 @@ const {
 
 const accounts = require('./lib/accounts');
 const accountsDb = require('./lib/db');
+const home = require('./lib/home');
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -4164,11 +4165,12 @@ async function getDailyWords() {
       for (const e of idx.entries) {
         const hw = cleanHeadword(e.headword);
         if (hw && hw.length > 0) {
-          validEntries.push({ headword: hw, lineStart: e.lineStart });
+          validEntries.push({ headword: hw, lineStart: e.lineStart, offset: e.offset, len: e.len });
         }
       }
       if (validEntries.length > 0) {
         dictCandidates.push({
+          fullPath: f.fullPath,
           relPath: f.relPath,
           name: f.name.replace(/\.md$/, ''),
           entries: validEntries
@@ -4208,7 +4210,9 @@ async function getDailyWords() {
         fileName: entry.headword,
         dictName: dict.name,
         line: entry.lineStart,
-        type: 'dict'
+        type: 'dict',
+        // 首頁「每日一詞」卡片顯示的釋義摘要（只讀條目前 4KB）
+        excerpt: await home.readDictExcerpt(dict.fullPath, entry.offset, entry.len)
       });
     }
   }
@@ -4276,7 +4280,7 @@ async function handleSuggestList(req, res) {
     const hotPicks = hotRaw
       .filter(h => !adminPathSet.has(normalizePath(h.path)))
       .slice(0, hotPickCount)
-      .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source }));
+      .map(h => ({ path: h.path, fileName: h.fileName, type: 'hot', source: h.source, views: h.views || 0 }));
 
     // Daily word picks: from installed dictionaries
     const dailyWordPicks = await getDailyWords();
@@ -4295,6 +4299,8 @@ async function handleSuggestList(req, res) {
       dailyWordCount: dailyWordPicks.length,
       enabled: sl.enabled !== false,
       suggestListUpdatedAt: config.settings.suggestListUpdatedAt || 0,
+      // 每日經文：整份清單給前端，依讀者「當地日期」輪替（不受推薦開關影響）
+      verses: home.resolveVerses(sl.dailyVerses),
       announcement: {
         enabled: !!config.settings.enableAnnouncement,
         message: config.settings.announcementMessage || '',
@@ -5395,7 +5401,9 @@ const server = http.createServer((req, res) => {
             dailyWordCount: Number.isFinite(parseInt(sl.dailyWordCount, 10)) ? Math.max(0, Math.min(20, parseInt(sl.dailyWordCount, 10))) : (existing.dailyWordCount ?? 3),
             dailyWordDicts: Array.isArray(sl.dailyWordDicts) ? sl.dailyWordDicts.map(String).filter(p => p.trim()) : (existing.dailyWordDicts || []),
             dailyWordRotateHour: Number.isFinite(parseInt(sl.dailyWordRotateHour, 10)) ? Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour, 10))) : (existing.dailyWordRotateHour ?? 12),
-            enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true)
+            enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true),
+            // 每日經文：文字框（一行一句）或陣列；沒送就沿用（包括「從未設定 → 用預設清單」）
+            dailyVerses: sl.dailyVerses !== undefined ? home.parseVerses(sl.dailyVerses) : existing.dailyVerses
           };
           config.settings.suggestListUpdatedAt = Date.now();
           invalidateDailyWordCache();
