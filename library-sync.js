@@ -61,26 +61,30 @@
    * @param {Array} local 本機清單，元素 { filePath, fileName, ts, ... }
    * @param {Object} tombs 本機墓碑 { [path]: deletedTs }
    * @param {Array} remote 線上格式的異動
-   * @param {{kind:string, make:(w:Object)=>Object, cap?:number}} opts
+   * @param {{kind:string, make:(w:Object)=>Object, cap?:number, localKey?:string, wireKey?:string}} opts
    *   make 把線上格式轉成本機元素（需帶 filePath、ts）
+   *   localKey／wireKey：本機元素與線上資料的 key 欄位（預設 filePath／path；劃重點用 id／id）
    * @returns {{list:Array, tombs:Object, changed:boolean}}
    */
   function mergeRemote(local, tombs, remote, opts) {
+    const lk = opts.localKey || 'filePath';
+    const wk = opts.wireKey || 'path';
     const byPath = new Map();
-    for (const it of local || []) byPath.set(it.filePath, it);
+    for (const it of local || []) byPath.set(it[lk], it);
     const nextTombs = Object.assign({}, tombs || {});
     let changed = false;
     for (const w of remote || []) {
-      const cur = byPath.get(w.path);
-      const curTs = Math.max(cur ? (cur.ts || 0) : 0, nextTombs[w.path] || 0);
+      const key = w[wk];
+      const cur = byPath.get(key);
+      const curTs = Math.max(cur ? (cur.ts || 0) : 0, nextTombs[key] || 0);
       if (w.updatedAt <= curTs) continue;
       changed = true;
       if (w.deleted) {
-        byPath.delete(w.path);
-        nextTombs[w.path] = w.updatedAt;
+        byPath.delete(key);
+        nextTombs[key] = w.updatedAt;
       } else {
-        byPath.set(w.path, opts.make(w));
-        delete nextTombs[w.path];
+        byPath.set(key, opts.make(w));
+        delete nextTombs[key];
       }
     }
     let list = Array.from(byPath.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0));
