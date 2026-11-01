@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.3.1
+   mdWebview — Style System (style.css) v4.4.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -3659,6 +3659,9 @@ img.markdown-img:hover {
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+  /* 標題不讓狀態文字擠成直排；太長時在 70% 寬內換行，狀態文字則以 … 截斷 */
+  flex-shrink: 0;
+  max-width: 70%;
 }
 
 .config-card-header.collapsible { cursor: pointer; user-select: none; }
@@ -3870,22 +3873,6 @@ img.markdown-img:hover {
     margin: auto !important;
   }
 
-  .modal-card.settings-card {
-    width: 100vw !important;
-    height: 100vh !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
-    max-width: 100vw !important;
-    border-radius: 0 !important;
-    border: none !important;
-    margin: 0 !important;
-    padding: calc(10px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px)) !important;
-    display: flex !important;
-    flex-direction: column !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-  }
-
   .modal-header {
     flex-shrink: 0;
     margin-bottom: 6px;
@@ -3893,29 +3880,6 @@ img.markdown-img:hover {
 
   .modal-header h2 {
     font-size: 16px;
-  }
-
-  .admin-tabs-nav {
-    flex-shrink: 0;
-    margin-bottom: 8px;
-    padding: 4px;
-    gap: 4px;
-    overflow-x: auto;
-    white-space: nowrap;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .admin-tabs-nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .admin-tab-btn {
-    padding: 8px 12px;
-    font-size: calc(14px * var(--ui-font-scale, 1));
-    min-height: 38px;
-    flex-shrink: 0;
   }
 
   .admin-tab-pane {
@@ -4352,10 +4316,15 @@ img.markdown-img:hover {
 
   /* Prevent iOS Safari font auto-zoom on input focus */
   .modal-card input[type="text"],
+  .admin-shell input[type="text"],
   .modal-card input[type="number"],
+  .admin-shell input[type="number"],
   .modal-card input[type="password"],
+  .admin-shell input[type="password"],
   .modal-card select,
-  .modal-card textarea {
+  .admin-shell select,
+  .modal-card textarea,
+  .admin-shell textarea {
     font-size: 16px !important;
   }
 }
@@ -4501,12 +4470,19 @@ img.markdown-img:hover {
 .modal-form textarea,
 .modal-form .form-textarea,
 .modal-card input[type="text"],
+.admin-shell input[type="text"],
 .modal-card input[type="password"],
+.admin-shell input[type="password"],
 .modal-card input[type="number"],
+.admin-shell input[type="number"],
 .modal-card input[type="url"],
+.admin-shell input[type="url"],
 .modal-card input[type="search"],
+.admin-shell input[type="search"],
 .modal-card input[type="email"],
+.admin-shell input[type="email"],
 .modal-card textarea,
+.admin-shell textarea,
 .admin-tab-pane input[type="text"],
 .admin-tab-pane input[type="password"],
 .admin-tab-pane input[type="number"],
@@ -4531,16 +4507,22 @@ img.markdown-img:hover {
 .modal-form input[type="url"],
 .modal-form input[type="search"],
 .modal-card input[type="text"],
+.admin-shell input[type="text"],
 .modal-card input[type="password"],
+.admin-shell input[type="password"],
 .modal-card input[type="number"],
+.admin-shell input[type="number"],
 .modal-card input[type="url"],
+.admin-shell input[type="url"],
 .modal-card input[type="search"],
+.admin-shell input[type="search"],
 .admin-tab-pane input[type="text"],
 .admin-tab-pane input[type="password"],
 .admin-tab-pane input[type="number"],
 .admin-tab-pane input[type="url"],
 .admin-tab-pane input[type="search"],
-.modal-card input[type="email"] {
+.modal-card input[type="email"],
+.admin-shell input[type="email"] {
   height: 38px;
   padding: 0 12px;
 }
@@ -4548,6 +4530,7 @@ img.markdown-img:hover {
 .modal-form textarea,
 .modal-form .form-textarea,
 .modal-card textarea,
+.admin-shell textarea,
 .admin-tab-pane textarea,
 .form-textarea {
   width: 100%;
@@ -4561,7 +4544,9 @@ img.markdown-img:hover {
 .modal-form textarea:focus,
 .modal-form .form-textarea:focus,
 .modal-card input:focus,
+.admin-shell input:focus,
 .modal-card textarea:focus,
+.admin-shell textarea:focus,
 .admin-tab-pane input:focus,
 .admin-tab-pane textarea:focus,
 .form-textarea:focus {
@@ -4572,7 +4557,9 @@ img.markdown-img:hover {
 .modal-form input::placeholder,
 .modal-form textarea::placeholder,
 .modal-card input::placeholder,
+.admin-shell input::placeholder,
 .modal-card textarea::placeholder,
+.admin-shell textarea::placeholder,
 .admin-tab-pane input::placeholder,
 .admin-tab-pane textarea::placeholder,
 .form-textarea::placeholder {
@@ -4583,7 +4570,9 @@ img.markdown-img:hover {
 .modal-form input:disabled,
 .modal-form textarea:disabled,
 .modal-card input:disabled,
+.admin-shell input:disabled,
 .modal-card textarea:disabled,
+.admin-shell textarea:disabled,
 .admin-tab-pane input:disabled,
 .admin-tab-pane textarea:disabled,
 .form-textarea:disabled {
@@ -5232,42 +5221,333 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   box-shadow: 0 4px 18px var(--accent-dim);
 }
 
-/* ── §31 Admin Tabs & Log Viewer ────────────────────────────── */
-.modal-card.settings-card {
-  max-width: min(1160px, 95vw);
-  width: 95vw;
-  height: 88vh;
-  max-height: 90vh;
-  max-height: 90dvh;
-  padding: 16px 22px 14px 22px;
+/* ── §31a 後台外框（v4.4.0）：全頁、左側分組導覽、右側一頁一件事 ──────────
+   桌機：左欄固定導覽＋右側頁面；手機（≤768px）：先看分組清單，點進去才看頁面，
+   左上「‹ 後台」回清單。顏色一律用主題變數。 */
+#adminSettingsOverlay {
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+  background: var(--bg-primary);
+  backdrop-filter: none;
+}
+
+.admin-shell {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  min-width: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.admin-side {
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
-  overflow: hidden;
-  border-radius: 12px;
-}
-
-.modal-card.settings-card .modal-header {
-  flex-shrink: 0;
-  margin-bottom: 8px;
-  padding-bottom: 2px;
-}
-
-.admin-tabs-nav {
-  flex-shrink: 0;
-  display: flex;
-  gap: 4px;
+  min-height: 0;
   background: var(--bg-secondary);
-  padding: 3px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 10px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  border-right: 1px solid var(--border-subtle);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
 }
 
+.admin-side-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px 10px 16px;
+  flex-shrink: 0;
+}
+
+.admin-side-brand {
+  font-size: calc(16px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.admin-side-close,
+.admin-main-close {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.admin-side-close:hover,
+.admin-main-close:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.admin-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 8px 16px;
+  scrollbar-width: thin;
+}
+
+.admin-nav-group-title {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 14px 10px 4px;
+}
+
+.admin-nav-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-nav-item:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.admin-nav-item.active {
+  background: var(--active-bg);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.admin-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.admin-nav-icon {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.admin-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-nav-light {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.admin-nav-light.ok { background: #2e9e5b; }
+.admin-nav-light.warn { background: #e0a100; }
+.admin-nav-light.bad { background: #d64545; }
+
+.admin-nav-chev {
+  display: none;
+  color: var(--text-muted);
+}
+
+/* 開站設定的紅點只在燈號還沒載入前代打，燈號亮了就不重複顯示 */
+.admin-nav-item:has(.admin-nav-light.bad) .admin-tab-dot,
+.admin-nav-item:has(.admin-nav-light.warn) .admin-tab-dot,
+.admin-nav-item:has(.admin-nav-light.ok) .admin-tab-dot {
+  display: none;
+}
+
+.admin-nav-item .admin-tab-dot {
+  margin-left: 0;
+  vertical-align: middle;
+}
+
+.admin-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.admin-main-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 28px 10px;
+  flex-shrink: 0;
+}
+
+.admin-page-heading {
+  min-width: 0;
+}
+
+.admin-page-crumb {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.admin-page-title {
+  margin: 2px 0 0;
+  font-size: calc(21px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.admin-back-btn {
+  display: none;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: calc(15px * var(--ui-font-scale, 1));
+  padding: 6px 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* 桌機上關閉鈕在左欄；右上角那顆只給手機用 */
+.admin-main-close {
+  display: none;
+}
+
+.admin-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 28px 12px;
+}
+
+.admin-panes > .admin-tab-pane {
+  max-width: 1120px;
+  width: 100%;
+}
+
+/* 每頁只放少數幾張卡片，一欄從上往下讀最清楚 */
+.admin-shell .admin-config-grid {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 920px;
+}
+
+.admin-shell #adminSettingsForm > .modal-actions,
+.admin-shell #adminSeoForm > .modal-actions {
+  max-width: 920px;
+}
+
+/* 依目前頁面藏起不屬於這頁的卡片與提醒 */
+.admin-shell .admin-page-hidden {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .admin-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 清單畫面：只看導覽；頁面畫面：只看內容 */
+  .admin-shell[data-view="list"] .admin-main,
+  .admin-shell[data-view="page"] .admin-side {
+    display: none;
+  }
+
+  .admin-side {
+    border-right: none;
+  }
+
+  .admin-nav {
+    padding: 0 12px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* 分組清單：每組一塊圓角框（iOS 設定的樣子） */
+  .admin-nav-group-title {
+    padding: 18px 6px 6px;
+  }
+
+  .admin-nav-item {
+    border-radius: 0;
+    padding: 12px 14px;
+    min-height: 46px;
+    font-size: calc(15px * var(--ui-font-scale, 1));
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-top: none;
+  }
+
+  .admin-nav-group-title + .admin-nav-item {
+    border-top: 1px solid var(--border-subtle);
+    border-radius: 12px 12px 0 0;
+  }
+
+  .admin-nav-item:last-child {
+    border-radius: 0 0 12px 12px;
+  }
+
+  .admin-nav-group-title + .admin-nav-item:last-child {
+    border-radius: 12px;
+  }
+
+  .admin-shell .admin-config-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* 手機清單沒有「目前頁」的概念，不上高亮 */
+  .admin-nav-item.active {
+    background: var(--bg-primary);
+    font-weight: 400;
+  }
+
+  .admin-nav-chev {
+    display: inline;
+  }
+
+  .admin-nav-light {
+    margin-left: auto;
+  }
+
+  .admin-main-header {
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
+  }
+
+  .admin-back-btn,
+  .admin-main-close {
+    display: inline-flex;
+  }
+
+  .admin-page-crumb {
+    display: none;
+  }
+
+  .admin-page-title {
+    margin: 0;
+    font-size: calc(17px * var(--ui-font-scale, 1));
+  }
+
+  .admin-panes {
+    padding: 10px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── §31 Admin Tabs & Log Viewer ────────────────────────────── */
 .admin-tab-pane {
   flex: 1;
   min-height: 0;
@@ -5302,37 +5582,6 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   border-top: 1px solid var(--border-subtle);
   z-index: 10;
   backdrop-filter: blur(8px);
-}
-
-.admin-tabs-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.admin-tab-btn {
-  flex-shrink: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: calc(14px * var(--ui-font-scale, 1));
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.admin-tab-btn:hover {
-  color: var(--text-primary);
-  background: var(--hover-bg);
-}
-
-.admin-tab-btn.active {
-  color: var(--accent);
-  background: var(--bg-primary);
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .admin-logs-header {
@@ -8796,6 +9045,7 @@ html[data-display-script="hans"] {
 #reauthOverlay [hidden],
 #adminPaneUsers [hidden],
 #adminPaneAccountSystem [hidden],
+#adminPaneBackup [hidden],
 .welcome-legal-links [hidden],
 .welcome-legal-links[hidden] {
   display: none !important;
@@ -8989,7 +9239,8 @@ html[data-display-script="hans"] {
 .account-consent a,
 .account-legal-links a,
 .welcome-legal-links a,
-.modal-card a:not([class]) {
+.modal-card a:not([class]),
+.admin-shell a:not([class]) {
   color: var(--accent);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -8998,7 +9249,8 @@ html[data-display-script="hans"] {
 .account-consent a:hover,
 .account-legal-links a:hover,
 .welcome-legal-links a:hover,
-.modal-card a:not([class]):hover {
+.modal-card a:not([class]):hover,
+.admin-shell a:not([class]):hover {
   text-decoration-color: var(--accent);
 }
 
@@ -9395,7 +9647,8 @@ a.small-btn {
 }
 .admin-tab-dot[hidden],
 #adminPaneReports [hidden],
-#adminPaneAccountSystem [hidden] {
+#adminPaneAccountSystem [hidden],
+#adminPaneBackup [hidden] {
   display: none !important;
 }
 @media (max-width: 768px) {

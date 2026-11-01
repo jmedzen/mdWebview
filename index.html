@@ -38,7 +38,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.3.1'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.4.0'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -53,11 +53,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.3.1">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.3.1">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.3.1">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.3.1">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.3.1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.4.0">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.4.0">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.4.0">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.4.0">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.4.0">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -79,9 +79,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.3.1">
+  <link rel="stylesheet" href="style.css?v=4.4.0">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.3.1"></script>
+  <script src="i18n/boot.js?v=4.4.0"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -724,7 +724,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.3.1</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.4.0</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -761,7 +761,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.3.1</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.4.0</span>
       </div>
     </div>
   </div>
@@ -1082,31 +1082,61 @@
     </div>
   </div>
 
-  <!-- 3. Admin Settings Overlay -->
+  <!-- 3. Admin Settings Overlay：全頁後台（左側分組導覽、右側一頁一件事；手機先看清單再進頁面） -->
   <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;">
-    <div class="modal-card settings-card">
-      <div class="modal-header">
-        <span class="modal-icon">⚙️</span>
-        <h2>後台系統設定 <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.3.1</span></h2>
-        <button type="button" class="modal-close-btn" id="settingsCloseBtn" title="關閉">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
-          </svg>
-        </button>
-      </div>
-
-      <!-- Admin Tabs Navigation -->
-      <div class="admin-tabs-nav" id="adminTabsNav">
-        <button type="button" class="admin-tab-btn active" data-tab="config" id="adminTabConfigBtn">⚙️ 系統設定</button>
-        <button type="button" class="admin-tab-btn" data-tab="hardware" id="adminTabHardwareBtn">🖥️ 硬體監控</button>
-        <button type="button" class="admin-tab-btn" data-tab="suggest" id="adminTabSuggestBtn">📖 推薦閱讀</button>
-        <button type="button" class="admin-tab-btn" data-tab="analytics" id="adminTabAnalyticsBtn">📊 數據分析</button>
-        <button type="button" class="admin-tab-btn" data-tab="seo" id="adminTabSeoBtn">🔍 搜尋優化</button>
-        <button type="button" class="admin-tab-btn" data-tab="users" id="adminTabUsersBtn">👥 使用者</button>
-        <button type="button" class="admin-tab-btn" data-tab="accountsys" id="adminTabAccountSystemBtn">🔑 帳號系統<span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span></button>
-        <button type="button" class="admin-tab-btn" data-tab="reports" id="adminTabReportsBtn">📬 報表</button>
-        <button type="button" class="admin-tab-btn" data-tab="logs" id="adminTabLogsBtn">📜 系統日誌</button>
-      </div>
+    <div class="admin-shell" id="adminShell" data-view="page">
+      <aside class="admin-side" aria-label="後台導覽">
+        <div class="admin-side-top">
+          <span class="admin-side-brand"><span aria-hidden="true">⚙️</span> 後台</span>
+          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.4.0</span>
+          <button type="button" class="admin-side-close" id="settingsCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
+        </div>
+        <nav class="admin-nav" id="adminNav">
+          <div class="admin-nav-group">
+            <div class="admin-nav-group-title">網站</div>
+            <button type="button" class="admin-nav-item" data-page="site" data-pane="config" data-cards="site"><span class="admin-nav-icon" aria-hidden="true">🌐</span><span class="admin-nav-label">網站與經文庫</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="reading" data-pane="config" data-cards="reading"><span class="admin-nav-icon" aria-hidden="true">🎨</span><span class="admin-nav-label">閱讀預設</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="homepage" data-pane="config" data-cards="footer,announce"><span class="admin-nav-icon" aria-hidden="true">🏡</span><span class="admin-nav-label">首頁頁尾與公告</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="suggest" data-pane="suggest" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📖</span><span class="admin-nav-label">推薦閱讀</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="seo" data-pane="seo" data-cards="" data-web-only><span class="admin-nav-icon" aria-hidden="true">🔍</span><span class="admin-nav-label">搜尋引擎與分享</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group" data-web-only>
+            <div class="admin-nav-group-title">讀者與登入</div>
+            <button type="button" class="admin-nav-item" data-page="users" data-pane="users" data-cards="users"><span class="admin-nav-icon" aria-hidden="true">👥</span><span class="admin-nav-label">使用者</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="registration" data-pane="users" data-cards="registration,invites"><span class="admin-nav-icon" aria-hidden="true">📝</span><span class="admin-nav-label">註冊與邀請碼</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="sso" data-pane="accountsys" data-cards="sso"><span class="admin-nav-icon" aria-hidden="true">🔑</span><span class="admin-nav-label">登入方式</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="legal" data-pane="accountsys" data-cards="legal"><span class="admin-nav-icon" aria-hidden="true">📄</span><span class="admin-nav-label">條款與隱私</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group" data-web-only>
+            <div class="admin-nav-group-title">外部服務</div>
+            <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="mail" data-pane="accountsys" data-cards="mail"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="turnstile" data-pane="accountsys" data-cards="turnstile"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group" data-web-only>
+            <div class="admin-nav-group-title">營運</div>
+            <button type="button" class="admin-nav-item" data-page="analytics" data-pane="analytics" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📊</span><span class="admin-nav-label">數據分析</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="reports" data-pane="reports" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📬</span><span class="admin-nav-label">報表信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+          <div class="admin-nav-group">
+            <div class="admin-nav-group-title">系統</div>
+            <button type="button" class="admin-nav-item" data-page="hardware" data-pane="hardware" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🖥️</span><span class="admin-nav-label">系統狀態</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="security" data-pane="users" data-cards="bots,lockouts,events,password" data-web-only><span class="admin-nav-icon" aria-hidden="true">🚨</span><span class="admin-nav-label">安全與攔截</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="logs" data-pane="logs" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📜</span><span class="admin-nav-label">日誌</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="backup" data-pane="backup" data-cards="cfgbackup,db"><span class="admin-nav-icon" aria-hidden="true">💾</span><span class="admin-nav-label">備份與還原</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+          </div>
+        </nav>
+      </aside>
+      <section class="admin-main" aria-labelledby="adminPageTitle">
+        <header class="admin-main-header">
+          <button type="button" class="admin-back-btn" id="adminBackBtn" aria-label="回到後台選單">‹ 後台</button>
+          <div class="admin-page-heading">
+            <div class="admin-page-crumb" id="adminPageCrumb"></div>
+            <h2 class="admin-page-title" id="adminPageTitle">後台</h2>
+          </div>
+          <button type="button" class="admin-main-close" id="adminMainCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
+        </header>
+        <div class="admin-panes">
 
       <!-- Tab 1: Config Form -->
       <div class="admin-tab-pane active" id="adminPaneConfig">
@@ -1272,50 +1302,6 @@
                   <label for="settingsAnnouncementMessage">公告訊息內容 (支援多行文字)</label>
                   <textarea id="settingsAnnouncementMessage" class="announcement-textarea" rows="3" placeholder="請輸入欲在開啟頁面時向讀者展示的公告訊息…"></textarea>
                   <span class="field-hint">當啟用時，訪客開啟頁面將展示此公告與每日推薦閱讀。使用者確認知曉後，僅在公告更新或每日推薦內容更新時再次彈出。</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Card 5: Admin Password Change -->
-            <div data-card="password" class="config-card">
-              <div class="config-card-header">
-                <span class="config-card-icon">🔒</span>
-                <h3 class="config-card-title">管理員密碼修改 (Change Admin Password)</h3>
-              </div>
-              <div class="config-card-body">
-                <div class="form-group">
-                  <label for="adminCurrentPassword">目前密碼</label>
-                  <input type="password" id="adminCurrentPassword" placeholder="輸入目前密碼" autocomplete="current-password">
-                </div>
-                <div class="form-row compact-row">
-                  <div class="form-group half">
-                    <label for="adminNewPassword">新密碼 (至少 8 碼)</label>
-                    <input type="password" id="adminNewPassword" placeholder="輸入新密碼" autocomplete="new-password">
-                  </div>
-                  <div class="form-group half">
-                    <label for="adminConfirmPassword">確認新密碼</label>
-                    <input type="password" id="adminConfirmPassword" placeholder="再次確認新密碼" autocomplete="new-password">
-                  </div>
-                </div>
-                <div class="password-action-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; flex-wrap: wrap; gap: 8px;">
-                  <button type="button" id="btnChangePassword" class="modal-btn submit-btn small-btn">更新管理員密碼</button>
-                  <span id="changePasswordMsg" class="form-hint" style="margin-left: 6px;"></span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Card 6: Config Backup & Restore -->
-            <div data-card="cfgbackup" class="config-card">
-              <div class="config-card-header">
-                <span class="config-card-icon">💾</span>
-                <h3 class="config-card-title">設定備份與還原 (Config Backup & Restore)</h3>
-              </div>
-              <div class="config-card-body">
-                <span class="field-hint" style="margin: 0; line-height: 1.5;">匯出包含網站外觀、SEO、推薦與時區之完整設定備份，或上傳先前的 JSON 備份檔進行還原（自動略過密碼雜湊）。</span>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
-                  <button type="button" id="btnExportConfig" class="modal-btn submit-btn small-btn">📥 匯出設定備份 (JSON)</button>
-                  <button type="button" id="btnImportConfig" class="modal-btn cancel-btn small-btn">📤 匯入設定還原</button>
-                  <input type="file" id="configImportFileInput" accept=".json" style="display: none;">
                 </div>
               </div>
             </div>
@@ -1924,12 +1910,40 @@
               <button type="button" class="modal-btn secondary-btn small-btn" id="adminEventsMoreBtn" hidden>載入更早的紀錄</button>
             </div>
           </div>
+
+          <!-- Card 5: Admin Password Change -->
+          <div data-card="password" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">🔒</span>
+              <h3 class="config-card-title">管理員密碼修改 (Change Admin Password)</h3>
+            </div>
+            <div class="config-card-body">
+              <div class="form-group">
+                <label for="adminCurrentPassword">目前密碼</label>
+                <input type="password" id="adminCurrentPassword" placeholder="輸入目前密碼" autocomplete="current-password">
+              </div>
+              <div class="form-row compact-row">
+                <div class="form-group half">
+                  <label for="adminNewPassword">新密碼 (至少 8 碼)</label>
+                  <input type="password" id="adminNewPassword" placeholder="輸入新密碼" autocomplete="new-password">
+                </div>
+                <div class="form-group half">
+                  <label for="adminConfirmPassword">確認新密碼</label>
+                  <input type="password" id="adminConfirmPassword" placeholder="再次確認新密碼" autocomplete="new-password">
+                </div>
+              </div>
+              <div class="password-action-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" id="btnChangePassword" class="modal-btn submit-btn small-btn">更新管理員密碼</button>
+                <span id="changePasswordMsg" class="form-hint" style="margin-left: 6px;"></span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Tab: 帳號系統（登入方式、寄信、條款頁面、資料庫備份） -->
       <div class="admin-tab-pane" id="adminPaneAccountSystem" style="display: none;">
-        <div id="adminAccountSysNotice" class="form-error" style="display: none;"></div>
+        <div id="adminAccountSysNotice" class="form-error" data-admin-pages="setup" style="display: none;"></div>
         <div class="admin-config-grid">
           <div data-card="setup" class="config-card full-width" id="adminSetupCard">
             <div class="config-card-header">
@@ -2068,7 +2082,29 @@
             </div>
           </div>
 
-          <div data-card="db" class="config-card full-width">
+        </div>
+      </div>
+
+      <!-- Tab: 備份與還原（網站設定 JSON、帳號資料庫） -->
+      <div class="admin-tab-pane" id="adminPaneBackup" style="display: none;">
+        <div class="admin-config-grid">
+          <!-- Card 6: Config Backup & Restore -->
+          <div data-card="cfgbackup" class="config-card">
+            <div class="config-card-header">
+              <span class="config-card-icon">💾</span>
+              <h3 class="config-card-title">設定備份與還原 (Config Backup & Restore)</h3>
+            </div>
+            <div class="config-card-body">
+              <span class="field-hint" style="margin: 0; line-height: 1.5;">匯出包含網站外觀、SEO、推薦與時區之完整設定備份，或上傳先前的 JSON 備份檔進行還原（自動略過密碼雜湊）。</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+                <button type="button" id="btnExportConfig" class="modal-btn submit-btn small-btn">📥 匯出設定備份 (JSON)</button>
+                <button type="button" id="btnImportConfig" class="modal-btn cancel-btn small-btn">📤 匯入設定還原</button>
+                <input type="file" id="configImportFileInput" accept=".json" style="display: none;">
+              </div>
+            </div>
+          </div>
+
+          <div data-card="db" class="config-card full-width" data-web-only>
             <div class="config-card-header">
               <span class="config-card-icon">🗄️</span>
               <h3 class="config-card-title">帳號資料庫與備份</h3>
@@ -2536,6 +2572,8 @@
           </div>
         </form>
       </div>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -2572,14 +2610,14 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.3.1" defer></script>
-  <script src="i18n/zh-TW.js?v=4.3.1" defer></script>
-  <script src="i18n/zh-CN.js?v=4.3.1" defer></script>
-  <script src="i18n/i18n.js?v=4.3.1" defer></script>
-  <script src="i18n/content-terms.js?v=4.3.1" defer></script>
-  <script src="i18n/display-script.js?v=4.3.1" defer></script>
-  <script src="i18n/search-variants.js?v=4.3.1" defer></script>
-  <script src="library-sync.js?v=4.3.1" defer></script>
-  <script src="app.js?v=4.3.1" defer></script>
+  <script src="marked.min.js?v=4.4.0" defer></script>
+  <script src="i18n/zh-TW.js?v=4.4.0" defer></script>
+  <script src="i18n/zh-CN.js?v=4.4.0" defer></script>
+  <script src="i18n/i18n.js?v=4.4.0" defer></script>
+  <script src="i18n/content-terms.js?v=4.4.0" defer></script>
+  <script src="i18n/display-script.js?v=4.4.0" defer></script>
+  <script src="i18n/search-variants.js?v=4.4.0" defer></script>
+  <script src="library-sync.js?v=4.4.0" defer></script>
+  <script src="app.js?v=4.4.0" defer></script>
 </body>
 </html>
