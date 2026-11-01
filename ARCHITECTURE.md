@@ -225,6 +225,8 @@ flowchart TD
 **section-index 格式**（由 `index-worker.js` 建立）：
 - 每個 "entry"（如辭典詞條）的起止行號與位元組偏移
 - 用於辭典條目導航（`entryNav` prev/next）與精確分塊邊界
+- 每個 "group"（較淺層的標題，如卷／品／章）的標題、層級、行號（`ls`）與所屬 entry 範圍；磁碟快取格式 `SEX3` 起 group 多存一個 `lineStart`
+- **大綱（v4.2.8）**：`buildVirtualTocNodes()` 依文件順序把 groups 與 entries 合併成 `v._tocNodes`，大綱的收折（`v._collapsedNodes`）、列元素與目前位置都以 node 索引為鍵；點 group 列以 `jumpToTocLine(ls)` 跳轉。v4.2.8 前虛擬大綱只畫 entries，1MB 以上的檔案只看得到最深一層標題
 
 **虛擬化判定（`isVirtualizedFile(filePath)`，~L1968）**：一律以 `String(filePath).startsWith('dict:')` 為真，否則再比較 `(state.fileSizes.get(filePath) || 0) >= LARGE_FILE_MIN_BYTES`。此 Helper 存在的理由是：**辭典檔（`dict:`）永遠走虛擬分塊路徑，但它們並不在主樹的 `state.fileSizes` 對照表中**（`/api/tree` 不含任何 `dict:` 節點——實測 7,598 個檔案節點、0 個 dict 節點）。因此單憑檔案大小判斷會把辭典檔誤判為一般檔案，讓 `restoreReadProgress()` 補送延遲的絕對 `content.scrollTo`，覆蓋掉 `openFile` 剛完成的逐行定位。凡需判斷「這是不是虛擬檔案」處都應走此 Helper。
 
