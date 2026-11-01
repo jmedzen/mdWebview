@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.4.1
+   mdWebview — Style System (style.css) v4.4.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -57,7 +57,8 @@ html {
   --sidebar-font-size: calc(var(--content-font-size, 16px) * 0.8125);
   --content-text-align: justify;
   --content-line-height: 1.8;
-  --content-max-width: 800px;
+  /* 桌面預設 = 標準（每行約 40 字，見 app.js DESKTOP_WIDTH_PRESETS）；手機見 §24 */
+  --content-max-width: calc(var(--content-font-size, 16px) * 40 + 96px);
   /* 中文字型：繁體顯示用 Noto Serif TC；簡體顯示改用系統的簡體字型（見 §38），
      避免 TC 字型以台灣字形畫簡體字，或缺字時混用不同字型 */
   --cjk-serif: 'Noto Serif TC';
@@ -6001,7 +6002,7 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   }
 }
 
-/* ── §31c 後台搜尋（⌘K／Ctrl+K，v4.4.1） ── */
+/* ── §31c 後台搜尋（⌘K／Ctrl+K，v4.4.2） ── */
 .admin-search-btn {
   display: flex;
   align-items: center;
