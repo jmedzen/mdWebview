@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.8.4 | 最後更新：2026-11
+> 版本：v4.8.5 | 最後更新：2026-11
 
 ---
 
@@ -1010,7 +1010,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.8.4'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.8.5'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1500,7 +1500,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 登入後，書籤與歷程（最近 20 筆）會跨裝置、跨瀏覽器同步。localStorage 仍是第一手資料，離線照常使用；沒登入或單機模式不同步。
 
 - **規則**（`library-sync.js`，瀏覽器與伺服器共用的純函式）：每筆以路徑為 key，帶毫秒時間戳；同一路徑時間戳大者勝（last-write-wins），刪除留墓碑（保留 90 天）。合併可交換、可重送。未來時間戳最多截到伺服器時間 +60 秒。
-- **伺服器**：`POST /api/me/sync`（`lib/library-store.js`）。body `{cursor, bookmarks[], history[]}`，回傳 `cursor` 之後的異動。每次寫入取得該使用者遞增的 `seq`（`bookmarks`、`read_progress` 表，migration v2），所以拉取不受裝置時鐘影響。限制：請求本文 1 MB、每種資料每次 500 筆、每帳號 2000 筆書籤、保留最近 200 筆歷程、每使用者每分鐘 60 次（超過回 429 + `Retry-After`）。需要登入與同源；同源 + JSON 的 `sendBeacon` 可用。
+- **伺服器**：`POST /api/me/sync`（`lib/library-store.js`）。body `{cursor, bookmarks[], history[]}`，回傳 `cursor` 之後的異動。每次寫入取得該使用者遞增的 `seq`（`bookmarks`、`read_progress` 表，migration v2），所以拉取不受裝置時鐘影響。限制：請求本文 1 MB、每種資料每次 500 筆、每帳號 2000 筆書籤、保留最近 200 筆歷程、總列數（含刪除墓碑）書籤 4000、歷程 400，超過的新列不收（回傳 `rejected`）、每使用者每分鐘 60 次（超過回 429 + `Retry-After`）。需要登入與同源；同源 + JSON 的 `sendBeacon` 可用。
 - **瀏覽器**（`app.js` §14b）：所有本機異動都經 `persistLibrary('b'|'h')`，與快照比對後記入待送出（`mdWebview-sync-meta`：`uid`、`cursor`、墓碑、待送出清單）。異動後 4 秒節流送出；分頁隱藏／`pagehide` 用 `sendBeacon`（不行就 `keepalive` fetch）；回到前景、`online`、每 90 秒拉取；其他分頁改了 localStorage 時由 `storage` 事件重讀並重畫。localStorage 不可用（Safari 私密模式）時 meta 暫存在記憶體。
 - **第一次登入**：把這台裝置原有的資料全部標記為待送出，與帳號合併，不會遺失。同一台電腦換另一個帳號登入時，上一個帳號留在本機的資料會被清掉，不會併進新帳號。
 - **登出**：先送出待同步異動，成功才清掉本機書籤與歷程；送不出去（離線）就保留本機資料。
