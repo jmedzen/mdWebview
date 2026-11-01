@@ -2502,7 +2502,7 @@
         const more = $('homeWordMore');
         const others = words.slice(1);
         // 詞條標題本身就能點開，下面只放「換一個」
-        more.innerHTML = others.length ? `<span class="home-word-others">換一個：${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('、')}</span>` : '';
+        more.innerHTML = others.length ? `<span class="home-word-others"><span class="home-word-others-label">換一個</span><span class="home-word-chips">${others.map(o => `<button type="button" class="home-word-alt" data-path="${escHtml(o.path || '')}" data-line="${Number(o.line) || ''}">${escHtml(o.fileName)}</button>`).join('')}</span></span>` : '';
         more.hidden = !others.length;
         wordBox.hidden = false;
       } else {

@@ -310,3 +310,12 @@ describe('首頁：書架短經名', () => {
     assert.equal(f('  '), '');
   });
 });
+
+describe('首頁：每日一詞「換一個」', () => {
+  test('其他候選詞條是有邊框的按鈕（≥40px），不是句子裡的小字連結', () => {
+    assert.match(appJs, /class="home-word-others-label">換一個</);
+    assert.match(appJs, /class="home-word-chips">/);
+    assert.match(styleCss, /\.home-word-alt \{[^}]*min-height: 40px[^}]*border: 1px solid var\(--border\)[^}]*border-radius: 999px/);
+    assert.doesNotMatch(appJs, /換一個：\$\{others/);
+  });
+});

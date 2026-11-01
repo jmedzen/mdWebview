@@ -1985,25 +1985,49 @@ section.chunk.chunk-error {
   background: var(--accent-hover);
 }
 
-.home-word-alt {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--text-secondary);
-  cursor: pointer;
+.home-word-others {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
 }
 
+.home-word-others-label {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--text-muted);
+}
 
+/* 其他候選詞條：有邊框的按鈕，不是藏在句子裡的小字連結 */
+.home-word-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
 
+.home-word-alt {
+  min-height: 40px;
+  padding: 7px 18px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
 
-
-
-
-
-
-.home-word-alt:hover {
+.home-word-alt:hover,
+.home-word-alt:focus-visible {
+  border-color: var(--accent);
   color: var(--accent);
+  background: var(--hover-bg);
+  outline: none;
 }
 
 /* ── 首頁搜尋（經藏之門）──────────────────────────────────────
@@ -2826,6 +2850,7 @@ section.chunk.chunk-error {
 
 .home-word-more {
   align-items: center;
+  margin-top: 22px;
 }
 
 .home-rec-list .suggest-item {
