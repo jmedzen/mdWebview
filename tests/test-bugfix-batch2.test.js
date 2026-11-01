@@ -225,6 +225,22 @@ describe('HTTP: 8, 9, 11, 12, 14', () => {
     assert.notEqual(config.settings.version, 'null');
   });
 
+  test('首頁公告預設顯示則數：限制在 0–20，改它不更新公告時間', async () => {
+    const stamp = config.settings.announcementUpdatedAt;
+    assert.equal((await postSettings({ announcementCollapsedCount: 5 })).statusCode, 200);
+    assert.equal(config.settings.announcementCollapsedCount, 5);
+    assert.equal((await postSettings({ announcementCollapsedCount: 99 })).statusCode, 200);
+    assert.equal(config.settings.announcementCollapsedCount, 20);
+    assert.equal((await postSettings({ announcementCollapsedCount: -4 })).statusCode, 200);
+    assert.equal(config.settings.announcementCollapsedCount, 0);
+    assert.equal((await postSettings({ announcementCollapsedCount: 'abc' })).statusCode, 200);
+    assert.equal(config.settings.announcementCollapsedCount, 0, 'junk keeps the old value');
+    assert.equal(config.settings.announcementUpdatedAt, stamp, 'readers who dismissed the notice are not bothered again');
+    const list = JSON.parse((await request('/api/suggest-list')).body);
+    assert.equal(list.announcement.collapsed, 0);
+    config.settings.announcementCollapsedCount = 3;
+  });
+
   test('12. render-chunk answers If-None-Match with 304', async () => {
     const idx = await request('/api/section-index?path=sub/big.md');
     assert.equal(idx.statusCode, 200);

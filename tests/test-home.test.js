@@ -224,8 +224,10 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
   });
 
   test('公告一則一行，預設只列前三則，可展開全部', () => {
-    assert.match(styleCss, /\.home-notice:not\(\.expanded\)\s+\.home-notice-item:nth-child\(n \+ 4\)\s*\{[^}]*display:\s*none/);
+    assert.match(styleCss, /\.home-notice:not\(\.expanded\)\s+\.home-notice-item\.is-extra\s*\{[^}]*display:\s*none/);
     assert.match(appJs, /const HOME_NOTICE_COLLAPSED = 3;/);
+    assert.ok(indexHtml.includes('id="settingsAnnouncementCollapsed"'), '後台要有預設顯示則數');
+    assert.match(serverJs, /announcementCollapsedCount/);
     assert.ok(indexHtml.includes('id="homeNoticeDate"'));
   });
 

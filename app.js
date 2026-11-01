@@ -2153,7 +2153,9 @@
     const enabled = ann.enabled !== undefined ? !!ann.enabled : !!(appConfig && (appConfig.enableAnnouncement === true || appConfig.enableAnnouncement === 'true'));
     const message = String((ann.message !== undefined ? ann.message : (appConfig && appConfig.announcementMessage)) || '').trim();
     const updatedAt = Number(ann.updatedAt || (appConfig && appConfig.announcementUpdatedAt) || 0);
-    return { enabled, message, updatedAt };
+    const c = parseInt(ann.collapsed, 10);
+    const collapsed = Number.isFinite(c) && c >= 0 ? c : HOME_NOTICE_COLLAPSED;
+    return { enabled, message, updatedAt, collapsed };
   }
 
   function isHomeNoticeDismissed(ann) {
@@ -2476,14 +2478,17 @@
       const d = ann.updatedAt ? new Date(ann.updatedAt) : null;
       date.textContent = d && !isNaN(d) ? `${d.getMonth() + 1}月${d.getDate()}日更新` : '';
     }
+    // 預設先列幾則由後台決定（0 = 全部）；超過的標上 is-extra，收合時由 CSS 隱藏
+    const limit = ann.collapsed > 0 ? ann.collapsed : items.length;
+    Array.from(text.children).forEach((li, i) => li.classList.toggle('is-extra', i >= limit));
     box.classList.remove('expanded');
     more.textContent = noticeMoreLabel(items.length, false);
-    more.hidden = items.length <= HOME_NOTICE_COLLAPSED;
+    more.hidden = items.length <= limit;
     box.hidden = false;
     renderHomeCue();
   }
 
-  const HOME_NOTICE_COLLAPSED = 3;
+  const HOME_NOTICE_COLLAPSED = 3; // 後台沒設定時的預設
 
   function noticeMoreLabel(count, open) {
     return open ? '收起' : `展開全部 ${count} 則`;
@@ -9336,8 +9341,10 @@
     }
     const announcementToggle = $('settingsEnableAnnouncement');
     const announcementInput = $('settingsAnnouncementMessage');
+    const announcementCount = $('settingsAnnouncementCollapsed');
     if (announcementToggle && announcementInput) {
       announcementInput.disabled = !announcementToggle.checked;
+      if (announcementCount) announcementCount.disabled = !announcementToggle.checked;
     }
   }
 
@@ -10805,6 +10812,7 @@
       const dictionaryPath = ($('settingsDictionaryPath') || {}).value;
       const enableAnnouncement = ($('settingsEnableAnnouncement') || {}).checked;
       const announcementMessage = ($('settingsAnnouncementMessage') || {}).value;
+      const announcementCollapsedCount = parseInt(($('settingsAnnouncementCollapsed') || {}).value, 10);
       const maxProximityDistance = parseInt(($('settingsMaxProximityDistance') || {}).value) || 150;
       const defaultSearchMode = ($('settingsDefaultSearchMode') || {}).value || 'loose';
       const timezone = ($('settingsTimezone') || {}).value || 'auto';
@@ -10822,7 +10830,8 @@
             settings: {
               siteName, siteUrl, mdRoot, defaultFontSize, defaultTheme, createIfNotExists,
               enableVersion, version, enableDownload, downloadUrl, dictionaryEnabled, dictionaryPath, maxProximityDistance, defaultSearchMode, timezone,
-              enableAnnouncement, announcementMessage
+              enableAnnouncement, announcementMessage,
+              announcementCollapsedCount: Number.isFinite(announcementCollapsedCount) ? announcementCollapsedCount : undefined
             }
           })
         });
@@ -12257,6 +12266,12 @@
       if (announceToggleEl) announceToggleEl.checked = !!data.settings.enableAnnouncement;
       const announceMsgEl = $('settingsAnnouncementMessage');
       if (announceMsgEl) announceMsgEl.value = data.settings.announcementMessage || '';
+      const announceCountEl = $('settingsAnnouncementCollapsed');
+      if (announceCountEl) {
+        const n = data.settings.announcementCollapsedCount;
+        announceCountEl.value = String(Number.isFinite(n) ? n : HOME_NOTICE_COLLAPSED);
+        if (announceCountEl.value === '') announceCountEl.value = String(HOME_NOTICE_COLLAPSED);
+      }
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');
@@ -15503,7 +15518,7 @@
     if (val('settingsEnableDictionary') && !val('settingsDictionaryPath')) footerIssues.push('已開啟辭典但沒有填辭典路徑');
     L('footer', footerIssues.length ? 'warn' : 'ok', footerIssues.join('；'));
     L('announce', !val('settingsEnableAnnouncement') ? 'off' : val('settingsAnnouncementMessage') ? 'ok' : 'warn',
-      !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '彈窗顯示中' : '已開啟但沒有訊息內容');
+      !val('settingsEnableAnnouncement') ? '' : val('settingsAnnouncementMessage') ? '首頁顯示中' : '已開啟但沒有訊息內容');
     L('cfgbackup', 'off');
     const robots = val('seoRobotsIndex');
     // 不開放搜尋引擎收錄是站長的選擇（有些站本來就不要被搜尋到），顯示灰燈、不列入待辦。

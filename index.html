@@ -1333,7 +1333,20 @@
                 <div class="form-group" style="margin-bottom: 0;">
                   <label for="settingsAnnouncementMessage">公告訊息內容 (支援多行文字)</label>
                   <textarea id="settingsAnnouncementMessage" class="announcement-textarea" rows="3" placeholder="請輸入要在首頁顯示的公告…"></textarea>
-                  <span class="field-hint">公告顯示在首頁「繼續閱讀」下方，不再彈窗打斷閱讀。超過三行會先收起，讀者可點「展開」看全文。讀者按 ✕ 收起後，要等公告內容修改才會再出現。</span>
+                  <span class="field-hint">公告顯示在首頁「繼續閱讀」下方，不再彈窗打斷閱讀。一行一則，行首的「* 」「- 」會自動換成小圓點。讀者按 ✕ 收起後，要等公告內容修改才會再出現。</span>
+                </div>
+                <div class="form-group" style="margin: 12px 0 0;">
+                  <label for="settingsAnnouncementCollapsed">預設顯示則數</label>
+                  <select id="settingsAnnouncementCollapsed" class="setting-select">
+                    <option value="1">前 1 則</option>
+                    <option value="2">前 2 則</option>
+                    <option value="3">前 3 則</option>
+                    <option value="4">前 4 則</option>
+                    <option value="5">前 5 則</option>
+                    <option value="8">前 8 則</option>
+                    <option value="0">全部顯示</option>
+                  </select>
+                  <span class="field-hint">超過的部分先收起，讀者可點「展開全部」看全文。調整這個設定不會讓已收起公告的讀者再看到公告。</span>
                 </div>
               </div>
             </div>

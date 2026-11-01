@@ -2459,7 +2459,7 @@ section.chunk.chunk-error {
   display: none;
 }
 
-.home-notice:not(.expanded) .home-notice-item:nth-child(n + 4) {
+.home-notice:not(.expanded) .home-notice-item.is-extra {
   display: none;
 }
 
