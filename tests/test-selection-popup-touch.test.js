@@ -56,17 +56,18 @@ describe('選字彈窗 v4.10.0：兩排圖示、更多選單、新動作', () =>
     assert.match(css, /\.selection-share-popup button\s*\{[^}]*flex-direction:\s*column/, '桌機按鈕上圖示下文字');
   });
 
-  test('2. 更多：附出處複製、本行連結、在本篇中尋找（與 Cmd+F 共用頁內搜尋）', () => {
-    for (const id of ['selectionCiteBtn', 'selectionLinkBtn', 'selectionFindBtn']) {
+  test('2. 更多：附出處複製、在本篇中尋找（與 Cmd+F 共用頁內搜尋）', () => {
+    for (const id of ['selectionCiteBtn', 'selectionFindBtn']) {
       assert.match(src, new RegExp(`id="${id}"`), id);
     }
     assert.match(src, /openPageSearch\(\);[\s\S]{0,120}doPageSearch\(q\)/);
   });
 
-  test('3. 附出處格式含經名、行號與連結；分享優先用系統分享面板', () => {
+  test('3. 附出處格式含經名、行號與連結；分享直接複製帶行號的連結，不呼叫系統分享', () => {
     assert.match(src, /——\$\{name\}\$\{currentLineNum \? `第 \$\{currentLineNum\} 行` : ''\}/);
-    assert.match(src, /navigator\.share\(/);
-    assert.match(src, /err\.name === 'AbortError'/, '使用者取消分享不應改成複製');
+    assert.doesNotMatch(src, /navigator\.share/, '分享不叫系統分享面板');
+    assert.match(src, /shareBtn\.addEventListener\('click'[\s\S]{0,900}writeClipboard\(rawUrl, `✓ 已複製第 \$\{shareLineNum\} 行分享連結`\)/);
+    assert.doesNotMatch(src, /selectionLinkBtn/, '「複製本行連結」已併入分享');
   });
 
   test('4. 點彈窗內按鈕不重新計算選取，避免「更多」被收起', () => {
