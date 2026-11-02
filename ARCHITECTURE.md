@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.8.7 | 最後更新：2026-11
+> 版本：v4.9.0 | 最後更新：2026-11
 
 ---
 
@@ -550,6 +550,7 @@ flowchart TD
 ### 7.2 偏好備份與還原機制
 
 - **備份匯出**：於設定彈窗點擊「匯出設定」，將使用者閱讀偏好（含 `searchMode` 全文搜尋模式）、最近閱讀歷史、書籤與外觀打包為標準 JSON 下載（`mdwebview-preferences-YYYY-MM-DD.json`）。
+- **書籤與劃線 Markdown（v4.9.0）**：同一區塊的「📝 下載書籤與劃線（Markdown）」（`exportLibraryMarkdown`）。對有劃線的文件向 `/api/file` 取原文（並行 4 份），以 `highlights.js` 的 `plainTextOfMarkdown` 轉成與畫面內文相近的純文字，再用 `locate` 找回每處劃線；`buildExcerpts` 每處取前後約 60 字、再往外最多 30 字找句讀收尾、不跨段落；同段且相距 ≤120 字（= 兩邊上下文會重疊）的劃線合成一段上下文，只出現一次，劃到的字以 `==…==` 標出，附「第 N 行」回原處連結與顏色。找不到原處、辭典條目或取不到原文時，改用劃線當時記下的前後文（各 24 字）。沒有劃線的書籤列在「其他書籤」。此檔只供閱讀，不能還原。
 - **資安防護**：匯出程序**嚴格剔除** `STORAGE_KEYS.ADMIN_TOKEN` 與敏感授權資料，確保使用者備份檔案不慎外流時無任何資安風險。
 - **還原驗證與向下相容**：支援拖曳或上傳 JSON 檔案，進行結構合法性檢查後原子化覆蓋偏好並即時刷新介面；`searchMode` 經值驗證（只接受 `'loose'` 或 `'strict'`）後還原，若舊備份檔無此欄位則維持現狀，具備完全向下相容性。
 - **UI 整合淨化**：移除舊版位於 UI 底部左下角的重複「下載備份」按鈕，統一集中由「使用者設定」彈窗掌管，維持首頁與閱讀介面的乾淨簡約。
@@ -1010,7 +1011,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.8.7'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.9.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |

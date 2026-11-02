@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.8.7
+   mdWebview — Application Logic (app.js) v4.9.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -9074,7 +9074,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.7';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9124,6 +9124,74 @@
     } catch (err) {
       console.error('[ExportUserPreferences] 匯出失敗:', err);
       showToast('❌ 下載備份失敗：' + (err.message || '未知錯誤'), 'error');
+    }
+  }
+
+  /**
+   * 下載「書籤與劃線」Markdown：每份文件一節，劃線附上原文上下文；同一段裡靠近的
+   * 劃線合成一段上下文（規則見 highlights.js 的 buildExcerpts）。原文向伺服器取
+   * /api/file；取不到（辭典條目、已不在文庫、離線）就用劃線當時記下的前後文。
+   */
+  let exportingLibraryMarkdown = false;
+  async function exportLibraryMarkdown() {
+    if (exportingLibraryMarkdown) return;
+    if (!HL || typeof HL.buildLibraryMarkdown !== 'function') {
+      showToast('❌ 匯出功能尚未載入，請重新整理頁面', 'error');
+      return;
+    }
+    const bookmarks = (state.bookmarks || []).slice();
+    const highlights = (state.highlights || []).slice();
+    if (!bookmarks.length && !highlights.length) {
+      showToast('目前沒有書籤或劃線可以匯出', 'info');
+      return;
+    }
+    exportingLibraryMarkdown = true;
+    const btn = $('btnExportLibraryMarkdown');
+    if (btn) btn.disabled = true;
+    try {
+      const paths = Array.from(new Set(highlights.map(h => h.filePath)))
+        .filter(fp => fp && !fp.startsWith('dict:') && !isLibraryFileMissing(fp));
+      if (paths.length) showToast(`⏳ 正在整理 ${paths.length} 份文件的劃線…`, 'info');
+      const docs = new Map();
+      let next = 0;
+      const worker = async () => {
+        while (next < paths.length) {
+          const fp = paths[next++];
+          try {
+            const res = await fetch(`/api/file?path=${encodeURIComponent(fp)}`, { credentials: 'same-origin' });
+            const data = res.ok ? await res.json() : null;
+            docs.set(fp, data && typeof data.content === 'string' ? HL.plainTextOfMarkdown(data.content) : null);
+          } catch (_) {
+            docs.set(fp, null);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, paths.length) }, worker));
+
+      const md = HL.buildLibraryMarkdown({
+        bookmarks,
+        highlights,
+        docs,
+        baseUrl: window.location.origin + window.location.pathname,
+        dateText: new Date().toLocaleString(activeLocale()),
+        colorNames: HL_COLOR_NAMES
+      });
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mdWebview-bookmarks-highlights-${getTodayDateIso()}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast(`📝 已下載書籤 ${bookmarks.length} 個、劃線 ${highlights.length} 處`, 'success');
+    } catch (err) {
+      console.error('[ExportLibraryMarkdown] 匯出失敗:', err);
+      showToast('❌ 下載失敗：' + (err.message || '未知錯誤'), 'error');
+    } finally {
+      exportingLibraryMarkdown = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -10614,6 +10682,13 @@
       });
     }
 
+    const btnExportLibMd = $('btnExportLibraryMarkdown');
+    if (btnExportLibMd) {
+      btnExportLibMd.addEventListener('click', () => {
+        exportLibraryMarkdown();
+      });
+    }
+
     const btnImportPref = $('btnImportUserPreferences');
     const inputImportPref = $('inputImportUserPreferences');
     if (btnImportPref && inputImportPref) {
@@ -10964,7 +11039,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11332,7 +11407,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.7';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12222,7 +12297,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.8.7';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

@@ -276,8 +276,285 @@
     return null;
   }
 
+  // ───────────────────────────────────────────────────────────
+  // 匯出成 Markdown：書籤＋劃線（含上下文）
+  //
+  // 上下文取自原始 .md：每處劃線前後各取約 EXPORT.context 個字，再往外找最近的
+  // 句讀（。！？；：，）收尾，最多多走 EXPORT.slack 個字；不跨段落。
+  // 同一段裡兩處劃線相距不到 EXPORT.mergeGap 個字（= 兩邊的上下文會重疊），
+  // 就合成一段上下文，同一段文字只出現一次，劃到的字用 ==…== 標出。
+  // ───────────────────────────────────────────────────────────
+  const EXPORT = {
+    context: 60,
+    slack: 30,
+    mergeGap: 120
+  };
+  const CJK_RE = /[⺀-鿿豈-﫿　-〿＀-￯]/;
+  const STOP_RE = /[。！？；：，、!?;:,.」』）)]/;
+
+  /** 一行 Markdown 去掉標記，只留讀者看得到的字（近似畫面上的內文）。 */
+  function plainLine(line) {
+    let s = String(line || '');
+    s = s.replace(/^\s*>+\s?/, '');
+    s = s.replace(/^\s*#{1,6}\s+/, '');
+    s = s.replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, '');
+    s = s.replace(/!\[\[[^\]]*\]\]/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+    s = s.replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, '$2').replace(/\[\[([^\]]*)\]\]/g, '$1');
+    s = s.replace(/\[\^[^\]]*\]/g, '');
+    s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+    s = s.replace(/<[^>]+>/g, '');
+    s = s.replace(/(\*\*|__|==|~~|`)/g, '');
+    s = s.replace(/\*/g, '');
+    s = s.replace(/\\([\\`*_{}\[\]()#+\-.!>|=~])/g, '$1');
+    if (/^\s*\|.*\|\s*$/.test(s)) s = s.replace(/^\s*\|/, '').replace(/\|\s*$/, '').replace(/\s*\|\s*/g, ' ');
+    return s.trim();
+  }
+
+  function softJoin(a, b) {
+    if (!a || !b) return '';
+    return CJK_RE.test(a[a.length - 1]) || CJK_RE.test(b[0]) ? '' : ' ';
+  }
+
+  /**
+   * 原始 Markdown → 純文字索引。
+   * @returns {{ text:string, lineStarts:Array, blocks:Array<{s,e}>, headings:Array<{pos,text}> }}
+   *   text 與畫面內文一樣是接起來的字串；blocks 是段落（空行、標題、程式碼區塊為界）。
+   */
+  function plainTextOfMarkdown(md) {
+    const lines = String(md || '').split(/\r?\n/);
+    let i = 0;
+    // 跳過開頭的 YAML frontmatter（行號照原檔算）
+    if (lines[0] === '---') {
+      const end = lines.indexOf('---', 1);
+      if (end > 0) i = end + 1;
+    }
+    let text = '';
+    const lineStarts = [];
+    const blocks = [];
+    const headings = [];
+    let block = null;
+    let inCode = false;
+    const close = () => { if (block) { block.e = text.length; if (block.e > block.s) blocks.push(block); block = null; } };
+    for (; i < lines.length; i++) {
+      const raw = lines[i];
+      const t = raw.trim();
+      if (t.startsWith('```')) { inCode = !inCode; close(); continue; }
+      if (inCode) continue;
+      if (!t || /^(?:[-*_]\s*){3,}$/.test(t) || /^\[\^[^\]]+\]:/.test(t) || /^\|?\s*:?-{2,}/.test(t)) { close(); continue; }
+      const isHeading = /^#{1,6}\s/.test(t);
+      const plain = plainLine(raw);
+      if (!plain) continue;
+      if (isHeading) close();
+      if (block) text += softJoin(text, plain);
+      else block = { s: text.length, e: text.length };
+      lineStarts.push({ line: i + 1, pos: text.length });
+      if (isHeading) headings.push({ pos: text.length, text: plain });
+      text += plain;
+      if (isHeading) close();
+    }
+    close();
+    return { text, lineStarts, blocks, headings };
+  }
+
+  function blockIndexAt(blocks, pos) {
+    let lo = 0, hi = blocks.length - 1, ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (blocks[mid].s <= pos) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans;
+  }
+
+  function headingBefore(headings, pos) {
+    let ans = null;
+    for (const h of headings) { if (h.pos <= pos) ans = h; else break; }
+    return ans ? ans.text : '';
+  }
+
+  /** 從 s 往前最多 slack 個字找句讀，回傳句讀之後的位置；找不到回傳 s。 */
+  function backToStop(text, s, min, slack) {
+    for (let p = s; p > Math.max(min, s - slack); p--) {
+      if (STOP_RE.test(text[p - 1])) return p;
+    }
+    return s;
+  }
+
+  function forwardToStop(text, e, max, slack) {
+    for (let p = e; p < Math.min(max, e + slack); p++) {
+      if (STOP_RE.test(text[p])) return p + 1;
+    }
+    return e;
+  }
+
+  /**
+   * 把同一份文件的劃線依位置排好，鄰近的合成一段上下文。
+   * @param {{text,lineStarts,blocks,headings}|null} doc  plainTextOfMarkdown 的結果；拿不到原文時給 null
+   * @param {Array<{line,off,q,pre,suf,c}>} items
+   * @returns {{ excerpts: Array<{line, heading, text, marks:Array<[s,e]>, colors:string[], cut:[boolean,boolean]}>, lost: Array }}
+   *   excerpts[].text 是那段上下文，marks 是劃線在其中的位置；lost 是在原文裡找不到的劃線。
+   */
+  function buildExcerpts(doc, items, opts) {
+    const o = Object.assign({}, EXPORT, opts || {});
+    const found = [];
+    const lost = [];
+    for (const h of items || []) {
+      const r = doc && doc.text ? locate(doc.text, h, doc.lineStarts) : null;
+      if (!r) { lost.push(h); continue; }
+      const b = blockIndexAt(doc.blocks, r.s);
+      const be = blockIndexAt(doc.blocks, Math.max(r.s, r.e - 1));
+      found.push({ s: r.s, e: r.e, b: Math.max(0, b), be: Math.max(0, be), h });
+    }
+    found.sort((x, y) => (x.s - y.s) || (x.e - y.e));
+
+    const groups = [];
+    for (const f of found) {
+      const g = groups[groups.length - 1];
+      if (g && f.b <= g.be && f.s - g.e <= o.mergeGap) {
+        g.items.push(f);
+        g.e = Math.max(g.e, f.e);
+        g.be = Math.max(g.be, f.be);
+      } else {
+        groups.push({ s: f.s, e: f.e, b: f.b, be: f.be, items: [f] });
+      }
+    }
+
+    const text = doc ? doc.text : '';
+    const excerpts = groups.map(g => {
+      const blk = doc.blocks[g.b] || { s: 0, e: text.length };
+      const blkEnd = (doc.blocks[g.be] || blk).e;
+      let ws = Math.max(blk.s, g.s - o.context);
+      let we = Math.min(blkEnd, g.e + o.context);
+      if (ws > blk.s) ws = backToStop(text, ws, blk.s, o.slack);
+      if (we < blkEnd) we = forwardToStop(text, we, blkEnd, o.slack);
+      // 合併重疊的劃線，避免 ==…== 交錯
+      const marks = [];
+      for (const f of g.items) {
+        const last = marks[marks.length - 1];
+        if (last && f.s <= last[1]) last[1] = Math.max(last[1], f.e);
+        else marks.push([f.s, f.e]);
+      }
+      const colors = [];
+      for (const f of g.items) if (!colors.includes(f.h.c)) colors.push(f.h.c);
+      return {
+        line: lineAt(doc.lineStarts, g.s).line,
+        heading: headingBefore(doc.headings, g.s),
+        text: text.slice(ws, we),
+        marks: marks.map(([s, e]) => [s - ws, e - ws]),
+        colors,
+        count: g.items.length,
+        cut: [ws > blk.s, we < blkEnd]
+      };
+    });
+    return { excerpts, lost };
+  }
+
+  /** Markdown 內文跳脫：只處理會改變排版的字元。 */
+  function mdEscape(s) {
+    return String(s || '').replace(/\s+/g, ' ').replace(/([\\`*_[\]<>|=~])/g, '\\$1');
+  }
+
+  function markText(text, marks) {
+    let out = '';
+    let p = 0;
+    for (const [s, e] of marks) {
+      out += mdEscape(text.slice(p, s)) + '==' + mdEscape(text.slice(s, e)).trim() + '==';
+      p = e;
+    }
+    return out + mdEscape(text.slice(p));
+  }
+
+  function quoteBlock(body) {
+    return '> ' + body;
+  }
+
+  /**
+   * 組出整份「書籤與劃線」Markdown。
+   * @param {Object} p
+   * @param {Array} p.bookmarks   [{ filePath, fileName, pct?, ts? }]（順序即輸出順序）
+   * @param {Array} p.highlights  [{ filePath, line, off, q, pre, suf, c }]
+   * @param {Map<string, Object|null>} p.docs  filePath → plainTextOfMarkdown 結果；null = 拿不到原文
+   * @param {string} [p.baseUrl]  例：https://example.org/ → 產生回到原處的連結
+   * @param {string} [p.title]
+   * @param {string} [p.dateText]
+   * @param {Object} [p.colorNames] { r:'朱', ... }
+   */
+  function buildLibraryMarkdown(p) {
+    const names = p.colorNames || {};
+    const bookmarks = (p.bookmarks || []).slice();
+    const byFile = new Map();
+    for (const h of p.highlights || []) {
+      if (!byFile.has(h.filePath)) byFile.set(h.filePath, []);
+      byFile.get(h.filePath).push(h);
+    }
+    // 有劃線卻沒有書籤（理論上不會發生）也要匯出
+    for (const fp of byFile.keys()) {
+      if (!bookmarks.some(b => b.filePath === fp)) bookmarks.push({ filePath: fp });
+    }
+    const titleOf = b => b.fileName || String(b.filePath).replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
+    const linkOf = (fp, line) => {
+      if (!p.baseUrl || String(fp).startsWith('dict:')) return '';
+      // 與畫面上「分享第 N 行」同樣的網址格式（中文不編碼，只跳脫會斷開網址的字元）
+      const f = String(fp).replace(/%/g, '%25').replace(/&/g, '%26').replace(/#/g, '%23').replace(/ /g, '%20').replace(/</g, '%3C').replace(/>/g, '%3E');
+      return `${p.baseUrl}?file=${f}${line ? `&line=${line}` : ''}`;
+    };
+    const withHl = bookmarks.filter(b => byFile.has(b.filePath));
+    const without = bookmarks.filter(b => !byFile.has(b.filePath));
+    const total = (p.highlights || []).length;
+
+    const out = [];
+    out.push(`# ${p.title || '我的書籤與劃線'}`, '');
+    out.push(`${p.dateText ? `匯出時間：${p.dateText}　` : ''}書籤 ${bookmarks.length} 個・劃線 ${total} 處`, '');
+    out.push('> 劃到的字以 ==螢光== 標出；相鄰的劃線共用一段上下文。', '');
+
+    for (const b of withHl) {
+      const fp = b.filePath;
+      const doc = p.docs ? p.docs.get(fp) : null;
+      const items = byFile.get(fp).slice().sort((x, y) => (x.line - y.line) || ((x.off || 0) - (y.off || 0)));
+      const { excerpts, lost } = buildExcerpts(doc || null, items);
+      out.push('---', '', `## ${mdEscape(titleOf(b))}`, '');
+      const meta = [`\`${String(fp).replace(/`/g, '')}\``, `劃線 ${items.length} 處`];
+      if (typeof b.pct === 'number') meta.push(`讀到 ${Math.round(b.pct)}%`);
+      const link = linkOf(fp);
+      if (link) meta.push(`[開啟](<${link}>)`);
+      out.push(meta.join('・'), '');
+      let lastHeading = '';
+      for (const x of excerpts) {
+        if (x.heading && x.heading !== lastHeading && x.heading !== titleOf(b)) {
+          out.push(`### ${mdEscape(x.heading)}`, '');
+          lastHeading = x.heading;
+        }
+        const body = (x.cut[0] ? '……' : '') + markText(x.text, x.marks) + (x.cut[1] ? '……' : '');
+        out.push(quoteBlock(body), '');
+        const lineLink = linkOf(fp, x.line);
+        const where = lineLink ? `[第 ${x.line} 行](<${lineLink}>)` : `第 ${x.line} 行`;
+        const cols = x.colors.map(c => names[c] || c).filter(Boolean).join('、');
+        out.push(`<sub>${where}${cols ? `・${cols}` : ''}</sub>`, '');
+      }
+      if (lost.length) {
+        out.push(doc ? '**原文已更動、找不到原處的劃線**（以下是劃線當時記下的前後文）：' : '_無法取得原文，以下是劃線當時記下的前後文。_', '');
+        for (const h of lost) {
+          const body = (h.pre ? '……' + mdEscape(h.pre) : '') + '==' + mdEscape(h.q).trim() + '==' + (h.suf ? mdEscape(h.suf) + '……' : '');
+          out.push(quoteBlock(body), '', `<sub>第 ${h.line} 行${names[h.c] ? `・${names[h.c]}` : ''}</sub>`, '');
+        }
+      }
+    }
+
+    if (without.length) {
+      out.push('---', '', withHl.length ? '## 其他書籤' : '## 書籤', '');
+      for (const b of without) {
+        const link = linkOf(b.filePath);
+        const name = mdEscape(titleOf(b));
+        const pct = typeof b.pct === 'number' ? `　讀到 ${Math.round(b.pct)}%` : '';
+        out.push(`- ${link ? `[${name}](<${link}>)` : name}${pct}`);
+      }
+      out.push('');
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  }
+
   return {
     LIMITS, COLORS, newId, normalizeWire, lineAt, lineStart, trimRange, makeAnchor,
-    contextScore, approxSearch, locate, sutraNumber, findMovedFile
+    contextScore, approxSearch, locate, sutraNumber, findMovedFile,
+    EXPORT, plainLine, plainTextOfMarkdown, buildExcerpts, buildLibraryMarkdown
   };
 });
