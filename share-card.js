@@ -751,6 +751,8 @@
   // ════════════════════════════════════════════════════════════════════
   // 圖文並重版面 N–R（直式；圖片完整露出、不蓋半透明，文字有自己的底色區）
   // ════════════════════════════════════════════════════════════════════
+  // 英文問候用手寫體（Dancing Script；伺服器由 Docker 建置時下載，沒有就退回宋體）
+  const enFont = (sz) => `${Math.round(sz)}px "Dancing Script", ${SERIF}`;
   const GREETING_EN = { '早安': 'Good Morning', '午安': 'Good Afternoon', '晚安': 'Good Evening' };
 
   function redSeal(ctx, text, x, y, s, r) {
@@ -850,17 +852,14 @@
     paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
     grain(ctx, w, h, 8, 0.05, false);
     ctx.fillStyle = '#231e18';
-    const en = GREETING_EN[o.greeting] || 'Good Morning';
-    const hand = o.enFont ? (sz) => `${Math.round(sz)}px "${o.enFont}", ${SERIF}` : (sz) => font(900, sz);
-    let es = o.enFont ? 190 : 132;
-    for (; es > 70; es -= 4) { ctx.font = hand(es); if (ctx.measureText(en).width + en.length * 3 <= w - 112) break; }
-    ctx.font = hand(es);
-    if (o.enFont) { ctx.textAlign = 'left'; ctx.fillText(en, 56, 190); } else drawSpaced(ctx, en, 56, 176, 3);
+    ctx.font = enFont(124);
+    ctx.textAlign = 'left';
+    ctx.fillText(GREETING_EN[o.greeting] || 'Good Morning', 64, 172);
     ctx.fillStyle = '#6b5d46';
     ctx.font = font(500, 26);
-    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, 60, o.enFont ? 270 : 250, 5);
+    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, 64, 244, 5);
     ctx.fillStyle = '#b8322a';
-    ctx.fillRect(w - 64 - 90, o.enFont ? 266 : 246, 90, 8);
+    ctx.fillRect(w - 64 - 90, 240, 90, 8);
     drawCover(ctx, o.image, 0, t1, w, t2 - t1, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
     ctx.fillRect(0, t1 - 4, w, 8);
@@ -931,8 +930,9 @@
     paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
     grain(ctx, w, h, 8, 0.05, false);
     ctx.fillStyle = '#231e18';
-    ctx.font = font(900, 54);
-    drawSpaced(ctx, GREETING_EN[o.greeting] || 'Good Morning', 44, 68, 3);
+    ctx.font = enFont(62);
+    ctx.textAlign = 'left';
+    ctx.fillText(GREETING_EN[o.greeting] || 'Good Morning', 44, 70);
     ctx.fillStyle = '#6b5d46';
     ctx.font = font(500, 20);
     drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, w - 44, 66, 4, 'right');
@@ -1050,8 +1050,7 @@
       greeting: normalizeGreeting(opts.greeting),
       date: dateInfo(opts.date),
       siteName: String(opts.siteName || 'mdWebview'),
-      host: String(opts.host || ''),
-      enFont: opts.enFont || ''
+      host: String(opts.host || '')
     };
     const layout = normalizeLayout(opts.layout);
     if (layout === 'B') drawB(ctx, w, h, o);

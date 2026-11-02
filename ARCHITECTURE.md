@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.16.0 | 最後更新：2026-11
+> 版本：v4.16.1 | 最後更新：2026-11
 
 ---
 
@@ -1022,7 +1022,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.16.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.16.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1549,7 +1549,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 ### 每日經句：換一句與早安圖（v4.13.0）
 
 - 首頁經句下 `#homeVerseShuffle`「換一句」（`/api/daily-verse/random`，只換自己畫面）與 `#homeVerseShare`「分享早安圖」。畫面上這句存在 `state._homeVerseCurrent`；換一句或分享連結指定的句子放 `state._homeVerseOverride`，優先於伺服器時段挑的那句。經句代號 `home.verseId()` = `verseKey` 的 SHA-1 前 10 碼，清單順序變了也不變。
-- 繪圖程式 `share-card.js`（UMD，前後端共用，只用兩邊都有的 Canvas 2D API；字距、直書標點自己畫）。版型 A 晨光留白／B 沉浸全幅（依圖片下半部亮度調漸層深淺）／C 經籤直書／I 晨鐘大字／J 象牙拱門／N 上圖下文／P 左右分割／Q 三段式（N、P、Q 圖片不蓋半透明、字區獨立，Q 問候為英文）（I、J 用 900 粗體，Docker 建置時一併下載；紙紋、金粉、蓮瓣等質感工具在 share-card.js）；尺寸 portrait 1080×1350、og 1200×630。
+- 繪圖程式 `share-card.js`（UMD，前後端共用，只用兩邊都有的 Canvas 2D API；字距、直書標點自己畫）。版型 A 晨光留白／B 沉浸全幅（依圖片下半部亮度調漸層深淺）／C 經籤直書／I 晨鐘大字／J 象牙拱門／N 上圖下文／P 左右分割／Q 三段式（N、P、Q 圖片不蓋半透明、字區獨立，Q 問候為英文、Dancing Script 手寫體（Docker 建置時下載））（I、J 用 900 粗體，Docker 建置時一併下載；紙紋、金粉、蓮瓣等質感工具在 share-card.js）；尺寸 portrait 1080×1350、og 1200×630。
 - 伺服器 `lib/share-card-server.js`：`@napi-rs/canvas` 延遲載入（失敗 = 不能畫，`/api/share-card.jpg` 回 503，前端改用 `share-card.js` 在瀏覽器畫）；字型從 `SHARE_CARD_FONT_DIR`、`config.json` 旁 `fonts/`、程式目錄 `fonts/`（Docker 建置時下載 Noto Serif TC 500/700）註冊；圖庫 `pic-card/`（`PIC_CARD_DIR`）遞迴掃 jpg/png/webp，每分鐘最多重掃一次；挑圖 = `hash32(id|日期) % 張數`。解碼圖快取 8 張、成品 JPEG 快取 80 張。
 - 分享連結 `/?verse=<id>&d=&g=&l=`：`handleVerseShareLink()` 照常回首頁，但 og/twitter 標籤換成這句與 `/api/share-card.jpg?size=og`；前端 `applyVerseLinkFromUrl()` 顯示那句後把參數清掉。
 - 分享面板 `#shareCardOverlay`：桌機三張並排點選，手機底部抽屜 scroll-snap 左右滑；「傳到 LINE」用 `navigator.share({ files })`（電腦改下載），另有存圖片、複製圖片、「複製連結」（`/?verse=<id>…`，貼到 LINE 由 og:image 出橫式預覽卡）。選的版型記在 `mdWebview-share-card-layout`（v4.13.1 起拿掉「只傳圖片／圖片＋連結」切換，不再有 `-mode`）。
@@ -1560,7 +1560,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 前端 `sendShareEvent()` → `POST /api/share-card/event`：`open` 打開面板、`line`（系統分享選單成功）、`lineFile`（電腦版改存檔）、`save`、`copyImage`、`copyLink`、`shuffle` 換一句、`error`（`stage` = preview／line／save／copyImage／shuffle）。`og`、`visit` 前端不能送（400）。背景圖由伺服器依經句＋日期 `pickPic()` 算，不收前端的值。
 - 伺服器自記：`visit` = 有人打開 `/?verse=` 分享連結（爬蟲照 `isBotEntry` 排除）；`og` = `/api/share-card.jpg?size=og` 被抓（多半是 LINE／FB 預覽機器人：照算早安圖，但不算請求數與訪客 IP，`isShareServerEntry()`）；`error` stage render／meta／verse。面板內直式預覽不記（每次打開面板都會自動畫 5 張）。舊的 ShareCard ERROR 日誌（沒有 share）算一次 render 失敗。
 - 聚合：每筆事件換成鍵 `ev:<事件>`；分享出去的動作（line、lineFile、save、copyImage、copyLink）另加 `layout:`、`verse:`、`pic:`；失敗加 `err:<stage>`。存在 `analytics-aggregates.json` 每日摘要與 lifetime 的 `share` 映射（舊檔沒有也能正規化，不需升 `ANALYTICS_STORE_VERSION`），歸檔舊日誌時一樣以單日最大值冪等合併。
-- 趨勢圖（v4.16.0）：`shareCard.trend` 與 `dailyTrend` 同格（1d = 小時，其餘 = 日；7 天以前的日子用每日摘要，以 UTC 日計），每格 open／sends／visit／og 與各分享方式；`shareCard.hours` = 原始日誌（最多 7 天）依時區分 0–23 時的 open／sends（allTime 為 null）。後台 `buildShareChartSvg()` 畫三張主題色 SVG：打開／分享出去／進站折線、幾點打開與分享長條、分享方式堆疊長條。報表信 `chart id = share`：日報 = 昨天 24 小時長條，週報 = 7 天折線；這段期間沒有早安圖資料就不畫、不附圖。
+- 趨勢圖（v4.16.1）：`shareCard.trend` 與 `dailyTrend` 同格（1d = 小時，其餘 = 日；7 天以前的日子用每日摘要，以 UTC 日計），每格 open／sends／visit／og 與各分享方式；`shareCard.hours` = 原始日誌（最多 7 天）依時區分 0–23 時的 open／sends（allTime 為 null）。後台 `buildShareChartSvg()` 畫三張主題色 SVG：打開／分享出去／進站折線、幾點打開與分享長條、分享方式堆疊長條。報表信 `chart id = share`：日報 = 昨天 24 小時長條，週報 = 7 天折線；這段期間沒有早安圖資料就不畫、不附圖。
 - 顯示：`/api/admin/analytics` 多一個 `shareCard` 摘要（events、sends、sendRate = 分享出去／打開面板、layouts、verses 附經文、pics、errors）；後台流量統計「🌅 早安圖分享」區塊；CSV 匯出 `[早安圖分享]`；日報／週報「🌅 早安圖」（與前期比較、版型、經句與背景圖 Top 5）。
 
 ### 每日／每週報表信（v4.3.0）
