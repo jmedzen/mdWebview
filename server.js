@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.12.1
+ * @version 4.13.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -95,6 +95,8 @@ const accounts = require('./lib/accounts');
 const accountsDb = require('./lib/db');
 const home = require('./lib/home');
 const sutraQuotes = require('./lib/sutra-quotes');
+const shareCardServer = require('./lib/share-card-server');
+const ShareCard = require('./share-card.js');
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -4294,6 +4296,190 @@ async function handleAdminDailyVerses(req, res) {
   }
 }
 
+// ── 每日經句：換一句、分享卡（早安圖） ──────────────────────────────────
+// 前端：首頁「↻ 換一句」「分享早安圖」；繪圖程式 share-card.js（前後端共用），
+// 伺服器端圖庫／字型／畫圖在 lib/share-card-server.js。
+
+/** 經句加上分享用的代號 id。 */
+function withVerseId(verse) {
+  if (!verse) return verse;
+  return { ...verse, id: home.verseId(verse.text) };
+}
+
+/** 依代號在目前的經句清單（後台＋資料夾）裡找那一句。 */
+async function findVerseById(id) {
+  if (!/^[0-9a-f]{10}$/.test(String(id || ''))) return null;
+  const dv = await collectDailyVerses();
+  const v = dv.merged.find(x => home.verseId(x.text) === id);
+  return v ? withVerseId(v) : null;
+}
+
+/** 站名與網址主機名（卡片頁尾用）。 */
+function shareCardSite(req) {
+  const siteName = String(config.settings.siteName || 'mdWebview');
+  let host = '';
+  try { host = new URL(getBaseUrl(req, config.settings.siteUrl) || 'http://x').host; } catch (_) {}
+  if (host === 'x') host = '';
+  return { siteName, host };
+}
+
+/** 卡片參數（日期、問候、版型、尺寸）整理成合法值。 */
+function shareCardParams(query) {
+  return {
+    date: ShareCard.normalizeDate(query.d) || ShareCard.normalizeDate(new Date().toISOString().slice(0, 10)),
+    greeting: ShareCard.normalizeGreeting(query.g),
+    layout: ShareCard.normalizeLayout(query.layout || query.l),
+    size: ShareCard.normalizeSize(query.size)
+  };
+}
+
+/** GET /api/daily-verse?id=… 取某一句；GET /api/daily-verse/random?not=… 隨機換另一句。 */
+async function handleDailyVerseApi(req, res, pathname, query) {
+  try {
+    if (pathname === '/api/daily-verse/random') {
+      const dv = await collectDailyVerses();
+      const list = dv.merged;
+      if (!list.length) return sendJSON(res, 200, { verse: null, total: 0 });
+      const not = String(query.not || '');
+      const pool = list.length > 1 ? list.filter(v => home.verseId(v.text) !== not) : list;
+      const v = pool[crypto.randomInt(pool.length)];
+      res.setHeader('Cache-Control', 'no-store');
+      return sendJSON(res, 200, { verse: withVerseId(v), total: list.length });
+    }
+    const v = await findVerseById(query.id);
+    if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
+    return sendJSON(res, 200, { verse: v });
+  } catch (err) {
+    Logger.error('ShareCard', 'Failed to load daily verse', err, req);
+    return sendJSON(res, 500, { error: 'Failed to load verse' });
+  }
+}
+
+/**
+ * GET /api/share-card/meta?id=&d= — 前端備援（伺服器不能畫圖時在瀏覽器畫）需要的資料：
+ * 經句、背景圖網址、站名、伺服器能不能畫。
+ */
+async function handleShareCardMeta(req, res, query) {
+  try {
+    const v = await findVerseById(query.id);
+    if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
+    const p = shareCardParams(query);
+    const pics = await shareCardServer.listPics();
+    const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
+    sendJSON(res, 200, {
+      verse: v,
+      date: p.date,
+      pic: rel ? `/api/pic-card?p=${encodeURIComponent(rel)}` : null,
+      renderer: shareCardServer.available(),
+      ...shareCardSite(req)
+    });
+  } catch (err) {
+    Logger.error('ShareCard', 'Failed to build share card meta', err, req);
+    sendJSON(res, 500, { error: 'Failed to build share card' });
+  }
+}
+
+/** GET /api/share-card.jpg?id=&layout=A|B|C&size=portrait|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
+async function handleShareCardImage(req, res, query) {
+  if (!shareCardServer.available()) {
+    return sendJSON(res, 503, { error: 'Share card renderer unavailable', renderer: false });
+  }
+  try {
+    const v = await findVerseById(query.id);
+    if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
+    const p = shareCardParams(query);
+    const pics = await shareCardServer.listPics();
+    const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
+    let picAbs = rel ? shareCardServer.resolvePic(rel) : null;
+    if (picAbs && !(await shareCardServer.isRealPicPath(picAbs))) picAbs = null;
+    const buf = await shareCardServer.render({ ...p, verse: v, picAbs, ...shareCardSite(req) });
+    const etag = `"sc-${crypto.createHash('md5').update(buf).digest('hex').slice(0, 16)}"`;
+    const headers = Object.assign({
+      'Content-Type': 'image/jpeg',
+      'Content-Length': buf.length,
+      'Cache-Control': 'public, max-age=3600',
+      'ETag': etag
+    }, SECURITY_HEADERS);
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    res.writeHead(200, headers);
+    res.end(req.method === 'HEAD' ? undefined : buf);
+  } catch (err) {
+    Logger.error('ShareCard', 'Failed to render share card', err, req);
+    if (!res.headersSent) sendJSON(res, 500, { error: 'Failed to render share card' });
+  }
+}
+
+/** GET /api/pic-card?p=<相對路徑> — 圖庫裡的背景圖（給瀏覽器備援繪圖用）。 */
+async function handlePicCard(req, res, query) {
+  const abs = shareCardServer.resolvePic(query.p);
+  if (!abs || !(await shareCardServer.isRealPicPath(abs))) {
+    return sendJSON(res, 404, { error: 'Not found' });
+  }
+  const ext = path.extname(abs).toLowerCase();
+  const type = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+  try {
+    const st = await fs.promises.stat(abs);
+    const etag = `"pc-${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    const headers = Object.assign({ 'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'ETag': etag }, SECURITY_HEADERS);
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+    headers['Content-Length'] = st.size;
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(abs).on('error', () => res.destroy()).pipe(res);
+  } catch (_) {
+    if (!res.headersSent) sendJSON(res, 404, { error: 'Not found' });
+  }
+}
+
+/** GET /api/admin/share-card：後台看畫圖引擎、字型、圖庫狀態。 */
+async function handleAdminShareCard(req, res) {
+  if (!requireAdmin(req, res, sendJSON)) return;
+  await shareCardServer.listPics().catch(() => {});
+  sendJSON(res, 200, shareCardServer.status());
+}
+
+/**
+ * 分享連結 /?verse=<id>&d=&g=&l= ：一般讀者照常拿到首頁（前端會顯示那一句），
+ * 但 og:title / og:description / og:image 換成這一句與它的早安圖，LINE、Facebook 預覽就會出現卡片。
+ */
+async function handleVerseShareLink(req, res, query) {
+  const v = await findVerseById(query.verse).catch(() => null);
+  const nonce = crypto.randomBytes(16).toString('base64');
+  getIndexHtml(nonce, req, (err, baseHtmlBuffer) => {
+    if (err) {
+      res.writeHead(500, Object.assign({ 'Content-Type': 'text/plain' }, SECURITY_HEADERS));
+      return res.end('Server Error');
+    }
+    let html = baseHtmlBuffer.toString('utf-8');
+    if (v) {
+      const p = shareCardParams(query);
+      const baseUrl = getBaseUrl(req, config.settings.siteUrl);
+      const site = config.settings.siteName || 'mdWebview';
+      const plain = Array.from(String(v.text).replace(/[，。；：、！？,.;:!?]+$/, ''));
+      const first = plain.length > 40 ? `${plain.slice(0, 38).join('')}…` : plain.join('');
+      const title = escapeHtmlString(`${p.greeting}．${first}`);
+      const desc = escapeHtmlString(`${v.text}${v.source ? `　《${v.source}》` : ''}　— ${site} · 每日經句`);
+      const qs = `id=${v.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+      const img = escapeHtmlString(`${baseUrl}/api/share-card.jpg?${qs}`);
+      const url = escapeHtmlString(`${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`);
+      const rep = (re, tag) => { html = re.test(html) ? html.replace(re, () => tag) : html.replace('</head>', () => `  ${tag}\n</head>`); };
+      rep(/<meta property="og:title"[^>]*>/i, `<meta property="og:title" content="${title}">`);
+      rep(/<meta property="og:description"[^>]*>/i, `<meta property="og:description" content="${desc}">`);
+      rep(/<meta property="og:url"[^>]*>/i, `<meta property="og:url" content="${url}">`);
+      rep(/<meta property="og:image" content="[^"]*">/i, `<meta property="og:image" content="${img}">`);
+      rep(/<meta property="og:image:type"[^>]*>/i, '<meta property="og:image:type" content="image/jpeg">');
+      rep(/<meta name="twitter:title"[^>]*>/i, `<meta name="twitter:title" content="${title}">`);
+      rep(/<meta name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${desc}">`);
+      rep(/<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${img}">`);
+    }
+    const headers = indexHtmlHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }, nonce);
+    sendCompressed(req, res, 200, headers, Buffer.from(html, 'utf-8'));
+  });
+}
+
 /**
  * 傳回首頁推薦列表（GET /api/suggest-list），包含公告資訊與推薦項目。
  *
@@ -4377,10 +4563,10 @@ async function handleSuggestList(req, res) {
       suggestListUpdatedAt: config.settings.suggestListUpdatedAt || 0,
       // 每日經文：伺服器依時段挑好一句（同一時段所有讀者同一句，不受推薦開關影響）。
       // verseNextAt 到了前端會重新抓。verses 只留這一句，給還沒更新的舊版前端用。
-      verse: dailyVerse.verse,
+      verse: withVerseId(dailyVerse.verse),
       verseNextAt: dailyVerse.verse ? dailyVerse.nextAt : 0,
       verseRotateHours: dailyVerse.rotateHours,
-      verses: dailyVerse.verse ? [dailyVerse.verse] : [],
+      verses: dailyVerse.verse ? [withVerseId(dailyVerse.verse)] : [],
       announcement: {
         enabled: !!config.settings.enableAnnouncement,
         message: config.settings.announcementMessage || '',
@@ -5090,6 +5276,10 @@ const server = http.createServer((req, res) => {
 
   // Log share link access if present, and handle Crawler Dynamic SSR for Homepage or Specific Markdown File
   if (pathname === '/' || pathname === '') {
+    // 每日經句分享連結：換成這一句的 og:image（早安圖），一般讀者與爬蟲都一樣
+    if (query.verse && !query.file && (req.method === 'GET' || req.method === 'HEAD')) {
+      return handleVerseShareLink(req, res, query);
+    }
     const isBot = isCrawlerRequest(req, query);
     const botName = getCrawlerName(req, query);
     if (query.file) {
@@ -5636,6 +5826,23 @@ const server = http.createServer((req, res) => {
   // Admin clear cache API
   if (pathname === '/api/admin/clear-cache' && req.method === 'POST') {
     return handleAdminClearCache(req, res);
+  }
+
+  // 每日經句：換一句、分享卡（早安圖）
+  if ((pathname === '/api/daily-verse' || pathname === '/api/daily-verse/random') && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleDailyVerseApi(req, res, pathname, query);
+  }
+  if (pathname === '/api/share-card/meta' && req.method === 'GET') {
+    return handleShareCardMeta(req, res, query);
+  }
+  if (pathname === '/api/share-card.jpg' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleShareCardImage(req, res, query);
+  }
+  if (pathname === '/api/pic-card' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handlePicCard(req, res, query);
+  }
+  if (pathname === '/api/admin/share-card' && req.method === 'GET') {
+    return handleAdminShareCard(req, res);
   }
 
   // Public suggest-list API (no auth required)

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.12.1
+   mdWebview — Style System (style.css) v4.13.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11386,3 +11386,225 @@ a.small-btn {
 @media (hover: hover) {
   .library-hl-act:hover { background: var(--hover-bg); color: var(--text-primary); }
 }
+
+/* ── §39 每日經句：換一句、分享早安圖 ─────────────────────────────
+   首頁經句下兩顆膠囊按鈕；分享面板桌機是置中對話框，手機是底部抽屜，
+   三種版型左右滑選（scroll-snap），「傳到 LINE」用 LINE 品牌綠。 */
+.home-verse-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.home-verse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  color: var(--text-secondary);
+  font: 500 calc(13.5px * var(--ui-font-scale, 1)) / 1 'Inter', var(--cjk-sans), sans-serif;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.15s;
+}
+.home-verse-btn:hover { background: var(--hover-bg); color: var(--text-primary); border-color: var(--accent); }
+.home-verse-btn:active { transform: scale(0.97); }
+.home-verse-btn:disabled { opacity: 0.55; cursor: progress; }
+.home-verse-btn:disabled svg { animation: homeVerseSpin 0.8s linear infinite; }
+.home-verse-btn-share {
+  background: #06c755;
+  border-color: #06c755;
+  color: #fff;
+}
+.home-verse-btn-share:hover { background: #05b34c; border-color: #05b34c; color: #fff; }
+
+@keyframes homeVerseSpin { to { transform: rotate(360deg); } }
+.home-verse-swap { animation: homeVerseSwap 0.5s ease-out; }
+@keyframes homeVerseSwap { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.share-card-card {
+  max-width: 760px;
+  padding: 22px 24px 24px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+.share-card-card .modal-header h2 {
+  font-family: var(--cjk-serif), serif;
+  font-size: 1.2rem;
+  color: var(--heading-color);
+  letter-spacing: 0.08em;
+}
+.share-card-grab { display: none; }
+.share-card-card:focus { outline: none; }
+.share-card-hint .only-mobile { display: none; }
+.share-card-hint {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.share-card-slides {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding: 6px 2px 4px;
+}
+.share-card-slides::-webkit-scrollbar { display: none; }
+.share-card-slide {
+  flex: 0 0 calc((100% - 32px) / 3);
+  scroll-snap-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+.share-card-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  box-shadow: 0 4px 14px var(--shadow-color);
+  transition: outline-color 0.2s, transform 0.2s;
+}
+.share-card-slides.is-og .share-card-frame { aspect-ratio: 1200 / 630; }
+.share-card-frame img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.share-card-frame.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--bg-primary) 60%, transparent) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: shareCardShimmer 1.2s linear infinite;
+}
+.share-card-frame.is-error::after {
+  content: '⚠';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 1.6rem;
+}
+@keyframes shareCardShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.share-card-slide.is-selected .share-card-frame { outline-color: var(--accent); }
+.share-card-slide-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+}
+.share-card-slide.is-selected .share-card-slide-name { color: var(--text-primary); font-weight: 700; }
+.share-card-slide:focus-visible { outline: none; }
+.share-card-slide:focus-visible .share-card-frame { outline-color: var(--accent); }
+
+.share-card-dots { display: none; justify-content: center; gap: 6px; margin-top: 8px; }
+.share-card-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: background 0.2s, width 0.2s; }
+.share-card-dots span.on { width: 16px; border-radius: 3px; background: var(--accent); }
+
+.share-card-seg {
+  display: flex;
+  margin-top: 16px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+.share-card-seg button {
+  flex: 1;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.share-card-seg button[aria-checked="true"] {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-weight: 700;
+  box-shadow: 0 1px 3px var(--shadow-color);
+}
+.share-card-mode-note {
+  margin: 8px 2px 0;
+  min-height: 1.4em;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.share-card-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.share-card-act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.share-card-act[hidden] { display: none; }
+.share-card-act:hover { background: var(--hover-bg); color: var(--text-primary); }
+.share-card-ic {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.share-card-act-line .share-card-ic {
+  background: #06c755;
+  color: #fff;
+  font: 800 13px/1 'Inter', sans-serif;
+  letter-spacing: 0.02em;
+}
+
+/* 手機：底部抽屜，一次看一張，左右滑 */
+@media (max-width: 768px) {
+  .share-card-overlay { align-items: flex-end; padding: 0; }
+  .share-card-card {
+    max-width: none;
+    border-radius: 20px 20px 0 0;
+    padding: 10px 16px calc(18px + env(safe-area-inset-bottom));
+    animation: shareCardUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .share-card-grab { display: block; width: 40px; height: 5px; margin: 0 auto 10px; border-radius: 3px; background: var(--border); }
+  .share-card-slides { gap: 12px; padding: 6px 13%; scroll-padding: 0 13%; }
+  .share-card-slide { flex-basis: 100%; }
+  .share-card-slides:not(.is-og) .share-card-frame { max-height: 46dvh; width: auto; margin: 0 auto; }
+  .share-card-dots { display: flex; }
+  .share-card-hint .only-desktop { display: none; }
+  .share-card-hint .only-mobile { display: inline; }
+  .share-card-ic { width: 48px; height: 48px; }
+}
+@keyframes shareCardUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }

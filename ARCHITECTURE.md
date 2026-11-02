@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.12.1 | 最後更新：2026-11
+> 版本：v4.13.0 | 最後更新：2026-11
 
 ---
 
@@ -759,6 +759,12 @@ flowchart TD
 | `/api/admin/status` | GET | 狀態偵測 | ❌ | 檢查系統是否已初始化及管理員認證狀態；已認證時另含 `sectionIndexCache`（章節索引三層快取的 `lruHit`/`mirrorHit`/`build`/`evictions`/`hitRatePct` 統計） |
 | `/api/admin/settings` | GET | 讀取設定 (`lib/config.js`) | ✅ | 取得當前伺服器 config.settings |
 | `/api/admin/daily-verses` | GET | `handleAdminDailyVerses()` | ✅ | 每日經文兩個來源（文字框、經句資料夾）的筆數、資料夾路徑、目前這句與下次換句時間 |
+| `/api/daily-verse` | GET | `handleDailyVerseApi()` | ❌ | `?id=` 依經句代號取一句（分享連結用） |
+| `/api/daily-verse/random` | GET | `handleDailyVerseApi()` | ❌ | `?not=` 隨機換另一句（首頁「換一句」） |
+| `/api/share-card.jpg` | GET | `handleShareCardImage()` | ❌ | 早安圖：`id`、`layout` A/B/C、`size` portrait/og、`d` 日期、`g` 問候；伺服器不能畫圖時回 503 |
+| `/api/share-card/meta` | GET | `handleShareCardMeta()` | ❌ | 瀏覽器備援繪圖需要的經句、背景圖網址、站名 |
+| `/api/pic-card` | GET | `handlePicCard()` | ❌ | `?p=` 圖庫裡的背景圖（擋 `..`、隱藏檔、symlink 跑出圖庫） |
+| `/api/admin/share-card` | GET | `handleAdminShareCard()` | ✅ | 圖庫張數與位置、畫圖套件與字型狀態 |
 | `/api/admin/settings` | POST | 儲存設定 (`lib/config.js`) | ✅ | 更新系統設定、目錄路徑與 SEO 參數 |
 | `/api/admin/logs` | GET | 系統日誌 (`lib/logger.js`) | ✅ | 讀取 600 筆環狀記憶體日誌 |
 | `/api/admin/analytics` | GET | 報表查詢 (`lib/analytics.js`) | ✅ | 依時區聚合讀取訪問量、PV/UV、熱門排行 |
@@ -1014,7 +1020,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.12.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.13.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1537,6 +1543,14 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **經文改版**：找到新位置就更新 `line`／`off`／`q`（會同步）；找不到就標「找不到原處」（只存本機 `mdWebview-highlights-lost`，不同步、不刪資料），內文上方出現提示列，抽屜裡該劃線標紅。大檔（虛擬捲動）只判斷已載入段落範圍內的劃線；簡體顯示時只畫線，不改寫資料也不判定遺失（被切開的文字節點可能只剩簡體）。
 - **檔案搬移／刪除**：主樹載入後（`reconcileMovedLibraryFiles`），書籤或劃線指向的檔案不在了，先找同檔名、再找同經號（如 T0251），恰好一個候選就把書籤與劃線一起搬過去；找不到就保留，抽屜顯示「此文件已不在文庫」，劃線仍可展開、複製、刪除。
 - **同步**：同書籤的規則，本機異動走 `persistLibrary('l')`（以 id 為 key，墓碑 `tl`、待送出 `dl`）。`POST /api/me/sync` 多一個 `highlights[]`（每次最多 200 筆，每帳號 5000 處）；資料庫遷移 v4 新增 `highlights` 表（`user_id, id, path, data(JSON), updated_at, deleted_at, seq`）。`/api/me/export` 與偏好設定匯出入都包含劃線。
+
+### 每日經句：換一句與早安圖（v4.13.0）
+
+- 首頁經句下 `#homeVerseShuffle`「換一句」（`/api/daily-verse/random`，只換自己畫面）與 `#homeVerseShare`「分享早安圖」。畫面上這句存在 `state._homeVerseCurrent`；換一句或分享連結指定的句子放 `state._homeVerseOverride`，優先於伺服器時段挑的那句。經句代號 `home.verseId()` = `verseKey` 的 SHA-1 前 10 碼，清單順序變了也不變。
+- 繪圖程式 `share-card.js`（UMD，前後端共用，只用兩邊都有的 Canvas 2D API；字距、直書標點自己畫）。版型 A 晨光留白／B 沉浸全幅（依圖片下半部亮度調漸層深淺）／C 經籤直書；尺寸 portrait 1080×1350、og 1200×630。
+- 伺服器 `lib/share-card-server.js`：`@napi-rs/canvas` 延遲載入（失敗 = 不能畫，`/api/share-card.jpg` 回 503，前端改用 `share-card.js` 在瀏覽器畫）；字型從 `SHARE_CARD_FONT_DIR`、`config.json` 旁 `fonts/`、程式目錄 `fonts/`（Docker 建置時下載 Noto Serif TC 500/700）註冊；圖庫 `pic-card/`（`PIC_CARD_DIR`）遞迴掃 jpg/png/webp，每分鐘最多重掃一次；挑圖 = `hash32(id|日期) % 張數`。解碼圖快取 8 張、成品 JPEG 快取 80 張。
+- 分享連結 `/?verse=<id>&d=&g=&l=`：`handleVerseShareLink()` 照常回首頁，但 og/twitter 標籤換成這句與 `/api/share-card.jpg?size=og`；前端 `applyVerseLinkFromUrl()` 顯示那句後把參數清掉。
+- 分享面板 `#shareCardOverlay`：桌機三張並排點選，手機底部抽屜 scroll-snap 左右滑；「只傳圖片」用 `navigator.share({ files })`（電腦改下載），「圖片＋連結」開 `https://line.me/R/share?text=`。選的版型與方式記在 `mdWebview-share-card-layout` / `-mode`。
 
 ### 每日／每週報表信（v4.3.0）
 
