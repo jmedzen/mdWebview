@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.15.0
+   mdWebview — Application Logic (app.js) v4.16.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2601,6 +2601,29 @@
     meta: null, serverOk: true
   };
 
+  /**
+   * 早安圖動作回報（後台「流量統計」的早安圖區塊與報表信用）。不等回應、失敗不提示。
+   * 只送事件種類、經句代號、版型與日期；背景圖由伺服器自己算。事件定義見 lib/share-stats.js。
+   */
+  function sendShareEvent(ev, extra = {}) {
+    const v = extra.verse || shareRt.verse;
+    const body = {
+      ev,
+      verse: (v && v.id) || '',
+      layout: extra.layout || shareRt.layout || '',
+      d: shareRt.date || localYmd(),
+      ...(extra.stage ? { stage: extra.stage } : {})
+    };
+    try {
+      fetch('/api/share-card/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
   function localYmd(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
@@ -2615,10 +2638,12 @@
       if (!data || !data.verse) { showToast('目前沒有其他經句可以換', 'info'); return; }
       if (data.total <= 1) showToast('經句清單只有這一句', 'info');
       state._homeVerseOverride = data.verse;
+      sendShareEvent('shuffle', { verse: data.verse });
       const box = $('homeVerseText');
       if (box) { box.classList.remove('home-verse-swap'); void box.offsetWidth; box.classList.add('home-verse-swap'); }
       renderHomeVerse();
     } catch (_) {
+      sendShareEvent('error', { verse: cur, stage: 'shuffle' });
       showToast('換一句失敗，請稍後再試', 'error');
     } finally {
       if (btn) btn.disabled = false;
@@ -2749,6 +2774,7 @@
         frame.classList.remove('is-loading');
         frame.classList.add('is-error');
         frame.title = '這張圖畫不出來';
+        if (shareRt.open) sendShareEvent('error', { layout, stage: 'preview' });
       });
     }
     selectShareLayout(shareRt.layout, true);
@@ -2795,6 +2821,7 @@
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
     renderShareSlides();
     prefetchShareBlob();
+    sendShareEvent('open');
     const card = ov.querySelector('.share-card-card');
     if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
   }
@@ -2826,11 +2853,16 @@
 
   async function shareToLine() {
     let blob;
-    try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) { showToast('圖片畫不出來，請稍後再試', 'error'); return; }
+    try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) {
+      sendShareEvent('error', { stage: 'line' });
+      showToast('圖片畫不出來，請稍後再試', 'error');
+      return;
+    }
     const file = new File([blob], shareCardFileName(), { type: 'image/jpeg' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file] });
+        sendShareEvent('line');
       } catch (err) {
         if (err && err.name === 'NotAllowedError') showToast('圖片準備好了，請再按一次「傳到 LINE」', 'info', 3200);
         // AbortError = 使用者關掉了分享選單，不用提示
@@ -2839,6 +2871,7 @@
     }
     // 電腦版瀏覽器多半不能直接把檔案交給 LINE：先存下來
     downloadBlob(blob, file.name);
+    sendShareEvent('lineFile');
     showToast('已存下圖片，可以直接拖進 LINE 電腦版的聊天室', 'success', 4200);
   }
 
@@ -2846,7 +2879,11 @@
     try {
       const blob = await getShareCardBlob(shareRt.layout, 'portrait');
       downloadBlob(blob, shareCardFileName());
-    } catch (_) { showToast('圖片畫不出來，請稍後再試', 'error'); }
+      sendShareEvent('save');
+    } catch (_) {
+      sendShareEvent('error', { stage: 'save' });
+      showToast('圖片畫不出來，請稍後再試', 'error');
+    }
   }
 
   async function copyShareImage() {
@@ -2867,8 +2904,10 @@
     }));
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      sendShareEvent('copyImage');
       showToast('已複製圖片，可以貼到 LINE', 'success');
     } catch (_) {
+      sendShareEvent('error', { stage: 'copyImage' });
       showToast('這個瀏覽器不能複製圖片，請改用「存圖片」', 'error');
     }
   }
@@ -2913,7 +2952,10 @@
     $('shareCardLine').addEventListener('click', shareToLine);
     $('shareCardSave').addEventListener('click', saveShareImage);
     $('shareCardCopyImg').addEventListener('click', copyShareImage);
-    $('shareCardCopyLink').addEventListener('click', () => copyShareText(`${shareLineText()}\n${shareLinkUrl()}`, '已複製連結'));
+    $('shareCardCopyLink').addEventListener('click', () => {
+      copyShareText(`${shareLineText()}\n${shareLinkUrl()}`, '已複製連結');
+      sendShareEvent('copyLink');
+    });
     applyVerseLinkFromUrl();
   }
 
@@ -9491,7 +9533,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.15.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11458,7 +11500,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.15.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11826,7 +11868,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.15.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12716,7 +12758,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.15.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13144,6 +13186,8 @@
       }
     }
 
+    renderAnalyticsShareCard(data.shareCard);
+
     const topIpsTable = $('analyticsTopIpsTable');
     if (topIpsTable) {
       if (!data.ipDistribution || data.ipDistribution.length === 0) {
@@ -13158,6 +13202,166 @@
     }
 
     applyAnalyticsTableFilter();
+  }
+
+  // 早安圖趨勢圖的顏色（深淺主題都看得清楚的中間色）
+  const SHARE_CHART_COLORS = {
+    open: '#9aa3b2', sends: '#e0a63c', visit: '#3fb68b',
+    line: '#3fb68b', save: '#5aa7e0', copyImage: '#9b7ad8', copyLink: '#e0a63c'
+  };
+
+  /**
+   * 小型 SVG 圖：series = [{ name, color, values, type: 'line'|'bar', dashed }]；
+   * stacked = true 時 bar 疊在一起。格線與字用主題變數（CSS class），不寫死顏色。
+   */
+  function buildShareChartSvg({ labels, series, stacked = false, width = 640, height = 180, maxLabels = 10 }) {
+    const W = width, H = height;
+    const k = Math.max(1, W / 640); // 寬圖等比放大字與邊界，縮到容器寬時看起來一樣大
+    const pad = { l: 34 * k, r: 10, t: 10 * k, b: 24 * k };
+    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+    const n = Math.max(1, labels.length);
+    const bars = series.filter(x => x.type === 'bar');
+    let maxV = 0;
+    for (let i = 0; i < n; i++) {
+      if (stacked && bars.length) maxV = Math.max(maxV, bars.reduce((t, x) => t + (Number(x.values[i]) || 0), 0));
+      for (const x of series) if (!(stacked && x.type === 'bar')) maxV = Math.max(maxV, Number(x.values[i]) || 0);
+    }
+    const total = series.reduce((t, x) => t + x.values.reduce((u, v) => u + (Number(v) || 0), 0), 0);
+    const step = maxV <= 4 ? 1 : Math.ceil(maxV / 4 / Math.pow(10, Math.floor(Math.log10(maxV / 4)))) * Math.pow(10, Math.floor(Math.log10(maxV / 4)));
+    const top = Math.max(step * Math.ceil(maxV / step), step);
+    const slot = plotW / n;
+    const xAt = i => pad.l + slot * (i + 0.5);
+    const yAt = v => pad.t + plotH - (v / top) * plotH;
+    const fs = Math.round(11 * k * 10) / 10;
+    const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img" font-size="${fs}">`];
+    for (let v = 0; v <= top + 1e-9; v += step) {
+      const y = yAt(v).toFixed(1);
+      out.push(`<line class="share-chart-grid" x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}"/>`);
+      out.push(`<text class="share-chart-axis" x="${(pad.l - 6).toFixed(1)}" y="${(+y + 4 * k).toFixed(1)}" text-anchor="end">${v}</text>`);
+    }
+    const every = Math.max(1, Math.ceil(n / maxLabels));
+    labels.forEach((lb, i) => {
+      if (i % every === 0) out.push(`<text class="share-chart-axis" x="${xAt(i).toFixed(1)}" y="${(H - 6 * k).toFixed(1)}" text-anchor="middle">${escHtml(String(lb))}</text>`);
+    });
+    if (bars.length) {
+      const groupW = Math.min(slot * 0.7, 36);
+      for (let i = 0; i < n; i++) {
+        let acc = 0;
+        bars.forEach((x, bi) => {
+          const v = Number(x.values[i]) || 0;
+          if (v <= 0) return;
+          const w = stacked ? groupW : groupW / bars.length;
+          const x0 = xAt(i) - groupW / 2 + (stacked ? 0 : bi * w);
+          const y1 = yAt(stacked ? acc + v : v);
+          const y0 = yAt(stacked ? acc : 0);
+          acc += v;
+          out.push(`<rect x="${(x0 + 0.5).toFixed(1)}" y="${y1.toFixed(1)}" width="${Math.max(1, w - 1).toFixed(1)}" height="${Math.max(0.5, y0 - y1).toFixed(1)}" rx="2" fill="${x.color}"><title>${escHtml(`${labels[i]} ${x.name} ${v}`)}</title></rect>`);
+        });
+      }
+    }
+    series.filter(x => x.type !== 'bar').forEach(x => {
+      const pts = x.values.map((v, i) => `${xAt(i).toFixed(1)},${yAt(Number(v) || 0).toFixed(1)}`);
+      if (pts.length > 1) out.push(`<polyline points="${pts.join(' ')}" fill="none" stroke="${x.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"${x.dashed ? ' stroke-dasharray="5 4"' : ''}/>`);
+      if (pts.length <= 31) x.values.forEach((v, i) => out.push(`<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(Number(v) || 0).toFixed(1)}" r="2.8" fill="${x.color}"><title>${escHtml(`${labels[i]} ${x.name} ${Number(v) || 0}`)}</title></circle>`));
+    });
+    if (!total) out.push(`<text class="share-chart-empty" x="${W / 2}" y="${pad.t + plotH / 2}" text-anchor="middle">這段期間還沒有資料</text>`);
+    out.push('</svg>');
+    return out.join('');
+  }
+
+  function renderShareChart(chartId, legendId, opts) {
+    const el = $(chartId);
+    if (el) el.innerHTML = buildShareChartSvg(opts);
+    const lg = $(legendId);
+    if (lg) lg.innerHTML = opts.series.map(x => `<span><i style="background:${x.color}"></i>${escHtml(x.name)}</span>`).join('');
+  }
+
+  /** 時間格標籤：日 = MM/DD，1 天範圍的小時 = HH 時。 */
+  function shareSlotLabel(key) {
+    const k = String(key || '');
+    const h = k.match(/ (\d{2}):00$/);
+    if (h) return `${h[1]}時`;
+    const d = k.match(/^\d{4}-(\d{2})-(\d{2})/);
+    return d ? `${+d[1]}/${+d[2]}` : k;
+  }
+
+  function renderShareCharts(sc) {
+    const trend = (sc && sc.trend) || [];
+    const labels = trend.map(r => shareSlotLabel(r.date));
+    const C = SHARE_CHART_COLORS;
+    renderShareChart('analyticsShareTrendChart', 'analyticsShareTrendLegend', {
+      labels, width: 1100, height: 210, maxLabels: 16,
+      // 分享出去最後畫，數字相同時不被其他線蓋住
+      series: [
+        { name: '打開分享面板', color: C.open, values: trend.map(r => r.open), dashed: true },
+        { name: '從分享連結進站', color: C.visit, values: trend.map(r => r.visit) },
+        { name: '分享出去', color: C.sends, values: trend.map(r => r.sends) }
+      ]
+    });
+    renderShareChart('analyticsShareMethodsChart', 'analyticsShareMethodsLegend', {
+      labels, stacked: true, height: 200,
+      series: [
+        { name: '傳到 LINE', color: C.line, type: 'bar', values: trend.map(r => r.line + r.lineFile) },
+        { name: '存圖片', color: C.save, type: 'bar', values: trend.map(r => r.save) },
+        { name: '複製圖片', color: C.copyImage, type: 'bar', values: trend.map(r => r.copyImage) },
+        { name: '複製連結', color: C.copyLink, type: 'bar', values: trend.map(r => r.copyLink) }
+      ]
+    });
+    const hours = sc && Array.isArray(sc.hours) ? sc.hours : null;
+    const box = $('analyticsShareHoursChart');
+    if (box) box.closest('.analytics-share-chart-box').hidden = !hours;
+    if (hours) {
+      renderShareChart('analyticsShareHoursChart', 'analyticsShareHoursLegend', {
+        labels: hours.map(h => String(h.hour)), height: 200, maxLabels: 12,
+        series: [
+          { name: '打開分享面板', color: C.open, type: 'bar', values: hours.map(h => h.open) },
+          { name: '分享出去', color: C.sends, type: 'bar', values: hours.map(h => h.sends) }
+        ]
+      });
+    }
+  }
+
+  /** 後台流量統計的「🌅 早安圖分享」區塊（資料來自 /api/admin/analytics 的 shareCard）。 */
+  function renderAnalyticsShareCard(sc) {
+    const section = $('analyticsShareCardSection');
+    if (!section) return;
+    const ev = (sc && sc.events) || {};
+    const n = v => (Number(v) || 0).toLocaleString();
+    const setText = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+    setText('analyticsShareOpens', n(ev.open));
+    setText('analyticsShareSends', n(sc && sc.sends));
+    setText('analyticsShareSendsLabel', sc && sc.sendRate !== null && sc.sendRate !== undefined ? `分享出去 · 佔打開 ${sc.sendRate}%` : '分享出去');
+    setText('analyticsShareVisits', n(ev.visit));
+    setText('analyticsShareOg', n(ev.og));
+    setText('analyticsShareErrors', n(ev.error));
+    renderShareCharts(sc);
+
+    const fill = (id, rows, cols, emptyText, rowHtml) => {
+      const tb = $(id);
+      if (!tb) return;
+      tb.innerHTML = rows && rows.length
+        ? rows.map(rowHtml).join('')
+        : `<tr><td colspan="${cols}" class="analytics-empty">${emptyText}</td></tr>`;
+    };
+    const names = (window.ShareCard && window.ShareCard.LAYOUT_NAMES) || {};
+    const actions = ((sc && sc.actions) || []).filter(a => a.count > 0);
+    fill('analyticsShareActionsTable', actions, 2, '尚無早安圖紀錄', a => {
+      const errs = a.ev === 'error' && sc.errors && sc.errors.length
+        ? `<div class="analytics-share-verse-src">${sc.errors.map(e => `${escHtml(e.label)} ${n(e.count)}`).join('、')}</div>`
+        : '';
+      return `<tr><td>${escHtml(a.label)}${errs}</td><td style="text-align: right; font-weight: 700; color: var(--accent);">${n(a.count)}</td></tr>`;
+    });
+    fill('analyticsShareLayoutsTable', sc && sc.layouts, 2, '尚無分享紀錄', l => `<tr>
+      <td><b>${escHtml(l.layout)}</b> ${escHtml(names[l.layout] || '')}</td>
+      <td style="text-align: right; font-weight: 700; color: var(--accent);">${n(l.count)}</td></tr>`);
+    fill('analyticsShareVersesTable', sc && sc.verses, 3, '尚無分享紀錄', (v, i) => `<tr>
+      <td style="text-align: center; font-weight: 600;">${i + 1}</td>
+      <td>${v.text ? escHtml(v.text) : `<span class="analytics-share-verse-src">（已不在經句清單）${escHtml(v.id)}</span>`}${v.source ? `<div class="analytics-share-verse-src">${escHtml(v.source)}</div>` : ''}</td>
+      <td style="text-align: right; font-weight: 700; color: var(--accent);">${n(v.count)}</td></tr>`);
+    fill('analyticsSharePicsTable', sc && sc.pics, 3, '尚無分享紀錄', (p, i) => `<tr>
+      <td style="text-align: center; font-weight: 600;">${i + 1}</td>
+      <td style="word-break: break-all;"><a href="/api/pic-card?p=${encodeURIComponent(p.pic)}" target="_blank" rel="noopener" class="table-action-link" title="在新分頁看這張背景圖">${escHtml(p.pic)} ↗</a></td>
+      <td style="text-align: right; font-weight: 700; color: var(--accent);">${n(p.count)}</td></tr>`);
   }
 
   function setupAnalyticsTableFilter() {
