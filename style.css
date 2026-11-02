@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.13.2
+   mdWebview — Style System (style.css) v4.13.3
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -2728,6 +2728,12 @@ section.chunk.chunk-error {
 .home-hero > * {
   position: relative;
   z-index: 1;
+}
+
+/* 搜尋框的下拉清單要蓋在下面的「隨手翻一卷／瀏覽全部經目」之上；
+   同為 z-index:1 時後面的兄弟會壓住清單，點選項會點到底下的按鈕。 */
+.home-hero > .home-search {
+  z-index: 3;
 }
 
 .home-hero.has-verse .welcome-lotus {

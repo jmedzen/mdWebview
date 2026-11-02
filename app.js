@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.13.2
+   mdWebview — Application Logic (app.js) v4.13.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -746,6 +746,10 @@
       if (sidebar) sidebar.classList.add('collapsed');
       state.sidebarCollapsed = true;
     }
+    // 上面幾步（setupEventListeners 等）可能在側欄尚未收合時就把遮罩打開；
+    // 收合後一定要同步一次，否則手機首頁會被一層看不見點不穿的遮罩蓋住，
+    // 第一下點按鈕只會被遮罩吃掉（「瀏覽全部經目」「在經藏中搜尋」看似沒反應）。
+    updateSidebarBackdrop();
     await loadTree();
     fetchSuggestList(); // 首頁的每日經文、公告、每日一詞與推薦（不再開站彈窗）
 
@@ -9487,7 +9491,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10227,11 +10231,14 @@
     });
 
     // ── Mobile: Close sidebars when clicking content area ──
+    // 用捕獲階段（capture）：先收側欄，再讓按鈕自己的處理器執行。若在冒泡階段收，
+    // 首頁「瀏覽全部經目」「在經藏中搜尋」剛打開側欄，事件冒泡上來又立刻被收掉，
+    // 手機上看起來就是點了沒反應。
     $('content').addEventListener('click', () => {
       if (isMobileBrowser() || window.innerWidth <= 768) {
         closeMobileSidebars();
       }
-    });
+    }, true);
 
     // ── Mobile & Desktop: Window resize / orientation change sync ──
     window.addEventListener('resize', debounce(() => {
@@ -11451,7 +11458,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11819,7 +11826,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12709,7 +12716,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.3';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
