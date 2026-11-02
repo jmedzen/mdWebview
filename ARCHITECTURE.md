@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.16.4 | 最後更新：2026-11
+> 版本：v4.17.1 | 最後更新：2026-11
 
 ---
 
@@ -767,6 +767,10 @@ flowchart TD
 | `/api/pic-card` | GET | `handlePicCard()` | ❌ | `?p=` 圖庫裡的背景圖（擋 `..`、隱藏檔、symlink 跑出圖庫） |
 | `/api/share-card/event` | POST | `handleShareCardEvent()` | ❌ | 早安圖動作回報 `{ev, verse, layout, d, stage}`（v4.15.0，見下方「早安圖記錄與統計」） |
 | `/api/admin/share-card` | GET | `handleAdminShareCard()` | ✅ | 圖庫張數與位置、畫圖套件與字型狀態 |
+| `/api/share-card/quote` | POST | `handleCreateShareQuote()` | 登入 | 選字製作早安圖：`{path, line, text}` → 伺服器核對原文、建立選句 `{quote}`（v4.17.0） |
+| `/api/share-card/quote` | GET | `handleGetShareQuote()` | ❌ | `?id=` 選句內容（已隱藏回 404） |
+| `/api/admin/share-quotes` | GET | `handleAdminShareQuotes()` | ✅ | 選句清單（最新 50 筆，`q`、`offset`） |
+| `/api/admin/share-quotes/hide` | POST | `handleAdminHideShareQuote()` | ✅ | `{id, hidden}` 隱藏／恢復選句 |
 | `/api/admin/settings` | POST | 儲存設定 (`lib/config.js`) | ✅ | 更新系統設定、目錄路徑與 SEO 參數 |
 | `/api/admin/logs` | GET | 系統日誌 (`lib/logger.js`) | ✅ | 讀取 600 筆環狀記憶體日誌 |
 | `/api/admin/analytics` | GET | 報表查詢 (`lib/analytics.js`) | ✅ | 依時區聚合讀取訪問量、PV/UV、熱門排行 |
@@ -1022,7 +1026,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.16.4'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.17.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1553,6 +1557,15 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 伺服器 `lib/share-card-server.js`：`@napi-rs/canvas` 延遲載入（失敗 = 不能畫，`/api/share-card.jpg` 回 503，前端改用 `share-card.js` 在瀏覽器畫）；字型從 `SHARE_CARD_FONT_DIR`、`config.json` 旁 `fonts/`、程式目錄 `fonts/`（Docker 建置時下載 Noto Serif TC 500/700）註冊；圖庫 `pic-card/`（`PIC_CARD_DIR`）遞迴掃 jpg/png/webp，每分鐘最多重掃一次；挑圖 = `hash32(id|日期) % 張數`。解碼圖快取 8 張、成品 JPEG 快取 80 張。
 - 分享連結 `/?verse=<id>&d=&g=&l=`：`handleVerseShareLink()` 照常回首頁，但 og/twitter 標籤換成這句與 `/api/share-card.jpg?size=og`；前端 `applyVerseLinkFromUrl()` 顯示那句後把參數清掉。
 - 分享面板 `#shareCardOverlay`：桌機三張並排點選，手機底部抽屜 scroll-snap 左右滑；「傳到 LINE」用 `navigator.share({ files })`（電腦改下載），另有存圖片、複製圖片、「複製連結」（`/?verse=<id>…`，貼到 LINE 由 og:image 出橫式預覽卡）。選的版型記在 `mdWebview-share-card-layout`（v4.13.1 起拿掉「只傳圖片／圖片＋連結」切換，不再有 `-mode`）。
+
+### 選字製作早安圖（v4.17.0）
+
+- 登入的讀者選字 → 選字彈窗「⋯ 更多」第一項「製作早安圖」（`#selectionCardBtn`）。只在有帳號系統的網站顯示（`accountsEnabled()`；單機模式沒有）；沒登入標「登入後可用」，點了開登入框，登入成功（`authUi.afterLogin = 'quoteCard'`）接著做；選取超過 60 字變灰並標字數。
+- `POST /api/share-card/quote`（登入、同源、JSON）：`lib/share-quotes.js extractQuote()` 到原檔行號附近（前 3 後 40 行，找不到再找全文）比對，只比字（`\p{L}\p{N}`）、簡繁字組 fold；**卡片文字取自原檔**（去 Markdown 記號、註腳、引號，帶一個句末標點），不是前端送的字串。上限 60 字（八款版型實測 60 字內都排得下）。同一人同一篇同一段字拿回同一個代號；每人每小時 30、每天 200（管理員不限）。
+- 資料表 `share_quotes`（users.db v5）：id（10 位十六進位）、user_id（刪帳號時設 NULL，已分享的連結照常可用）、path、line、text、source（檔名去經號）、text_key、created_at、hidden_at。
+- 公開網址只帶代號：`/api/share-card.jpg?q=`、`/api/share-card/meta?q=`、分享連結 `/?file=<經文>&line=<行>&quote=<id>&d=&g=&l=`（`handleQuoteShareLink()` 換 og；讀者直接看到那一行）。沒有任何網址能畫出任意文字。後台隱藏後圖片、meta、預覽都失效，也不能再建立同一段。
+- 卡片頁尾「站名 · 經文選句」（`share-card.js` `label`，只收「每日經句／經文選句」）；`fitText()` 縮到最小字級還放不下時截斷補「…」。
+- 面板沿用 `openShareCard(subject)`，標題「用這段經文做早安圖」；事件帶 `quote` 不帶 `verse`。統計鍵 `qev:<事件>`（選句佔多少）與 `quote:<id>`（分享出去的選句排行）；後台「🌅 早安圖分享」下方「讀者選字製作的早安圖」清單（可隱藏／恢復），日報／週報「讀者選字製作」。
 
 ### 早安圖記錄與統計（v4.15.0）
 

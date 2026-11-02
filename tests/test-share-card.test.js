@@ -168,7 +168,8 @@ describe('首頁與伺服器接線', () => {
   test('分享卡永遠用畫面上正在顯示的那一句', () => {
     assert.match(appJs, /state\._homeVerseOverride \|\| \('verse' in data/);
     assert.match(appJs, /shareRt\.verse = verse/);
-    assert.match(appJs, /const verse = state\._homeVerseCurrent;/);
+    // 沒傳選句（選字製作）時用首頁正在顯示的那一句
+    assert.match(appJs, /const verse = subject && subject\.kind === 'quote' \? subject : state\._homeVerseCurrent;/);
   });
 
   test('「傳到 LINE」走系統分享（檔案）；「複製連結」複製帶 ?verse= 的分享連結', () => {

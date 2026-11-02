@@ -72,6 +72,164 @@ describe('選字彈窗 v4.10.0：兩排圖示、更多選單、新動作', () =>
 
   test('4. 點彈窗內按鈕不重新計算選取，避免「更多」被收起', () => {
     assert.match(src, /addEventListener\('mouseup', \(e\) => \{[\s\S]{0,200}if \(popup\.contains\(e\.target\)\) return;/);
-    assert.match(src, /const hidePopup = \(\) => \{\s*popup\.classList\.remove\('visible'\);\s*setMoreOpen\(false\);/);
+    assert.match(src, /const hidePopup = \(\) => \{\s*popupPinned = false;\s*popup\.classList\.remove\('visible'\);\s*setMoreOpen\(false\);/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v4.17.1：手機點「⋯ 更多」第一次會自己關閉
+// iOS 點選字以外的地方會收掉選取，但 selectionchange 送達的時間不一定，
+// 可能晚於 800ms 的暫緩時間，舊版就把彈窗連同剛打開的「更多」一起收掉；
+// 第二次點時選取早已清空，所以就正常。改成手指一碰彈窗就釘住，直到點彈窗外。
+// ---------------------------------------------------------------------------
+
+describe('選字彈窗「更多」：選取被系統延遲清掉時不可自己關閉（靜態）', () => {
+  const src = popupSource();
+  test('碰到彈窗就釘住，選取清空時釘住中不收起', () => {
+    assert.match(src, /let popupPinned = false;/);
+    assert.match(src, /if \(popup\.contains\(e\.target\)\) \{\s*if \(popup\.classList\.contains\('visible'\)\) popupPinned = true;/);
+    assert.equal((src.match(/if \(!popupPinned && Date\.now\(\) >= popupTouchGuardUntil\) hidePopup\(\);/g) || []).length, 2);
+    assert.match(src, /const hidePopup = \(\) => \{\s*popupPinned = false;/);
+  });
+});
+
+const { before, after } = require('node:test');
+const { spawn } = require('node:child_process');
+const os = require('node:os');
+
+function loadPlaywright() {
+  try { return require('playwright'); } catch (_) { return null; }
+}
+
+function startServer(env, { timeoutMs = 60000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['server.js'], {
+      cwd: ROOT_DIR, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out = '';
+    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`server not ready:\n${out}`)); }, timeoutMs);
+    const onData = (chunk) => {
+      out += chunk.toString();
+      const m = out.match(/MDWEBVIEW_READY port=(\d+)/);
+      if (m) { clearTimeout(timer); resolve({ child, port: Number(m[1]) }); }
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('error', (err) => { clearTimeout(timer); reject(err); });
+    child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`server exited ${code}:\n${out}`)); });
+  });
+}
+
+function stopServer(child) {
+  return new Promise((resolve) => {
+    if (!child || child.exitCode !== null) return resolve();
+    child.once('exit', () => resolve());
+    child.kill('SIGTERM');
+    setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); resolve(); }, 8000).unref();
+  });
+}
+
+describe('選字彈窗「更多」：iPhone 觸控實測', () => {
+  const pw = loadPlaywright();
+  const mdRoot = path.join(ROOT_DIR, 'md');
+  const FILE = '01-大正藏/03般若部類/T0251《般若波羅蜜多心經》.md';
+  const hasCorpus = fs.existsSync(path.join(mdRoot, FILE));
+  const skip = !pw ? '未安裝 playwright' : (!hasCorpus ? 'md/ 為空（先跑 tests/fixtures/make-test-corpus.js）' : false);
+
+  let child = null;
+  let port = 0;
+  let userData = '';
+  let browser = null;
+
+  before(async () => {
+    if (skip) return;
+    try { browser = await pw.chromium.launch(); } catch (_) { browser = null; return; }
+    userData = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-sel-more-'));
+    const started = await startServer({
+      MDW_DEPLOY_TARGET: 'win-app',
+      PORT: '0',
+      HOST: '127.0.0.1',
+      MDW_USER_DATA: userData,
+      CONFIG_PATH: path.join(userData, 'config.json'),
+      LOG_DIR: path.join(userData, 'logs'),
+      MD_ROOT: mdRoot,
+      DICTIONARY_PATH: path.join(userData, 'dicts'),
+      DICTIONARY_ENABLED: 'false',
+      MDW_RENDER_POOL_SIZE: '2',
+      MDW_INDEX_POOL_SIZE: '2'
+    });
+    child = started.child;
+    port = started.port;
+  });
+
+  after(async () => {
+    if (browser) await browser.close().catch(() => {});
+    await stopServer(child);
+    if (userData) { try { fs.rmSync(userData, { recursive: true, force: true }); } catch (_) {} }
+  });
+
+  // 開經文、用觸控選「觀自在菩薩」，等彈窗出現；
+  // 並模擬 iOS：點彈窗後過 clearDelay 毫秒系統才把選取清掉
+  async function openWithSelection(t, clearDelay) {
+    if (!browser) { t.skip('無法啟動 Chromium'); return null; }
+    const ctx = await browser.newContext({ ...pw.devices['iPhone 13'], serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await page.goto(`http://127.0.0.1:${port}/?file=${encodeURIComponent(FILE)}`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('#markdownBody p');
+    await page.touchscreen.tap(30, 300);
+    await page.evaluate((delay) => {
+      const w = document.createTreeWalker(document.getElementById('markdownBody'), NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = w.nextNode()) && !n.textContent.includes('觀自在')) { /* find */ }
+      n.parentElement.scrollIntoView({ block: 'center' });
+      const i = n.textContent.indexOf('觀自在');
+      const r = document.createRange();
+      r.setStart(n, i);
+      r.setEnd(n, i + 5);
+      const s = getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+      document.addEventListener('touchend', (e) => {
+        if (e.target.closest && e.target.closest('.selection-share-popup')) {
+          setTimeout(() => getSelection().removeAllRanges(), delay);
+        }
+      }, true);
+    }, clearDelay);
+    await page.waitForSelector('#selectionSharePopup.visible', { timeout: 5000 });
+    return { ctx, page };
+  }
+
+  const popupState = (page) => page.evaluate(() => ({
+    visible: document.getElementById('selectionSharePopup').classList.contains('visible'),
+    moreOpen: !document.getElementById('selectionMoreMenu').hidden
+  }));
+
+  for (const delay of [0, 1000]) {
+    test(`點一次「更多」就打開並保持（選取在 ${delay}ms 後被清掉）`, { skip }, async (t) => {
+      const h = await openWithSelection(t, delay); if (!h) return;
+      try {
+        await h.page.tap('#selectionMoreBtn');
+        await h.page.waitForTimeout(delay + 600);
+        assert.equal(await h.page.evaluate(() => getSelection().toString()), '', '模擬的系統清除選取有生效');
+        assert.deepEqual(await popupState(h.page), { visible: true, moreOpen: true });
+        // 選單項目仍用原本選的字
+        await h.page.tap('#selectionFindBtn');
+        await h.page.waitForTimeout(300);
+        assert.equal(await h.page.evaluate(() => document.getElementById('pageSearchInput').value), '觀自在菩薩');
+        assert.equal((await popupState(h.page)).visible, false);
+      } finally { await h.ctx.close(); }
+    });
+  }
+
+  test('釘住後點彈窗外仍會收起', { skip }, async (t) => {
+    const h = await openWithSelection(t, 1000); if (!h) return;
+    try {
+      await h.page.tap('#selectionMoreBtn');
+      await h.page.waitForTimeout(1500);
+      assert.deepEqual(await popupState(h.page), { visible: true, moreOpen: true });
+      await h.page.touchscreen.tap(20, 120);
+      await h.page.waitForTimeout(500);
+      assert.deepEqual(await popupState(h.page), { visible: false, moreOpen: false });
+    } finally { await h.ctx.close(); }
   });
 });

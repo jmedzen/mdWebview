@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.16.4
+ * @version 4.17.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -97,6 +97,7 @@ const home = require('./lib/home');
 const sutraQuotes = require('./lib/sutra-quotes');
 const shareCardServer = require('./lib/share-card-server');
 const ShareCard = require('./share-card.js');
+const shareQuotes = require('./lib/share-quotes');
 const shareStats = require('./lib/share-stats');
 
 const {
@@ -4315,6 +4316,31 @@ async function findVerseById(id) {
   return v ? withVerseId(v) : null;
 }
 
+/** 依代號找選句（選字製作的早安圖）；不存在或後台已隱藏回 null。 */
+function findQuoteById(id) {
+  const s = String(id || '');
+  if (!shareQuotes.ID_RE.test(s) || !accountsDb.isAvailable()) return null;
+  let r = null;
+  try { r = accountsDb.getShareQuote(s); } catch (_) { r = null; }
+  if (!r || r.hidden_at) return null;
+  return { kind: 'quote', id: r.id, text: r.text, source: r.source || '', path: r.path, line: r.line || null };
+}
+
+/**
+ * 早安圖的內容：q=<選句代號> 或 id=<每日經句代號>。
+ * 回傳 { kind: 'quote'|'verse', id, text, source, path?, line? } 或 null。
+ */
+async function findCardSubject(query) {
+  if (query.q) return findQuoteById(query.q);
+  const v = await findVerseById(query.id);
+  return v ? { ...v, kind: 'verse' } : null;
+}
+
+/** 卡片頁尾站名後的字。 */
+function cardLabel(subject) {
+  return subject && subject.kind === 'quote' ? '經文選句' : '每日經句';
+}
+
 /** 站名與網址主機名（卡片頁尾用）。 */
 function shareCardSite(req) {
   const siteName = String(config.settings.siteName || 'mdWebview');
@@ -4362,20 +4388,21 @@ async function handleDailyVerseApi(req, res, pathname, query) {
  */
 async function handleShareCardMeta(req, res, query) {
   try {
-    const v = await findVerseById(query.id);
+    const v = await findCardSubject(query);
     if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
     const p = shareCardParams(query);
     const pics = await shareCardServer.listPics();
     const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
     sendJSON(res, 200, {
       verse: v,
+      label: cardLabel(v),
       date: p.date,
       pic: rel ? `/api/pic-card?p=${encodeURIComponent(rel)}` : null,
       renderer: shareCardServer.available(),
       ...shareCardSite(req)
     });
   } catch (err) {
-    Logger.error('ShareCard', 'Failed to build share card meta', err, req, { share: { ev: 'error', stage: 'meta', verse: query.id } });
+    Logger.error('ShareCard', 'Failed to build share card meta', err, req, { share: { ev: 'error', stage: 'meta', verse: query.id, quote: query.q } });
     sendJSON(res, 500, { error: 'Failed to build share card' });
   }
 }
@@ -4386,14 +4413,14 @@ async function handleShareCardImage(req, res, query) {
     return sendJSON(res, 503, { error: 'Share card renderer unavailable', renderer: false });
   }
   try {
-    const v = await findVerseById(query.id);
+    const v = await findCardSubject(query);
     if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
     const p = shareCardParams(query);
     const pics = await shareCardServer.listPics();
     const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
     let picAbs = rel ? shareCardServer.resolvePic(rel) : null;
     if (picAbs && !(await shareCardServer.isRealPicPath(picAbs))) picAbs = null;
-    const buf = await shareCardServer.render({ ...p, verse: v, picAbs, ...shareCardSite(req) });
+    const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, ...shareCardSite(req) });
     const etag = `"sc-${crypto.createHash('md5').update(buf).digest('hex').slice(0, 16)}"`;
     const headers = Object.assign({
       'Content-Type': 'image/jpeg',
@@ -4404,8 +4431,9 @@ async function handleShareCardImage(req, res, query) {
     // og 尺寸 = 分享連結的預覽圖（LINE／FB 預覽機器人來抓）；面板內的直式預覽不記，
     // 它們是每次打開面板自動畫的，真正的分享動作由前端回報。
     if (p.size === 'og' && req.method === 'GET') {
-      Logger.info('ShareCard', `Share card og:image: layout ${p.layout}, verse ${v.id}${rel ? `, pic ${rel}` : ''}`, req,
-        { share: { ev: 'og', layout: p.layout, verse: v.id, pic: rel || undefined } });
+      const isQuote = v.kind === 'quote';
+      Logger.info('ShareCard', `Share card og:image: layout ${p.layout}, ${isQuote ? 'quote' : 'verse'} ${v.id}${rel ? `, pic ${rel}` : ''}`, req,
+        { share: { ev: 'og', layout: p.layout, verse: isQuote ? undefined : v.id, quote: isQuote ? v.id : undefined, pic: rel || undefined } });
     }
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
@@ -4414,7 +4442,7 @@ async function handleShareCardImage(req, res, query) {
     res.writeHead(200, headers);
     res.end(req.method === 'HEAD' ? undefined : buf);
   } catch (err) {
-    Logger.error('ShareCard', 'Failed to render share card', err, req, { share: { ev: 'error', stage: 'render', verse: query.id, layout: query.layout || query.l } });
+    Logger.error('ShareCard', 'Failed to render share card', err, req, { share: { ev: 'error', stage: 'render', verse: query.id, quote: query.q, layout: query.layout || query.l } });
     if (!res.headersSent) sendJSON(res, 500, { error: 'Failed to render share card' });
   }
 }
@@ -4452,7 +4480,8 @@ async function handleShareCardEvent(req, res) {
   const ev = String(data.ev || '');
   if (!shareStats.CLIENT_EVENTS.has(ev)) return sendJSON(res, 400, { error: 'Unknown event' });
   const verseIdStr = /^[0-9a-f]{10}$/.test(String(data.verse || '')) ? String(data.verse) : '';
-  const v = verseIdStr ? await findVerseById(verseIdStr).catch(() => null) : null;
+  const quote = data.quote ? findQuoteById(data.quote) : null;
+  const v = quote || (verseIdStr ? await findVerseById(verseIdStr).catch(() => null) : null);
   const layout = data.layout ? ShareCard.normalizeLayout(data.layout) : '';
   let pic = '';
   if (v && shareStats.SEND_EVENTS.has(ev)) {
@@ -4462,8 +4491,9 @@ async function handleShareCardEvent(req, res) {
       pic = shareCardServer.pickPic(pics.list, v.id, date) || '';
     } catch (_) {}
   }
-  const share = { ev, layout: layout || undefined, verse: v ? v.id : undefined, pic: pic || undefined, stage: ev === 'error' ? String(data.stage || '') : undefined };
-  const parts = [layout && `layout ${layout}`, v && `verse ${v.id}`, pic && `pic ${pic}`, ev === 'error' && `stage ${share.stage || 'other'}`].filter(Boolean);
+  const share = { ev, layout: layout || undefined, verse: v && !quote ? v.id : undefined, quote: quote ? quote.id : undefined,
+    pic: pic || undefined, stage: ev === 'error' ? String(data.stage || '') : undefined };
+  const parts = [layout && `layout ${layout}`, v && `${quote ? 'quote' : 'verse'} ${v.id}`, pic && `pic ${pic}`, ev === 'error' && `stage ${share.stage || 'other'}`].filter(Boolean);
   Logger.info('ShareCard', `Share card ${ev}${parts.length ? `: ${parts.join(', ')}` : ''}`, req, { share });
   return sendJSON(res, 200, { ok: true });
 }
@@ -4475,12 +4505,8 @@ async function handleAdminShareCard(req, res) {
   sendJSON(res, 200, shareCardServer.status());
 }
 
-/**
- * 分享連結 /?verse=<id>&d=&g=&l= ：一般讀者照常拿到首頁（前端會顯示那一句），
- * 但 og:title / og:description / og:image 換成這一句與它的早安圖，LINE、Facebook 預覽就會出現卡片。
- */
-async function handleVerseShareLink(req, res, query) {
-  const v = await findVerseById(query.verse).catch(() => null);
+/** 首頁 HTML，og／twitter 標籤換成早安圖（og 為 null 時原樣送出）。 */
+function sendIndexWithShareOg(req, res, og) {
   const nonce = crypto.randomBytes(16).toString('base64');
   getIndexHtml(nonce, req, (err, baseHtmlBuffer) => {
     if (err) {
@@ -4488,21 +4514,11 @@ async function handleVerseShareLink(req, res, query) {
       return res.end('Server Error');
     }
     let html = baseHtmlBuffer.toString('utf-8');
-    if (v) {
-      const p = shareCardParams(query);
-      // 有人點開了分享出去的早安圖連結（爬蟲來抓預覽時 isBotEntry 會把它排除）。
-      if (req.method === 'GET') {
-        Logger.info('ShareCard', `Share card visit: layout ${p.layout}, verse ${v.id}`, req, { share: { ev: 'visit', layout: p.layout, verse: v.id } });
-      }
-      const baseUrl = getBaseUrl(req, config.settings.siteUrl);
-      const site = config.settings.siteName || 'mdWebview';
-      const plain = Array.from(String(v.text).replace(/[，。；：、！？,.;:!?]+$/, ''));
-      const first = plain.length > 40 ? `${plain.slice(0, 38).join('')}…` : plain.join('');
-      const title = escapeHtmlString(`${p.greeting}．${first}`);
-      const desc = escapeHtmlString(`${v.text}${v.source ? `　《${v.source}》` : ''}　— ${site} · 每日經句`);
-      const qs = `id=${v.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
-      const img = escapeHtmlString(`${baseUrl}/api/share-card.jpg?${qs}`);
-      const url = escapeHtmlString(`${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`);
+    if (og) {
+      const title = escapeHtmlString(og.title);
+      const desc = escapeHtmlString(og.desc);
+      const img = escapeHtmlString(og.img);
+      const url = escapeHtmlString(og.url);
       const rep = (re, tag) => { html = re.test(html) ? html.replace(re, () => tag) : html.replace('</head>', () => `  ${tag}\n</head>`); };
       rep(/<meta property="og:title"[^>]*>/i, `<meta property="og:title" content="${title}">`);
       rep(/<meta property="og:description"[^>]*>/i, `<meta property="og:description" content="${desc}">`);
@@ -4516,6 +4532,168 @@ async function handleVerseShareLink(req, res, query) {
     const headers = indexHtmlHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' }, nonce);
     sendCompressed(req, res, 200, headers, Buffer.from(html, 'utf-8'));
   });
+}
+
+/** og:title 用的第一段（去掉句末標點，太長截斷）。 */
+function shareOgFirst(text) {
+  const plain = Array.from(String(text).replace(/[，。；：、！？,.;:!?]+$/, ''));
+  return plain.length > 40 ? `${plain.slice(0, 38).join('')}…` : plain.join('');
+}
+
+/**
+ * 分享連結 /?verse=<id>&d=&g=&l= ：一般讀者照常拿到首頁（前端會顯示那一句），
+ * 但 og:title / og:description / og:image 換成這一句與它的早安圖，LINE、Facebook 預覽就會出現卡片。
+ */
+async function handleVerseShareLink(req, res, query) {
+  const v = await findVerseById(query.verse).catch(() => null);
+  let og = null;
+  if (v) {
+    const p = shareCardParams(query);
+    // 有人點開了分享出去的早安圖連結（爬蟲來抓預覽時 isBotEntry 會把它排除）。
+    if (req.method === 'GET') {
+      Logger.info('ShareCard', `Share card visit: layout ${p.layout}, verse ${v.id}`, req, { share: { ev: 'visit', layout: p.layout, verse: v.id } });
+    }
+    const baseUrl = getBaseUrl(req, config.settings.siteUrl);
+    const site = config.settings.siteName || 'mdWebview';
+    const qs = `id=${v.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+    og = {
+      title: `${p.greeting}．${shareOgFirst(v.text)}`,
+      desc: `${v.text}${v.source ? `　《${v.source}》` : ''}　— ${site} · 每日經句`,
+      img: `${baseUrl}/api/share-card.jpg?${qs}`,
+      url: `${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`
+    };
+  }
+  sendIndexWithShareOg(req, res, og);
+}
+
+/** 選句的分享連結：打開那一篇並跳到那一行，預覽圖是那張早安圖。 */
+function quoteShareUrl(baseUrl, quote, p) {
+  return `${baseUrl}/?file=${encodeURIComponent(quote.path)}${quote.line ? `&line=${quote.line}` : ''}` +
+    `&quote=${quote.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`;
+}
+
+/**
+ * 選句分享連結 /?file=<經文>&line=<行>&quote=<id>&d=&g=&l= ：讀者直接看到那一篇的那一行，
+ * og 換成這段選句的早安圖。代號不存在或已隱藏時就是一般的經文連結。
+ */
+function handleQuoteShareLink(req, res, query) {
+  const q = findQuoteById(query.quote);
+  let og = null;
+  if (q) {
+    const p = shareCardParams(query);
+    if (req.method === 'GET') {
+      Logger.info('ShareCard', `Share card visit: layout ${p.layout}, quote ${q.id}`, req, { share: { ev: 'visit', layout: p.layout, quote: q.id } });
+    }
+    const baseUrl = getBaseUrl(req, config.settings.siteUrl);
+    const site = config.settings.siteName || 'mdWebview';
+    const qs = `q=${q.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+    og = {
+      title: `${p.greeting}．${shareOgFirst(q.text)}`,
+      desc: `${q.text}${q.source ? `　《${q.source}》` : ''}　— ${site} · 經文選句`,
+      img: `${baseUrl}/api/share-card.jpg?${qs}`,
+      url: quoteShareUrl(baseUrl, q, p)
+    };
+  }
+  sendIndexWithShareOg(req, res, og);
+}
+
+/**
+ * POST /api/share-card/quote { path, line, text } — 用選取的經文建立選句（要登入）。
+ * 伺服器到原檔核對並擷取文字（見 lib/share-quotes.js），回傳 { quote }。
+ * 同一人同一篇同一段字重按拿回同一個代號；每人每小時／每天有配額（管理員不限）。
+ */
+async function handleCreateShareQuote(req, res) {
+  if (IS_SINGLE_USER || !accountsDb.isAvailable()) {
+    return sendJSON(res, 503, { error: '這個網站沒有開啟帳號功能', code: 'UNAVAILABLE' });
+  }
+  if (!accounts.isSameOriginStrict(req)) return sendJSON(res, 403, { error: '請求來源不符', code: 'BAD_ORIGIN' });
+  if (!accounts.isJsonRequest(req)) return sendJSON(res, 415, { error: '只接受 JSON 請求', code: 'JSON_REQUIRED' });
+  const user = require('./lib/session').getUser(req);
+  if (!user) return sendJSON(res, 401, { error: '登入後才能用選取的經文製作早安圖', code: 'LOGIN_REQUIRED' });
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const text = typeof data.text === 'string' ? data.text : '';
+  const r = resolveMdPath(typeof data.path === 'string' ? data.path : '');
+  if (!r) return sendJSON(res, 404, { error: '找不到這一篇', code: 'NOT_FOUND' });
+  try {
+    const inside = await isRealPathWithinRoot(r.root, r.resolved).catch(() => false);
+    if (!inside) return sendJSON(res, 404, { error: '找不到這一篇', code: 'NOT_FOUND' });
+    const st = await fs.promises.stat(r.resolved);
+    if (st.size > 64 * 1024 * 1024) return sendJSON(res, 413, { error: '這一篇太大，無法製作', code: 'TOO_LARGE' });
+    const md = await fs.promises.readFile(r.resolved, 'utf-8');
+    const lineNum = Number.parseInt(data.line, 10);
+    const got = shareQuotes.extractQuote(md, text, Number.isInteger(lineNum) ? lineNum : null);
+    if (!got.ok) {
+      const msg = {
+        EMPTY: '沒有選到文字',
+        TOO_LONG: `選取太長，早安圖最多 ${shareQuotes.MAX_CHARS} 字`,
+        TOO_SHORT: `請至少選 ${shareQuotes.MIN_CHARS} 個字`,
+        NOT_IN_SOURCE: '這段文字對不回經文原文，請重新選取'
+      }[got.code] || '無法製作';
+      return sendJSON(res, 400, { error: msg, code: got.code, max: shareQuotes.MAX_CHARS, length: got.length });
+    }
+    const key = shareQuotes.textKey(got.text);
+    const existing = accountsDb.findShareQuote(user.id, r.relPath, key);
+    if (existing && existing.hidden_at) {
+      return sendJSON(res, 403, { error: '這段文字的早安圖已被管理員停用', code: 'HIDDEN' });
+    }
+    if (existing) return sendJSON(res, 200, { quote: findQuoteById(existing.id), reused: true });
+    if (user.role !== 'admin') {
+      const t = Date.now();
+      if (accountsDb.countShareQuotesSince(user.id, t - 3600 * 1000) >= shareQuotes.QUOTA_PER_HOUR ||
+          accountsDb.countShareQuotesSince(user.id, t - 24 * 3600 * 1000) >= shareQuotes.QUOTA_PER_DAY) {
+        Logger.warn('ShareCard', `Share quote quota reached for user ${user.id}`, req);
+        return sendJSON(res, 429, { error: '今天製作的早安圖太多了，請稍後再試', code: 'QUOTA' });
+      }
+    }
+    let row = null;
+    for (let i = 0; i < 3 && !row; i++) {
+      const id = crypto.randomBytes(5).toString('hex');
+      if (accountsDb.getShareQuote(id)) continue;
+      row = accountsDb.createShareQuote({ id, userId: user.id, path: r.relPath, line: got.line, text: got.text,
+        source: shareQuotes.sourceTitle(r.relPath), textKey: key });
+    }
+    if (!row) throw new Error('could not allocate quote id');
+    Logger.info('ShareCard', `Share quote created: ${row.id} from "${r.relPath}" line ${got.line}`, req, { path: r.relPath });
+    return sendJSON(res, 200, { quote: findQuoteById(row.id) });
+  } catch (err) {
+    Logger.error('ShareCard', 'Failed to create share quote', err, req, { share: { ev: 'error', stage: 'quote' } });
+    if (!res.headersSent) sendJSON(res, 500, { error: '製作失敗，請稍後再試' });
+  }
+}
+
+/** GET /api/share-card/quote?id= — 選句內容（公開；已隱藏回 404）。 */
+function handleGetShareQuote(req, res, query) {
+  const q = findQuoteById(query.id);
+  if (!q) return sendJSON(res, 404, { error: 'Not found' });
+  sendJSON(res, 200, { quote: q });
+}
+
+/** GET /api/admin/share-quotes?q=&offset= — 後台選句清單。 */
+function handleAdminShareQuotes(req, res, query) {
+  if (!requireAdmin(req, res, sendJSON)) return;
+  if (!accountsDb.isAvailable()) return sendJSON(res, 200, { total: 0, items: [] });
+  const offset = Math.max(0, Number.parseInt(query.offset, 10) || 0);
+  const list = accountsDb.listShareQuotes({ q: String(query.q || '').slice(0, 100), limit: 50, offset });
+  sendJSON(res, 200, {
+    total: list.total,
+    offset,
+    items: list.items.map(r => ({ id: r.id, text: r.text, source: r.source || '', path: r.path, line: r.line || null,
+      user: r.user_label || '', createdAt: r.created_at, hidden: !!r.hidden_at }))
+  });
+}
+
+/** POST /api/admin/share-quotes/hide { id, hidden } — 隱藏／恢復選句（隱藏後圖片與預覽都失效）。 */
+async function handleAdminHideShareQuote(req, res) {
+  if (!requireAdmin(req, res, sendJSON)) return;
+  if (!accounts.lenientSameOrigin(req)) return sendJSON(res, 403, { error: '請求來源不符', code: 'BAD_ORIGIN' });
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const id = String(data.id || '');
+  if (!shareQuotes.ID_RE.test(id) || !accountsDb.isAvailable()) return sendJSON(res, 400, { error: 'Invalid id' });
+  if (!accountsDb.setShareQuoteHidden(id, !!data.hidden)) return sendJSON(res, 404, { error: 'Not found' });
+  Logger.info('Admin', `Share quote ${id} ${data.hidden ? 'hidden' : 'restored'}`, req);
+  sendJSON(res, 200, { ok: true });
 }
 
 /**
@@ -5349,6 +5527,10 @@ const server = http.createServer((req, res) => {
     if (query.verse && !query.file && (req.method === 'GET' || req.method === 'HEAD')) {
       return handleVerseShareLink(req, res, query);
     }
+    // 選句分享連結（?file=&line=&quote=）：預覽圖換成那張早安圖，爬蟲也拿這一份
+    if (query.quote && query.file && (req.method === 'GET' || req.method === 'HEAD')) {
+      return handleQuoteShareLink(req, res, query);
+    }
     const isBot = isCrawlerRequest(req, query);
     const botName = getCrawlerName(req, query);
     if (query.file) {
@@ -5915,6 +6097,18 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/admin/share-card' && req.method === 'GET') {
     return handleAdminShareCard(req, res);
+  }
+  if (pathname === '/api/share-card/quote' && req.method === 'POST') {
+    return handleCreateShareQuote(req, res);
+  }
+  if (pathname === '/api/share-card/quote' && req.method === 'GET') {
+    return handleGetShareQuote(req, res, query);
+  }
+  if (pathname === '/api/admin/share-quotes' && req.method === 'GET') {
+    return handleAdminShareQuotes(req, res, query);
+  }
+  if (pathname === '/api/admin/share-quotes/hide' && req.method === 'POST') {
+    return handleAdminHideShareQuote(req, res);
   }
 
   // Public suggest-list API (no auth required)

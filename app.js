@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.16.4
+   mdWebview — Application Logic (app.js) v4.17.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2607,9 +2607,11 @@
    */
   function sendShareEvent(ev, extra = {}) {
     const v = extra.verse || shareRt.verse;
+    const isQuote = !!(v && v.kind === 'quote');
     const body = {
       ev,
-      verse: (v && v.id) || '',
+      verse: (!isQuote && v && v.id) || '',
+      ...(isQuote ? { quote: v.id } : {}),
       layout: extra.layout || shareRt.layout || '',
       d: shareRt.date || localYmd(),
       ...(extra.stage ? { stage: extra.stage } : {})
@@ -2670,11 +2672,17 @@
 
   function shareCardQuery(layout, size) {
     const v = shareRt.verse;
-    return `id=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}`;
+    const key = v.kind === 'quote' ? 'q' : 'id';
+    return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}`;
   }
 
   function shareLinkUrl() {
     const v = shareRt.verse;
+    if (v.kind === 'quote') {
+      // 選句：朋友點開直接到那一篇的那一行；quote= 讓預覽圖換成這張早安圖
+      return `${window.location.origin}/?file=${encodeURIComponent(v.path)}${v.line ? `&line=${v.line}` : ''}` +
+        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+    }
     return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
   }
 
@@ -2707,7 +2715,8 @@
     canvas.height = h;
     SC.draw(canvas.getContext('2d'), {
       layout, size, image: img, verse: meta.verse, greeting: shareRt.greeting,
-      date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host
+      date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host,
+      label: meta.label
     });
     return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.9));
   }
@@ -2802,8 +2811,52 @@
     getShareCardBlob(shareRt.layout, 'portrait').catch(() => {});
   }
 
-  function openShareCard() {
-    const verse = state._homeVerseCurrent;
+  // ── 選字製作早安圖（登入的讀者；伺服器核對原文後給選句代號） ──────────
+  const QUOTE_CARD_MAX = 60;
+  let pendingQuoteCard = null;   // 未登入時先記住選取，登入後接著做
+
+  /** 卡片字數（不含空白），與伺服器 lib/share-quotes.js cardLength 相同算法。 */
+  function quoteCardLength(text) {
+    return Array.from(String(text || '').replace(/\s+/g, '')).length;
+  }
+
+  /** sel = { path, line, text }：向伺服器建立選句，成功就打開早安圖面板。 */
+  async function makeQuoteCard(sel) {
+    if (!sel || !sel.path || !sel.text) return;
+    if (!state.account.user) {
+      pendingQuoteCard = sel;
+      showToast('登入後就能用選取的經文製作早安圖', 'info', 3000);
+      openAccountAuth('login', { afterLogin: 'quoteCard' });
+      return;
+    }
+    let r;
+    try {
+      r = await accountApi('/api/share-card/quote', { method: 'POST', body: sel });
+    } catch (_) {
+      r = { ok: false, data: {} };
+    }
+    if (r.ok && r.data && r.data.quote) {
+      openShareCard(r.data.quote);
+      return;
+    }
+    const data = (r && r.data) || {};
+    if (data.code === 'LOGIN_REQUIRED') {
+      pendingQuoteCard = sel;
+      openAccountAuth('login', { afterLogin: 'quoteCard' });
+      return;
+    }
+    if (data.code !== 'TOO_LONG' && data.code !== 'NOT_IN_SOURCE' && data.code !== 'TOO_SHORT') {
+      sendShareEvent('error', { verse: { id: '' }, stage: 'quote' });
+    }
+    showToast(data.error || '製作失敗，請稍後再試', 'error', 3500);
+  }
+
+  /**
+   * 打開早安圖面板。subject 省略 = 首頁正在顯示的每日經句；
+   * 選字製作時傳入選句 { kind: 'quote', id, text, source, path, line }。
+   */
+  function openShareCard(subject) {
+    const verse = subject && subject.kind === 'quote' ? subject : state._homeVerseCurrent;
     if (!verse || !verse.id || !window.ShareCard) { showToast('這一句還不能分享，請重新整理後再試', 'error'); return; }
     const now = new Date();
     shareRt.open = true;
@@ -2814,7 +2867,7 @@
     shareRt.blobs = new Map();
     shareRt.meta = null;
     shareRt.serverOk = true;
-    $('shareCardTitle').textContent = `分享${shareRt.greeting}圖`;
+    $('shareCardTitle').textContent = verse.kind === 'quote' ? `用這段經文做${shareRt.greeting}圖` : `分享${shareRt.greeting}圖`;
     const ov = $('shareCardOverlay');
     ov.style.display = 'flex';
     document.body.classList.add('modal-open');
@@ -2943,7 +2996,7 @@
     const shuffle = $('homeVerseShuffle');
     if (shuffle) shuffle.addEventListener('click', shuffleHomeVerse);
     const share = $('homeVerseShare');
-    if (share) share.addEventListener('click', openShareCard);
+    if (share) share.addEventListener('click', () => openShareCard());
     const ov = $('shareCardOverlay');
     if (!ov) return;
     $('shareCardCloseBtn').addEventListener('click', closeShareCard);
@@ -9560,7 +9613,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.4';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11527,7 +11580,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.4';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11895,7 +11948,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.4';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12785,7 +12838,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.4';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13389,6 +13442,47 @@
       <td style="text-align: center; font-weight: 600;">${i + 1}</td>
       <td style="word-break: break-all;"><a href="/api/pic-card?p=${encodeURIComponent(p.pic)}" target="_blank" rel="noopener" class="table-action-link" title="在新分頁看這張背景圖">${escHtml(p.pic)} ↗</a></td>
       <td style="text-align: right; font-weight: 700; color: var(--accent);">${n(p.count)}</td></tr>`);
+    const qe = (sc && sc.quoteEvents) || {};
+    setText('analyticsShareQuoteSummary', qe.open || (sc && sc.quoteSends)
+      ? `· 打開 ${n(qe.open)} 次、分享出去 ${n(sc.quoteSends)} 次（含在上面總數）` : '');
+    const sendsById = new Map(((sc && sc.quotes) || []).map(q => [q.id, q.count]));
+    loadAdminShareQuotes(sendsById);
+  }
+
+  /** 後台：讀者選字製作的選句（最新 50 筆），可隱藏（隱藏後圖片與連結預覽失效）。 */
+  async function loadAdminShareQuotes(sendsById) {
+    const tb = $('analyticsShareQuotesTable');
+    if (!tb) return;
+    if (sendsById) tb._sends = sendsById;
+    const sends = tb._sends || new Map();
+    const r = await accountApi('/api/admin/share-quotes');
+    const items = (r.ok && r.data && r.data.items) || [];
+    if (!items.length) {
+      tb.innerHTML = `<tr><td colspan="3" class="analytics-empty">${r.ok ? '還沒有讀者製作' : '無法讀取'}</td></tr>`;
+      return;
+    }
+    const n = v => (Number(v) || 0).toLocaleString();
+    tb.innerHTML = items.map(q => {
+      const href = `/?file=${encodeURIComponent(q.path)}${q.line ? `&line=${q.line}` : ''}`;
+      const when = q.createdAt ? new Date(q.createdAt).toLocaleString() : '';
+      return `<tr class="${q.hidden ? 'is-hidden-quote' : ''}">
+        <td>${escHtml(q.text)}<div class="analytics-share-verse-src"><a href="${escHtml(href)}" target="_blank" rel="noopener" class="table-action-link">《${escHtml(q.source || q.path)}》${q.line ? ` 第 ${q.line} 行` : ''} ↗</a> · ${escHtml(q.user || '（帳號已刪除）')} · ${escHtml(when)}${q.hidden ? ' · <b>已隱藏</b>' : ''}</div></td>
+        <td style="text-align: right; font-weight: 700; color: var(--accent);">${n(sends.get(q.id))}</td>
+        <td style="text-align: center;"><button type="button" class="modal-btn secondary-btn small-btn" data-quote-hide="${escHtml(q.id)}" data-hidden="${q.hidden ? '1' : ''}">${q.hidden ? '恢復' : '隱藏'}</button></td></tr>`;
+    }).join('');
+    if (!tb._hasHideHandler) {
+      tb._hasHideHandler = true;
+      tb.addEventListener('click', async e => {
+        const b = e.target.closest('[data-quote-hide]');
+        if (!b) return;
+        b.disabled = true;
+        const hide = !b.dataset.hidden;
+        const res = await accountApi('/api/admin/share-quotes/hide', { method: 'POST', body: { id: b.dataset.quoteHide, hidden: hide } });
+        if (res.ok) showToast(hide ? '已隱藏，這張早安圖的圖片與連結預覽不再顯示' : '已恢復', 'success');
+        else showToast(res.data.error || '操作失敗', 'error');
+        loadAdminShareQuotes();
+      });
+    }
   }
 
   function setupAnalyticsTableFilter() {
@@ -15685,6 +15779,11 @@
             authUi.afterLogin = '';
             if (state.isAdmin) await openSettingsOverlay();
             else showToast('已登入，但這個帳號沒有管理權限', 'info', 3500);
+          } else if (authUi.afterLogin === 'quoteCard') {
+            authUi.afterLogin = '';
+            const pending = pendingQuoteCard;
+            pendingQuoteCard = null;
+            if (pending) makeQuoteCard(pending);
           }
           return;
         }
@@ -17322,6 +17421,7 @@
     search: SEL_ICON('<circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2l3.3 3.3"/>'),
     share: SEL_ICON('<path d="M8 10V2.5M5 5.3L8 2.3l3 3"/><path d="M4.5 7.5H3.5v6h9v-6h-1"/>'),
     more: SEL_ICON('<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>'),
+    card: SEL_ICON('<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><circle cx="6" cy="6" r="1.2"/><path d="M13.5 10.5 10 7.5l-6 6"/>'),
     cite: SEL_ICON('<path d="M3 4h10M3 7h10M3 10h6"/><path d="M11 10.5c1 0 1.8.6 1.8 1.6S12 14 11 14"/>'),
     find: SEL_ICON('<path d="M3.5 2.5h6l3 3v8h-9z"/><circle cx="7.5" cy="9" r="2"/><path d="M9 10.5l1.5 1.5"/>'),
   };
@@ -17368,6 +17468,8 @@
           </button>
         </div>
         <div class="sel-more-menu" id="selectionMoreMenu" role="menu" hidden>
+          <button type="button" role="menuitem" id="selectionCardBtn">${SEL_ICONS.card}<span>製作早安圖</span><small class="sel-more-hint" id="selectionCardHint" hidden></small></button>
+          <div class="sel-more-sep" id="selectionCardSep"></div>
           <button type="button" role="menuitem" id="selectionCiteBtn">${SEL_ICONS.cite}<span>複製（附出處）</span></button>
           <div class="sel-more-sep"></div>
           <button type="button" role="menuitem" id="selectionFindBtn">${SEL_ICONS.find}<span>在本篇中尋找</span></button>
@@ -17400,12 +17502,17 @@
     let mouseSelecting = false;      // 滑鼠按住拖曳中，交給 mouseup 處理
     let lastInputWasTouch = false;   // 觸控時彈窗放在選取下方，避開系統選單
     let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
+    // 手指／滑鼠一碰到彈窗就「釘住」：之後系統才清掉選取（iOS 點選單外會收掉
+    // 選取，時間點不一定，可能晚於上面的暫緩時間），也不因此收起彈窗或「更多」。
+    // 點彈窗以外、按 Esc、或執行動作時才解除。
+    let popupPinned = false;
 
     function setMoreOpen(open) {
       moreMenu.hidden = !open;
       moreBtn.classList.toggle('active', open);
       moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (!open) return;
+      updateCardMenuItem();
       // 「更多」預設往上展開（桌機）／往下展開（觸控），空間不夠就換邊
       moreMenu.classList.remove('up', 'down');
       const pr = popup.getBoundingClientRect();
@@ -17421,6 +17528,7 @@
       moreMenu.classList.add(up ? 'up' : 'down');
     }
     const hidePopup = () => {
+      popupPinned = false;
       popup.classList.remove('visible');
       setMoreOpen(false);
     };
@@ -17502,7 +17610,7 @@
       const text = selection ? selection.toString().trim() : '';
 
       if (!text || !state.currentFile || selection.rangeCount === 0) {
-        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        if (!popupPinned && Date.now() >= popupTouchGuardUntil) hidePopup();
         return;
       }
 
@@ -17545,7 +17653,11 @@
     }
 
     document.addEventListener('pointerdown', (e) => {
-      if (popup.contains(e.target)) return;
+      if (popup.contains(e.target)) {
+        if (popup.classList.contains('visible')) popupPinned = true;
+        return;
+      }
+      popupPinned = false;
       lastInputWasTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
       mouseSelecting = e.pointerType === 'mouse' && e.button === 0;
     }, true);
@@ -17570,10 +17682,12 @@
       if (!selection || selection.isCollapsed) {
         clearTimeout(selectionTimer);
         selectionTimer = null;
-        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        if (!popupPinned && Date.now() >= popupTouchGuardUntil) hidePopup();
         return;
       }
       if (mouseSelecting) return;
+      // 已釘住且選取文字沒變（系統只是重整選取）：不重畫，免得「更多」被收起
+      if (popupPinned && selection.toString().trim() === currentDisplayText) return;
       // 選取仍在變動（拖曳把手中）：先藏起來，停手後再依新位置顯示
       hidePopup();
       scheduleSelectionCheck(SELECTION_CHANGE_DELAY);
@@ -17581,6 +17695,7 @@
 
     // 觸碰彈窗按鈕時，系統可能在 click 前先清掉選取；暫緩隱藏讓 click 能送達
     popup.addEventListener('touchstart', () => {
+      if (popup.classList.contains('visible')) popupPinned = true;
       popupTouchGuardUntil = Date.now() + 800;
     }, { passive: true });
 
@@ -17690,6 +17805,36 @@
       const text = currentDisplayText;
       hidePopup();
       writeClipboard(text, '已複製');
+    });
+
+    // 製作早安圖：只在有帳號系統的網站顯示；沒登入標「登入後可用」，太長標字數
+    function updateCardMenuItem() {
+      const btn = $('selectionCardBtn');
+      const hint = $('selectionCardHint');
+      const sep = $('selectionCardSep');
+      if (!btn) return;
+      const show = accountsEnabled() && !editHighlightId;
+      btn.hidden = !show;
+      if (sep) sep.hidden = !show;
+      if (!show) return;
+      const len = quoteCardLength(currentSelectedText);
+      const tooLong = len > QUOTE_CARD_MAX;
+      btn.disabled = tooLong;
+      btn.setAttribute('aria-disabled', tooLong ? 'true' : 'false');
+      const text = tooLong ? `選取太長（${len}／${QUOTE_CARD_MAX} 字）` : (state.account.user ? '' : '登入後可用');
+      hint.textContent = text;
+      hint.hidden = !text;
+    }
+
+    $('selectionCardBtn').addEventListener('click', () => {
+      const text = currentSelectedText;
+      if (!text || !state.currentFile) return;
+      if (quoteCardLength(text) > QUOTE_CARD_MAX) return;
+      const sel = { path: state.currentFile, line: currentLineNum || null, text };
+      hidePopup();
+      const s = window.getSelection();
+      if (s) s.removeAllRanges();
+      makeQuoteCard(sel);
     });
 
     $('selectionCiteBtn').addEventListener('click', () => {
