@@ -2595,7 +2595,7 @@
 
   const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
   const shareRt = {
-    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安',
+    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安', greetingMode: 'time',
     blobs: new Map(),      // `${layout}|${size}` → Promise<Blob>
     urls: [],              // 要回收的 blob: 網址
     meta: null, serverOk: true
@@ -2676,15 +2676,20 @@
     return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}`;
   }
 
+  /** 連結帶的問候：只有不分時間的（法安／自在／吉祥）才帶；「時間問候」不帶，預覽圖用「吉祥」，
+   *  因為收件人可能在別的時區（傳的人是早上，收的人可能是晚上）。 */
+  function shareLinkGreeting() {
+    return shareRt.greetingMode && shareRt.greetingMode !== 'time' ? `&g=${encodeURIComponent(shareRt.greeting)}` : '';
+  }
+
   function shareLinkUrl() {
     const v = shareRt.verse;
     if (v.kind === 'quote') {
       // 選句：朋友點開直接到那一篇的那一行；quote= 讓預覽圖換成這張早安圖
       return `${window.location.origin}/?file=${encodeURIComponent(v.path)}${v.line ? `&line=${v.line}` : ''}` +
-        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}&l=${shareRt.layout}`;
+        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}`;
     }
-    // 連結不帶問候：預覽圖用「吉祥」，因為收件人可能在別的時區（傳的人是早上，收的人可能是晚上）
-    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&l=${shareRt.layout}`;
+    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}`;
   }
 
   /** 瀏覽器自己畫（伺服器沒有畫圖引擎時）。 */
@@ -2745,31 +2750,42 @@
     return `${site}-${shareRt.greeting}圖-${shareRt.date}-${shareRt.layout}.jpg`;
   }
 
-  /** 問候語選擇：預設依傳送者本機時間，可改成別的（收件人在別的時區時）；「吉祥」不分時間。 */
+  // 問候語開關：時間問候（依傳送者本機時間，預設）／法安／自在／吉祥（後三者不分時間，適合跨時區）
+  const SHARE_GREETING_KEY = 'mdWebview-share-card-greeting';
+  const SHARE_GREETING_MODES = ['time', '法安', '自在', '吉祥'];
+
+  function shareGreetingFor(mode, now = new Date()) {
+    return mode === 'time' ? window.ShareCard.greetingForHour(now.getHours()) : mode;
+  }
+
   function renderShareGreetings() {
     const wrap = $('shareCardGreetings');
     if (!wrap || !window.ShareCard) return;
     wrap.textContent = '';
-    for (const g of window.ShareCard.GREETINGS) {
+    for (const mode of SHARE_GREETING_MODES) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'share-card-greeting' + (g === shareRt.greeting ? ' is-selected' : '');
+      const on = mode === shareRt.greetingMode;
+      b.className = 'share-card-greeting' + (on ? ' is-selected' : '');
       b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', g === shareRt.greeting ? 'true' : 'false');
-      b.textContent = g;
-      b.addEventListener('click', () => selectShareGreeting(g));
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.textContent = mode === 'time' ? '時間問候' : mode;
+      if (mode === 'time') b.title = '依你現在的時間：早安／午安／晚安';
+      b.addEventListener('click', () => selectShareGreeting(mode));
       wrap.appendChild(b);
     }
   }
 
-  function selectShareGreeting(g) {
-    if (!shareRt.open || g === shareRt.greeting) return;
-    shareRt.greeting = g;
+  function selectShareGreeting(mode) {
+    if (!shareRt.open || mode === shareRt.greetingMode) return;
+    shareRt.greetingMode = mode;
+    storage.set(SHARE_GREETING_KEY, mode);
+    shareRt.greeting = shareGreetingFor(mode);
     shareRt.blobs = new Map();
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
     shareRt.urls = [];
     const verse = shareRt.verse;
-    $('shareCardTitle').textContent = verse && verse.kind === 'quote' ? `用這段經文做${g}圖` : `分享${g}圖`;
+    $('shareCardTitle').textContent = verse && verse.kind === 'quote' ? `用這段經文做${shareRt.greeting}圖` : `分享${shareRt.greeting}圖`;
     renderShareGreetings();
     renderShareSlides();
     prefetchShareBlob();
@@ -2893,7 +2909,11 @@
     shareRt.open = true;
     shareRt.verse = verse;
     shareRt.date = localYmd(now);
-    shareRt.greeting = window.ShareCard.greetingForHour(now.getHours());
+    {
+      const saved = storage.get(SHARE_GREETING_KEY, 'time');
+      shareRt.greetingMode = SHARE_GREETING_MODES.includes(saved) ? saved : 'time';
+      shareRt.greeting = shareGreetingFor(shareRt.greetingMode, now);
+    }
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
     shareRt.blobs = new Map();
     shareRt.meta = null;
