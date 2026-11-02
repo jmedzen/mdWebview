@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.10.1
+   mdWebview — Style System (style.css) v4.11.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -3454,6 +3454,8 @@ section.chunk.chunk-error {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* 欄位高度不夠時不要把區塊壓扁（壓扁後會和下一個區塊疊在一起） */
+  flex-shrink: 0;
 }
 
 .suggest-section-hot {
@@ -3600,6 +3602,47 @@ section.chunk.chunk-error {
   line-height: 1.6;
   margin: 0;
 }
+
+/* 每日經文：狀態燈＋兩個來源的筆數 */
+.suggest-section-verse { gap: 8px; }
+.suggest-section-verse .suggest-section-header { flex-wrap: wrap; }
+.suggest-section-verse .suggest-section-title { flex-shrink: 0; }
+.verse-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* 狀態文字較長：允許換行，不截斷（手機上整行移到標題下面） */
+.verse-status .status-light-text { white-space: normal; }
+.verse-sources {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+.verse-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.verse-source-name { color: var(--text-primary); }
+.verse-source-count { font-variant-numeric: tabular-nums; }
+.verse-source-total {
+  border-top: 1px dashed var(--border);
+  padding-top: 4px;
+  font-weight: 600;
+}
+.verse-source-dir {
+  flex-basis: 100%;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  word-break: break-all;
+  user-select: all;
+}
+.verse-source-dir:empty { display: none; }
 
 /* ── §15 Daily Word Admin UI ─────────────────────────────────── */
 .suggest-section-daily-word {
@@ -5280,9 +5323,11 @@ img.markdown-img:hover {
   }
 
   /* Suggest Tab Mobile */
+  .suggest-admin-form { height: auto; }
   .suggest-layout {
     grid-template-columns: 1fr !important;
     gap: 12px;
+    flex: none;
   }
 
   .suggest-col-left,

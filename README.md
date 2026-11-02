@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.10.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.11.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -120,6 +120,21 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 點網站右上角的選單按鈕（頭像）登入，再從選單點「後台系統設定」即可管理。第一次使用時，會請你先設定管理員的 Email（或帳號名稱）與密碼。網站設定存在 `config.json`，帳號存在同一個資料夾的 `users.db`。
 
+**每日經文（首頁正中間那一句）**
+
+經句有兩個來源，合併後去掉重複的：
+
+1. 後台「推薦閱讀 → 每日經文」文字框，一行一句。
+2. 經句資料夾 `./data/sutra-quote/`（容器內 `/data/sutra-quote`，也就是 `config.json` 旁邊）。資料夾裡所有 `.md` 檔（含子資料夾）中，**有全形「｜」的行**就算一句，格式同文字框：`經句｜出處｜經文路徑`（出處與路徑可省略）。標題、空行、一般段落都會略過；檔案改了約 10 秒內生效。想放在別處可設環境變數 `SUTRA_QUOTE_DIR`（絕對路徑，或相對於 `config.json` 所在資料夾）。
+
+```markdown
+# 金剛經
+應無所住，而生其心。｜金剛般若波羅蜜經
+一切有為法，如夢幻泡影，如露亦如電，應作如是觀。｜金剛般若波羅蜜經｜01-大正藏/08般若部類/T0235.md
+```
+
+後台可設定「每幾小時換一句」（預設 6 小時，從網站時區的午夜起算），同一時段所有讀者看到同一句。後台也會顯示兩個來源各有幾句、合併後共幾句。
+
 **讀者帳號（線上網站）**
 
 讀者可以用 Email 註冊，或用 Google、Facebook、Apple 登入（金鑰填好、後台打開開關的才會出現）。帳號資料存在 `./data/users.db`，每天自動備份到 `./data/backups/`，請把整個 `./data` 資料夾一起備份。
@@ -231,7 +246,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.10.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.11.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -403,7 +418,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.10.1)
+├── package.json        # Project information (v4.11.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers
