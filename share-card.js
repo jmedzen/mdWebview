@@ -866,7 +866,7 @@
     let x = left + areaW / 2 + blockW / 2 - size / 2;
     for (const line of lines) { drawVertical(ctx, line, x, top, size, size * 1.14); x -= size * 1.5; }
     redSeal(ctx, o.greeting, left + areaW / 2 - 62, 110, 124);
-    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, pw / 2 - b.w / 2, h - 48 - b.h); }
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, 40, h - 40 - b.h); }
     if (o.verse.source) {
       ctx.fillStyle = '#8b7248';
       ctx.font = font(500, 26);
