@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.13.0 | 最後更新：2026-11
+> 版本：v4.13.1 | 最後更新：2026-11
 
 ---
 
@@ -356,6 +356,7 @@ sequenceDiagram
 - **建立時機**：首次搜尋時 lazy build，之後快取（記憶體 + `.bin` 二進位磁碟快取）
 - **標點/空白/換行透明性**：CJK 字元間遇到標點符號、空白或行終止符（`\p{P}`、`\s`——含半形空白、Tab、全形空格 U+3000、NBSP、LF、CR、`\u2028`、`\u2029`——以及 NEL `\u0085`）等透明字元 T 時不中斷 Bigram 產生（如「菩薩，行深」、「菩薩　行深」或跨行「菩薩\n行深」均產生「薩行」）。v4.12.0 以前空白不屬於 T、會斷詞；現在寬鬆比對也忽略空白。查詢字串仍先以空白切成多詞（多詞鄰近比對），切完才正規化。
 - **索引超集不變式 (Index Superset Invariant)**：索引抽取透明集必須 ⊇ 掃描透明集，否則寬鬆查詢的候選檔會缺跨字元 Bigram 而漏掉。目前兩者共用 `lib/text.js` 的同一張表。v4.12.0 把空白納入 T 時已 bump magic（主庫 `BGX5/BGX6` → `BGX7/BGX8`，辭典 `DGX5/DGX6` → `DGX7/DGX8`），舊 `.bin` 讀取時被拒、自動重建一次。日後再改 T 也要 bump。
+- **點結果跳到命中行（含註腳）**：結果的 `line` 是原檔行號，閱讀器以 `#L<n>` 行號錨點定位。三份渲染器（`render-worker.js`、`md-worker.js`、`app.js` 內建備援）會把 `[^id]: …` 註腳定義抽出、排在文末；自 v4.13.1 起，正文錨點一律用原檔行號（`cleanNums`，註腳夾在正文中間也不偏移），每行註腳文字也有自己的錨點（`anchorFootnoteLines`，帶 `data-fn`）。`anchorAtOrBefore` 的二分搜尋略過 `data-fn` 錨點，因為排在文末的註腳不一定照行號遞增。v4.13.0 以前命中註腳時會停在正文最後一段。
 - **辭典索引**：獨立於主庫索引，避免辭典大小影響主庫搜尋速度
 - **索引格式與串流寫入**：`bigramMap: Map<string, number|Uint16Array|Uint32Array>` 記錄 unitId 清單；建置時採 in-place 就地壓縮（單元素收納為 number primitive、多元素原地轉換為 TypedArray，避免雙 Map 同時存活），並以分塊串流（`ChunkedBinaryWriter`）寫入二進位磁碟快取（Magic: 0x42475835 / 0x42475836），不再配置單一巨大 Buffer，使建置過程可平穩完成。
 - **部署記憶體需求與 NODE_MAX_OLD_SPACE_MB 調校**：
@@ -1020,7 +1021,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.13.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.13.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
