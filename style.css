@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.9.1
+   mdWebview — Style System (style.css) v4.10.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -5906,9 +5906,9 @@ img.markdown-img:hover {
   display: none;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  border-radius: 8px;
-  padding: 3px 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), 0 1px 2px rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 4px 5px;
   animation: popupFadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: auto;
   /* 點彈窗不應開始選字或叫出長按選單（手機） */
@@ -5920,49 +5920,117 @@ img.markdown-img:hover {
 
 .selection-share-popup.visible {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 2px;
 }
 
+/* 桌機：每個按鈕上圖示、下文字 */
 .selection-share-popup button {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 4px;
+  min-width: 48px;
   background: transparent;
   border: none;
   color: var(--text-normal);
-  padding: 6px 9px;
-  font-size: calc(13px * var(--ui-font-scale, 1));
+  padding: 7px 9px 6px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   font-weight: 500;
+  line-height: 1.2;
   cursor: pointer;
-  border-radius: 5px;
-  transition: all 0.15s ease;
+  border-radius: 7px;
+  transition: background 0.15s ease, color 0.15s ease;
   white-space: nowrap;
 }
 
-.selection-share-popup button:hover {
-  background: var(--hover-bg, rgba(255, 255, 255, 0.1));
+.selection-share-popup button .sel-ico {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.selection-share-popup button:hover,
+.selection-share-popup button.active {
+  background: var(--bg-secondary);
   color: var(--accent);
 }
 
-.selection-share-popup button.copied {
-  color: var(--accent);
-  font-weight: 600;
+.selection-share-popup button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.selection-share-popup .sel-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
 }
 
 .selection-share-popup .popup-divider {
   width: 1px;
-  height: 14px;
+  align-self: stretch;
   background: var(--border-color);
-  opacity: 0.6;
-  margin: 0 2px;
+  margin: 8px 3px;
   flex-shrink: 0;
+}
+
+/* 「劃線」：色點在上、字在下 */
+.selection-share-popup .sel-hl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.selection-share-popup .sel-hl-label {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.2;
+  padding-bottom: 4px;
+}
+
+/* 「更多」選單 */
+.selection-share-popup .sel-more-menu {
+  position: absolute;
+  right: 0;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+.selection-share-popup .sel-more-menu[hidden] { display: none; }
+.selection-share-popup .sel-more-menu.up { bottom: calc(100% + 8px); }
+.selection-share-popup .sel-more-menu.down { top: calc(100% + 8px); }
+.selection-share-popup .sel-more-menu button {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  text-align: left;
+}
+.selection-share-popup .sel-more-menu button .sel-ico {
+  width: 17px;
+  height: 17px;
+}
+.selection-share-popup .sel-more-sep {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 6px;
 }
 
 /* 觸控選字時按鈕加大，方便手指點按 */
 .selection-share-popup.touch button {
   min-height: 40px;
-  padding: 8px 11px;
+  padding: 8px 4px 6px;
 }
 
 /* ── §28 Line Highlight ─────────────────────────────────────── */
@@ -11070,19 +11138,22 @@ a.small-btn {
 .selection-share-popup .hl-swatches {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
 }
 .selection-share-popup .hl-swatch {
-  padding: 6px 5px;
+  min-width: 0;
+  padding: 7px 4px 4px;
 }
 .selection-share-popup .hl-swatch i {
   display: block;
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid transparent;
   box-sizing: border-box;
 }
+.selection-share-popup .hl-swatch:hover { background: transparent; }
+.selection-share-popup .hl-swatch:hover i { transform: scale(1.12); }
 .selection-share-popup .hl-swatch[data-hl-color="r"] i { background: var(--hl-r); }
 .selection-share-popup .hl-swatch[data-hl-color="y"] i { background: var(--hl-y); }
 .selection-share-popup .hl-swatch[data-hl-color="g"] i { background: var(--hl-g); }
@@ -11092,31 +11163,60 @@ a.small-btn {
 }
 .selection-share-popup .hl-edit-only { display: none; }
 .selection-share-popup.hl-edit .hl-edit-only { display: flex; }
-.selection-share-popup.hl-edit #selectionSearchBtn,
-.selection-share-popup.hl-edit #selectionDictBtn,
-.selection-share-popup.hl-edit #selectionShareBtn,
-.selection-share-popup.hl-edit .popup-divider:not(.hl-divider) {
+.selection-share-popup.hl-edit .sel-main,
+.selection-share-popup.hl-edit .sel-more-divider,
+.selection-share-popup.hl-edit .sel-more-menu {
   display: none;
 }
-/* 觸控：色點自成一排，按鈕排第二排，手指好點 */
+/* 觸控：上排「劃線」色點，下排五個圖示按鈕 */
 .selection-share-popup.touch.visible {
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: calc(100vw - 20px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: min(340px, calc(100vw - 20px));
+  border-radius: 14px;
+  padding: 4px 6px;
+}
+.selection-share-popup.touch .sel-hl {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  padding: 2px 4px 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+.selection-share-popup.touch .sel-hl-label {
+  grid-column: 1;
+  grid-row: 1;
+  padding: 0;
 }
 .selection-share-popup.touch .hl-swatches {
-  flex-basis: 100%;
+  grid-column: 2;
+  grid-row: 1;
   justify-content: center;
+  gap: 10px;
 }
 .selection-share-popup.touch .hl-swatch {
-  min-height: 40px;
-  padding: 8px 9px;
+  min-height: 44px;
+  padding: 8px 6px;
 }
 .selection-share-popup.touch .hl-swatch i {
+  width: 24px;
+  height: 24px;
+}
+.selection-share-popup.touch .hl-divider,
+.selection-share-popup.touch .sel-more-divider { display: none; }
+.selection-share-popup.touch .sel-actions {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding-top: 2px;
+}
+.selection-share-popup.touch.hl-edit .sel-actions { grid-template-columns: repeat(2, 1fr); }
+.selection-share-popup.touch .sel-actions button .sel-ico {
   width: 22px;
   height: 22px;
 }
-.selection-share-popup.touch .hl-divider { display: none; }
+.selection-share-popup.touch .sel-more-menu { min-width: 240px; }
+.selection-share-popup.touch .sel-more-menu button { min-height: 44px; }
 
 /* 內文上方：有劃線找不到原處 */
 .hl-lost-bar {

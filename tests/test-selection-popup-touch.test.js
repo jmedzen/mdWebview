@@ -44,3 +44,33 @@ describe('選字彈窗支援觸控（手機長按選字、拖曳把手）', () =
     assert.match(css, /\.selection-share-popup\.touch button\s*\{[^}]*min-height:\s*40px/);
   });
 });
+
+describe('選字彈窗 v4.10.0：兩排圖示、更多選單、新動作', () => {
+  const src = popupSource();
+
+  test('1. 主列：劃線色點＋複製、辭典、搜尋、分享、更多', () => {
+    for (const id of ['selectionCopyBtn', 'selectionDictBtn', 'selectionSearchBtn', 'selectionShareBtn', 'selectionMoreBtn']) {
+      assert.match(src, new RegExp(`id="${id}"`), id);
+    }
+    assert.match(src, /class="sel-hl-label"[^>]*>劃線</);
+    assert.match(css, /\.selection-share-popup button\s*\{[^}]*flex-direction:\s*column/, '桌機按鈕上圖示下文字');
+  });
+
+  test('2. 更多：附出處複製、本行連結、在本篇中尋找（與 Cmd+F 共用頁內搜尋）', () => {
+    for (const id of ['selectionCiteBtn', 'selectionLinkBtn', 'selectionFindBtn']) {
+      assert.match(src, new RegExp(`id="${id}"`), id);
+    }
+    assert.match(src, /openPageSearch\(\);[\s\S]{0,120}doPageSearch\(q\)/);
+  });
+
+  test('3. 附出處格式含經名、行號與連結；分享優先用系統分享面板', () => {
+    assert.match(src, /——\$\{name\}\$\{currentLineNum \? `第 \$\{currentLineNum\} 行` : ''\}/);
+    assert.match(src, /navigator\.share\(/);
+    assert.match(src, /err\.name === 'AbortError'/, '使用者取消分享不應改成複製');
+  });
+
+  test('4. 點彈窗內按鈕不重新計算選取，避免「更多」被收起', () => {
+    assert.match(src, /addEventListener\('mouseup', \(e\) => \{[\s\S]{0,200}if \(popup\.contains\(e\.target\)\) return;/);
+    assert.match(src, /const hidePopup = \(\) => \{\s*popup\.classList\.remove\('visible'\);\s*setMoreOpen\(false\);/);
+  });
+});
