@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.10.1
+   mdWebview — Application Logic (app.js) v4.11.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2110,6 +2110,21 @@
   }
 
   /**
+   * 時段到了（verseNextAt）就重抓首頁資料換下一句。頁面一直開著也會換；
+   * 加一點隨機延遲，避免所有讀者在同一秒打 API。
+   */
+  let homeVerseTimer = null;
+  function scheduleHomeVerseRefresh(nextAt) {
+    clearTimeout(homeVerseTimer);
+    homeVerseTimer = null;
+    const t = Number(nextAt);
+    if (!Number.isFinite(t) || t <= 0) return;
+    const wait = Math.max(5000, t - Date.now() + 2000 + Math.floor(Math.random() * 30000));
+    if (wait > 7 * 24 * 3600 * 1000) return;
+    homeVerseTimer = setTimeout(() => { homeVerseTimer = null; fetchSuggestList(); }, wait);
+  }
+
+  /**
    * 經句分成兩行，像對聯一樣在中間的標點處斷開（左右字數最接近的那個分句邊界）。
    * 只有一個分句或很短（10 字內）的經句就一行。
    */
@@ -2185,7 +2200,9 @@
     const box = $('homeVerse');
     if (!box) return;
     const data = state._homeData || {};
-    const verse = pickDailyVerse(data.verses, new Date());
+    // 新版伺服器直接給這個時段的那一句（data.verse，可能是 null）；舊格式才自己依日期挑
+    const verse = 'verse' in data ? data.verse : pickDailyVerse(data.verses, new Date());
+    scheduleHomeVerseRefresh(data.verseNextAt);
     const subtitle = $('homeSubtitle');
     const hero = box.closest('.home-hero');
     if (!verse) {
@@ -9085,7 +9102,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11049,7 +11066,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11417,7 +11434,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12307,7 +12324,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13693,6 +13710,8 @@
       const enabled = !!(($('suggestEnabled') || {}).checked);
       // 每日經文原樣送出（一行一句），由伺服器 lib/home.js parseVerses 解析與限長
       const dailyVerses = ($('suggestDailyVerses') || {}).value || '';
+      const parsedVerseRotate = parseInt(($('suggestDailyVerseRotateHours') || {}).value, 10);
+      const dailyVerseRotateHours = Number.isFinite(parsedVerseRotate) ? Math.max(1, Math.min(168, parsedVerseRotate)) : 6;
 
       // Collect checked dictionaries
       const checkedDicts = [];
@@ -13728,6 +13747,7 @@
                 dailyWordDicts: checkedDicts,
                 dailyWordRotateHour,
                 dailyVerses,
+                dailyVerseRotateHours,
                 enabled
               }
             }
@@ -13747,6 +13767,7 @@
         showToast('✅ 推薦閱讀設定已儲存', 'success');
         // Refresh the homepage suggest list
         fetchSuggestList();
+        loadDailyVerseStatus();
       } catch (err) {
         if (errorEl) {
           errorEl.textContent = err.message;
@@ -13757,6 +13778,63 @@
     });
 
     setupAdminSeoEvents();
+  }
+
+  /**
+   * 後台「每日經文」：兩個來源（文字框、經句資料夾）的筆數與狀態燈。
+   * 綠：首頁輪播中；黃：資料夾裡有 .md 但一句都沒解析到，或有檔案讀不到；
+   * 灰：兩邊都沒有經句（站長刻意不顯示，不算待辦）。
+   */
+  async function loadDailyVerseStatus() {
+    const light = $('dailyVerseLight');
+    const text = $('dailyVerseStatusText');
+    if (!light || !text) return null;
+    let d;
+    try {
+      const r = await fetch('/api/admin/daily-verses');
+      if (!r.ok) throw new Error(String(r.status));
+      d = await r.json();
+    } catch (_) {
+      light.className = 'status-light warn';
+      text.textContent = '無法讀取經句來源';
+      light.setAttribute('aria-label', '狀態：無法讀取經句來源');
+      return null;
+    }
+    const f = d.folder || {};
+    const tb = d.textbox || {};
+    $('dailyVerseTextboxCount').textContent = `${tb.count || 0} 句${tb.isDefault ? '（預設清單）' : ''}`;
+    let folderText;
+    if (!f.exists) folderText = '資料夾不存在（未使用）';
+    else if (!f.fileCount) folderText = '0 句（資料夾裡沒有 .md 檔）';
+    else folderText = `${f.count || 0} 句，來自 ${f.fileCount} 個 .md 檔`;
+    if (f.errors && f.errors.length) folderText += `，${f.errors.length} 個檔案讀不到`;
+    $('dailyVerseFolderCount').textContent = folderText;
+    const dirEl = $('dailyVerseFolderDir');
+    dirEl.textContent = f.dir || '';
+    dirEl.title = `位置可用環境變數 ${f.envVar || 'SUTRA_QUOTE_DIR'} 更改`;
+    $('dailyVerseTotalCount').textContent = `${d.total || 0} 句${d.duplicates > 0 ? `（去掉重複 ${d.duplicates} 句）` : ''}`;
+
+    let level, msg;
+    const hours = d.rotateHours || 6;
+    if (f.exists && f.fileCount && !f.count) {
+      level = 'warn'; msg = '資料夾裡的 .md 檔沒有含全形「｜」的經句';
+    } else if (f.errors && f.errors.length) {
+      level = 'warn'; msg = `資料夾有 ${f.errors.length} 個檔案讀不到`;
+    } else if (!d.total) {
+      level = 'off'; msg = '沒有經句，首頁不顯示經文';
+    } else {
+      level = 'ok'; msg = `首頁輪播中：共 ${d.total} 句，每 ${hours} 小時換一句`;
+    }
+    if (d.current && d.nextAt) {
+      const next = new Date(d.nextAt);
+      msg += level === 'ok' ? `，下次 ${next.getMonth() + 1}/${next.getDate()} ${String(next.getHours()).padStart(2, '0')}:${String(next.getMinutes()).padStart(2, '0')}` : '';
+    }
+    light.className = `status-light ${level}`;
+    light.title = msg;
+    light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[level] || ''}，${msg}`);
+    text.textContent = msg;
+    text.title = d.current ? `目前：${d.current.text}${d.current.source ? `《${d.current.source}》` : ''}` : '';
+    return d;
   }
 
   /** 經句陣列 → 後台文字框（一行一句：經句｜出處｜路徑），與 lib/home.js versesToText 相同。 */
@@ -13818,20 +13896,15 @@
       if (dailyRotateEl && settings) dailyRotateEl.value = sl.dailyWordRotateHour ?? 12;
       if (enabledEl && settings) enabledEl.checked = sl.enabled === true;
 
-      // 每日經文：從未設定時顯示伺服器的預設清單（首頁 /api/suggest-list 已帶回解析好的版本）
+      // 每日經文：從未設定時文字框顯示伺服器的預設清單；同時抓兩個來源的筆數與狀態
       const versesEl = $('suggestDailyVerses');
+      const verseRotateEl = $('suggestDailyVerseRotateHours');
+      if (verseRotateEl && settings) verseRotateEl.value = sl.dailyVerseRotateHours ?? 6;
+      const verseStatus = await loadDailyVerseStatus();
       if (versesEl && settings) {
-        let verses = sl.dailyVerses;
-        if (verses === undefined) {
-          verses = state._homeData && state._homeData.verses;
-          if (!verses) {
-            try {
-              const r = await fetch('/api/suggest-list');
-              if (r.ok) verses = (await r.json()).verses;
-            } catch (_) {}
-          }
-        }
-        versesEl.value = dailyVersesToText(verses);
+        versesEl.value = sl.dailyVerses === undefined
+          ? ((verseStatus && verseStatus.textbox && verseStatus.textbox.defaults) || '')
+          : dailyVersesToText(sl.dailyVerses);
       }
 
       // 3. Render dictionary files

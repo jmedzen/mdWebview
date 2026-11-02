@@ -36,7 +36,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.10.1'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.11.0'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -51,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.10.1">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.10.1">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.10.1">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.10.1">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.10.1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.11.0">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.11.0">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.11.0">
+  <link rel="shortcut icon" href="/favicon.ico?v=4.11.0">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.11.0">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -77,9 +77,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.10.1">
+  <link rel="stylesheet" href="style.css?v=4.11.0">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.10.1"></script>
+  <script src="i18n/boot.js?v=4.11.0"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
@@ -774,7 +774,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.10.1</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v4.11.0</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -811,7 +811,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.10.1</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.11.0</span>
       </div>
     </div>
   </div>
@@ -1081,7 +1081,7 @@
       <aside class="admin-side" aria-label="後台導覽">
         <div class="admin-side-top">
           <span class="admin-side-brand"><span aria-hidden="true">⚙️</span> 後台</span>
-          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.10.1</span>
+          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.11.0</span>
           <button type="button" class="admin-side-close" id="settingsCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
         </div>
         <button type="button" class="admin-search-btn" id="adminSearchBtn" aria-haspopup="dialog" aria-controls="adminPalette">
@@ -2461,15 +2461,43 @@
               </div>
 
               <!-- Daily Verse -->
-              <div class="suggest-section">
+              <div class="suggest-section suggest-section-verse">
                 <div class="suggest-section-header">
                   <div class="suggest-section-title">
                     <span class="suggest-section-icon">🪷</span>
                     每日經文
                   </div>
+                  <div class="verse-status" id="dailyVerseStatus">
+                    <span class="status-light off" id="dailyVerseLight" role="img" aria-label="狀態：讀取中"></span>
+                    <span class="status-light-text" id="dailyVerseStatusText">讀取中…</span>
+                  </div>
                 </div>
+
+                <div class="verse-sources" id="dailyVerseSources">
+                  <div class="verse-source">
+                    <span class="verse-source-name">① 後台文字框</span>
+                    <span class="verse-source-count" id="dailyVerseTextboxCount">—</span>
+                  </div>
+                  <div class="verse-source">
+                    <span class="verse-source-name">② 經句資料夾</span>
+                    <span class="verse-source-count" id="dailyVerseFolderCount">—</span>
+                    <code class="verse-source-dir" id="dailyVerseFolderDir"></code>
+                  </div>
+                  <div class="verse-source verse-source-total">
+                    <span class="verse-source-name">合併去重後</span>
+                    <span class="verse-source-count" id="dailyVerseTotalCount">—</span>
+                  </div>
+                </div>
+
                 <textarea id="suggestDailyVerses" class="suggest-textarea" rows="7" spellcheck="false" placeholder="每行一句：經句｜出處｜經文路徑（出處與路徑可省略），例如：&#10;應無所住，而生其心。｜金剛般若波羅蜜經&#10;色即是空，空即是色。｜般若波羅蜜多心經｜01-大正藏/03般若部類/T0251《般若波羅蜜多心經》.md"></textarea>
-                <span class="suggest-hint">首頁正中間每天換一句，依讀者當地日期輪替，不受上方「推薦閱讀」開關影響。有填路徑時「讀這一段」會開啟該經文；沒填就改為在經藏中搜尋這一句。全部清空則首頁不顯示經文。</span>
+
+                <div class="suggest-rotate-row">
+                  <span class="suggest-rotate-label">換句頻率：每</span>
+                  <input type="number" id="suggestDailyVerseRotateHours" class="suggest-rotate-input" min="1" max="168" value="6">
+                  <span class="suggest-rotate-unit">小時換一句（預設 6）</span>
+                </div>
+
+                <span class="suggest-hint">兩個來源合併、重複的經句只留一次（以文字框為準）。① 文字框一行一句。② 經句資料夾裡所有 .md 檔：含全形「｜」的行就算一句，格式同文字框，標題與其他行會略過；檔案改了約 10 秒內生效。換句依網站時區從午夜起算（6 小時即 0、6、12、18 點換），同一時段所有讀者看到同一句。有填路徑時「讀這一段」會開啟該經文；沒填就改為在經藏中搜尋這一句。兩邊都沒有經句時首頁不顯示經文。</span>
               </div>
 
               <!-- Admin Picks -->
@@ -2642,15 +2670,15 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.10.1" defer></script>
-  <script src="i18n/zh-TW.js?v=4.10.1" defer></script>
-  <script src="i18n/zh-CN.js?v=4.10.1" defer></script>
-  <script src="i18n/i18n.js?v=4.10.1" defer></script>
-  <script src="i18n/content-terms.js?v=4.10.1" defer></script>
-  <script src="i18n/display-script.js?v=4.10.1" defer></script>
-  <script src="i18n/search-variants.js?v=4.10.1" defer></script>
-  <script src="library-sync.js?v=4.10.1" defer></script>
-  <script src="highlights.js?v=4.10.1" defer></script>
-  <script src="app.js?v=4.10.1" defer></script>
+  <script src="marked.min.js?v=4.11.0" defer></script>
+  <script src="i18n/zh-TW.js?v=4.11.0" defer></script>
+  <script src="i18n/zh-CN.js?v=4.11.0" defer></script>
+  <script src="i18n/i18n.js?v=4.11.0" defer></script>
+  <script src="i18n/content-terms.js?v=4.11.0" defer></script>
+  <script src="i18n/display-script.js?v=4.11.0" defer></script>
+  <script src="i18n/search-variants.js?v=4.11.0" defer></script>
+  <script src="library-sync.js?v=4.11.0" defer></script>
+  <script src="highlights.js?v=4.11.0" defer></script>
+  <script src="app.js?v=4.11.0" defer></script>
 </body>
 </html>

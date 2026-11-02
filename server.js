@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.10.1
+ * @version 4.11.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -94,6 +94,7 @@ const {
 const accounts = require('./lib/accounts');
 const accountsDb = require('./lib/db');
 const home = require('./lib/home');
+const sutraQuotes = require('./lib/sutra-quotes');
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -4233,6 +4234,66 @@ async function getDailyWords() {
   return result;
 }
 
+// ── 每日經文（兩個來源：後台文字框 + sutra-quote/ 資料夾）────────
+/** 每日經文換句用的時區：後台選了特定時區就用它；「自動」時沿用報表信的時區（預設 Asia/Taipei）。 */
+function dailyVerseTimezone() {
+  const tz = config.settings.timezone;
+  if (tz && tz !== 'auto') {
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch (_) {}
+  }
+  try { return require('./lib/reports').getSettings().timezone || 'Asia/Taipei'; } catch (_) { return 'Asia/Taipei'; }
+}
+
+/**
+ * 合併兩個來源的經句。後台文字框在前（重複時以後台的出處與路徑為準），資料夾在後。
+ * 文字框從未設定時用預設清單；刻意清空就是空的。
+ */
+async function collectDailyVerses() {
+  const sl = config.settings.suggestList || {};
+  const textbox = home.resolveVerses(sl.dailyVerses);
+  const folder = await sutraQuotes.getFolderVerses();
+  const merged = home.mergeVerses(textbox, folder.verses);
+  return {
+    textbox,
+    textboxIsDefault: sl.dailyVerses === undefined || sl.dailyVerses === null,
+    folder,
+    merged,
+    rotateHours: home.normalizeRotateHours(sl.dailyVerseRotateHours),
+    timezone: dailyVerseTimezone()
+  };
+}
+
+/** GET /api/admin/daily-verses：後台「每日經文」區塊的來源筆數與狀態。 */
+async function handleAdminDailyVerses(req, res) {
+  if (!requireAdmin(req, res, sendJSON)) return;
+  try {
+    const d = await collectDailyVerses();
+    const now = Date.now();
+    const pick = home.pickRotatingVerse(d.merged, now, d.rotateHours, d.timezone);
+    sendJSON(res, 200, {
+      rotateHours: d.rotateHours,
+      timezone: d.timezone,
+      textbox: { count: d.textbox.length, isDefault: d.textboxIsDefault, defaults: home.versesToText(home.DEFAULT_DAILY_VERSES) },
+      folder: {
+        dir: d.folder.dir,
+        envVar: 'SUTRA_QUOTE_DIR',
+        exists: d.folder.exists,
+        fileCount: d.folder.files.length,
+        files: d.folder.files.slice(0, 50),
+        count: d.folder.count,
+        errors: d.folder.errors.slice(0, 20)
+      },
+      total: d.merged.length,
+      duplicates: d.textbox.length + d.folder.count - d.merged.length,
+      current: pick.verse,
+      nextAt: pick.verse ? pick.nextAt : 0
+    });
+  } catch (err) {
+    Logger.error('Suggest', 'Failed to collect daily verses', err, req);
+    sendJSON(res, 500, { error: 'Failed to load daily verses' });
+  }
+}
+
 /**
  * 傳回首頁推薦列表（GET /api/suggest-list），包含公告資訊與推薦項目。
  *
@@ -4298,6 +4359,9 @@ async function handleSuggestList(req, res) {
     const dailyWordPicks = await getDailyWords();
 
     const items = [...adminPicks, ...hotPicks, ...dailyWordPicks];
+
+    const dv = await collectDailyVerses();
+    const dailyVerse = { ...home.pickRotatingVerse(dv.merged, Date.now(), dv.rotateHours, dv.timezone), rotateHours: dv.rotateHours };
     // Deterministically shuffle combined items using currentSlot so admin, hot picks and daily words interleave stably
     const interleaveRng = mulberry32(((currentSlot * 1103515245 + 12345) ^ 0x12345678) >>> 0);
     for (let i = items.length - 1; i > 0; i--) {
@@ -4311,8 +4375,12 @@ async function handleSuggestList(req, res) {
       dailyWordCount: dailyWordPicks.length,
       enabled: sl.enabled !== false,
       suggestListUpdatedAt: config.settings.suggestListUpdatedAt || 0,
-      // 每日經文：整份清單給前端，依讀者「當地日期」輪替（不受推薦開關影響）
-      verses: home.resolveVerses(sl.dailyVerses),
+      // 每日經文：伺服器依時段挑好一句（同一時段所有讀者同一句，不受推薦開關影響）。
+      // verseNextAt 到了前端會重新抓。verses 只留這一句，給還沒更新的舊版前端用。
+      verse: dailyVerse.verse,
+      verseNextAt: dailyVerse.verse ? dailyVerse.nextAt : 0,
+      verseRotateHours: dailyVerse.rotateHours,
+      verses: dailyVerse.verse ? [dailyVerse.verse] : [],
       announcement: {
         enabled: !!config.settings.enableAnnouncement,
         message: config.settings.announcementMessage || '',
@@ -5260,6 +5328,9 @@ const server = http.createServer((req, res) => {
     }
     return accounts.handleLogout(req, res);
   }
+  if (pathname === '/api/admin/daily-verses' && req.method === 'GET') {
+    return handleAdminDailyVerses(req, res);
+  }
   if (pathname === '/api/admin/settings' && req.method === 'GET') {
     if (!requireAdmin(req, res, sendJSON)) return;
     return sendJSON(res, 200, { settings: config.settings });
@@ -5431,7 +5502,9 @@ const server = http.createServer((req, res) => {
             dailyWordRotateHour: Number.isFinite(parseInt(sl.dailyWordRotateHour, 10)) ? Math.max(1, Math.min(168, parseInt(sl.dailyWordRotateHour, 10))) : (existing.dailyWordRotateHour ?? 12),
             enabled: sl.enabled !== undefined ? !!sl.enabled : (existing.enabled === true),
             // 每日經文：文字框（一行一句）或陣列；沒送就沿用（包括「從未設定 → 用預設清單」）
-            dailyVerses: sl.dailyVerses !== undefined ? home.parseVerses(sl.dailyVerses) : existing.dailyVerses
+            dailyVerses: sl.dailyVerses !== undefined ? home.parseVerses(sl.dailyVerses) : existing.dailyVerses,
+            // 每日經文每幾小時換一句（1–168，預設 6）
+            dailyVerseRotateHours: sl.dailyVerseRotateHours !== undefined ? home.normalizeRotateHours(sl.dailyVerseRotateHours) : (existing.dailyVerseRotateHours ?? home.DEFAULT_VERSE_ROTATE_HOURS)
           };
           config.settings.suggestListUpdatedAt = Date.now();
           invalidateDailyWordCache();
