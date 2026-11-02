@@ -14,10 +14,6 @@ RUN mkdir -p /app/fonts && for w in 500 700 900; do \
       if [ -n "$url" ] && wget -qO "/app/fonts/NotoSerifTC-${w}.ttf" "$url"; then echo "font ${w} ok"; \
       else rm -f "/app/fonts/NotoSerifTC-${w}.ttf"; echo "WARNING: Noto Serif TC ${w} download failed"; fi; \
     done
-# Q 版型的英文問候：手寫體 Dancing Script（SIL OFL）
-RUN url=$(wget -qO- "https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700" | grep -o 'https://[^)]*\.ttf' | head -n 1); \
-    if [ -n "$url" ] && wget -qO /app/fonts/DancingScript-700.ttf "$url"; then echo "font DancingScript ok"; \
-    else rm -f /app/fonts/DancingScript-700.ttf; echo "WARNING: Dancing Script download failed"; fi
 
 # Copy all essential application files
 COPY server.js app.js library-sync.js highlights.js share-card.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
