@@ -172,9 +172,30 @@ describe('報表信：早安圖區塊', () => {
       assert.ok(out.html.includes('gold/1.png'));
       assert.ok(out.html.includes('複製圖片失敗'));
       assert.match(out.text, /早安圖：打開面板 2，分享出去 2，從分享連結進站 0，連結預覽抓圖 1，失敗 1/);
+      // 日報：早安圖小時長條圖（台北 10:00 那格）
+      assert.equal(r.shareCard.buckets.length, 24);
+      assert.deepEqual(r.shareCard.buckets[10], { open: 2, sends: 2, visit: 0 });
+      assert.ok(out.charts.some(c => c.id === 'share'));
+      assert.ok(out.html.includes('cid:x'));
+      assert.ok(out.html.includes('幾點打開面板與分享出去'));
+
+      const w = await reports.buildReport('weekly', { now: Date.parse('2026-11-02T02:00:00Z'), settings: reports.normalizeSettings({ timezone: 'Asia/Taipei' }) });
+      assert.equal(w.shareCard.buckets.length, 7);
+      assert.equal(w.shareCard.buckets.reduce((t, b) => t + b.sends, 0), 2);
+      const wo = reports.renderReport(w, { imageSrc: () => 'cid:x' });
+      assert.ok(wo.html.includes('每日打開面板、分享出去與從分享連結進站'));
     } finally {
       fs.rmSync(f);
     }
+  });
+});
+
+describe('報表信：沒有早安圖資料', () => {
+  test('沒有資料就不畫早安圖的圖（信件不多附圖片）', async () => {
+    const r = await reports.buildReport('daily', { now: Date.parse('2026-06-01T02:00:00Z'), settings: reports.normalizeSettings({ timezone: 'Asia/Taipei' }) });
+    const out = reports.renderReport(r, { imageSrc: () => 'cid:x' });
+    assert.ok(!out.charts.some(c => c.id === 'share'));
+    assert.ok(out.html.includes('沒有人使用早安圖'));
   });
 });
 
@@ -196,6 +217,10 @@ describe('前端與後台接線', () => {
       assert.ok(indexHtml.includes(`id="${id}"`), id);
     }
     assert.match(appJs, /renderAnalyticsShareCard\(data\.shareCard\)/);
+    for (const id of ['analyticsShareTrendChart', 'analyticsShareHoursChart', 'analyticsShareMethodsChart']) {
+      assert.ok(indexHtml.includes(`id="${id}"`), id);
+    }
+    assert.match(appJs, /function buildShareChartSvg\(/);
   });
 });
 
@@ -290,5 +315,17 @@ describe('伺服器：POST /api/share-card/event、og:image、分享連結進站
     assert.ok(data.shareCard.events.line >= 1);
     assert.ok(data.shareCard.events.visit >= 1);
     assert.ok(data.shareCard.layouts.some(l => l.layout === 'C'));
+    // 趨勢與 dailyTrend 同格；今天那格有分享與進站
+    assert.equal(data.shareCard.trend.length, data.dailyTrend.length);
+    const today = data.shareCard.trend[data.shareCard.trend.length - 1];
+    assert.ok(today.sends >= 1 && today.line >= 1 && today.visit >= 1);
+    assert.equal(data.shareCard.hours.length, 24);
+    assert.ok(data.shareCard.hours.reduce((t, h) => t + h.sends, 0) >= 1);
+    // og:image 不算進站或分享
+    assert.equal(today.og >= 0, true);
+
+    const one = await analytics.getAnalyticsData('1d', 'UTC');
+    assert.equal(one.shareCard.trend.length, one.dailyTrend.length);
+    assert.ok(one.shareCard.trend.some(r => r.sends >= 1));
   });
 });
