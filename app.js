@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.6
+   mdWebview — Application Logic (app.js) v4.18.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1209,6 +1209,11 @@
       }
     }
 
+    // 每日經句分享連結 /?verse=<代號>：一定是首頁（不能被「自動回到上次閱讀」帶走）
+    if (!searchParams.get('file') && /^[0-9a-f]{10}$/.test(searchParams.get('verse') || '')) {
+      return { isHome: true };
+    }
+
     // 1. Try query parameters first (server readable)
     let searchFile = searchParams.get('file');
     if (!searchFile) {
@@ -1877,9 +1882,8 @@
     maybeShowInstallCard();
 
     if (clearUrl) {
-      // Clear URL query parameters
-      const cleanUrl = window.location.pathname;
-      history.pushState(null, '', cleanUrl);
+      // Clear URL query parameters（換過的經句留著 ?verse=，網址列永遠對應畫面上那一句）
+      history.pushState(null, '', homeVerseUrl());
     }
 
     // Reset document title
@@ -2645,6 +2649,7 @@
       const box = $('homeVerseText');
       if (box) { box.classList.remove('home-verse-swap'); void box.offsetWidth; box.classList.add('home-verse-swap'); }
       renderHomeVerse();
+      syncHomeVerseUrl();
     } catch (_) {
       sendShareEvent('error', { verse: cur, stage: 'shuffle' });
       showToast('換一句失敗，請稍後再試', 'error');
@@ -2653,22 +2658,43 @@
     }
   }
 
-  /** 分享連結 /?verse=<id>&l=A：首頁顯示那一句，分享面板預設那個版型；讀完把參數清掉。 */
+  /**
+   * 首頁網址：換過一句（或從分享連結進來）就是 /?verse=<代號>，否則就是 /。
+   * 網址列永遠對應畫面上那一句：重新整理不會跳回別句，直接複製網址列分享也是這一句。
+   */
+  function homeVerseUrl() {
+    const v = state._homeVerseOverride;
+    return window.location.pathname + (v && v.id ? `?verse=${encodeURIComponent(v.id)}` : '');
+  }
+
+  /** 在首頁時把網址列換成 homeVerseUrl()（不新增上一頁紀錄）。 */
+  function syncHomeVerseUrl() {
+    if (state.currentFile) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('file') || params.get('search')) return;
+    const want = homeVerseUrl();
+    if (window.location.pathname + window.location.search !== want) {
+      history.replaceState(history.state, '', want + window.location.hash);
+    }
+  }
+
+  /** 分享連結 /?verse=<id>&l=A：首頁顯示那一句，分享面板預設那個版型；d/g/l 讀完清掉，verse 留著。 */
   async function applyVerseLinkFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('verse');
     if (!id) return;
     const l = params.get('l');
     if (l && window.ShareCard) storage.set(SHARE_LAYOUT_KEY, window.ShareCard.normalizeLayout(l));
-    for (const k of ['verse', 'd', 'g', 'l']) params.delete(k);
+    for (const k of ['d', 'g', 'l']) params.delete(k);
     const qs = params.toString();
     history.replaceState(history.state, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
     try {
       const r = await fetch(`/api/daily-verse?id=${encodeURIComponent(id)}`);
-      if (!r.ok) return;
-      const data = await r.json();
+      const data = r.ok ? await r.json() : null;
       if (data && data.verse) { state._homeVerseOverride = data.verse; renderHomeVerse(); }
     } catch (_) {}
+    // 找不到那一句（後台刪了）就把 ?verse= 拿掉，免得網址列和畫面不一致
+    syncHomeVerseUrl();
   }
 
   function shareCardQuery(layout, size) {
@@ -2701,7 +2727,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.6';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.18.7';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -9810,7 +9836,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11777,7 +11803,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12145,7 +12171,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.6';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13035,7 +13061,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.6';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
