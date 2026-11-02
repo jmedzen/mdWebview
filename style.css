@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.15.0
+   mdWebview — Style System (style.css) v4.15.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -7848,6 +7848,59 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 
 #analyticsShareCardSection .analytics-grid-two + .analytics-grid-two {
   margin-top: 12px;
+}
+
+/* 早安圖趨勢圖：SVG 顏色全用主題變數，深淺主題都看得清楚 */
+.analytics-share-chart-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px 8px;
+  margin-bottom: 12px;
+  background: var(--bg-primary);
+  min-width: 0;
+}
+
+.analytics-share-charts .analytics-share-chart-box {
+  margin-bottom: 0;
+}
+
+.analytics-share-charts {
+  margin-bottom: 12px;
+}
+
+.analytics-share-chart-title {
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.analytics-share-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.analytics-share-chart .share-chart-grid { stroke: var(--border); stroke-width: 1; }
+.analytics-share-chart .share-chart-axis,
+.analytics-share-chart .share-chart-empty { fill: var(--text-secondary); }
+
+.analytics-share-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.analytics-share-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
 }
 
 /* 動作與版型表不超過十列，整張攤開，不要內捲 */
