@@ -13,7 +13,7 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     assert.equal(matches.length, 0, '嚴格模式下「佛法僧」不應命中「佛法，僧」');
   });
 
-  test('寬鬆模式：單詞忽略標點與換行比對（空白中斷相鄰）', () => {
+  test('寬鬆模式：單詞忽略標點、空白與換行比對', () => {
     const terms = ['佛法僧'];
 
     // 1. 命中標準連續文字 '佛法僧'
@@ -31,13 +31,23 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     assert.equal(m3.length, 1, '應命中「佛、法、僧」');
     assert.match(m3[0].snippet, /佛、法、僧/);
 
-    // 4. 不應命中半形空白 '佛法 僧'（空白中斷相鄰）
+    // 4. 半形空白透明（v4.12.0）：'佛法 僧' 命中，摘要保留原文空白
     const m4 = scanText('禮敬 佛法 僧 眾。', terms, 150, true);
-    assert.equal(m4.length, 0, '半形空白中斷相鄰，不應命中單詞「佛法僧」');
+    assert.equal(m4.length, 1, '半形空白應被忽略，命中「佛法 僧」');
+    assert.match(m4[0].snippet, /佛法 僧/);
 
-    // 4b. 不應命中全形空格 '佛　法僧'
+    // 4b. 全形空格透明：'佛　法僧'
     const m4b = scanText('佛　法僧', terms, 150, true);
-    assert.equal(m4b.length, 0, '全形空格中斷相鄰，不應命中單詞「佛法僧」');
+    assert.equal(m4b.length, 1, '全形空格應被忽略，命中「佛　法僧」');
+
+    // 4c. Tab、NBSP、空白+換行混合
+    assert.equal(scanText('佛\t法\u00a0僧', terms, 150, true).length, 1, 'Tab 與 NBSP 應被忽略');
+    const m4d = scanText('第一行\n歸依佛法 \r\n　僧伽', terms, 150, true);
+    assert.equal(m4d.length, 1, '行尾空白 + CRLF + 行首全形空格應被忽略');
+    assert.equal(m4d[0].line, 2, '行號以命中起點計');
+
+    // 4d. 精確模式不受影響：空白照字面
+    assert.equal(scanText('禮敬 佛法 僧 眾。', terms, 150, false).length, 0, '精確模式不忽略空白');
 
     // 5. 命中跨行換行 '佛法\n僧'
     const m5 = scanText('大眾同心歸依佛法\n僧伽常住。', terms, 150, true);
@@ -84,7 +94,8 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     assert.equal(normalizeLooseTerm('佛、法、僧'), '佛法僧');
     assert.equal(normalizeLooseTerm('、、'), '');
     assert.equal(normalizeLooseTerm('\n\r\u0085\u2028\u2029'), '');
-    assert.equal(normalizeLooseTerm('佛法 僧'), '佛法 僧');
+    assert.equal(normalizeLooseTerm('佛法 僧'), '佛法僧');
+    assert.equal(normalizeLooseTerm('佛\u3000法\t僧\u00a0'), '佛法僧');
     assert.equal(normalizeLooseTerm('菩薩-行深！'), '菩薩行深');
   });
 
@@ -103,6 +114,13 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     }
     assert.ok(intersection.length > 0, '帶標點與不帶標點之 Bigram 倒排索引集合交集必須非空');
     assert.deepEqual(intersection.sort(), ['佛法', '法僧']);
+
+    // 空白也透明：索引必須含跨空白的 Bigram，否則寬鬆查詢的候選檔會漏掉
+    const bgSpace = extractBigramsFromText('佛法 僧　眾');
+    assert.ok(bgSpace.has('法僧'), '跨半形空白應產生「法僧」');
+    assert.ok(bgSpace.has('僧眾'), '跨全形空格應產生「僧眾」');
+    // 拉丁字母仍斷詞
+    assert.ok(!extractBigramsFromText('佛a法').has('佛法'), '拉丁字母仍應中斷 Bigram');
   });
 
   test('UI 規範：#searchModeBtn 採用雙波浪近似號 ≈ 與精確等號 = 切換', () => {
@@ -115,7 +133,7 @@ describe('寬鬆模式全文搜尋與標點透明演算法測試 (Loose Search &
     // 1. index.html 必須含有 id="searchModeBtn" 並預設為寬鬆雙波浪圖示
     assert.match(indexHtml, /id="searchModeBtn"/, 'index.html 必須含有 searchModeBtn');
     assert.match(indexHtml, /<svg[^>]*>[\s\S]*?M2\.5 6c1\.8-2[\s\S]*?<\/svg>/, '預設 SVG 必須採用雙波浪 ≈ 圖標');
-    assert.match(indexHtml, /title="寬鬆比對：已忽略標點與換行/, '按鈕標題必須明確告知寬鬆比對狀態');
+    assert.match(indexHtml, /title="寬鬆比對：已忽略標點、空白與換行/, '按鈕標題必須明確告知寬鬆比對狀態');
 
     // 2. app.js 必須具備 updateSearchModeUI 並支援 ≈ 與 = 切換
     assert.match(appJs, /function updateSearchModeUI\(\)/, 'app.js 必須定義 updateSearchModeUI 函式');
