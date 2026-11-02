@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.14.1
+ * @version 4.15.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -97,6 +97,7 @@ const home = require('./lib/home');
 const sutraQuotes = require('./lib/sutra-quotes');
 const shareCardServer = require('./lib/share-card-server');
 const ShareCard = require('./share-card.js');
+const shareStats = require('./lib/share-stats');
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -4350,7 +4351,7 @@ async function handleDailyVerseApi(req, res, pathname, query) {
     if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
     return sendJSON(res, 200, { verse: v });
   } catch (err) {
-    Logger.error('ShareCard', 'Failed to load daily verse', err, req);
+    Logger.error('ShareCard', 'Failed to load daily verse', err, req, { share: { ev: 'error', stage: 'verse' } });
     return sendJSON(res, 500, { error: 'Failed to load verse' });
   }
 }
@@ -4374,7 +4375,7 @@ async function handleShareCardMeta(req, res, query) {
       ...shareCardSite(req)
     });
   } catch (err) {
-    Logger.error('ShareCard', 'Failed to build share card meta', err, req);
+    Logger.error('ShareCard', 'Failed to build share card meta', err, req, { share: { ev: 'error', stage: 'meta', verse: query.id } });
     sendJSON(res, 500, { error: 'Failed to build share card' });
   }
 }
@@ -4400,6 +4401,12 @@ async function handleShareCardImage(req, res, query) {
       'Cache-Control': 'public, max-age=3600',
       'ETag': etag
     }, SECURITY_HEADERS);
+    // og 尺寸 = 分享連結的預覽圖（LINE／FB 預覽機器人來抓）；面板內的直式預覽不記，
+    // 它們是每次打開面板自動畫的，真正的分享動作由前端回報。
+    if (p.size === 'og' && req.method === 'GET') {
+      Logger.info('ShareCard', `Share card og:image: layout ${p.layout}, verse ${v.id}${rel ? `, pic ${rel}` : ''}`, req,
+        { share: { ev: 'og', layout: p.layout, verse: v.id, pic: rel || undefined } });
+    }
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
       return res.end();
@@ -4407,7 +4414,7 @@ async function handleShareCardImage(req, res, query) {
     res.writeHead(200, headers);
     res.end(req.method === 'HEAD' ? undefined : buf);
   } catch (err) {
-    Logger.error('ShareCard', 'Failed to render share card', err, req);
+    Logger.error('ShareCard', 'Failed to render share card', err, req, { share: { ev: 'error', stage: 'render', verse: query.id, layout: query.layout || query.l } });
     if (!res.headersSent) sendJSON(res, 500, { error: 'Failed to render share card' });
   }
 }
@@ -4434,6 +4441,33 @@ async function handlePicCard(req, res, query) {
   }
 }
 
+/**
+ * POST /api/share-card/event — 早安圖面板的動作回報（不擋使用者、失敗也不提示）。
+ * body：{ ev, verse, layout, d, stage }。背景圖由伺服器依經句＋日期自己算，不信任前端。
+ * 事件與欄位定義見 lib/share-stats.js；不記帳號或其他個人資料。
+ */
+async function handleShareCardEvent(req, res) {
+  let data = {};
+  try { data = await readJSONBody(req); } catch (_) {}
+  const ev = String(data.ev || '');
+  if (!shareStats.CLIENT_EVENTS.has(ev)) return sendJSON(res, 400, { error: 'Unknown event' });
+  const verseIdStr = /^[0-9a-f]{10}$/.test(String(data.verse || '')) ? String(data.verse) : '';
+  const v = verseIdStr ? await findVerseById(verseIdStr).catch(() => null) : null;
+  const layout = data.layout ? ShareCard.normalizeLayout(data.layout) : '';
+  let pic = '';
+  if (v && shareStats.SEND_EVENTS.has(ev)) {
+    try {
+      const date = ShareCard.normalizeDate(data.d) || ShareCard.normalizeDate(new Date().toISOString().slice(0, 10));
+      const pics = await shareCardServer.listPics();
+      pic = shareCardServer.pickPic(pics.list, v.id, date) || '';
+    } catch (_) {}
+  }
+  const share = { ev, layout: layout || undefined, verse: v ? v.id : undefined, pic: pic || undefined, stage: ev === 'error' ? String(data.stage || '') : undefined };
+  const parts = [layout && `layout ${layout}`, v && `verse ${v.id}`, pic && `pic ${pic}`, ev === 'error' && `stage ${share.stage || 'other'}`].filter(Boolean);
+  Logger.info('ShareCard', `Share card ${ev}${parts.length ? `: ${parts.join(', ')}` : ''}`, req, { share });
+  return sendJSON(res, 200, { ok: true });
+}
+
 /** GET /api/admin/share-card：後台看畫圖引擎、字型、圖庫狀態。 */
 async function handleAdminShareCard(req, res) {
   if (!requireAdmin(req, res, sendJSON)) return;
@@ -4456,6 +4490,10 @@ async function handleVerseShareLink(req, res, query) {
     let html = baseHtmlBuffer.toString('utf-8');
     if (v) {
       const p = shareCardParams(query);
+      // 有人點開了分享出去的早安圖連結（爬蟲來抓預覽時 isBotEntry 會把它排除）。
+      if (req.method === 'GET') {
+        Logger.info('ShareCard', `Share card visit: layout ${p.layout}, verse ${v.id}`, req, { share: { ev: 'visit', layout: p.layout, verse: v.id } });
+      }
       const baseUrl = getBaseUrl(req, config.settings.siteUrl);
       const site = config.settings.siteName || 'mdWebview';
       const plain = Array.from(String(v.text).replace(/[，。；：、！？,.;:!?]+$/, ''));
@@ -5071,7 +5109,7 @@ async function handleAnalytics(req, res, query) {
 
   try {
     const data = await getAnalyticsData(parseAnalyticsRange(query.range), query.tz || 'auto');
-    return sendJSON(res, 200, data);
+    return sendJSON(res, 200, { ...data, shareCard: await shareStats.withVerseTexts(data.shareCard || shareStats.emptyShareSummary()) });
   } catch (err) {
     return sendJSON(res, 400, { error: err.message });
   }
@@ -5089,7 +5127,8 @@ async function handleAnalyticsExport(req, res, query) {
   const format = query.format === 'csv' ? 'csv' : 'json';
   let rangeKey;
   try { rangeKey = parseAnalyticsRange(query.range); } catch (err) { return sendJSON(res, 400, { error: err.message }); }
-  const data = await getAnalyticsData(rangeKey, query.tz || 'auto');
+  const raw = await getAnalyticsData(rangeKey, query.tz || 'auto');
+  const data = { ...raw, shareCard: await shareStats.withVerseTexts(raw.shareCard || shareStats.emptyShareSummary()) };
 
   if (format === 'csv') {
     const tz = query.tz || 'auto';
@@ -5164,7 +5203,37 @@ async function handleAnalyticsExport(req, res, query) {
       csv += '\n';
     }
 
-    // 6. Top IPs
+    // 6. 早安圖（每日經句分享卡）
+    const sc = data.shareCard;
+    if (sc) {
+      csv += `[早安圖分享]\n`;
+      csv += '動作,次數\n';
+      sc.actions.forEach(a => { csv += `${sanitizeCsvField(a.label)},${a.count || 0}\n`; });
+      csv += `分享出去合計,${sc.sends || 0}\n`;
+      csv += `打開面板後分享比例 (%),${sc.sendRate === null ? '' : sc.sendRate}\n\n`;
+      if (sc.layouts.length) {
+        csv += '版型,分享次數\n';
+        sc.layouts.forEach(l => { csv += `${sanitizeCsvField(`${l.layout} ${ShareCard.LAYOUT_NAMES[l.layout] || ''}`.trim())},${l.count}\n`; });
+        csv += '\n';
+      }
+      if (sc.verses.length) {
+        csv += '排名,經句,出處,代號,分享次數\n';
+        sc.verses.forEach((v, idx) => { csv += `${idx + 1},${sanitizeCsvField(v.text || '（已不在清單）')},${sanitizeCsvField(v.source)},${sanitizeCsvField(v.id)},${v.count}\n`; });
+        csv += '\n';
+      }
+      if (sc.pics.length) {
+        csv += '排名,背景圖,分享次數\n';
+        sc.pics.forEach((p, idx) => { csv += `${idx + 1},${sanitizeCsvField(p.pic)},${p.count}\n`; });
+        csv += '\n';
+      }
+      if (sc.errors.length) {
+        csv += '失敗原因,次數\n';
+        sc.errors.forEach(e => { csv += `${sanitizeCsvField(e.label)},${e.count}\n`; });
+        csv += '\n';
+      }
+    }
+
+    // 7. Top IPs
     if (data.ipDistribution && data.ipDistribution.length > 0) {
       csv += `[訪客來源 IP 分佈 (Top ${data.ipDistribution.length})]\n`;
       csv += '排名,IP 地址,請求次數,最後訪問時間\n';
@@ -5266,7 +5335,7 @@ const server = http.createServer((req, res) => {
       httpMetrics.recentRequestTimes.splice(0, httpMetrics.recentRequestTimes.length - MAX_RECENT_REQUEST_TIMES);
     }
 
-    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render' || pathname === '/api/tree-filter-event';
+    const isSpecialTagRoute = pathname === '/api/search' || pathname === '/api/search-file' || pathname === '/api/render' || pathname === '/api/tree-filter-event' || pathname === '/api/share-card/event';
     if (!isSpecialTagRoute && (pathname.startsWith('/api/') || pathname.startsWith('/admin/') || res.statusCode >= 400 || duration > 50)) {
       Logger.info('HTTP', `${req.method} ${pathname}${logSearch || ''} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     } else {
@@ -5840,6 +5909,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/pic-card' && (req.method === 'GET' || req.method === 'HEAD')) {
     return handlePicCard(req, res, query);
+  }
+  if (pathname === '/api/share-card/event' && req.method === 'POST') {
+    return handleShareCardEvent(req, res);
   }
   if (pathname === '/api/admin/share-card' && req.method === 'GET') {
     return handleAdminShareCard(req, res);
