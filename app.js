@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.16.2
+   mdWebview — Application Logic (app.js) v4.16.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2875,9 +2875,48 @@
     showToast('已存下圖片，可以直接拖進 LINE 電腦版的聊天室', 'success', 4200);
   }
 
+  // 手機：網頁不能直接寫進相簿，最接近的做法是叫出系統分享選單（iOS「儲存影像」、Android 相簿/照片），
+  // 不支援時改顯示大圖，請使用者長按存到相簿。電腦版維持下載檔案。
+  function isPhoneOrTablet() {
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  function showSaveImageOverlay(blob) {
+    const old = document.getElementById('shareSaveOverlay');
+    if (old) old.remove();
+    const url = URL.createObjectURL(blob);
+    const ov = document.createElement('div');
+    ov.id = 'shareSaveOverlay';
+    ov.className = 'share-save-overlay';
+    ov.innerHTML = '<p class="share-save-tip">長按下方圖片，選「儲存到相簿」或「加入照片」</p><img alt="早安圖"><button type="button" class="share-save-close">完成</button>';
+    ov.querySelector('img').src = url;
+    const close = () => { ov.remove(); URL.revokeObjectURL(url); };
+    ov.querySelector('.share-save-close').addEventListener('click', close);
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    document.body.appendChild(ov);
+  }
+
   async function saveShareImage() {
     try {
       const blob = await getShareCardBlob(shareRt.layout, 'portrait');
+      if (isPhoneOrTablet()) {
+        const file = new File([blob], shareCardFileName(), { type: 'image/jpeg' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file] });
+            sendShareEvent('save');
+            showToast('在選單裡選「儲存影像」就會存進相簿', 'info', 3600);
+          } catch (err) {
+            if (err && err.name === 'NotAllowedError') showToast('圖片準備好了，請再按一次「存圖片」', 'info', 3200);
+            // AbortError = 使用者關掉了分享選單
+          }
+          return;
+        }
+        showSaveImageOverlay(blob);
+        sendShareEvent('save');
+        return;
+      }
       downloadBlob(blob, shareCardFileName());
       sendShareEvent('save');
     } catch (_) {
@@ -9533,7 +9572,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11500,7 +11539,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11868,7 +11907,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12758,7 +12797,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.2';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.16.3';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
