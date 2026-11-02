@@ -220,7 +220,7 @@ describe('前端與後台接線', () => {
     for (const id of ['analyticsShareTrendChart', 'analyticsShareHoursChart', 'analyticsShareMethodsChart']) {
       assert.ok(indexHtml.includes(`id="${id}"`), id);
     }
-    assert.match(appJs, /function buildShareChartSvg\(/);
+    assert.match(appJs, /function renderInteractiveChart\(/);
   });
 });
 

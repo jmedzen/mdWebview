@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.9
+   mdWebview — Application Logic (app.js) v4.19.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2743,7 +2743,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.9';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.19.0';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -9877,7 +9877,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11844,7 +11844,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12212,7 +12212,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12414,40 +12414,79 @@
     return d;
   }
 
-  function renderAnalyticsTrendChart(dailyTrend) {
-    const wrapper = $('analyticsTrendChartWrapper');
-    if (!wrapper) return;
+  /**
+   * 後台「數據分析」共用互動圖表：畫風與互動都以「全站流量與檢索動態趨勢圖」為準。
+   *   - 平滑曲線（monotonePath）、主線下方漸層面積與柔光、虛線格線
+   *   - 整片垂直感應區：滑鼠／手指在任一高度都對應到最近的那一格，
+   *     顯示垂直游標線、聚焦點，提示框放在游標線側邊
+   *   - 長條（可堆疊）用同一套格線、游標與提示框，聚焦那一格會亮起底帶
+   *
+   * series = [{ name, values, type: 'line'|'bar', tone, dashed, area }]
+   *   tone：accent | cyan | success | amber | violet | muted
+   *   （顏色全走 CSS class；accent/success/muted 跟著主題變數）
+   * 依容器實際寬度決定 viewBox 寬，字級在手機上不會被縮成看不見；
+   * 容器尺寸改變（切頁、轉向）時以 ResizeObserver 自動重畫。
+   */
+  const ICHART_TONES = ['accent', 'cyan', 'success', 'amber', 'violet', 'muted'];
+  let ichartSeq = 0;
 
-    if (!Array.isArray(dailyTrend) || dailyTrend.length === 0) {
-      wrapper.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">📊</span><span>尚無趨勢數據</span></div>`;
+  function renderInteractiveChart(wrapper, opts) {
+    if (!wrapper) return;
+    wrapper._ichartOpts = opts;
+    if (!wrapper._ichartRo && typeof ResizeObserver === 'function') {
+      wrapper._ichartRo = new ResizeObserver(() => {
+        const w = Math.round(wrapper.clientWidth);
+        if (w > 0 && wrapper._ichartOpts && Math.abs(w - (wrapper._ichartW || 0)) > 8) {
+          renderInteractiveChart(wrapper, wrapper._ichartOpts);
+        }
+      });
+      wrapper._ichartRo.observe(wrapper);
+    }
+
+    const labels = Array.isArray(opts.labels) ? opts.labels : [];
+    const count = labels.length;
+    if (count === 0) {
+      wrapper._ichartW = 0;
+      wrapper.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">📊</span>` +
+        `<span>${escHtml(opts.emptyText || '尚無趨勢數據')}</span></div>`;
       return;
     }
 
-    const width = 720;
-    const height = 220;
-    const padding = { top: 26, right: 18, bottom: 34, left: 48 };
+    const cs0 = getComputedStyle(wrapper);
+    const innerW0 = wrapper.clientWidth -
+      (parseFloat(cs0.paddingLeft) || 0) - (parseFloat(cs0.paddingRight) || 0);
+    const width = innerW0 > 0 ? Math.max(280, Math.round(innerW0)) : 720;
+    wrapper._ichartW = Math.round(wrapper.clientWidth);
+    const height = opts.height || 220;
+    const narrow = width < 480;
+    const padding = { top: 26, right: narrow ? 10 : 18, bottom: 34, left: narrow ? 38 : 48 };
     const chartW = Math.max(1, width - padding.left - padding.right);
     const chartH = Math.max(1, height - padding.top - padding.bottom);
-
-    const count = dailyTrend.length;
-    const viewVals = dailyTrend.map(d => Number(d.views) || 0);
-    const ipVals = dailyTrend.map(d => Number(d.uniqueIps) || 0);
-    const { max: maxY, step: yStep } = computeNiceScale(
-      Math.max(1, ...viewVals, ...ipVals), 4
-    );
-
-    const getX = (i) => padding.left + (count === 1 ? chartW / 2 : (i / (count - 1)) * chartW);
-    const getY = (v) => padding.top + chartH - (Math.min(Number(v) || 0, maxY) / maxY) * chartH;
     const baseY = padding.top + chartH;
 
-    const viewPoints = viewVals.map((v, i) => ({ x: getX(i), y: getY(v) }));
-    const ipPoints = ipVals.map((v, i) => ({ x: getX(i), y: getY(v) }));
+    const series = (opts.series || []).map((s, si) => ({
+      ...s,
+      type: s.type === 'bar' ? 'bar' : 'line',
+      tone: ICHART_TONES.includes(s.tone) ? s.tone : ICHART_TONES[si % ICHART_TONES.length],
+      values: labels.map((_, i) => Math.max(0, Number(s.values && s.values[i]) || 0))
+    }));
+    const bars = series.filter(s => s.type === 'bar');
+    const lines = series.filter(s => s.type === 'line');
+    const stacked = !!opts.stacked && bars.length > 1;
 
-    const viewPathD = monotonePath(viewPoints);
-    const ipPathD = monotonePath(ipPoints);
-    const viewAreaD =
-      `${viewPathD} L ${(padding.left + chartW).toFixed(1)},${baseY} ` +
-      `L ${padding.left.toFixed(1)},${baseY} Z`;
+    let rawMax = 0;
+    for (let i = 0; i < count; i++) {
+      if (stacked) rawMax = Math.max(rawMax, bars.reduce((t, s) => t + s.values[i], 0));
+      for (const s of series) if (!(stacked && s.type === 'bar')) rawMax = Math.max(rawMax, s.values[i]);
+    }
+    const { max: maxY, step: yStep } = computeNiceScale(Math.max(1, rawMax), 4);
+
+    // 有長條時每格置中；純折線則頭尾貼齊繪圖區（與原趨勢圖相同）
+    const slot = chartW / count;
+    const getX = bars.length
+      ? (i) => padding.left + slot * (i + 0.5)
+      : (i) => padding.left + (count === 1 ? chartW / 2 : (i / (count - 1)) * chartW);
+    const getY = (v) => padding.top + chartH - (Math.min(Number(v) || 0, maxY) / maxY) * chartH;
 
     // Y 軸格線與刻度
     let grid = '';
@@ -12455,85 +12494,129 @@
       const y = getY(v).toFixed(1);
       grid += `<line class="trend-grid-line" x1="${padding.left}" y1="${y}" ` +
               `x2="${(padding.left + chartW).toFixed(1)}" y2="${y}" />`;
-      grid += `<text class="trend-axis-label" x="${padding.left - 10}" y="${(Number(y) + 3.5).toFixed(1)}" ` +
+      grid += `<text class="trend-axis-label" x="${padding.left - 8}" y="${(Number(y) + 3.5).toFixed(1)}" ` +
               `text-anchor="end">${Math.round(v).toLocaleString()}</text>`;
     }
 
-    // X 軸標籤（避免擁擠）
-    const labelStep = Math.max(1, Math.ceil(count / 7));
+    // X 軸標籤：依實際寬度決定間隔，避免擁擠
+    const axisLabels = Array.isArray(opts.axisLabels) ? opts.axisLabels : labels;
+    const maxXLabels = Math.max(3, Math.floor(chartW / 54));
+    const labelStep = Math.max(1, Math.ceil(count / maxXLabels));
     let xLabels = '';
-    dailyTrend.forEach((d, i) => {
-      if (i % labelStep === 0 || i === count - 1) {
-        const raw = String(d.date || '');
-        let short = raw;
-        if (raw.includes(' ')) short = raw.split(' ')[1];
-        else if (raw.length >= 10) short = raw.slice(5);
+    for (let i = 0; i < count; i++) {
+      const isLast = i === count - 1;
+      if (i % labelStep === 0 || (isLast && (count - 1) % labelStep >= labelStep / 2)) {
         xLabels += `<text class="trend-axis-label" x="${getX(i).toFixed(1)}" y="${height - 10}" ` +
-                   `text-anchor="middle">${escHtml(short)}</text>`;
+                   `text-anchor="middle">${escHtml(String(axisLabels[i] ?? ''))}</text>`;
       }
+    }
+
+    const uid = `ichart${++ichartSeq}`;
+    let defs = '';
+    let under = '';
+    let barMarks = '';
+    let lineMarks = '';
+    let dots = '';
+    let focus = '';
+
+    // 長條：聚焦時亮起的底帶 + 每格長條
+    if (bars.length) {
+      const groupW = Math.max(2, Math.min(slot * 0.68, 34));
+      under += `<rect class="ichart-band" x="0" y="${padding.top}" width="${Math.max(1, slot).toFixed(1)}" ` +
+               `height="${chartH}" rx="4" />`;
+      for (let i = 0; i < count; i++) {
+        let acc = 0;
+        bars.forEach((s, bi) => {
+          const v = s.values[i];
+          if (v <= 0) return;
+          const w = stacked ? groupW : groupW / bars.length;
+          const x0 = getX(i) - groupW / 2 + (stacked ? 0 : bi * w);
+          const y1 = getY(stacked ? acc + v : v);
+          const y0 = getY(stacked ? acc : 0);
+          acc += v;
+          barMarks += `<rect class="ichart-bar ichart-tone-${s.tone}" data-i="${i}" ` +
+                      `x="${(x0 + 0.5).toFixed(1)}" y="${y1.toFixed(1)}" ` +
+                      `width="${Math.max(1, w - 1).toFixed(1)}" height="${Math.max(0.5, y0 - y1).toFixed(1)}" rx="2.5" />`;
+        });
+      }
+    }
+
+    // 折線：第一條（或標 area 的）畫漸層面積與柔光，其餘只畫線
+    const areaSeries = lines.find(s => s.area) || (bars.length ? null : lines[0]);
+    lines.forEach((s) => {
+      const pts = s.values.map((v, i) => ({ x: getX(i), y: getY(v) }));
+      const d = monotonePath(pts);
+      if (s === areaSeries && count > 1) {
+        const gid = `${uid}-grad`;
+        defs += `<linearGradient id="${gid}" class="ichart-tone-${s.tone}" x1="0" y1="0" x2="0" y2="1">` +
+                `<stop class="trend-grad-0" offset="0%" /><stop class="trend-grad-1" offset="55%" />` +
+                `<stop class="trend-grad-2" offset="100%" /></linearGradient>`;
+        under += `<path class="trend-area" d="${d} L ${pts[count - 1].x.toFixed(1)},${baseY} ` +
+                 `L ${pts[0].x.toFixed(1)},${baseY} Z" fill="url(#${gid})" />`;
+        under += `<path class="trend-glow ichart-tone-${s.tone}" d="${d}" />`;
+      }
+      const main = s === areaSeries;
+      lineMarks += `<path class="trend-line ichart-line ichart-tone-${s.tone}${main ? ' is-main' : ''}` +
+                   `${s.dashed ? ' is-dashed' : ''}" d="${d}" />`;
+      if (count <= 62) {
+        pts.forEach(p => {
+          dots += `<circle class="trend-dot ichart-tone-${s.tone}" cx="${p.x.toFixed(1)}" ` +
+                  `cy="${p.y.toFixed(1)}" r="${main ? 2.6 : 2.2}" />`;
+        });
+      }
+      focus += `<circle class="trend-focus ichart-focus ichart-tone-${s.tone}" r="${main ? 5 : 4.2}" />`;
     });
 
-    // 資料點：小而不搶眼；實際互動靠整片感應區 + 聚焦點
-    let dots = '';
-    viewVals.forEach((v, i) => {
-      dots += `<circle class="trend-dot trend-dot-view" cx="${getX(i).toFixed(1)}" ` +
-              `cy="${getY(v).toFixed(1)}" r="2.6" />`;
-    });
-    ipVals.forEach((v, i) => {
-      dots += `<circle class="trend-dot trend-dot-ip" cx="${getX(i).toFixed(1)}" ` +
-              `cy="${getY(v).toFixed(1)}" r="2.2" />`;
-    });
+    const total = series.reduce((t, s) => t + s.values.reduce((u, v) => u + v, 0), 0);
+    const empty = total === 0
+      ? `<text class="ichart-empty" x="${(padding.left + chartW / 2).toFixed(1)}" ` +
+        `y="${(padding.top + chartH / 2).toFixed(1)}" text-anchor="middle">` +
+        `${escHtml(opts.zeroText || '這段期間還沒有資料')}</text>`
+      : '';
+
+    const legend = series.map(s =>
+      `<span class="chart-legend-item"><span class="${s.type === 'bar' ? 'chart-legend-swatch' : `chart-legend-line${s.dashed ? ' is-dashed' : ''}`} ` +
+      `ichart-tone-${s.tone}"></span>` +
+      `${escHtml(s.name)}</span>`).join('');
 
     wrapper.innerHTML = `
-      <div id="chartFloatingTooltip" class="chart-floating-tooltip" style="display: none;"></div>
+      <div class="chart-floating-tooltip" style="display: none;"></div>
       <svg viewBox="0 0 ${width} ${height}" class="analytics-trend-svg" role="img"
-           aria-label="全站流量與檢索趨勢圖">
-        <defs>
-          <linearGradient id="viewTrendGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop class="trend-grad-0" offset="0%" />
-            <stop class="trend-grad-1" offset="55%" />
-            <stop class="trend-grad-2" offset="100%" />
-          </linearGradient>
-        </defs>
+           aria-label="${escHtml(opts.ariaLabel || '')}">
+        <defs>${defs}</defs>
         ${grid}
         ${xLabels}
-        <path class="trend-area" d="${viewAreaD}" fill="url(#viewTrendGrad)" />
-        <path class="trend-glow" d="${viewPathD}" />
-        <path class="trend-line trend-line-views" d="${viewPathD}" />
-        <path class="trend-line trend-line-ips" d="${ipPathD}" />
+        ${under}
+        ${barMarks}
+        ${lineMarks}
         <line class="chart-cursor-line" x1="0" y1="${padding.top}" x2="0" y2="${baseY}" />
-        <circle class="trend-focus trend-focus-view" r="5" />
-        <circle class="trend-focus trend-focus-ip" r="4.2" />
+        ${focus}
         ${dots}
-        <!-- 感應區刻意覆蓋整個繪圖區高度：滑鼠移到任一高度都能觸發該日細部數據，
-             不必精準命中直徑僅數 px 的資料點。必須放在最後才能蓋在圖形之上。 -->
+        ${empty}
+        <!-- 感應區刻意覆蓋整個 SVG：滑鼠移到任一高度都能觸發該格細部數據，
+             不必精準命中資料點或細長條。必須放在最後才能蓋在圖形之上。 -->
         <rect class="chart-hit-area" x="0" y="0" width="${width}" height="${height}"
               fill="transparent" />
       </svg>
-      <div class="analytics-chart-legend">
-        <span class="chart-legend-item">
-          <span class="chart-legend-line"></span>閱讀點閱數 (Page Views)
-        </span>
-        <span class="chart-legend-item">
-          <span class="chart-legend-line is-dashed"></span>獨立訪客數 (Unique IPs)
-        </span>
-      </div>
+      <div class="analytics-chart-legend">${legend}</div>
     `;
 
-    const tooltip = $('chartFloatingTooltip');
+    const tooltip = wrapper.querySelector('.chart-floating-tooltip');
     const svgEl = wrapper.querySelector('.analytics-trend-svg');
     if (!tooltip || !svgEl) return;
-
     const cursor = svgEl.querySelector('.chart-cursor-line');
-    const focusView = svgEl.querySelector('.trend-focus-view');
-    const focusIp = svgEl.querySelector('.trend-focus-ip');
     const hitArea = svgEl.querySelector('.chart-hit-area');
-    if (!cursor || !focusView || !focusIp || !hitArea) return;
+    const band = svgEl.querySelector('.ichart-band');
+    const focusEls = Array.from(svgEl.querySelectorAll('.ichart-focus'));
+    const barEls = Array.from(svgEl.querySelectorAll('.ichart-bar'));
+    if (!cursor || !hitArea) return;
 
     const hideTooltip = () => {
       cursor.style.opacity = '0';
-      focusView.style.opacity = '0';
-      focusIp.style.opacity = '0';
+      if (band) band.style.opacity = '0';
+      focusEls.forEach(el => { el.style.opacity = '0'; });
+      svgEl.classList.remove('is-focusing');
+      barEls.forEach(el => el.classList.remove('is-focus'));
       tooltip.style.display = 'none';
       tooltip.classList.remove('is-left');
     };
@@ -12542,8 +12625,7 @@
       const rect = svgEl.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
 
-      // 只需要水平位置：垂直方向不論在哪個高度，都對應到最近的那一天，
-      // 因此整片感應區都能觸發，而不只是資料點附近。
+      // 只看水平位置：不論在哪個高度，都對應到最近的那一格
       const svgX = (evt.clientX - rect.left) * (width / rect.width);
       let idx = 0;
       let best = Infinity;
@@ -12555,57 +12637,51 @@
         }
       }
 
-      const point = dailyTrend[idx];
       const x = getX(idx);
-      const yView = getY(viewVals[idx]);
-      const yIp = getY(ipVals[idx]);
-
       cursor.setAttribute('x1', x.toFixed(1));
       cursor.setAttribute('x2', x.toFixed(1));
       cursor.style.opacity = '1';
+      if (band) {
+        band.setAttribute('x', (x - slot / 2).toFixed(1));
+        band.style.opacity = '1';
+      }
+      lines.forEach((s, li) => {
+        const el = focusEls[li];
+        if (!el) return;
+        el.setAttribute('cx', x.toFixed(1));
+        el.setAttribute('cy', getY(s.values[idx]).toFixed(1));
+        el.style.opacity = '1';
+      });
+      if (barEls.length) {
+        svgEl.classList.add('is-focusing');
+        barEls.forEach(el => el.classList.toggle('is-focus', el.getAttribute('data-i') === String(idx)));
+      }
 
-      focusView.setAttribute('cx', x.toFixed(1));
-      focusView.setAttribute('cy', yView.toFixed(1));
-      focusView.style.opacity = '1';
-
-      focusIp.setAttribute('cx', x.toFixed(1));
-      focusIp.setAttribute('cy', yIp.toFixed(1));
-      focusIp.style.opacity = '1';
-
-      tooltip.innerHTML =
-        `<span class="chart-tt-date">${escHtml(String(point.date || ''))}</span>` +
-        `<span class="chart-tt-row"><span class="chart-tt-swatch is-view"></span>` +
-        `<span>閱讀點閱</span><b class="chart-tt-num">${viewVals[idx].toLocaleString()}</b></span>` +
-        `<span class="chart-tt-row"><span class="chart-tt-swatch is-ip"></span>` +
-        `<span>獨立訪客</span><b class="chart-tt-num">${ipVals[idx].toLocaleString()}</b></span>`;
+      let rows = series.map(s =>
+        `<span class="chart-tt-row"><span class="chart-tt-swatch ichart-tone-${s.tone}"></span>` +
+        `<span>${escHtml(s.name)}</span><b class="chart-tt-num">${s.values[idx].toLocaleString()}</b></span>`).join('');
+      if (stacked) {
+        const sum = bars.reduce((t, s) => t + s.values[idx], 0);
+        rows += `<span class="chart-tt-row chart-tt-total"><span>合計</span>` +
+                `<b class="chart-tt-num">${sum.toLocaleString()}</b></span>`;
+      }
+      tooltip.innerHTML = `<span class="chart-tt-date">${escHtml(String(labels[idx] ?? ''))}</span>${rows}`;
       tooltip.style.display = 'block';
 
-      // 提示框放在游標線「側邊」：兩個資料點都落在游標線正上方，
-      // 而兩點可能相距上百 px、圖表頂端又常沒有空間，因此往上或往下
-      // 放都一定會蓋掉其中一個點。水平錯開就不會重疊。
-      //
-      // 座標系：絕對定位子元素的包含區塊是父層的 **padding box**，
-      // 其原點在 border 內緣（padding 含在裡面），因此
+      // 提示框放在游標線「側邊」，才不會蓋住游標線上的資料點。
+      // 絕對定位的包含區塊是父層 padding box，原點在 border 內緣：
       //   元素座標 = clientX - (容器 left + border)
-      // 且可用寬高就是 clientWidth / clientHeight。
-      // 先前誤把 padding 也加進原點，導致提示框整整偏左一個 padding，
-      // 反而壓在資料點上。
       const wrapRect = wrapper.getBoundingClientRect();
       const cs = getComputedStyle(wrapper);
       const originX = wrapRect.left + (parseFloat(cs.borderLeftWidth) || 0);
       const originY = wrapRect.top + (parseFloat(cs.borderTopWidth) || 0);
       const innerW = wrapper.clientWidth;
       const innerH = wrapper.clientHeight;
-
       const tw = tooltip.offsetWidth;
       const th = tooltip.offsetHeight;
 
-      // 用聚焦點的實際畫面座標（與容器同一座標系），避免換算 viewBox 出錯
-      const viewRect = focusView.getBoundingClientRect();
-      const anchorX = viewRect.left + viewRect.width / 2 - originX;
-
+      const anchorX = rect.left + x * (rect.width / width) - originX;
       const GAP = 14;
-      // 預設放右側；右邊不夠就放左側，並在必要時夾回容器內
       let left = anchorX + GAP;
       if (left + tw > innerW) {
         left = anchorX - GAP - tw;
@@ -12615,10 +12691,8 @@
       }
       left = Math.max(0, Math.min(left, Math.max(0, innerW - tw)));
 
-      // 垂直對齊圖表頂端，夾在容器內
-      const svgTop = svgEl.getBoundingClientRect().top - originY;
+      const svgTop = rect.top - originY;
       const top = Math.max(0, Math.min(svgTop, Math.max(0, innerH - th)));
-
       tooltip.style.left = `${left}px`;
       tooltip.style.top = `${top}px`;
     };
@@ -12627,6 +12701,27 @@
     hitArea.addEventListener('pointerdown', showTooltip);
     hitArea.addEventListener('pointerleave', hideTooltip);
     hitArea.addEventListener('pointercancel', hideTooltip);
+  }
+
+  function renderAnalyticsTrendChart(dailyTrend) {
+    const wrapper = $('analyticsTrendChartWrapper');
+    if (!wrapper) return;
+    const trend = Array.isArray(dailyTrend) ? dailyTrend : [];
+    const shortDate = (raw) => {
+      const s = String(raw || '');
+      if (s.includes(' ')) return s.split(' ')[1];
+      return s.length >= 10 ? s.slice(5) : s;
+    };
+    renderInteractiveChart(wrapper, {
+      ariaLabel: '全站流量與檢索趨勢圖',
+      emptyText: '尚無趨勢數據',
+      labels: trend.map(d => String(d.date || '')),
+      axisLabels: trend.map(d => shortDate(d.date)),
+      series: [
+        { name: '閱讀點閱數', tone: 'accent', area: true, values: trend.map(d => Number(d.views) || 0) },
+        { name: '獨立訪客數', tone: 'cyan', dashed: true, values: trend.map(d => Number(d.uniqueIps) || 0) }
+      ]
+    });
   }
 
   // ── §21.4 Hardware Monitor Dashboard ───────────────────────────
@@ -13102,7 +13197,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13548,76 +13643,9 @@
     applyAnalyticsTableFilter();
   }
 
-  // 早安圖趨勢圖的顏色（深淺主題都看得清楚的中間色）
-  const SHARE_CHART_COLORS = {
-    open: '#9aa3b2', sends: '#e0a63c', visit: '#3fb68b',
-    line: '#3fb68b', save: '#5aa7e0', copyImage: '#9b7ad8', copyLink: '#e0a63c'
-  };
-
-  /**
-   * 小型 SVG 圖：series = [{ name, color, values, type: 'line'|'bar', dashed }]；
-   * stacked = true 時 bar 疊在一起。格線與字用主題變數（CSS class），不寫死顏色。
-   */
-  function buildShareChartSvg({ labels, series, stacked = false, width = 640, height = 180, maxLabels = 10 }) {
-    const W = width, H = height;
-    const k = Math.max(1, W / 640); // 寬圖等比放大字與邊界，縮到容器寬時看起來一樣大
-    const pad = { l: 34 * k, r: 10, t: 10 * k, b: 24 * k };
-    const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
-    const n = Math.max(1, labels.length);
-    const bars = series.filter(x => x.type === 'bar');
-    let maxV = 0;
-    for (let i = 0; i < n; i++) {
-      if (stacked && bars.length) maxV = Math.max(maxV, bars.reduce((t, x) => t + (Number(x.values[i]) || 0), 0));
-      for (const x of series) if (!(stacked && x.type === 'bar')) maxV = Math.max(maxV, Number(x.values[i]) || 0);
-    }
-    const total = series.reduce((t, x) => t + x.values.reduce((u, v) => u + (Number(v) || 0), 0), 0);
-    const step = maxV <= 4 ? 1 : Math.ceil(maxV / 4 / Math.pow(10, Math.floor(Math.log10(maxV / 4)))) * Math.pow(10, Math.floor(Math.log10(maxV / 4)));
-    const top = Math.max(step * Math.ceil(maxV / step), step);
-    const slot = plotW / n;
-    const xAt = i => pad.l + slot * (i + 0.5);
-    const yAt = v => pad.t + plotH - (v / top) * plotH;
-    const fs = Math.round(11 * k * 10) / 10;
-    const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img" font-size="${fs}">`];
-    for (let v = 0; v <= top + 1e-9; v += step) {
-      const y = yAt(v).toFixed(1);
-      out.push(`<line class="share-chart-grid" x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}"/>`);
-      out.push(`<text class="share-chart-axis" x="${(pad.l - 6).toFixed(1)}" y="${(+y + 4 * k).toFixed(1)}" text-anchor="end">${v}</text>`);
-    }
-    const every = Math.max(1, Math.ceil(n / maxLabels));
-    labels.forEach((lb, i) => {
-      if (i % every === 0) out.push(`<text class="share-chart-axis" x="${xAt(i).toFixed(1)}" y="${(H - 6 * k).toFixed(1)}" text-anchor="middle">${escHtml(String(lb))}</text>`);
-    });
-    if (bars.length) {
-      const groupW = Math.min(slot * 0.7, 36);
-      for (let i = 0; i < n; i++) {
-        let acc = 0;
-        bars.forEach((x, bi) => {
-          const v = Number(x.values[i]) || 0;
-          if (v <= 0) return;
-          const w = stacked ? groupW : groupW / bars.length;
-          const x0 = xAt(i) - groupW / 2 + (stacked ? 0 : bi * w);
-          const y1 = yAt(stacked ? acc + v : v);
-          const y0 = yAt(stacked ? acc : 0);
-          acc += v;
-          out.push(`<rect x="${(x0 + 0.5).toFixed(1)}" y="${y1.toFixed(1)}" width="${Math.max(1, w - 1).toFixed(1)}" height="${Math.max(0.5, y0 - y1).toFixed(1)}" rx="2" fill="${x.color}"><title>${escHtml(`${labels[i]} ${x.name} ${v}`)}</title></rect>`);
-        });
-      }
-    }
-    series.filter(x => x.type !== 'bar').forEach(x => {
-      const pts = x.values.map((v, i) => `${xAt(i).toFixed(1)},${yAt(Number(v) || 0).toFixed(1)}`);
-      if (pts.length > 1) out.push(`<polyline points="${pts.join(' ')}" fill="none" stroke="${x.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"${x.dashed ? ' stroke-dasharray="5 4"' : ''}/>`);
-      if (pts.length <= 31) x.values.forEach((v, i) => out.push(`<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(Number(v) || 0).toFixed(1)}" r="2.8" fill="${x.color}"><title>${escHtml(`${labels[i]} ${x.name} ${Number(v) || 0}`)}</title></circle>`));
-    });
-    if (!total) out.push(`<text class="share-chart-empty" x="${W / 2}" y="${pad.t + plotH / 2}" text-anchor="middle">這段期間還沒有資料</text>`);
-    out.push('</svg>');
-    return out.join('');
-  }
-
-  function renderShareChart(chartId, legendId, opts) {
-    const el = $(chartId);
-    if (el) el.innerHTML = buildShareChartSvg(opts);
-    const lg = $(legendId);
-    if (lg) lg.innerHTML = opts.series.map(x => `<span><i style="background:${x.color}"></i>${escHtml(x.name)}</span>`).join('');
+  /** 早安圖圖表：同樣用共用互動圖表（renderInteractiveChart）畫。 */
+  function renderShareChart(chartId, opts) {
+    renderInteractiveChart($(chartId), opts);
   }
 
   /** 時間格標籤：日 = MM/DD，1 天範圍的小時 = HH 時。 */
@@ -13631,35 +13659,39 @@
 
   function renderShareCharts(sc) {
     const trend = (sc && sc.trend) || [];
-    const labels = trend.map(r => shareSlotLabel(r.date));
-    const C = SHARE_CHART_COLORS;
-    renderShareChart('analyticsShareTrendChart', 'analyticsShareTrendLegend', {
-      labels, width: 1100, height: 210, maxLabels: 16,
-      // 分享出去最後畫，數字相同時不被其他線蓋住
+    const labels = trend.map(r => String(r.date || ''));
+    const axisLabels = trend.map(r => shareSlotLabel(r.date));
+    const zeroText = '這段期間還沒有資料';
+    renderShareChart('analyticsShareTrendChart', {
+      ariaLabel: '早安圖：打開面板、分享出去與從連結進站', labels, axisLabels, zeroText,
+      emptyText: '這段期間還沒有資料', height: 230,
       series: [
-        { name: '打開分享面板', color: C.open, values: trend.map(r => r.open), dashed: true },
-        { name: '從分享連結進站', color: C.visit, values: trend.map(r => r.visit) },
-        { name: '分享出去', color: C.sends, values: trend.map(r => r.sends) }
+        { name: '分享出去', tone: 'accent', area: true, values: trend.map(r => r.sends) },
+        { name: '從分享連結進站', tone: 'cyan', values: trend.map(r => r.visit) },
+        { name: '打開分享面板', tone: 'muted', dashed: true, values: trend.map(r => r.open) }
       ]
     });
-    renderShareChart('analyticsShareMethodsChart', 'analyticsShareMethodsLegend', {
-      labels, stacked: true, height: 200,
+    renderShareChart('analyticsShareMethodsChart', {
+      ariaLabel: '早安圖分享方式', labels, axisLabels, zeroText, stacked: true,
+      emptyText: '這段期間還沒有資料', height: 210,
       series: [
-        { name: '傳到 LINE', color: C.line, type: 'bar', values: trend.map(r => r.line + r.lineFile + (r.lineLink || 0) + (r.lineManual || 0)) },
-        { name: '存圖片', color: C.save, type: 'bar', values: trend.map(r => r.save) },
-        { name: '複製圖片', color: C.copyImage, type: 'bar', values: trend.map(r => r.copyImage) },
-        { name: '複製連結', color: C.copyLink, type: 'bar', values: trend.map(r => r.copyLink) }
+        { name: '傳到 LINE', tone: 'success', type: 'bar', values: trend.map(r => (r.line || 0) + (r.lineFile || 0) + (r.lineLink || 0) + (r.lineManual || 0)) },
+        { name: '存圖片', tone: 'cyan', type: 'bar', values: trend.map(r => r.save) },
+        { name: '複製圖片', tone: 'violet', type: 'bar', values: trend.map(r => r.copyImage) },
+        { name: '複製連結', tone: 'amber', type: 'bar', values: trend.map(r => r.copyLink) }
       ]
     });
     const hours = sc && Array.isArray(sc.hours) ? sc.hours : null;
     const box = $('analyticsShareHoursChart');
     if (box) box.closest('.analytics-share-chart-box').hidden = !hours;
     if (hours) {
-      renderShareChart('analyticsShareHoursChart', 'analyticsShareHoursLegend', {
-        labels: hours.map(h => String(h.hour)), height: 200, maxLabels: 12,
+      renderShareChart('analyticsShareHoursChart', {
+        ariaLabel: '早安圖幾點打開與分享', zeroText, height: 210,
+        labels: hours.map(h => `${h.hour} 時`),
+        axisLabels: hours.map(h => String(h.hour)),
         series: [
-          { name: '打開分享面板', color: C.open, type: 'bar', values: hours.map(h => h.open) },
-          { name: '分享出去', color: C.sends, type: 'bar', values: hours.map(h => h.sends) }
+          { name: '打開分享面板', tone: 'muted', type: 'bar', values: hours.map(h => h.open) },
+          { name: '分享出去', tone: 'accent', type: 'bar', values: hours.map(h => h.sends) }
         ]
       });
     }
