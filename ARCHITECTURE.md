@@ -1557,13 +1557,13 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 繪圖程式 `share-card.js`（UMD，前後端共用，只用兩邊都有的 Canvas 2D API；字距、直書標點自己畫）。版型 A 晨光留白／B 沉浸全幅（依圖片下半部亮度調漸層深淺）／C 經籤直書／I 晨鐘大字／J 象牙拱門／N 上圖下文／P 左右分割／Q 三段式（N、P、Q 圖片不蓋半透明、字區獨立，Q 問候為英文、Dancing Script 手寫體，字檔隨程式附在 vendor/fonts/，不靠網路下載）問候語開關（面板）：時間問候（預設，依傳送者本機時間）／法安／自在／吉祥（不分時間）。「時間問候」模式的分享連結不帶問候，預覽圖用「吉祥」，避免跨時區的收件人看到傳送者的早安／晚安；其餘三種會帶 g=。（I、J 用 900 粗體，Docker 建置時一併下載；紙紋、金粉、蓮瓣等質感工具在 share-card.js）；尺寸 portrait 1080×1350、og 1200×630。
 - 伺服器 `lib/share-card-server.js`：`@napi-rs/canvas` 延遲載入（失敗 = 不能畫，`/api/share-card.jpg` 回 503，前端改用 `share-card.js` 在瀏覽器畫）；字型從 `SHARE_CARD_FONT_DIR`、`config.json` 旁 `fonts/`、程式目錄 `fonts/`（Docker 建置時下載 Noto Serif TC 500/700）註冊；圖庫 `pic-card/`（`PIC_CARD_DIR`）遞迴掃 jpg/png/webp，每分鐘最多重掃一次；挑圖 = `hash32(id|日期) % 張數`。解碼圖快取 8 張、成品 JPEG 快取 80 張。
 - 分享連結 `/?verse=<id>&d=&g=&l=`：`handleVerseShareLink()` 照常回首頁，但 og/twitter 標籤換成這句與 `/api/share-card.jpg?size=og`；前端 `applyVerseLinkFromUrl()` 顯示那句後把參數清掉。
-- 分享面板 `#shareCardOverlay`：桌機三張並排點選，手機底部抽屜 scroll-snap 左右滑；「傳到 LINE」用 `navigator.share({ files })`（電腦改下載），另有存圖片、複製圖片、「複製連結」（`/?verse=<id>…`，貼到 LINE 由 og:image 出橫式預覽卡）。選的版型記在 `mdWebview-share-card-layout`（v4.13.1 起拿掉「只傳圖片／圖片＋連結」切換，不再有 `-mode`）。
+- 分享面板 `#shareCardOverlay`：桌機三張並排點選，兩側 ‹ › 箭頭（`#shareCardPrev`／`#shareCardNext`，v4.18.2）、滑鼠滾輪與左右鍵換上一個／下一個版型（`stepShareLayout()`），手機底部抽屜 scroll-snap 左右滑；「傳到 LINE」用 `navigator.share({ files })`（電腦改下載），另有存圖片、複製圖片、「複製連結」（`/?verse=<id>…`，貼到 LINE 由 og:image 出橫式預覽卡）。選的版型記在 `mdWebview-share-card-layout`（v4.13.1 起拿掉「只傳圖片／圖片＋連結」切換，不再有 `-mode`）。
 
 ### 早安圖 QR 碼（v4.18.0）
 
 - 分享面板「附 QR 碼」開關（`#shareCardQr`，本機 `mdWebview-share-card-qr`，**預設不附**）。打開時直式卡片多一個 QR 小籤，連回原文；og 連結預覽圖永遠不畫（預覽本身就能點）。
 - 直式輸出放大 1.5 倍：`ShareCard.PIXEL_SIZES.portrait = 1620×2025`，版面座標仍是 `SIZES` 的 1080×1350，`draw()` 依畫布寬度 `ctx.scale()`。圖庫的圖最好放大到 2 倍以上（例如 2688×1792）才不糊。
-- QR 小籤與 A 版「吉祥」印同大（版面 64 = 實際 96 px），米色不透明底、深色格子、無字；格子以實際像素整數畫（`drawQrBadge()` 先 `setTransform(1,0,0,1,0,0)`），25×25 格時每格 3 px。位置：A 吉祥印右邊；B、I、J 右下；C 左下；N 右側跨在圖文交界；P 左邊圖條下方；Q 右上角（取代紅色短線）。
+- QR 小籤與 A 版「吉祥」印同大（版面 64 = 實際 96 px），米色不透明底、深色格子、無字；格子以實際像素整數畫（`drawQrBadge()` 先 `setTransform(1,0,0,1,0,0)`），25×25 格時每格 3 px。位置：A 吉祥印右邊；B、I、J 右下；C、P 左下；N 右側跨在圖文交界；Q 右上角（取代紅色短線）。
 - 產生器：`vendor/qrcode/qrcode.js`（qrcode-generator 2.0.4，MIT）。伺服器由 `share-card.js` `require`；瀏覽器只有自己畫（伺服器不能畫）又要附 QR 時才 `loadQrLib()` 動態載入。容錯 M。
 - 網址（`lib/share-qr.js qrUrl()`）：`HTTPS://<主機>/V<經句代號前 7 碼><版型>`、`…/Q<選句代號前 7 碼><版型>`，協定與主機名大寫，整串大寫英數 → QR 英數模式，`mbt.mahabodhi.co` 為 25×25。主機取後台「網站網址」（`siteUrl`），沒設就用當下的網址。
 - 轉址 `handleShareQrRedirect()`：每日經句在合併後的經句清單用代號開頭比對；有經文路徑就在那一篇找行號，沒填就用出處經名找同名的經（`candidateFiles()`，最多 6 篇），結果快取 10 分鐘；找不到轉 `/?verse=<id>`。選句用 `getShareQuoteByPrefix()`，隱藏或不存在回首頁。一律 302、`no-store`。記 `ShareCard` 事件 `qrScan`（後台動作表、日報／週報「掃 QR 進站」）。
