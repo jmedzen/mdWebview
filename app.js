@@ -2870,6 +2870,18 @@
       }
     }
     for (const d of $('shareCardDots').children) d.classList.toggle('on', d.dataset.layout === layout);
+    const L = window.ShareCard ? window.ShareCard.LAYOUTS : [];
+    const i = L.indexOf(layout);
+    const prev = $('shareCardPrev'), next = $('shareCardNext');
+    if (prev) prev.disabled = i <= 0;
+    if (next) next.disabled = i < 0 || i >= L.length - 1;
+  }
+
+  /** 選上一個／下一個版型（鍵盤左右鍵、桌機兩側箭頭）。 */
+  function stepShareLayout(delta) {
+    const L = window.ShareCard.LAYOUTS;
+    const i = L.indexOf(shareRt.layout) + delta;
+    if (i >= 0 && i < L.length) { selectShareLayout(L[i], true); prefetchShareBlob(); }
   }
 
   /** 先把要傳的那張準備好：手機分享要在按下的當下就有檔案。 */
@@ -3092,12 +3104,27 @@
       if (!shareRt.open) return;
       if (e.key === 'Escape') { e.preventDefault(); closeShareCard(); }
       else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.target.closest('input, textarea')) {
-        const L = window.ShareCard.LAYOUTS;
-        const i = L.indexOf(shareRt.layout) + (e.key === 'ArrowRight' ? 1 : -1);
-        if (i >= 0 && i < L.length) { selectShareLayout(L[i], true); prefetchShareBlob(); }
+        stepShareLayout(e.key === 'ArrowRight' ? 1 : -1);
       }
     });
     const slides = $('shareCardSlides');
+    $('shareCardPrev').addEventListener('click', () => stepShareLayout(-1));
+    $('shareCardNext').addEventListener('click', () => stepShareLayout(1));
+    // 桌機滑鼠滾輪：往下滾＝下一個版型，往上＝上一個（累積到一格才換，避免一滾跳好幾張）
+    let wheelAcc = 0, wheelLast = 0, wheelStep = 0;
+    slides.addEventListener('wheel', e => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      const now = Date.now();
+      if (now - wheelLast > 300) wheelAcc = 0;
+      wheelLast = now;
+      wheelAcc += e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+      if (Math.abs(wheelAcc) >= 60 && now - wheelStep > 220) {
+        stepShareLayout(wheelAcc > 0 ? 1 : -1);
+        wheelAcc = 0;
+        wheelStep = now;
+      }
+    }, { passive: false });
     slides.addEventListener('click', e => {
       const sl = e.target.closest('.share-card-slide');
       if (sl) { selectShareLayout(sl.dataset.layout, true); prefetchShareBlob(); }
@@ -3105,6 +3132,8 @@
     // 手機左右滑：停在哪張就選哪張
     let scrollTimer = null;
     slides.addEventListener('scroll', () => {
+      // 只有手機（一次一張）才「停在哪張選哪張」；桌機三張並排，捲到最右時中間那張不是選的那張
+      if (!window.matchMedia('(max-width: 768px)').matches) return;
       clearTimeout(scrollTimer);
       scrollTimer = setTimeout(() => {
         const mid = slides.scrollLeft + slides.clientWidth / 2;

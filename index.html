@@ -841,8 +841,16 @@
           </svg>
         </button>
       </div>
-      <p class="share-card-hint" id="shareCardHint"><span class="only-desktop">點選喜歡的版型</span><span class="only-mobile">左右滑動選版型</span></p>
-      <div class="share-card-slides" id="shareCardSlides" role="radiogroup" aria-label="版型"></div>
+      <p class="share-card-hint" id="shareCardHint"><span class="only-desktop">點選喜歡的版型，按兩側箭頭或滾輪看更多</span><span class="only-mobile">左右滑動選版型</span></p>
+      <div class="share-card-carousel">
+        <button type="button" class="share-card-nav share-card-nav-prev" id="shareCardPrev" title="上一個版型" aria-label="上一個版型">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.28 3.22a.75.75 0 010 1.06L6.56 8l3.72 3.72a.75.75 0 11-1.06 1.06L4.97 8.53a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z"/></svg>
+        </button>
+        <div class="share-card-slides" id="shareCardSlides" role="radiogroup" aria-label="版型"></div>
+        <button type="button" class="share-card-nav share-card-nav-next" id="shareCardNext" title="下一個版型" aria-label="下一個版型">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.72 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.44 8 5.72 4.28a.75.75 0 010-1.06z"/></svg>
+        </button>
+      </div>
       <div class="share-card-dots" id="shareCardDots" aria-hidden="true"></div>
       <div class="share-card-greetings" id="shareCardGreetings" role="radiogroup" aria-label="問候語"></div>
       <label class="share-card-qr-toggle">
