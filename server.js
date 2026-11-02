@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.18.2
+ * @version 4.18.4
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -4353,9 +4353,12 @@ function shareCardSite(req) {
 
 /** 卡片參數（日期、問候、版型、尺寸）整理成合法值。 */
 function shareCardParams(query) {
+  // 連結沒帶日期時用「網站時區」的今天（不用伺服器的 UTC）；沒帶問候時用不分時間的「吉祥」，
+  // 因為這張圖是給不知道在哪個時區的收件人（LINE 預覽的爬蟲）看的。
+  // 瀏覽器端畫卡一定會帶上傳送者自己時區的日期與問候。
   return {
-    date: ShareCard.normalizeDate(query.d) || ShareCard.normalizeDate(new Date().toISOString().slice(0, 10)),
-    greeting: ShareCard.normalizeGreeting(query.g),
+    date: ShareCard.normalizeDate(query.d) || ShareCard.zonedNow(dailyVerseTimezone()).ymd,
+    greeting: ShareCard.GREETINGS.includes(query.g) ? query.g : '吉祥',
     layout: ShareCard.normalizeLayout(query.layout || query.l),
     size: ShareCard.normalizeSize(query.size),
     qr: query.qr === '1'
