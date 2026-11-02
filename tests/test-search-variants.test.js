@@ -353,6 +353,14 @@ describe('字組 4：伺服器 API（臨時 vault 與辭典）', () => {
     assert.equal(on.variants, true);
   });
 
+  test('/api/search-file 也能搜辭典檔（dict: 前綴，辭典頁的頁內搜尋）', async () => {
+    const on = await getJson('/api/search-file', { path: 'dict:測試辭典.md', q: '头发', variants: '1' });
+    assert.ok(on.matches.length >= 1, '头发 應在辭典檔內命中 頭髮');
+    assert.equal(on.path, 'dict:測試辭典.md');
+    const missing = await getJson('/api/search-file', { path: 'dict:不存在.md', q: '头发', variants: '1' });
+    assert.ok(!missing.matches, '不存在的辭典檔回 404');
+  });
+
   test('/api/dict-search 以字組比對（索引前後一致）', async () => {
     const check = async (label) => {
       const on = await getJson('/api/dict-search', { q: '头发', variants: '1' });

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.9.1
+   mdWebview — Application Logic (app.js) v4.10.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -9085,7 +9085,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11049,7 +11049,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11417,7 +11417,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12307,7 +12307,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.10.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -16593,6 +16593,20 @@
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  // 選字彈窗的圖示（線條風格，隨文字色）
+  const SEL_ICON = (d) => `<svg class="sel-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const SEL_ICONS = {
+    copy: SEL_ICON('<rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5a1 1 0 011-1h6.5"/>'),
+    remove: SEL_ICON('<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/>'),
+    dict: SEL_ICON('<path d="M3 2.5h8.5a1 1 0 011 1V13a.5.5 0 01-.5.5H4.5A1.5 1.5 0 013 12V2.5z"/><path d="M3 12a1.5 1.5 0 011.5-1.5h8"/><path d="M5.5 5h4.5M5.5 7.3h3"/>'),
+    search: SEL_ICON('<circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2l3.3 3.3"/>'),
+    share: SEL_ICON('<path d="M8 10V2.5M5 5.3L8 2.3l3 3"/><path d="M4.5 7.5H3.5v6h9v-6h-1"/>'),
+    more: SEL_ICON('<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>'),
+    cite: SEL_ICON('<path d="M3 4h10M3 7h10M3 10h6"/><path d="M11 10.5c1 0 1.8.6 1.8 1.6S12 14 11 14"/>'),
+    link: SEL_ICON('<path d="M7 9a2.5 2.5 0 003.5 0l2-2A2.5 2.5 0 009 3.5l-.8.8"/><path d="M9 7a2.5 2.5 0 00-3.5 0l-2 2A2.5 2.5 0 007 12.5l.8-.8"/>'),
+    find: SEL_ICON('<path d="M3.5 2.5h6l3 3v8h-9z"/><circle cx="7.5" cy="9" r="2"/><path d="M9 10.5l1.5 1.5"/>'),
+  };
+
   function setupSelectionPopup() {
     let popup = $('selectionSharePopup');
     if (!popup) {
@@ -16600,41 +16614,46 @@
       popup.id = 'selectionSharePopup';
       popup.className = 'selection-share-popup';
       popup.innerHTML = `
-        <div class="hl-swatches" role="group" aria-label="劃重點">
-          <button type="button" class="hl-swatch" data-hl-color="r" title="朱色劃線" aria-label="朱色劃線"><i></i></button>
-          <button type="button" class="hl-swatch" data-hl-color="y" title="黃色劃線" aria-label="黃色劃線"><i></i></button>
-          <button type="button" class="hl-swatch" data-hl-color="g" title="綠色劃線" aria-label="綠色劃線"><i></i></button>
-          <button type="button" class="hl-swatch" data-hl-color="b" title="藍色劃線" aria-label="藍色劃線"><i></i></button>
+        <div class="sel-hl">
+          <div class="hl-swatches" role="group" aria-label="劃重點">
+            <button type="button" class="hl-swatch" data-hl-color="r" title="朱色劃線" aria-label="朱色劃線"><i></i></button>
+            <button type="button" class="hl-swatch" data-hl-color="y" title="黃色劃線" aria-label="黃色劃線"><i></i></button>
+            <button type="button" class="hl-swatch" data-hl-color="g" title="綠色劃線" aria-label="綠色劃線"><i></i></button>
+            <button type="button" class="hl-swatch" data-hl-color="b" title="藍色劃線" aria-label="藍色劃線"><i></i></button>
+          </div>
+          <span class="sel-hl-label" aria-hidden="true">劃線</span>
         </div>
         <div class="popup-divider hl-divider"></div>
-        <button type="button" id="selectionHlCopyBtn" class="hl-edit-only" title="複製劃線文字">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 10.5V3.5a1 1 0 011-1h6.5"/></svg>
-          <span>複製</span>
-        </button>
-        <button type="button" id="selectionHlRemoveBtn" class="hl-edit-only" title="取消這處劃線">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>
-          <span>取消劃線</span>
-        </button>
-        <button id="selectionSearchBtn" title="在全文庫中搜尋此文字">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
-          </svg>
-          <span>全文庫搜尋</span>
-        </button>
-        <div class="popup-divider"></div>
-        <button id="selectionDictBtn" title="在辭典中查詢此詞條">
-          <svg width="13" height="13" viewBox="0 0 512 512" fill="currentColor">
-            <path d="M448 360V24c0-13.3-10.7-24-24-24H96C43 0 0 43 0 96v320c0 53 43 96 96 96h328c13.3 0 24-10.7 24-24v-16c0-7.5-3.5-14.3-8.9-18.7-4.2-15.4-4.2-59.3 0-74.7 5.4-4.3 8.9-11.1 8.9-18.6zM128 134c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20zm0 64c0-3.3 2.7-6 6-6h212c3.3 0 6 2.7 6 6v20c0 3.3-2.7 6-6 6H134c-3.3 0-6-2.7-6-6v-20z"/>
-          </svg>
-          <span>辭典查詢</span>
-        </button>
-        <div class="popup-divider"></div>
-        <button id="selectionShareBtn" title="分享此段落與行數">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M11 2.5a2.5 2.5 0 11.603 1.628l-6.718 3.12a2.499 2.499 0 010 1.504l6.718 3.12a2.5 2.5 0 11-.488.928L4.397 9.77a2.5 2.5 0 110-3.54l6.718-3.12A2.499 2.499 0 0111 2.5z"/>
-          </svg>
-          <span id="selectionShareLabel">分享指定行</span>
-        </button>
+        <div class="sel-actions">
+          <button type="button" id="selectionHlCopyBtn" class="hl-edit-only" title="複製劃線文字">
+            ${SEL_ICONS.copy}<span>複製</span>
+          </button>
+          <button type="button" id="selectionHlRemoveBtn" class="hl-edit-only" title="取消這處劃線">
+            ${SEL_ICONS.remove}<span>取消劃線</span>
+          </button>
+          <button type="button" id="selectionCopyBtn" class="sel-main" title="複製選取的文字">
+            ${SEL_ICONS.copy}<span>複製</span>
+          </button>
+          <button type="button" id="selectionDictBtn" class="sel-main" title="在辭典中查詢此詞條">
+            ${SEL_ICONS.dict}<span>辭典</span>
+          </button>
+          <button type="button" id="selectionSearchBtn" class="sel-main" title="在全文庫中搜尋此文字">
+            ${SEL_ICONS.search}<span>搜尋</span>
+          </button>
+          <button type="button" id="selectionShareBtn" class="sel-main" title="分享這段經文與出處">
+            ${SEL_ICONS.share}<span id="selectionShareLabel">分享</span>
+          </button>
+          <div class="popup-divider sel-more-divider"></div>
+          <button type="button" id="selectionMoreBtn" class="sel-main" title="更多動作" aria-haspopup="menu" aria-expanded="false" aria-controls="selectionMoreMenu">
+            ${SEL_ICONS.more}<span>更多</span>
+          </button>
+        </div>
+        <div class="sel-more-menu" id="selectionMoreMenu" role="menu" hidden>
+          <button type="button" role="menuitem" id="selectionCiteBtn">${SEL_ICONS.cite}<span>複製（附出處）</span></button>
+          <button type="button" role="menuitem" id="selectionLinkBtn">${SEL_ICONS.link}<span id="selectionLinkLabel">複製本行連結</span></button>
+          <div class="sel-more-sep"></div>
+          <button type="button" role="menuitem" id="selectionFindBtn">${SEL_ICONS.find}<span>在本篇中尋找</span></button>
+        </div>
       `;
       document.body.appendChild(popup);
     }
@@ -16642,7 +16661,9 @@
     const searchBtn = $('selectionSearchBtn');
     const dictBtn = $('selectionDictBtn');
     const shareBtn = $('selectionShareBtn');
-    const shareLabel = $('selectionShareLabel');
+    const moreBtn = $('selectionMoreBtn');
+    const moreMenu = $('selectionMoreMenu');
+    const linkLabel = $('selectionLinkLabel');
     let currentShareUrl = '';
     let currentRange = null;     // 選取範圍（劃線用）
     let editHighlightId = null;  // 點已劃線處叫出彈窗時，那一處的 id
@@ -16650,6 +16671,7 @@
     // 簡體顯示時盡量還原成繁體原文，搜尋框與網址顯示的就是經文原字；
     // 無法還原時保留畫面上的簡體字，由字組比對涵蓋。
     let currentSelectedText = '';
+    let currentDisplayText = '';  // 畫面上看到的字（複製用）
 
     // 觸發來源：桌機滑鼠放開走 mouseup；手機長按選字、拖曳選取把手時頁面
     // 收不到可靠的 mouseup（iOS 拖把手連 touch 事件都沒有），改由 selectionchange
@@ -16662,7 +16684,29 @@
     let lastInputWasTouch = false;   // 觸控時彈窗放在選取下方，避開系統選單
     let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
 
-    const hidePopup = () => popup.classList.remove('visible');
+    function setMoreOpen(open) {
+      moreMenu.hidden = !open;
+      moreBtn.classList.toggle('active', open);
+      moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (!open) return;
+      // 「更多」預設往上展開（桌機）／往下展開（觸控），空間不夠就換邊
+      moreMenu.classList.remove('up', 'down');
+      const pr = popup.getBoundingClientRect();
+      const mh = moreMenu.offsetHeight;
+      const vv = window.visualViewport;
+      const viewTop = vv ? vv.offsetTop : 0;
+      const viewBottom = viewTop + (vv ? vv.height : window.innerHeight);
+      const roomAbove = pr.top - viewTop - 8;
+      const roomBelow = viewBottom - pr.bottom - 8;
+      let up = !lastInputWasTouch;
+      if (up && roomAbove < mh && roomBelow > roomAbove) up = false;
+      if (!up && roomBelow < mh && roomAbove > roomBelow) up = true;
+      moreMenu.classList.add(up ? 'up' : 'down');
+    }
+    const hidePopup = () => {
+      popup.classList.remove('visible');
+      setMoreOpen(false);
+    };
 
     // 彈窗放在 range 旁：觸控放下方（避開系統選單），滑鼠放上方
     function placePopupNear(range) {
@@ -16710,6 +16754,7 @@
 
     function setPopupMode(editId, color) {
       editHighlightId = editId;
+      setMoreOpen(false);
       popup.classList.toggle('hl-edit', !!editId);
       popup.querySelectorAll('.hl-swatch').forEach(b => {
         const on = !!editId && b.getAttribute('data-hl-color') === color;
@@ -16760,6 +16805,7 @@
       }
 
       currentSelectedText = text;
+      currentDisplayText = text;
       const ds = window.mdDisplayScript;
       if (isHansDisplay() && ds && ds.isActive()) {
         const orig = ds.originalTextOfRange(range);
@@ -16779,9 +16825,7 @@
       const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
       currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
 
-      // Reset label
-      shareLabel.textContent = `分享第 ${lineNum} 行`;
-      shareBtn.classList.remove('copied');
+      linkLabel.textContent = `複製第 ${lineNum} 行連結`;
     }
 
     document.addEventListener('pointerdown', (e) => {
@@ -16790,8 +16834,10 @@
       mouseSelecting = e.pointerType === 'mouse' && e.button === 0;
     }, true);
 
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', (e) => {
       mouseSelecting = false;
+      // 點彈窗裡的按鈕（例如「更多」）不重新計算選取，否則選單會被收起
+      if (popup.contains(e.target)) return;
       // Small timeout to let selection clear/update
       scheduleSelectionCheck(lastInputWasTouch ? SELECTION_TOUCH_DELAY : SELECTION_MOUSE_DELAY);
     });
@@ -16813,7 +16859,7 @@
       }
       if (mouseSelecting) return;
       // 選取仍在變動（拖曳把手中）：先藏起來，停手後再依新位置顯示
-      if (!shareBtn.classList.contains('copied')) hidePopup();
+      hidePopup();
       scheduleSelectionCheck(SELECTION_CHANGE_DELAY);
     });
 
@@ -16838,7 +16884,7 @@
           return;
         }
         const range = currentRange;
-        popup.classList.remove('visible');
+        hidePopup();
         if (!range) return;
         if (createHighlightFromRange(range, color)) {
           const sel = window.getSelection();
@@ -16849,18 +16895,18 @@
     });
     $('selectionHlCopyBtn').addEventListener('click', () => {
       if (editHighlightId) copyHighlightText(editHighlightId);
-      popup.classList.remove('visible');
+      hidePopup();
     });
     $('selectionHlRemoveBtn').addEventListener('click', () => {
       if (editHighlightId) removeHighlight(editHighlightId);
       setPopupMode(null);
-      popup.classList.remove('visible');
+      hidePopup();
     });
 
     // 1. 全文庫搜尋按鈕
     searchBtn.addEventListener('click', () => {
       if (!currentSelectedText) return;
-      popup.classList.remove('visible');
+      hidePopup();
 
       let rawSelected = (currentSelectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
@@ -16873,7 +16919,7 @@
     dictBtn.addEventListener('click', async () => {
       if (!currentSelectedText) return;
       const selectedText = currentSelectedText; // capture before popup hides
-      popup.classList.remove('visible');
+      hidePopup();
 
       // Enable dictionary and open right sidebar
       if (!state.dictionaryEnabled) {
@@ -16895,44 +16941,107 @@
       runDictSearch(rawSelected);
     });
 
-    // 3. 分享指定行按鈕
+    // 3. 複製／附出處複製／分享／本行連結／本篇尋找
+    const stripEdgePunct = (t) => (t || '').trim()
+      .replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
+
+    function writeClipboard(text, okMsg) {
+      const ok = () => showToast(okMsg, 'success');
+      const fail = () => showToast('❌ 複製失敗', 'error');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok).catch(() => { if (fallbackCopy(text)) ok(); else fail(); });
+      } else if (fallbackCopy(text)) ok();
+      else fail();
+    }
+
+    // 出處：「經文」——T0235《金剛般若波羅蜜經》第 13 行
+    function citationParts() {
+      let name = (state.currentFile || '').split('/').pop().replace(/\.md$/i, '');
+      const ds = window.mdDisplayScript;
+      if (name && isHansDisplay() && ds && ds.isLoaded()) name = ds.toContent(name);
+      if (name && !/[《〈]/.test(name)) name = `《${name}》`;
+      const quote = `「${(currentDisplayText || '').trim()}」`;
+      const source = `——${name}${currentLineNum ? `第 ${currentLineNum} 行` : ''}`;
+      return { name, quote, source, url: decodeURIComponent(currentShareUrl || '') };
+    }
+    const citationText = () => {
+      const c = citationParts();
+      return [c.quote, c.source, c.url].filter(Boolean).join('\n');
+    };
+
+    $('selectionCopyBtn').addEventListener('click', () => {
+      if (!currentDisplayText) return;
+      const text = currentDisplayText;
+      hidePopup();
+      writeClipboard(text, '已複製');
+    });
+
+    $('selectionCiteBtn').addEventListener('click', () => {
+      if (!currentDisplayText) return;
+      const text = citationText();
+      hidePopup();
+      writeClipboard(text, '已複製經文與出處');
+    });
+
+    // 分享：有系統分享面板（手機、Safari 等）就用它；沒有就改成複製經文與出處
     shareBtn.addEventListener('click', () => {
+      if (!currentDisplayText) return;
+      const c = citationParts();
+      const text = citationText();
+      hidePopup();
+      if (navigator.share) {
+        navigator.share({ title: c.name, text: `${c.quote}\n${c.source}`, url: c.url }).catch((err) => {
+          if (err && err.name === 'AbortError') return;
+          writeClipboard(text, '已複製經文與出處');
+        });
+        return;
+      }
+      writeClipboard(text, '已複製經文與出處');
+    });
+
+    $('selectionLinkBtn').addEventListener('click', () => {
       if (!currentShareUrl) return;
       const rawUrl = decodeURIComponent(currentShareUrl);
       // Capture now: the async clipboard path below runs after the user may have
       // selected another line, and the toast must name the line actually copied.
       const shareLineNum = currentLineNum;
+      hidePopup();
 
       // Update address bar to unencoded Chinese URL with line number
-      if (state.currentFile && currentLineNum) {
+      if (state.currentFile && shareLineNum) {
         const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-        const searchStr = `?file=${cleanFile}&line=${currentLineNum}`;
+        const searchStr = `?file=${cleanFile}&line=${shareLineNum}`;
         history.pushState(null, '', window.location.pathname + searchStr);
-        scrollToLine(currentLineNum);
+        scrollToLine(shareLineNum);
       }
+      writeClipboard(rawUrl, `✓ 已複製第 ${shareLineNum} 行分享連結`);
+    });
 
-      const doCopySuccess = () => {
-        shareLabel.textContent = '✓ 已複製';
-        shareBtn.classList.add('copied');
-        showToast(`✓ 已複製第 ${shareLineNum} 行分享連結`, 'success');
-        setTimeout(() => {
-          popup.classList.remove('visible');
-        }, 1500);
-      };
+    $('selectionFindBtn').addEventListener('click', () => {
+      const q = stripEdgePunct(currentSelectedText);
+      if (!q) return;
+      hidePopup();
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+      openPageSearch();
+      const input = $('pageSearchInput');
+      if (input) input.value = q;
+      doPageSearch(q);
+    });
 
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(rawUrl).then(doCopySuccess).catch(() => {
-          if (fallbackCopy(rawUrl)) doCopySuccess(); else showToast('❌ 複製失敗', 'error');
-        });
-      } else {
-        if (fallbackCopy(rawUrl)) doCopySuccess(); else showToast('❌ 複製失敗', 'error');
-      }
+    moreBtn.addEventListener('click', () => {
+      popupTouchGuardUntil = Date.now() + 800;
+      setMoreOpen(moreMenu.hidden);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && popup.classList.contains('visible')) hidePopup();
     });
 
     // Close popup on mousedown anywhere else
     document.addEventListener('mousedown', (e) => {
       if (!popup.contains(e.target)) {
-        popup.classList.remove('visible');
+        hidePopup();
       }
     });
   }
