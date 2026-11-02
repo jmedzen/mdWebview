@@ -21,6 +21,7 @@ services:
     volumes:
       # Mount local ./data folder for config persistence
       # （也存放使用者帳號資料庫 users.db 與每日備份 backups/，請一併備份這個資料夾）
+      # 每日經文的經句資料夾也在這裡：./data/sutra-quote/*.md（可用 SUTRA_QUOTE_DIR 改位置）
       - ./data:/data
       # Mount local ./logs folder for 90-day log persistence
       - ./logs:/data/logs

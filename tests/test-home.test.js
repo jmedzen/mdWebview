@@ -238,7 +238,8 @@ describe('首頁：沒有彈窗，公告在首頁一行', () => {
   });
 
   test('/api/suggest-list 帶每日經文；後台可存經文清單', () => {
-    assert.match(serverJs, /verses: home\.resolveVerses\(/);
+    assert.match(serverJs, /home\.resolveVerses\(sl\.dailyVerses\)/);
+    assert.match(serverJs, /verse: dailyVerse\.verse,/);
     assert.match(serverJs, /dailyVerses: sl\.dailyVerses !== undefined \? home\.parseVerses\(sl\.dailyVerses\)/);
     assert.ok(indexHtml.includes('id="suggestDailyVerses"'));
   });

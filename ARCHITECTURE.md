@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.10.1 | 最後更新：2026-11
+> 版本：v4.11.0 | 最後更新：2026-11
 
 ---
 
@@ -468,7 +468,7 @@ sequenceDiagram
 v4.5.0 起首頁不再有「每日訊息」彈窗，公告與推薦都直接放在首頁上，由上而下：
 
 1. **問候與日期**：依當地時間「早安／午安／晚安」，日期用中文數字，後面接目前節氣（`currentSolarTerm()`，21 世紀通式，可能差一天）。
-2. **蓮花、站名與每日經文**：經句依讀者當地日期輪替（`pickDailyVerse()`，同一天固定）。經句有路徑就開該經，沒有就用經句在全文搜尋。清單在後台「推薦清單 → 每日經文」設定（`settings.suggestList.dailyVerses`，一行一句：`經句｜出處｜路徑`）；從未設定時用 `lib/home.js` 的 `DEFAULT_DAILY_VERSES`，清空就不顯示經句。
+2. **蓮花、站名與每日經文**：經句有兩個來源，`collectDailyVerses()`（server.js）依序合併並以 `home.verseKey()`（去標點空白）去重：① 後台「推薦清單 → 每日經文」文字框（`settings.suggestList.dailyVerses`，一行一句：`經句｜出處｜路徑`；從未設定時用 `lib/home.js` 的 `DEFAULT_DAILY_VERSES`，清空就是沒有）；② 經句資料夾（`lib/sutra-quotes.js`，預設 `config.json` 旁的 `sutra-quote/`，可用環境變數 `SUTRA_QUOTE_DIR` 改），遞迴讀所有 `.md`，含全形「｜」的行才算（`home.parseQuoteMarkdown()`，半形 `|` 是表格不算），每 10 秒最多重掃一次、只重新解析 mtime/大小變了的檔。v4.11.0 起改由伺服器挑句：每 `settings.suggestList.dailyVerseRotateHours`（預設 6，1–168）小時換一句，時段從網站時區（後台時區；「自動」時用報表信時區，預設 Asia/Taipei）午夜起算（`home.verseSlot()`），用與清單長度互質的步長跳著走（`verseIndexForSlot()`），同一時段所有讀者同一句。`/api/suggest-list` 回 `verse`、`verseNextAt`，前端到時重抓（`scheduleHomeVerseRefresh()`）。經句有路徑就開該經，沒有就用經句在全文搜尋。兩個來源都沒有經句就不顯示。後台「每日經文」區塊用 `GET /api/admin/daily-verses` 顯示各來源筆數與狀態燈。
 3. **首頁搜尋（v4.7.0）**：經句下方一個大搜尋框。打字即時比對經名（`homeTitleMatches()`，從 `/api/tree` 攤平，去掉書名號與空白，多詞都要出現，經名開頭相符的排前面），最多六筆；最後一列與 Enter 是全文搜尋（`activateSearchPanel()`）。首頁按「/」直接聚焦。下面兩顆按鈕：「隨手翻一卷」（隨機開一部）、「瀏覽全部經目」（打開左側檔案瀏覽器）。
 4. **我的書架（v4.7.0）**：`recentFiles` 前八篇（略過辭典條目）立在一塊木板上：書脊直書經名（`bookSlipTitle()` 取書名號內經名），書衣是傳統顏色（磁青、栗殼、黛綠、赭石、墨灰，各混兩成主題色），高矮厚薄依路徑固定（`bookTone()`／`bookSize()`），最後一本斜靠；已讀比例從下往上加深，最近讀的那本插著絲帶。指到（或 Tab 到）哪本就抽出來，右側說明（`renderHomeShelfInfo()`）跟著換；點書脊直接打開。手機上說明在上、書架在下。沒有紀錄時整塊隱藏。
 5. **公告**（v4.8.2 改版）：圓角卡片、左側主題色細邊；標題列「公告」＋更新日期＋✕。公告文字一行一則，行首手打的「* 」「- 」「• 」會去掉，改由樣式畫小圓點；只有一則時當一般段落。預設先列幾則由後台「首頁公告 → 預設顯示則數」決定（`settings.announcementCollapsedCount`，預設 3，0 = 全部顯示；改這個不會更新 `announcementUpdatedAt`，已收起的讀者不會被重新打擾）；超過的項目被標上 `is-extra`，收合時由 CSS 隱藏，並出現「展開全部 N 則」。按 ✕ 收起後，同一則公告不再出現，直到公告文字或更新時間改變。
@@ -477,7 +477,7 @@ v4.5.0 起首頁不再有「每日訊息」彈窗，公告與推薦都直接放�
 ```mermaid
 flowchart TD
     Boot["頁面載入 / 回到首頁\n→ renderHome()"] --> Fetch["fetchSuggestList()\nGET /api/suggest-list"]
-    Fetch --> Data["items（推薦、熱門、每日一詞＋excerpt）\nverses（每日經文）\nannouncement*"]
+    Fetch --> Data["items（推薦、熱門、每日一詞＋excerpt）\nverse／verseNextAt（這個時段的經文）\nannouncement*"]
     Data --> Render["renderHome()"]
     Render --> Notice{"enableAnnouncement 且有文字，\n且未被收起？"}
     Notice -- "是" --> ShowNotice["顯示公告（預設前三則）"]
@@ -758,6 +758,7 @@ flowchart TD
 | `/api/admin/logout` | POST | Session 註銷 (`lib/auth.js`) | ✅ | 登出並使 Token 失效 |
 | `/api/admin/status` | GET | 狀態偵測 | ❌ | 檢查系統是否已初始化及管理員認證狀態；已認證時另含 `sectionIndexCache`（章節索引三層快取的 `lruHit`/`mirrorHit`/`build`/`evictions`/`hitRatePct` 統計） |
 | `/api/admin/settings` | GET | 讀取設定 (`lib/config.js`) | ✅ | 取得當前伺服器 config.settings |
+| `/api/admin/daily-verses` | GET | `handleAdminDailyVerses()` | ✅ | 每日經文兩個來源（文字框、經句資料夾）的筆數、資料夾路徑、目前這句與下次換句時間 |
 | `/api/admin/settings` | POST | 儲存設定 (`lib/config.js`) | ✅ | 更新系統設定、目錄路徑與 SEO 參數 |
 | `/api/admin/logs` | GET | 系統日誌 (`lib/logger.js`) | ✅ | 讀取 600 筆環狀記憶體日誌 |
 | `/api/admin/analytics` | GET | 報表查詢 (`lib/analytics.js`) | ✅ | 依時區聚合讀取訪問量、PV/UV、熱門排行 |
@@ -989,7 +990,8 @@ flowchart TD
 | `settings.suggestList.dailyWordCount` | `number` | `3` | — | 每日法語詞條顯示數量 |
 | `settings.suggestList.dailyWordDicts` | `string[]` | `[]` | — | 每日法語來源辭典清單 |
 | `settings.suggestList.dailyWordRotateHour` | `number` | `12` | — | 每日法語輪換時間（小時，0-23） |
-| `settings.suggestList.dailyVerses` | `{text,source,path}[]` | （未設定＝預設七句） | — | 首頁每日經文清單；空陣列＝不顯示經句 |
+| `settings.suggestList.dailyVerses` | `{text,source,path}[]` | （未設定＝預設七句） | — | 首頁每日經文清單；空陣列＝這個來源沒有經句（另有 sutra-quote/ 資料夾來源） |
+| `settings.suggestList.dailyVerseRotateHours` | number | `6` | 1–168 | 每日經文每幾小時換一句（從網站時區午夜起算） |
 | `settings.seoEnableSearchBox` | `boolean` | `false` | `SEO_ENABLE_SEARCH_BOX` | 是否於**首頁**注入 `WebSite` + `SearchAction` JSON-LD（詳見 §9.4）。單機模式一律不輸出 |
 | `settings.seoHomepageSummary` | `string` | `''` | `SEO_HOMEPAGE_SUMMARY` | 首頁爬蟲導言（爬蟲 SSR 用；空 = 退回 `seoSiteDescription`） |
 | `admin.username` | `string` | — | — | 管理員帳號 |
@@ -1012,7 +1014,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.10.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.11.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
