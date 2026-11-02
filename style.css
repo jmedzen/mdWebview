@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.16.2
+   mdWebview — Style System (style.css) v4.16.3
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11667,3 +11667,20 @@ a.small-btn {
   .share-card-ic { width: 48px; height: 48px; }
 }
 @keyframes shareCardUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 手機「存圖片」：不支援系統分享時，顯示大圖讓使用者長按存到相簿 */
+.share-save-overlay {
+  position: fixed; inset: 0; z-index: 100000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: 18px 16px; background: rgba(0, 0, 0, 0.86);
+}
+.share-save-overlay img {
+  max-width: 100%; max-height: calc(100dvh - 190px);
+  border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  -webkit-touch-callout: default; user-select: auto;
+}
+.share-save-tip { margin: 0; color: #f3ead6; font-size: 0.95rem; text-align: center; letter-spacing: 0.04em; }
+.share-save-close {
+  min-height: 44px; padding: 0 28px; border-radius: 22px; border: 1px solid rgba(243, 234, 214, 0.6);
+  background: transparent; color: #f3ead6; font-size: 1rem; cursor: pointer;
+}
