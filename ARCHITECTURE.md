@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.16.3 | 最後更新：2026-11
+> 版本：v4.16.4 | 最後更新：2026-11
 
 ---
 
@@ -1022,7 +1022,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.16.3'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.16.4'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1560,7 +1560,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 前端 `sendShareEvent()` → `POST /api/share-card/event`：`open` 打開面板、`line`（系統分享選單成功）、`lineFile`（電腦版改存檔）、`save`、`copyImage`、`copyLink`、`shuffle` 換一句、`error`（`stage` = preview／line／save／copyImage／shuffle）。`og`、`visit` 前端不能送（400）。背景圖由伺服器依經句＋日期 `pickPic()` 算，不收前端的值。
 - 伺服器自記：`visit` = 有人打開 `/?verse=` 分享連結（爬蟲照 `isBotEntry` 排除）；`og` = `/api/share-card.jpg?size=og` 被抓（多半是 LINE／FB 預覽機器人：照算早安圖，但不算請求數與訪客 IP，`isShareServerEntry()`）；`error` stage render／meta／verse。面板內直式預覽不記（每次打開面板都會自動畫 5 張）。舊的 ShareCard ERROR 日誌（沒有 share）算一次 render 失敗。
 - 聚合：每筆事件換成鍵 `ev:<事件>`；分享出去的動作（line、lineFile、save、copyImage、copyLink）另加 `layout:`、`verse:`、`pic:`；失敗加 `err:<stage>`。存在 `analytics-aggregates.json` 每日摘要與 lifetime 的 `share` 映射（舊檔沒有也能正規化，不需升 `ANALYTICS_STORE_VERSION`），歸檔舊日誌時一樣以單日最大值冪等合併。
-- 趨勢圖（v4.16.3）：`shareCard.trend` 與 `dailyTrend` 同格（1d = 小時，其餘 = 日；7 天以前的日子用每日摘要，以 UTC 日計），每格 open／sends／visit／og 與各分享方式；`shareCard.hours` = 原始日誌（最多 7 天）依時區分 0–23 時的 open／sends（allTime 為 null）。後台 `buildShareChartSvg()` 畫三張主題色 SVG：打開／分享出去／進站折線、幾點打開與分享長條、分享方式堆疊長條。報表信 `chart id = share`：日報 = 昨天 24 小時長條，週報 = 7 天折線；這段期間沒有早安圖資料就不畫、不附圖。
+- 趨勢圖（v4.16.4）：`shareCard.trend` 與 `dailyTrend` 同格（1d = 小時，其餘 = 日；7 天以前的日子用每日摘要，以 UTC 日計），每格 open／sends／visit／og 與各分享方式；`shareCard.hours` = 原始日誌（最多 7 天）依時區分 0–23 時的 open／sends（allTime 為 null）。後台 `buildShareChartSvg()` 畫三張主題色 SVG：打開／分享出去／進站折線、幾點打開與分享長條、分享方式堆疊長條。報表信 `chart id = share`：日報 = 昨天 24 小時長條，週報 = 7 天折線；這段期間沒有早安圖資料就不畫、不附圖。
 - 顯示：`/api/admin/analytics` 多一個 `shareCard` 摘要（events、sends、sendRate = 分享出去／打開面板、layouts、verses 附經文、pics、errors）；後台流量統計「🌅 早安圖分享」區塊；CSV 匯出 `[早安圖分享]`；日報／週報「🌅 早安圖」（與前期比較、版型、經句與背景圖 Top 5）。
 
 ### 每日／每週報表信（v4.3.0）

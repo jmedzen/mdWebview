@@ -176,13 +176,13 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /\/\?verse=\$\{encodeURIComponent\(v\.id\)\}/);
   });
 
-  test('手機「存圖片」：先叫系統分享選單（可存進相簿），不支援就顯示大圖給人長按；電腦版仍是下載', () => {
+  test('手機「存圖片」顯示大圖讓人長按存相簿（和「傳到 LINE」的分享選單不同）；電腦版仍是下載', () => {
     assert.match(appJs, /function isPhoneOrTablet\(\)/);
     assert.match(appJs, /function showSaveImageOverlay\(blob\)/);
     const fn = appJs.slice(appJs.indexOf('async function saveShareImage()'), appJs.indexOf('async function copyShareImage()'));
     assert.match(fn, /isPhoneOrTablet\(\)/);
-    assert.match(fn, /navigator\.share\(\{ files: \[file\] \}\)/);
     assert.match(fn, /showSaveImageOverlay\(blob\)/);
+    assert.doesNotMatch(fn, /navigator\.share/, '存圖片不再叫分享選單，避免和傳到 LINE 一樣');
     assert.match(fn, /downloadBlob\(blob, shareCardFileName\(\)\)/);
   });
 
