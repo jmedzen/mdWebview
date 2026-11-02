@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.8
+   mdWebview — Application Logic (app.js) v4.18.9
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1842,6 +1842,17 @@
       footerEl.style.display = 'none';
     }
   }
+  /** 首頁捲回最上方（#content 是閱讀器與首頁共用的捲動容器）。 */
+  function resetHomeScroll() {
+    const content = $('content');
+    if (!content) return;
+    content.scrollTop = 0;
+    // 部分瀏覽器（iOS Safari）在 display 切換的同一幀寫入會被版面重算蓋掉，下一幀再補一次。
+    requestAnimationFrame(() => {
+      if (state.currentFile === null && content.scrollTop !== 0) content.scrollTop = 0;
+    });
+  }
+
   // ── Go Home: close reader, return to welcome screen ────────
   function goHome(clearUrl = true) {
     // Invalidate every pending open, including operations that cannot be aborted
@@ -1876,6 +1887,11 @@
 
     // 「繼續閱讀」與問候語要反映剛剛讀到哪裡、現在幾點
     renderHome();
+
+    // 首頁與閱讀器共用同一個捲動容器 #content。剛讀完的經文捲到多深，
+    // scrollTop 就原樣留到首頁，畫面會停在中段（常是公告那一區）。
+    // 回首頁一律從最上方的每日經文開始。
+    resetHomeScroll();
 
     // 回到首頁是唯一適合談安裝的時機（閱讀中打擾最不可取）。每次回首頁
     // 重新評估：使用者可能剛讀完第二篇，正好跨過門檻。
@@ -2727,7 +2743,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.8';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.18.9';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -9861,7 +9877,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11828,7 +11844,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12196,7 +12212,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13086,7 +13102,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
