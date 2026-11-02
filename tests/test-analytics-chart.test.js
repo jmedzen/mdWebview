@@ -31,7 +31,11 @@ function cssRuleBlock(selector) {
   return STYLE_CSS.slice(idx, end + 1);
 }
 
-const CHART_SRC = extractFunction(APP_JS, 'renderAnalyticsTrendChart');
+// 互動與畫法已抽成共用元件 renderInteractiveChart（數據分析所有圖表共用）；
+// renderAnalyticsTrendChart 只負責把 dailyTrend 正規化後交給它。
+const CHART_SRC = extractFunction(APP_JS, 'renderInteractiveChart');
+const TREND_SRC = extractFunction(APP_JS, 'renderAnalyticsTrendChart');
+const SHARE_SRC = extractFunction(APP_JS, 'renderShareCharts');
 const NICE_SCALE_SRC = extractFunction(APP_JS, 'computeNiceScale');
 const MONOTONE_SRC = extractFunction(APP_JS, 'monotonePath');
 
@@ -117,7 +121,7 @@ describe('後台流量趨勢圖 — 整片垂直感應區（滑鼠更容易觸�
   test('感應區必須是最後一個圖形，才能蓋在折線與資料點之上', () => {
     const hitIdx = CHART_SRC.indexOf('chart-hit-area');
     const lastDotIdx = CHART_SRC.indexOf('${dots}');
-    const lastFocusIdx = CHART_SRC.indexOf('trend-focus-ip');
+    const lastFocusIdx = CHART_SRC.indexOf('${focus}');
     assert.ok(hitIdx > lastDotIdx, '感應區應排在資料點之後');
     assert.ok(hitIdx > lastFocusIdx, '感應區應排在聚焦點之後');
   });
@@ -151,8 +155,7 @@ describe('後台流量趨勢圖 — 整片垂直感應區（滑鼠更容易觸�
 
   test('應有垂直游標輔助線與聚焦點', () => {
     assert.match(CHART_SRC, /class="chart-cursor-line"/, '應渲染 .chart-cursor-line');
-    assert.match(CHART_SRC, /class="trend-focus trend-focus-view"/, '應有主線聚焦點');
-    assert.match(CHART_SRC, /class="trend-focus trend-focus-ip"/, '應有訪客線聚焦點');
+    assert.match(CHART_SRC, /class="trend-focus ichart-focus ichart-tone-\$\{s\.tone\}"/, '每條折線都應有聚焦點');
   });
 
   test('CSS 應為感應區設定 crosshair 游標', () => {
@@ -163,8 +166,11 @@ describe('後台流量趨勢圖 — 整片垂直感應區（滑鼠更容易觸�
 
 describe('後台流量趨勢圖 — 視覺樣式', () => {
   test('顏色應走主題變數，而非寫死色碼', () => {
-    assert.match(cssRuleBlock('.trend-line-views'), /stroke:\s*var\(--accent\)/,
-      '主線顏色應跟隨主題 accent');
+    assert.match(cssRuleBlock('.ichart-tone-accent'), /color:\s*var\(--accent\)/,
+      '主色系列應跟隨主題 accent');
+    assert.match(cssRuleBlock('.ichart-line'), /stroke:\s*currentColor/,
+      '折線顏色應取自系列 tone');
+    assert.match(TREND_SRC, /tone: 'accent', area: true/, '點閱數為主線（accent + 面積）');
     assert.match(cssRuleBlock('.trend-grid-line'), /stroke:\s*var\(--border-subtle\)/,
       '格線顏色應跟隨主題');
     assert.match(cssRuleBlock('.trend-axis-label'), /fill:\s*var\(--text-muted\)/,
@@ -188,8 +194,9 @@ describe('後台流量趨勢圖 — 視覺樣式', () => {
   });
 
   test('獨立訪客線應為虛線以便與主線區分', () => {
-    assert.match(cssRuleBlock('.trend-line-ips'), /stroke-dasharray:\s*\d/,
-      '訪客線應使用虛線');
+    assert.match(cssRuleBlock('.ichart-line.is-dashed'), /stroke-dasharray:\s*\d/,
+      '虛線系列應使用虛線');
+    assert.match(TREND_SRC, /tone: 'cyan', dashed: true/, '訪客線應標為虛線');
   });
 
   test('提示框底色必須跟隨主題（淺色主題下不可仍是深底深字）', () => {
@@ -226,9 +233,8 @@ describe('後台流量趨勢圖 — 視覺樣式', () => {
 
   test('圖例應使用結構化樣式類別而非行內樣式', () => {
     assert.match(CHART_SRC, /class="analytics-chart-legend"/, '應有圖例容器');
-    assert.equal((CHART_SRC.match(/class="chart-legend-item"/g) || []).length, 2,
-      '應有兩個圖例項目');
-    assert.match(CHART_SRC, /chart-legend-line is-dashed/, '訪客圖例應為虛線樣式');
+    assert.match(CHART_SRC, /series\.map\(s =>\s*`<span class="chart-legend-item">/, '每個系列一個圖例項目');
+    assert.match(CHART_SRC, /chart-legend-line\$\{s\.dashed \? ' is-dashed' : ''\}/, '虛線系列的圖例應為虛線樣式');
     assert.ok(!/class="analytics-chart-legend"\s+style=/.test(CHART_SRC),
       '圖例不應再使用行內樣式，否則無法跟隨主題');
   });
@@ -237,22 +243,27 @@ describe('後台流量趨勢圖 — 視覺樣式', () => {
 describe('後台流量趨勢圖 — 邊界與安全性', () => {
   test('空資料應顯示佔位訊息而非空白 SVG', () => {
     assert.match(CHART_SRC, /尚無趨勢數據/, '空資料應有提示文字');
+    assert.match(TREND_SRC, /emptyText: '尚無趨勢數據'/);
   });
 
   test('缺少容器元素時應安全返回', () => {
     assert.match(CHART_SRC, /if \(!wrapper\) return;/, '找不到容器時不可拋錯');
+    assert.match(TREND_SRC, /if \(!wrapper\) return;/);
   });
 
   test('日期文字必須經過 HTML 轉義', () => {
-    assert.match(CHART_SRC, /escHtml\(String\(point\.date/,
+    assert.match(CHART_SRC, /escHtml\(String\(labels\[idx\]/,
       '提示框內的日期應經 escHtml 轉義，避免注入');
-    assert.match(CHART_SRC, /escHtml\(short\)/, '軸標籤文字應經 escHtml 轉義');
+    assert.match(CHART_SRC, /escHtml\(String\(axisLabels\[i\]/, '軸標籤文字應經 escHtml 轉義');
+    assert.match(CHART_SRC, /escHtml\(s\.name\)/, '系列名稱應經 escHtml 轉義');
   });
 
   test('數值應做整數化與千分位，避免出現 NaN 或 undefined', () => {
-    assert.match(CHART_SRC, /Number\(d\.views\) \|\| 0/,
+    assert.match(TREND_SRC, /Number\(d\.views\) \|\| 0/,
       'views 應正規化為數字，避免 undefined 讓路徑出現 NaN');
-    assert.match(CHART_SRC, /Number\(d\.uniqueIps\) \|\| 0/,
+    assert.match(CHART_SRC, /Math\.max\(0, Number\(s\.values && s\.values\[i\]\) \|\| 0\)/,
+      '共用元件也要把每個值正規化為非負數字');
+    assert.match(TREND_SRC, /Number\(d\.uniqueIps\) \|\| 0/,
       'uniqueIps 應正規化為數字');
     assert.match(CHART_SRC, /toLocaleString\(\)/, '數值應有千分位以利閱讀');
   });
@@ -260,5 +271,40 @@ describe('後台流量趨勢圖 — 邊界與安全性', () => {
   test('Y 值必須被夾在上限內，超出時不得畫到圖表外', () => {
     assert.match(CHART_SRC, /Math\.min\(Number\(v\) \|\| 0, maxY\)/,
       'getY 應把數值夾在 maxY 內');
+  });
+});
+
+describe('數據分析所有圖表共用同一套畫風與互動', () => {
+  test('早安圖三張圖都改用 renderInteractiveChart，舊的靜態 SVG 已移除', () => {
+    assert.ok(!APP_JS.includes('function buildShareChartSvg('), '舊的靜態 SVG 產生器應移除');
+    assert.ok(!APP_JS.includes('SHARE_CHART_COLORS'), '不應再寫死系列色碼表');
+    assert.match(APP_JS, /function renderShareChart\(chartId, opts\) \{\s*renderInteractiveChart\(/);
+    for (const id of ['analyticsShareTrendChart', 'analyticsShareMethodsChart', 'analyticsShareHoursChart']) {
+      assert.ok(SHARE_SRC.includes(`renderShareChart('${id}'`), id);
+    }
+    assert.match(TREND_SRC, /renderInteractiveChart\(wrapper,/);
+  });
+
+  test('長條圖（含堆疊）有聚焦底帶與合計列', () => {
+    assert.match(CHART_SRC, /class="ichart-band"/);
+    assert.match(CHART_SRC, /chart-tt-total/);
+    assert.match(SHARE_SRC, /stacked: true/);
+  });
+
+  test('依容器寬度重畫，手機上字級不被縮小', () => {
+    assert.match(CHART_SRC, /new ResizeObserver\(/);
+    assert.match(CHART_SRC, /wrapper\.clientWidth/);
+  });
+
+  test('每張圖的漸層 id 不重複（同頁多張圖）', () => {
+    assert.match(CHART_SRC, /const uid = `ichart\$\{\+\+ichartSeq\}`/);
+    assert.ok(!/id="viewTrendGrad"/.test(CHART_SRC));
+  });
+
+  test('系列顏色只用 tone class，主題色走 CSS 變數', () => {
+    assert.ok(!/#[0-9a-fA-F]{6}/.test(CHART_SRC), '共用元件內不應寫死色碼');
+    assert.match(cssRuleBlock('.ichart-tone-success'), /var\(--success\)/);
+    assert.match(cssRuleBlock('.ichart-tone-muted'), /var\(--text-muted\)/);
+    assert.match(cssRuleBlock('.ichart-bar'), /fill:\s*currentColor/);
   });
 });
