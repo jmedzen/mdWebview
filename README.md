@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.11.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.12.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -32,7 +32,7 @@
 
 - 🔍 **全站找字**：一次搜尋所有經論，結果很快就出來。
   - 用空白分開幾個詞，會找出同時包含這些詞的段落（例如輸入「阿賴耶識 唯識」）。
-  - 不怕標點與換行：搜尋「佛法僧」也能找到「佛法，僧」、「佛、法、僧」（寬鬆比對，預設開啟；搜尋面板的 ≈／= 按鈕或偏好設定可切換）。
+  - 不怕標點、空白與換行：搜尋「佛法僧」也能找到「佛法，僧」、「佛、法、僧」、「佛法　僧」（寬鬆比對，預設開啟；搜尋面板的 ≈／= 按鈕或偏好設定可切換）。
   - 相隔太遠、明顯不相關的結果會自動省略。
 - 📖 **佛學辭典**：可依詞條開頭查、模糊查，或全文查。結果可以一直往下翻，直到把整部辭典查完，不會中途停住。
 - 🔗 **文章互相連結**：文章之間可以用 `[[檔名]]` 互相連結，點一下就能跳過去。
@@ -246,7 +246,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.11.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.12.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -418,7 +418,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.11.0)
+├── package.json        # Project information (v4.12.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

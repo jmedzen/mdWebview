@@ -46,9 +46,11 @@ describe('全文搜尋與 Bigram 倒排索引演算法測試', () => {
     const newlineBigrams = Array.from(extractBigrams(newlineText));
     assert.ok(newlineBigrams.includes('薩行'), '換行透明應產生「薩行」');
 
-    const spaceText = '菩薩 行深';
-    const spaceBigrams = Array.from(extractBigrams(spaceText));
-    assert.ok(!spaceBigrams.includes('薩行'), '空白視為詞分隔，不應產生跨空白 Bigram「薩行」');
+    // v4.12.0 起空白也透明（寬鬆比對忽略空白），索引必須含跨空白 Bigram
+    for (const spaceText of ['菩薩 行深', '菩薩　行深', '菩薩 \r\n　行深']) {
+      const spaceBigrams = Array.from(extractBigrams(spaceText));
+      assert.ok(spaceBigrams.includes('薩行'), `空白透明應產生跨空白 Bigram「薩行」：${JSON.stringify(spaceText)}`);
+    }
 
     // 「行深」「深般」「般若」「若波」「波羅」「羅蜜」「蜜多」
     assert.ok(bigrams.includes('般若'));

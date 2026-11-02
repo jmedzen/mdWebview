@@ -12,7 +12,7 @@ const {
 
 describe('閱讀區搜尋結果跳轉與寬鬆高亮演算法測試 (Reader Highlight & Jump)', () => {
   // ── [E-1] matchLooseSequence 純函式單元測試 ──
-  test('matchLooseSequence：單詞忽略標點與換行比對（空白中斷相鄰）', () => {
+  test('matchLooseSequence：單詞忽略標點、空白與換行比對', () => {
     const terms = ['佛法僧'];
 
     // 1. 標準連續文字
@@ -31,13 +31,17 @@ describe('閱讀區搜尋結果跳轉與寬鬆高亮演算法測試 (Reader High
     assert.equal(r3.length, 1);
     assert.equal('大眾歸依佛法\n僧伽常住。'.substring(r3[0].start, r3[0].end), '佛法\n僧');
 
-    // 4. 空白不透明：半形空白中斷
-    const r4 = matchLooseSequence('禮敬 佛法 僧 眾。', terms);
-    assert.equal(r4.length, 0, '半形空白不透明，不應命中');
+    // 4. 空白透明：半形空白，高亮範圍從「佛」到「僧」（不含前後空白）
+    const t4 = '禮敬 佛法 僧 眾。';
+    const r4 = matchLooseSequence(t4, terms);
+    assert.equal(r4.length, 1, '半形空白應被忽略');
+    assert.equal(t4.substring(r4[0].start, r4[0].end), '佛法 僧');
 
-    // 5. 空白不透明：全形空格中斷
-    const r5 = matchLooseSequence('禮敬佛法　僧眾。', terms);
-    assert.equal(r5.length, 0, '全形空格不透明，不應命中');
+    // 5. 空白透明：全形空格
+    const t5 = '禮敬佛法　僧眾。';
+    const r5 = matchLooseSequence(t5, terms);
+    assert.equal(r5.length, 1, '全形空格應被忽略');
+    assert.equal(t5.substring(r5[0].start, r5[0].end), '佛法　僧');
   });
 
   test('matchLooseSequence：物件序列（模擬 DOM 節點序列與虛擬跨區塊換行）', () => {

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.11.0
+   mdWebview — Application Logic (app.js) v4.12.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -517,7 +517,7 @@
   const SEARCH_RENDER_BATCH = 300;
 
   // 前端透明集合鏡像：此處為 lib/text.js 透明集合 T (TRANSPARENT_RE / isTransparent) 的前端鏡像，任何變更必須兩邊同步保持一致
-  const LOOSE_TRANSPARENT_RE = /[\p{P}\n\r\u0085\u2028\u2029]/u;
+  const LOOSE_TRANSPARENT_RE = /[\p{P}\s\u0085]/u;
 
   function safeDecodeURIComponent(str) {
     if (!str) return '';
@@ -1388,7 +1388,7 @@
       return { matched: !!firstMark, hitBlock: hitBlock || anchorEl.parentElement, firstMark };
     }
 
-    // ── 寬鬆模式 (Loose Mode)：標點與換行透明（空白不透明），有界連續區塊走訪 ──
+    // ── 寬鬆模式 (Loose Mode)：標點、空白與換行透明，有界連續區塊走訪 ──
     const startBlock = anchorEl.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, tr, pre, table, .obsidian-callout') || anchorEl.parentElement;
     const windowBlocks = [];
     if (startBlock) {
@@ -5967,9 +5967,9 @@
     searchModeBtn.classList.toggle('active', isLoose);
     searchModeBtn.setAttribute('aria-pressed', isLoose ? 'true' : 'false');
     searchModeBtn.setAttribute('title', isLoose
-      ? '寬鬆比對：已忽略標點與換行（點擊切換為精確模式）'
+      ? '寬鬆比對：已忽略標點、空白與換行（點擊切換為精確模式）'
       : '精確比對：完全符合原始文字（點擊切換為寬鬆模式）');
-    searchModeBtn.setAttribute('aria-label', isLoose ? '寬鬆搜尋模式（忽略標點與換行）' : '精確搜尋模式（字面完全比對）');
+    searchModeBtn.setAttribute('aria-label', isLoose ? '寬鬆搜尋模式（忽略標點、空白與換行）' : '精確搜尋模式（字面完全比對）');
     searchModeBtn.innerHTML = isLoose
       ? `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6c1.8-2 3.8-2 5.5 0s3.8 2 5.5 0"/><path d="M2.5 10c1.8-2 3.8-2 5.5 0s3.8 2 5.5 0"/></svg>`
       : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6h9"/><path d="M3.5 10h9"/></svg>`;
@@ -9102,7 +9102,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11066,7 +11066,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11434,7 +11434,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12324,7 +12324,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.11.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
