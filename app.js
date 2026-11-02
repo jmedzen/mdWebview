@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.17.1
+   mdWebview — Application Logic (app.js) v4.17.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2681,9 +2681,10 @@
     if (v.kind === 'quote') {
       // 選句：朋友點開直接到那一篇的那一行；quote= 讓預覽圖換成這張早安圖
       return `${window.location.origin}/?file=${encodeURIComponent(v.path)}${v.line ? `&line=${v.line}` : ''}` +
-        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}&l=${shareRt.layout}`;
     }
-    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+    // 連結不帶問候：預覽圖用「吉祥」，因為收件人可能在別的時區（傳的人是早上，收的人可能是晚上）
+    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&l=${shareRt.layout}`;
   }
 
   /** 瀏覽器自己畫（伺服器沒有畫圖引擎時）。 */
@@ -2723,7 +2724,7 @@
 
   /** 取得某版型、某尺寸的卡片（Blob），同一次開面板內快取。 */
   function getShareCardBlob(layout, size) {
-    const key = `${layout}|${size}`;
+    const key = `${layout}|${size}|${shareRt.greeting}`;
     if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
     const job = (async () => {
       if (shareRt.serverOk) {
@@ -2742,6 +2743,36 @@
   function shareCardFileName() {
     const site = String(state.siteName || 'mdWebview').replace(/[\\/:*?"<>|\s]+/g, '');
     return `${site}-${shareRt.greeting}圖-${shareRt.date}-${shareRt.layout}.jpg`;
+  }
+
+  /** 問候語選擇：預設依傳送者本機時間，可改成別的（收件人在別的時區時）；「吉祥」不分時間。 */
+  function renderShareGreetings() {
+    const wrap = $('shareCardGreetings');
+    if (!wrap || !window.ShareCard) return;
+    wrap.textContent = '';
+    for (const g of window.ShareCard.GREETINGS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'share-card-greeting' + (g === shareRt.greeting ? ' is-selected' : '');
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', g === shareRt.greeting ? 'true' : 'false');
+      b.textContent = g;
+      b.addEventListener('click', () => selectShareGreeting(g));
+      wrap.appendChild(b);
+    }
+  }
+
+  function selectShareGreeting(g) {
+    if (!shareRt.open || g === shareRt.greeting) return;
+    shareRt.greeting = g;
+    shareRt.blobs = new Map();
+    for (const u of shareRt.urls) URL.revokeObjectURL(u);
+    shareRt.urls = [];
+    const verse = shareRt.verse;
+    $('shareCardTitle').textContent = verse && verse.kind === 'quote' ? `用這段經文做${g}圖` : `分享${g}圖`;
+    renderShareGreetings();
+    renderShareSlides();
+    prefetchShareBlob();
   }
 
   function renderShareSlides() {
@@ -2872,6 +2903,7 @@
     ov.style.display = 'flex';
     document.body.classList.add('modal-open');
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
+    renderShareGreetings();
     renderShareSlides();
     prefetchShareBlob();
     sendShareEvent('open');
@@ -9613,7 +9645,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11580,7 +11612,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11948,7 +11980,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12838,7 +12870,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.2';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

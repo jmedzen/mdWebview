@@ -54,6 +54,18 @@ describe('share-card.js：日期與斷行', () => {
     assert.ok(long.every(l => Array.from(l).length <= 5));
   });
 
+  test('zonedNow：同一個瞬間在不同時區的日期與問候', () => {
+    const t = new Date('2026-11-02T23:30:00Z');
+    assert.deepEqual(ShareCard.zonedNow('Asia/Taipei', t), { ymd: '2026-11-03', hour: 7 });
+    assert.deepEqual(ShareCard.zonedNow('America/Los_Angeles', t), { ymd: '2026-11-02', hour: 15 });
+    assert.deepEqual(ShareCard.zonedNow('UTC', t), { ymd: '2026-11-02', hour: 23 });
+    assert.deepEqual(ShareCard.zonedNow('Not/AZone', t), { ymd: '2026-11-02', hour: 23 });
+    assert.equal(ShareCard.greetingForHour(ShareCard.zonedNow('Asia/Taipei', t).hour), '早安');
+    assert.ok(ShareCard.GREETINGS.includes('吉祥'));
+    assert.equal(ShareCard.normalizeGreeting('吉祥'), '吉祥');
+    assert.equal(ShareCard.greetingForHour(ShareCard.zonedNow('America/Los_Angeles', t).hour), '午安');
+  });
+
   test('印章字取站名前兩個漢字，沒有就用「吉祥」', () => {
     assert.equal(ShareCard.sealText('大覺藏集'), '大覺');
     assert.equal(ShareCard.sealText('mdWebview'), '吉祥');
@@ -163,6 +175,15 @@ describe('首頁與伺服器接線', () => {
     assert.doesNotMatch(indexHtml, /id="shareMode(Image|Link)"/, '分享方式切換已拿掉，連結功能在「複製連結」');
     assert.match(indexHtml, /id="shareCardCopyLink"/);
     assert.match(indexHtml, /<script src="share-card\.js\?v=[^"]+" defer><\/script>\s*<script src="highlights\.js/);
+  });
+
+  test('卡片沒帶日期／問候時用網站時區；瀏覽器端畫卡用讀者本機時間', () => {
+    assert.match(serverJs, /ShareCard\.zonedNow\(dailyVerseTimezone\(\)\)\.ymd/);
+    assert.match(serverJs, /GREETINGS\.includes\(query\.g\) \? query\.g : '吉祥'/, '沒帶問候的連結預覽用不分時間的「吉祥」');
+    assert.doesNotMatch(appJs, /\/\?verse=\$\{encodeURIComponent\(v\.id\)\}&d=\$\{shareRt\.date\}&g=/, '分享連結不帶問候');
+    assert.match(indexHtml, /id="shareCardGreetings"/);
+    assert.match(appJs, /shareRt\.date = localYmd\(now\);/);
+    assert.match(appJs, /shareRt\.greeting = window\.ShareCard\.greetingForHour\(now\.getHours\(\)\);/);
   });
 
   test('分享卡永遠用畫面上正在顯示的那一句', () => {
