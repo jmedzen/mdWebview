@@ -39,6 +39,7 @@ fs.writeFileSync(tmpConfig, JSON.stringify({
 // 必須在載入任何 lib/ 模組（lib/auth.js 會載入 lib/config.js）之前設定：
 // 設定在模組載入時即合併，CONFIG_PATH 最後套用，因此可蓋過專案的 config.json。
 process.env.LOG_DIR = tmpLogs;
+process.env.INDEX_DIR = tmpLogs;
 process.env.CONFIG_PATH = tmpConfig;
 process.env.MD_ROOT = tmpVault;
 process.env.DICTIONARY_PATH = tmpDicts;

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.9
+   mdWebview — Application Logic (app.js) v4.19.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2743,7 +2743,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.9';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.19.0';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -9877,7 +9877,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11844,7 +11844,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12212,7 +12212,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12759,6 +12759,8 @@
     if (analyticsSize) analyticsSize.textContent = formatBytes(data.storage.analyticsStoreSizeBytes);
     const logsSize = $('hwLogsSize');
     if (logsSize) logsSize.textContent = formatBytes(data.storage.logsDirSizeBytes);
+    const indexDirSize = $('hwIndexDirSize');
+    if (indexDirSize) indexDirSize.textContent = formatBytes(data.storage.indexDirSizeBytes);
 
     const vaultPath = $('hwVaultPath');
     if (vaultPath) {
@@ -13102,7 +13104,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.9';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
