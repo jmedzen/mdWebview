@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.12.1
+   mdWebview — Application Logic (app.js) v4.13.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2201,7 +2201,9 @@
     if (!box) return;
     const data = state._homeData || {};
     // 新版伺服器直接給這個時段的那一句（data.verse，可能是 null）；舊格式才自己依日期挑
-    const verse = 'verse' in data ? data.verse : pickDailyVerse(data.verses, new Date());
+    // 「換一句」或分享連結（/?verse=…）指定的那一句優先；否則用伺服器這個時段挑的
+    const verse = state._homeVerseOverride || ('verse' in data ? data.verse : pickDailyVerse(data.verses, new Date()));
+    state._homeVerseCurrent = verse || null;
     scheduleHomeVerseRefresh(data.verseNextAt);
     const subtitle = $('homeSubtitle');
     const hero = box.closest('.home-hero');
@@ -2583,7 +2585,358 @@
     if (target) openFile(target, Number(line) || null);
   }
 
+  // ── 每日經句：換一句、分享早安圖 ──────────────────────────────────
+  // 卡片由伺服器畫（/api/share-card.jpg，og:image 也用同一支）；伺服器沒有畫圖引擎時
+  // 回 503，這裡改用 share-card.js 在瀏覽器畫。卡片永遠是畫面上正在顯示的那一句。
+
+  const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
+  const SHARE_MODE_KEY = 'mdWebview-share-card-mode';
+  const shareRt = {
+    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安',
+    blobs: new Map(),      // `${layout}|${size}` → Promise<Blob>
+    urls: [],              // 要回收的 blob: 網址
+    meta: null, serverOk: true
+  };
+
+  function localYmd(d = new Date()) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  async function shuffleHomeVerse() {
+    const btn = $('homeVerseShuffle');
+    const cur = state._homeVerseCurrent;
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch(`/api/daily-verse/random?not=${encodeURIComponent((cur && cur.id) || '')}`, { cache: 'no-store' });
+      const data = r.ok ? await r.json() : null;
+      if (!data || !data.verse) { showToast('目前沒有其他經句可以換', 'info'); return; }
+      if (data.total <= 1) showToast('經句清單只有這一句', 'info');
+      state._homeVerseOverride = data.verse;
+      const box = $('homeVerseText');
+      if (box) { box.classList.remove('home-verse-swap'); void box.offsetWidth; box.classList.add('home-verse-swap'); }
+      renderHomeVerse();
+    } catch (_) {
+      showToast('換一句失敗，請稍後再試', 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  /** 分享連結 /?verse=<id>&l=A：首頁顯示那一句，分享面板預設那個版型；讀完把參數清掉。 */
+  async function applyVerseLinkFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('verse');
+    if (!id) return;
+    const l = params.get('l');
+    if (l && window.ShareCard) storage.set(SHARE_LAYOUT_KEY, window.ShareCard.normalizeLayout(l));
+    for (const k of ['verse', 'd', 'g', 'l']) params.delete(k);
+    const qs = params.toString();
+    history.replaceState(history.state, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+    try {
+      const r = await fetch(`/api/daily-verse?id=${encodeURIComponent(id)}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data && data.verse) { state._homeVerseOverride = data.verse; renderHomeVerse(); }
+    } catch (_) {}
+  }
+
+  function shareCardQuery(layout, size) {
+    const v = shareRt.verse;
+    return `id=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}`;
+  }
+
+  function shareLinkUrl() {
+    const v = shareRt.verse;
+    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+  }
+
+  /** 瀏覽器自己畫（伺服器沒有畫圖引擎時）。 */
+  async function renderShareCardLocally(layout, size) {
+    const SC = window.ShareCard;
+    if (!SC) throw new Error('share-card.js not loaded');
+    if (!shareRt.meta) {
+      const r = await fetch(`/api/share-card/meta?${shareCardQuery(layout, size)}`);
+      if (!r.ok) throw new Error('meta failed');
+      shareRt.meta = await r.json();
+    }
+    const meta = shareRt.meta;
+    let img = null;
+    if (meta.pic) {
+      img = await new Promise(resolve => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => resolve(null);
+        im.src = meta.pic;
+      });
+    }
+    if (document.fonts && document.fonts.load) {
+      const sample = `${shareRt.greeting}${meta.verse.text}${meta.verse.source || ''}${meta.siteName}星期一二三四五六日〇十月年`;
+      await Promise.all([500, 700].map(w => document.fonts.load(`${w} 40px "Noto Serif TC"`, sample).catch(() => {})));
+    }
+    const [w, h] = SC.SIZES[size];
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    SC.draw(canvas.getContext('2d'), {
+      layout, size, image: img, verse: meta.verse, greeting: shareRt.greeting,
+      date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host
+    });
+    return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.9));
+  }
+
+  /** 取得某版型、某尺寸的卡片（Blob），同一次開面板內快取。 */
+  function getShareCardBlob(layout, size) {
+    const key = `${layout}|${size}`;
+    if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
+    const job = (async () => {
+      if (shareRt.serverOk) {
+        const r = await fetch(`/api/share-card.jpg?${shareCardQuery(layout, size)}`);
+        if (r.ok) return r.blob();
+        if (r.status !== 503) throw new Error(`HTTP ${r.status}`);
+        shareRt.serverOk = false;
+      }
+      return renderShareCardLocally(layout, size);
+    })();
+    job.catch(() => shareRt.blobs.delete(key));
+    shareRt.blobs.set(key, job);
+    return job;
+  }
+
+  function shareCardFileName() {
+    const site = String(state.siteName || 'mdWebview').replace(/[\\/:*?"<>|\s]+/g, '');
+    return `${site}-${shareRt.greeting}圖-${shareRt.date}-${shareRt.layout}.jpg`;
+  }
+
+  function renderShareSlides() {
+    const SC = window.ShareCard;
+    const wrap = $('shareCardSlides');
+    const dots = $('shareCardDots');
+    if (!wrap || !SC) return;
+    const size = shareRt.mode === 'link' ? 'og' : 'portrait';
+    wrap.classList.toggle('is-og', size === 'og');
+    wrap.textContent = '';
+    dots.textContent = '';
+    for (const layout of SC.LAYOUTS) {
+      const fig = document.createElement('button');
+      fig.type = 'button';
+      fig.className = 'share-card-slide';
+      fig.dataset.layout = layout;
+      fig.setAttribute('role', 'radio');
+      fig.setAttribute('aria-label', `${layout} ${SC.LAYOUT_NAMES[layout]}`);
+      const frame = document.createElement('span');
+      frame.className = 'share-card-frame is-loading';
+      const img = document.createElement('img');
+      img.alt = `${SC.LAYOUT_NAMES[layout]}版型預覽`;
+      img.decoding = 'async';
+      frame.appendChild(img);
+      const cap = document.createElement('span');
+      cap.className = 'share-card-slide-name';
+      cap.textContent = SC.LAYOUT_NAMES[layout];
+      fig.append(frame, cap);
+      wrap.appendChild(fig);
+      const dot = document.createElement('span');
+      dot.dataset.layout = layout;
+      dots.appendChild(dot);
+      getShareCardBlob(layout, size).then(blob => {
+        if (!shareRt.open) return;
+        const url = URL.createObjectURL(blob);
+        shareRt.urls.push(url);
+        img.src = url;
+        frame.classList.remove('is-loading');
+      }).catch(() => {
+        frame.classList.remove('is-loading');
+        frame.classList.add('is-error');
+        frame.title = '這張圖畫不出來';
+      });
+    }
+    selectShareLayout(shareRt.layout, true);
+  }
+
+  function selectShareLayout(layout, scroll) {
+    shareRt.layout = layout;
+    storage.set(SHARE_LAYOUT_KEY, layout);
+    const wrap = $('shareCardSlides');
+    if (!wrap) return;
+    for (const el of wrap.querySelectorAll('.share-card-slide')) {
+      const on = el.dataset.layout === layout;
+      el.classList.toggle('is-selected', on);
+      el.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (on && scroll) {
+        const left = el.offsetLeft - (wrap.clientWidth - el.offsetWidth) / 2;
+        wrap.scrollTo({ left, behavior: 'auto' });
+      }
+    }
+    for (const d of $('shareCardDots').children) d.classList.toggle('on', d.dataset.layout === layout);
+  }
+
+  function setShareMode(mode) {
+    shareRt.mode = mode === 'link' ? 'link' : 'image';
+    storage.set(SHARE_MODE_KEY, shareRt.mode);
+    $('shareModeImage').setAttribute('aria-checked', shareRt.mode === 'image' ? 'true' : 'false');
+    $('shareModeLink').setAttribute('aria-checked', shareRt.mode === 'link' ? 'true' : 'false');
+    $('shareCardModeNote').textContent = shareRt.mode === 'image'
+      ? '傳一張直式大圖（4:5），在聊天室裡最大、最有感覺。'
+      : '傳一個連結，LINE 會自動顯示這張橫式卡片；點開就到本站讀這一句。';
+    renderShareSlides();
+    // 先把要傳的那張準備好：手機分享要在按下的當下就有檔案
+    prefetchShareBlob();
+  }
+
+  function prefetchShareBlob() {
+    if (shareRt.mode === 'image') getShareCardBlob(shareRt.layout, 'portrait').catch(() => {});
+  }
+
+  function openShareCard() {
+    const verse = state._homeVerseCurrent;
+    if (!verse || !verse.id || !window.ShareCard) { showToast('這一句還不能分享，請重新整理後再試', 'error'); return; }
+    const now = new Date();
+    shareRt.open = true;
+    shareRt.verse = verse;
+    shareRt.date = localYmd(now);
+    shareRt.greeting = window.ShareCard.greetingForHour(now.getHours());
+    shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
+    shareRt.blobs = new Map();
+    shareRt.meta = null;
+    shareRt.serverOk = true;
+    $('shareCardTitle').textContent = `分享${shareRt.greeting}圖`;
+    const ov = $('shareCardOverlay');
+    ov.style.display = 'flex';
+    document.body.classList.add('modal-open');
+    $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
+    setShareMode(storage.get(SHARE_MODE_KEY, 'image'));
+    const card = ov.querySelector('.share-card-card');
+    if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
+  }
+
+  function closeShareCard() {
+    if (!shareRt.open) return;
+    shareRt.open = false;
+    $('shareCardOverlay').style.display = 'none';
+    document.body.classList.remove('modal-open');
+    for (const u of shareRt.urls) URL.revokeObjectURL(u);
+    shareRt.urls = [];
+    const btn = $('homeVerseShare');
+    if (btn) btn.focus({ preventScroll: true });
+  }
+
+  function copyShareText(text, okMsg) {
+    const ok = () => showToast(okMsg, 'success');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(() => { if (fallbackCopy(text)) ok(); else showToast('❌ 複製失敗', 'error'); });
+    } else if (fallbackCopy(text)) ok();
+    else showToast('❌ 複製失敗', 'error');
+  }
+
+  function shareLineText() {
+    const SC = window.ShareCard;
+    const first = SC.packLines(shareRt.verse.text, 99)[0] || shareRt.verse.text;
+    return `${shareRt.greeting}！${first}`;
+  }
+
+  async function shareToLine() {
+    if (shareRt.mode === 'link') {
+      const text = `${shareLineText()}\n${shareLinkUrl()}`;
+      window.open(`https://line.me/R/share?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+      return;
+    }
+    let blob;
+    try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) { showToast('圖片畫不出來，請稍後再試', 'error'); return; }
+    const file = new File([blob], shareCardFileName(), { type: 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+      } catch (err) {
+        if (err && err.name === 'NotAllowedError') showToast('圖片準備好了，請再按一次「傳到 LINE」', 'info', 3200);
+        // AbortError = 使用者關掉了分享選單，不用提示
+      }
+      return;
+    }
+    // 電腦版瀏覽器多半不能直接把檔案交給 LINE：先存下來
+    downloadBlob(blob, file.name);
+    showToast('已存下圖片，可以直接拖進 LINE 電腦版的聊天室', 'success', 4200);
+  }
+
+  async function saveShareImage() {
+    const size = shareRt.mode === 'link' ? 'og' : 'portrait';
+    try {
+      const blob = await getShareCardBlob(shareRt.layout, size);
+      downloadBlob(blob, shareCardFileName());
+    } catch (_) { showToast('圖片畫不出來，請稍後再試', 'error'); }
+  }
+
+  async function copyShareImage() {
+    const size = shareRt.mode === 'link' ? 'og' : 'portrait';
+    // 剪貼簿只收 PNG：把 JPEG 轉一次（用 Promise 交給 ClipboardItem，Safari 才不會說沒有使用者手勢）
+    const png = getShareCardBlob(shareRt.layout, size).then(blob => new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const im = new Image();
+      im.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = im.naturalWidth;
+        c.height = im.naturalHeight;
+        c.getContext('2d').drawImage(im, 0, 0);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => (b ? resolve(b) : reject(new Error('png'))), 'image/png');
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
+      im.src = url;
+    }));
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      showToast('已複製圖片，可以貼到 LINE', 'success');
+    } catch (_) {
+      showToast('這個瀏覽器不能複製圖片，請改用「存圖片」', 'error');
+    }
+  }
+
+  function setupShareCard() {
+    const shuffle = $('homeVerseShuffle');
+    if (shuffle) shuffle.addEventListener('click', shuffleHomeVerse);
+    const share = $('homeVerseShare');
+    if (share) share.addEventListener('click', openShareCard);
+    const ov = $('shareCardOverlay');
+    if (!ov) return;
+    $('shareCardCloseBtn').addEventListener('click', closeShareCard);
+    ov.addEventListener('click', e => { if (e.target === ov) closeShareCard(); });
+    document.addEventListener('keydown', e => {
+      if (!shareRt.open) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeShareCard(); }
+      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !e.target.closest('input, textarea')) {
+        const L = window.ShareCard.LAYOUTS;
+        const i = L.indexOf(shareRt.layout) + (e.key === 'ArrowRight' ? 1 : -1);
+        if (i >= 0 && i < L.length) { selectShareLayout(L[i], true); prefetchShareBlob(); }
+      }
+    });
+    const slides = $('shareCardSlides');
+    slides.addEventListener('click', e => {
+      const sl = e.target.closest('.share-card-slide');
+      if (sl) { selectShareLayout(sl.dataset.layout, true); prefetchShareBlob(); }
+    });
+    // 手機左右滑：停在哪張就選哪張
+    let scrollTimer = null;
+    slides.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const mid = slides.scrollLeft + slides.clientWidth / 2;
+        let best = null, bestD = Infinity;
+        for (const el of slides.querySelectorAll('.share-card-slide')) {
+          const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid);
+          if (d < bestD) { bestD = d; best = el; }
+        }
+        if (best && best.dataset.layout !== shareRt.layout) { selectShareLayout(best.dataset.layout, false); prefetchShareBlob(); }
+      }, 90);
+    }, { passive: true });
+    $('shareModeImage').addEventListener('click', () => setShareMode('image'));
+    $('shareModeLink').addEventListener('click', () => setShareMode('link'));
+    $('shareCardLine').addEventListener('click', shareToLine);
+    $('shareCardSave').addEventListener('click', saveShareImage);
+    $('shareCardCopyImg').addEventListener('click', copyShareImage);
+    $('shareCardCopyLink').addEventListener('click', () => copyShareText(`${shareLineText()}\n${shareLinkUrl()}`, '已複製連結'));
+    applyVerseLinkFromUrl();
+  }
+
   function setupHome() {
+    setupShareCard();
     const verseBtn = $('homeVerseOpen');
     if (verseBtn) verseBtn.addEventListener('click', () => {
       if (verseBtn.dataset.path) openHomeTarget(verseBtn.dataset.path, null);
@@ -3515,16 +3868,32 @@
   // the matched text entirely (the "cmd+f sometimes fails + no highlight" bug). The
   // containing block's anchor is always at-or-before the line, so the jump lands on
   // the right entry and the highlight walk reaches the body text.
+  //
+  // Footnote-definition anchors ([data-fn]) are left out of the search:
+  // the footnote list is rendered after the body, so when definitions sit in
+  // the middle of a file their anchors break the ascending order the binary
+  // search needs. Every non-blank footnote line has its own anchor, so a hit
+  // inside a footnote is found by the exact getElementById lookup first.
+  let _bodyAnchorsFor = null;
+  let _bodyAnchors = [];
+  function bodyLineAnchors() {
+    if (_bodyAnchorsFor !== cachedLineAnchors) {
+      _bodyAnchorsFor = cachedLineAnchors;
+      _bodyAnchors = cachedLineAnchors.filter(a => !a.hasAttribute('data-fn'));
+    }
+    return _bodyAnchors;
+  }
   function anchorAtOrBefore(lineNum) {
-    if (!cachedLineAnchors.length) return null;
-    let lo = 0, hi = cachedLineAnchors.length - 1, ans = 0;
+    const anchors = bodyLineAnchors();
+    if (!anchors.length) return null;
+    let lo = 0, hi = anchors.length - 1, ans = 0;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      const n = parseInt(cachedLineAnchors[mid].dataset.line || '0', 10);
+      const n = parseInt(anchors[mid].dataset.line || '0', 10);
       if (n <= lineNum) { ans = mid; lo = mid + 1; }
       else hi = mid - 1;
     }
-    return cachedLineAnchors[ans];
+    return anchors[ans];
   }
 
   // Mount a single contiguous window of chunks centered on `centerCi`, removing
@@ -5065,6 +5434,36 @@
   }
   window.__mdwSanitizeRenderedHtml = sanitizeRenderedHtml; // exposed for tests
 
+  /**
+   * Footnote definition lines with a line-number anchor in front of each text line,
+   * so a search hit inside a footnote (e.g. [^119] of a long juan) has its own
+   * `#L<n>` target instead of falling back to the last body line above the
+   * footnote list. The anchor goes after any list / quote / heading marker so the
+   * block still parses the same, and is left off lines marked would read as an
+   * indented code block (4+ spaces after a blank line), where it would show up
+   * as literal text.
+   * @param {{text:string[], nums:number[]}} fn
+   * @param {number} lineOffset
+   * @returns {string[]}
+   */
+  function anchorFootnoteLines(fn, lineOffset) {
+    const out = [];
+    let prevBlank = false;
+    let seenText = false;
+    for (let k = 0; k < fn.text.length; k++) {
+      const t = fn.text[k];
+      if (!t.trim()) { out.push(t); prevBlank = true; continue; }
+      const code = seenText && prevBlank && /^(?: {4}|\t)/.test(t);
+      prevBlank = false;
+      seenText = true;
+      if (code || t.trim().startsWith('```')) { out.push(t); continue; }
+      const n = lineOffset + fn.nums[k];
+      const lead = t.match(/^\s*(?:>\s*)*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+)?/)[0];
+      out.push(`${lead}<span id="L${n}" data-line="${n}" class="line-anchor" data-fn="1"></span>${t.slice(lead.length)}`);
+    }
+    return out;
+  }
+
   function inlineParseMarkdown(body) {
     if (!body) return '';
     body = preprocessObsidianFormatting(body);
@@ -5072,6 +5471,10 @@
     // ── 1. Extract footnote definitions (O(N) single pass) ────────
     const lines = body.split('\n');
     const cleanLines = [];
+    // Original (1-based) source line of each cleanLines entry. Footnote definitions
+    // are pulled out of the body, so cleanLines' own index drifts from the file's
+    // line numbers after the first definition; anchors must use the real ones.
+    const cleanNums = [];
     const footnotes = [];
     let currentFootnote = null;
 
@@ -5081,20 +5484,24 @@
       if (match) {
         const id = match[1];
         const text = match[2];
-        currentFootnote = { id, text: [text] };
+        currentFootnote = { id, text: [text], nums: [i + 1] };
         footnotes.push(currentFootnote);
       } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
         currentFootnote.text.push(line);
+      currentFootnote.nums.push(i + 1);
       } else if (currentFootnote && line.trim() === '') {
         currentFootnote.text.push(line);
+      currentFootnote.nums.push(i + 1);
       } else {
         if (currentFootnote) {
           while (currentFootnote.text.length > 1 && currentFootnote.text[currentFootnote.text.length - 1].trim() === '') {
             currentFootnote.text.pop();
+          currentFootnote.nums.pop();
           }
           currentFootnote = null;
         }
         cleanLines.push(line);
+      cleanNums.push(i + 1);
       }
     }
 
@@ -5105,7 +5512,7 @@
 
     for (let i = 0; i < cleanLines.length; i++) {
       const line = cleanLines[i];
-      const lineNum = i + 1;
+      const lineNum = cleanNums[i];
       const trimmed = line.trim();
 
       // 1. Code blocks: do not inject anchors
@@ -5221,7 +5628,7 @@
 
       // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
       const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
-      const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
+      const combinedFnText = footnotes.map(fn => anchorFootnoteLines(fn, 0).join('\n').trim()).join(FN_DELIM);
       setScanGates(combinedFnText); // same gates as the main body parse above
       let combinedFnHtml = marked.parse(combinedFnText).trim();
       combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
@@ -9102,7 +9509,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11066,7 +11473,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11434,7 +11841,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12324,7 +12731,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13785,6 +14192,29 @@
    * 綠：首頁輪播中；黃：資料夾裡有 .md 但一句都沒解析到，或有檔案讀不到；
    * 灰：兩邊都沒有經句（站長刻意不顯示，不算待辦）。
    */
+  /** 後台：早安圖的背景圖庫與伺服器畫圖狀態（字型、套件）。 */
+  async function loadShareCardStatus() {
+    const countEl = $('shareCardPicCount');
+    const engineEl = $('shareCardEngine');
+    if (!countEl || !engineEl) return;
+    try {
+      const r = await fetch('/api/admin/share-card');
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      countEl.textContent = d.picDirExists === false ? '資料夾不存在（用預設漸層背景）'
+        : `${d.picCount || 0} 張（含所有子資料夾）`;
+      const dir = $('shareCardPicDir');
+      dir.textContent = d.picDir || '';
+      dir.title = '位置可用環境變數 PIC_CARD_DIR 更改';
+      if (!d.renderer) engineEl.textContent = '伺服器不能畫圖，改由讀者的瀏覽器畫；LINE 連結預覽會用網站預設圖';
+      else if (!d.serifFont) engineEl.textContent = `伺服器可畫圖，但找不到宋體字型（請放 Noto Serif TC 到 ${(d.fontDirs || [])[1] || 'fonts/'}）`;
+      else engineEl.textContent = `伺服器畫圖正常（字型 ${d.fonts.length} 個）`;
+    } catch (_) {
+      countEl.textContent = '無法讀取';
+      engineEl.textContent = '無法讀取';
+    }
+  }
+
   async function loadDailyVerseStatus() {
     const light = $('dailyVerseLight');
     const text = $('dailyVerseStatusText');
@@ -13813,6 +14243,7 @@
     dirEl.textContent = f.dir || '';
     dirEl.title = `位置可用環境變數 ${f.envVar || 'SUTRA_QUOTE_DIR'} 更改`;
     $('dailyVerseTotalCount').textContent = `${d.total || 0} 句${d.duplicates > 0 ? `（去掉重複 ${d.duplicates} 句）` : ''}`;
+    loadShareCardStatus();
 
     let level, msg;
     const hours = d.rotateHours || 6;
