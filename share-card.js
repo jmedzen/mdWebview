@@ -19,8 +19,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const LAYOUTS = ['A', 'B', 'C', 'I', 'J'];
-  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門' };
+  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'O', 'P', 'Q', 'R'];
+  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', O: '畫廊裱框', P: '左右分割', Q: '三段式', R: '色隨圖卡片' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };
   const GREETINGS = ['早安', '午安', '晚安'];
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
@@ -748,6 +748,213 @@
     drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 64, 5, 'center');
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // 圖文並重版面 N–R（直式；圖片完整露出、不蓋半透明，文字有自己的底色區）
+  // ════════════════════════════════════════════════════════════════════
+  function redSeal(ctx, text, x, y, s, r) {
+    ctx.save();
+    ctx.fillStyle = '#b8322a';
+    roundRect(ctx, x, y, s, s, r == null ? s * 0.08 : r);
+    ctx.fill();
+    ctx.fillStyle = '#fbf3e4';
+    ctx.font = font(900, s * 0.4);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const g = Array.from(text);
+    ctx.fillText(g[0] || '', x + s * 0.5, y + s * 0.29);
+    ctx.fillText(g[1] || '', x + s * 0.5, y + s * 0.72);
+    ctx.restore();
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function paperBg(ctx, x, y, w, h, c0, c1) {
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, c0); g.addColorStop(1, c1);
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  }
+
+  function sourceLine(ctx, o, cx, y, color, size) {
+    if (!o.verse.source) return;
+    ctx.fillStyle = color;
+    ctx.font = font(500, size || 28);
+    drawSpaced(ctx, `——《${o.verse.source}》`, cx, y, 4, 'center');
+  }
+
+  // ── 版型 N：上圖下文 ────────────────────────────────────────────────
+  // 上半整幅是圖，下半是宣紙色的字區；紅印「早安」跨在兩區交界。
+  function drawN(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    const split = 820;
+    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    drawCover(ctx, o.image, 0, 0, w, split, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
+    ctx.fillRect(0, split, w, 6);
+    grain(ctx, w, h - split, 3, 0.05, false);
+    redSeal(ctx, o.greeting, w / 2 - 62, split - 62, 124);
+    ctx.fillStyle = '#2a2318';
+    const r = centerVerse(ctx, o, w / 2, 1085, w - 200, 230, { maxSize: 62, minSize: 32, lead: 1.6, maxLines: 4 });
+    sourceLine(ctx, o, w / 2, r.bottom + 50, '#8b7248', 28);
+    goldLine(ctx, 64, h - 96, w - 128, '#b8932f', 0.7);
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 24);
+    drawSpaced(ctx, `${o.date.cnFull}`, 64, h - 54, 4);
+    drawSpaced(ctx, `${o.date.week} · ${o.date.term}`, w - 64, h - 54, 4, 'right');
+  }
+
+  // ── 版型 O：畫廊裱框 ────────────────────────────────────────────────
+  // 墨色牆面，圖片裝進金框與象牙襯紙，像掛在展間；字用淺色，一目了然。
+  function drawO(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    paperBg(ctx, 0, 0, w, h, '#23201b', '#14120f');
+    dust(ctx, 0, 0, w, h, 26, 21);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
+    ctx.font = font(900, 58);
+    drawSpaced(ctx, o.greeting, w / 2, 124, 28, 'center');
+    const fx = 90, fy = 170, fw = w - 180, fh = 690;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
+    ctx.fillStyle = goldGrad(ctx, fx, fy, fx + fw, fy + fh);
+    ctx.fillRect(fx, fy, fw, fh);
+    ctx.restore();
+    ctx.fillStyle = '#f3ead6';
+    ctx.fillRect(fx + 14, fy + 14, fw - 28, fh - 28);
+    ctx.fillStyle = goldGrad(ctx, fx, fy, fx + fw, fy + fh);
+    ctx.fillRect(fx + 42, fy + 42, fw - 84, fh - 84);
+    drawCover(ctx, o.image, fx + 46, fy + 46, fw - 92, fh - 92, 0.5, 0.5);
+    ctx.fillStyle = '#f3ead6';
+    const r = centerVerse(ctx, o, w / 2, 1085, w - 200, 230, { maxSize: 60, minSize: 32, lead: 1.6, maxLines: 4 });
+    sourceLine(ctx, o, w / 2, r.bottom + 50, '#c9a85c', 28);
+    ctx.fillStyle = '#a89878';
+    ctx.font = font(500, 23);
+    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, h - 66, 4, 'center');
+    grain(ctx, w, h, 4, 0.05, true);
+  }
+
+  // ── 版型 P：左右分割 ────────────────────────────────────────────────
+  // 左邊整條直立的圖，右邊宣紙色字區放直書經句與紅印。
+  function drawP(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    const pw = 440;
+    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    grain(ctx, w, h, 6, 0.05, false);
+    drawCover(ctx, o.image, 0, 0, pw, h, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h);
+    ctx.fillRect(pw, 0, 6, h);
+    const left = pw + 6, areaW = w - left;
+    const top = 330, bottom = h - 170, colH = bottom - top;
+    const longest = Math.max(1, ...clauses(o.verse.text).map(c => Array.from(c.replace(TRAIL_PUNCT_RE, '')).length));
+    let size = 104, lines = null;
+    for (; size >= 52 && !lines; size -= 4) {
+      const cap = Math.floor(colH / (size * 1.14));
+      for (let pc = Math.min(longest, cap); pc <= cap && !lines; pc++) {
+        const ls = packLines(o.verse.text, pc);
+        if (ls.length <= 3 && ls.length * size * 1.5 <= areaW - 110) lines = ls;
+      }
+      if (lines) break;
+    }
+    if (!lines) { size = 52; lines = packLines(o.verse.text, Math.floor(colH / (size * 1.14))); }
+    ctx.fillStyle = '#231e18';
+    ctx.font = font(900, size);
+    const blockW = lines.length * size * 1.5 - size * 0.5;
+    let x = left + areaW / 2 + blockW / 2 - size / 2;
+    for (const line of lines) { drawVertical(ctx, line, x, top, size, size * 1.14); x -= size * 1.5; }
+    redSeal(ctx, o.greeting, left + areaW / 2 - 62, 110, 124);
+    if (o.verse.source) {
+      ctx.fillStyle = '#8b7248';
+      ctx.font = font(500, 26);
+      drawSpaced(ctx, `《${o.verse.source}》`, left + areaW / 2, h - 118, 3, 'center');
+    }
+    goldLine(ctx, left + 60, h - 90, areaW - 120, '#b8932f', 0.7);
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 22);
+    drawSpaced(ctx, `${o.date.monthCn}${cnNumber(+o.date.day)}日　${o.date.week} · ${o.date.term}`, left + areaW / 2, h - 50, 3, 'center');
+  }
+
+  // ── 版型 Q：三段式 ──────────────────────────────────────────────────
+  // 上段超大「早安」，中段整幅的圖，下段經句；段與段之間用粗金線隔開。
+  function drawQ(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    const t1 = 290, t2 = 1000;
+    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    grain(ctx, w, h, 8, 0.05, false);
+    ctx.fillStyle = '#231e18';
+    ctx.font = font(900, 190);
+    drawSpaced(ctx, o.greeting, 56, 222, 16);
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 26);
+    drawSpaced(ctx, o.date.dotted, w - 64, 150, 6, 'right');
+    drawSpaced(ctx, `${o.date.week} · ${o.date.term}`, w - 64, 196, 5, 'right');
+    ctx.fillStyle = '#b8322a';
+    ctx.fillRect(w - 64 - 90, 222, 90, 8);
+    drawCover(ctx, o.image, 0, t1, w, t2 - t1, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
+    ctx.fillRect(0, t1 - 4, w, 8);
+    ctx.fillRect(0, t2 - 4, w, 8);
+    ctx.fillStyle = '#2a2318';
+    const r = centerVerse(ctx, o, w / 2, 1135, w - 180, 190, { maxSize: 56, minSize: 30, lead: 1.6, maxLines: 3 });
+    sourceLine(ctx, o, w / 2, r.bottom + 46, '#8b7248', 26);
+    ctx.fillStyle = '#9a8c74';
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 36, 5, 'center');
+  }
+
+  // ── 版型 R：色隨圖卡片 ──────────────────────────────────────────────
+  // 底色取自圖片平均色（調淡），圖片與經句各是一張帶陰影的圓角卡片。
+  function avgColor(ctx, img) {
+    try {
+      if (!img || !img.width) return [236, 228, 208];
+      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, 1, 1);
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2]];
+    } catch (_) { return [236, 228, 208]; }
+  }
+
+  function drawR(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    const a = avgColor(ctx, o.image);
+    const mix = (k, base) => a.map((v, i) => Math.round(v * k + base[i] * (1 - k)));
+    const c0 = mix(0.38, [250, 246, 236]), c1 = mix(0.55, [244, 236, 218]);
+    paperBg(ctx, 0, 0, w, h, `rgb(${c0})`, `rgb(${c1})`);
+    grain(ctx, w, h, 12, 0.04, false);
+    const px = 80, pw = w - 160;
+    ctx.save();
+    ctx.shadowColor = 'rgba(40,30,10,0.35)'; ctx.shadowBlur = 44; ctx.shadowOffsetY = 18;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, px, 90, pw, 700, 34); ctx.fill();
+    ctx.restore();
+    clipRoundRect(ctx, px, 90, pw, 700, 34, () => drawCover(ctx, o.image, px, 90, pw, 700, 0.5, 0.5));
+    ctx.save();
+    ctx.shadowColor = 'rgba(40,30,10,0.3)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 16;
+    ctx.fillStyle = '#fbf7ec';
+    roundRect(ctx, px, 850, pw, 380, 34); ctx.fill();
+    ctx.restore();
+    // 圓形紅印，跨在兩張卡片之間
+    ctx.save();
+    ctx.fillStyle = '#b8322a';
+    ctx.beginPath(); ctx.arc(w / 2, 820, 54, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fbf7ec'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.fillStyle = '#fbf3e4';
+    ctx.font = font(900, 40);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const g = Array.from(o.greeting);
+    ctx.fillText(g[0] || '', w / 2 - 22, 822);
+    ctx.fillText(g[1] || '', w / 2 + 22, 822);
+    ctx.restore();
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#2a2318';
+    const r = centerVerse(ctx, o, w / 2, 1030, pw - 120, 190, { maxSize: 54, minSize: 30, lead: 1.6, maxLines: 3 });
+    sourceLine(ctx, o, w / 2, r.bottom + 44, '#8b7248', 25);
+    ctx.fillStyle = '#7a6a52';
+    ctx.font = font(500, 22);
+    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, 1190, 3, 'center');
+    ctx.fillStyle = 'rgba(60,45,20,0.55)';
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 54, 5, 'center');
+  }
+
+  function clipRoundRect(ctx, x, y, w, h, r, fn) {
+    ctx.save(); roundRect(ctx, x, y, w, h, r); ctx.clip(); fn(); ctx.restore();
+  }
+
   // 版型 I 的橫式（連結預覽圖 1200×630）：圖在左、漸隱成米色，右側直書。
   function drawILand(ctx, w, h, o) {
     const CREAM = '246,240,226';
@@ -860,6 +1067,11 @@
     else if (layout === 'C') drawC(ctx, w, h, o);
     else if (layout === 'I') drawI(ctx, w, h, o);
     else if (layout === 'J') drawJ(ctx, w, h, o);
+    else if (layout === 'N') drawN(ctx, w, h, o);
+    else if (layout === 'O') drawO(ctx, w, h, o);
+    else if (layout === 'P') drawP(ctx, w, h, o);
+    else if (layout === 'Q') drawQ(ctx, w, h, o);
+    else if (layout === 'R') drawR(ctx, w, h, o);
     else drawA(ctx, w, h, o);
   }
 
