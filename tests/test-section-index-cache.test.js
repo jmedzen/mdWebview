@@ -13,8 +13,9 @@
  *   2. 連續多次建置只觸發一次寫入（去抖合併）。
  *   3. flushAllSectionIndexSaves() 可重複呼叫且具冪等性（關機沖刷的基礎）。
  *
- * 注意：LOG_DIR 必須在 require('../server.js') 之前設定，才能把 bin 檔隔離到
- * 暫存目錄，避免污染 repo 的 logs/。
+ * 注意：LOG_DIR／INDEX_DIR 必須在 require('../server.js') 之前設定，才能把 bin 檔
+ * 隔離到暫存目錄，避免污染 repo 的 logs/、index/。v4.19.0 起索引寫在 INDEX_DIR，
+ * 不再寫進 LOG_DIR（下方另有斷言）。
  */
 
 const { test, after } = require('node:test');
@@ -25,7 +26,8 @@ const os = require('node:os');
 
 // 隔離：bin 檔改寫到暫存目錄。
 const TEST_LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mdwebview-si-cache-'));
-process.env.LOG_DIR = TEST_LOG_DIR;
+process.env.LOG_DIR = path.join(TEST_LOG_DIR, 'logs');
+process.env.INDEX_DIR = path.join(TEST_LOG_DIR, 'index');
 // 縮短去抖時間（仍遠長於建置迴圈，確保不會在迴圈中途觸發）。
 process.env.SECTION_INDEX_SAVE_DEBOUNCE_MS = '3000';
 
@@ -40,7 +42,8 @@ const {
   resetConfigWatcher
 } = require('../server');
 
-const SECTION_BIN = path.join(TEST_LOG_DIR, 'section-index-cache.bin');
+const SECTION_BIN = path.join(TEST_LOG_DIR, 'index', 'section-index-cache.bin');
+const LEGACY_SECTION_BIN = path.join(TEST_LOG_DIR, 'logs', 'section-index-cache.bin');
 const MAGIC = 0x53455833; // "SEX3"
 
 // 共用收尾：所有測試結束後才釋放 worker pool 與暫存目錄。
@@ -113,6 +116,8 @@ test('Section Index Cache: 磁碟鏡像可持久化超過 20 筆（突破 LRU �
     `bin 檔應持久化超過 20 筆（實際 ${count} 筆）；若仍為 <= 20，代表磁碟快取又被 20 筆 LRU 上限截斷，全量掃描將無法受益於快取而反覆重建`);
   assert.ok(count >= sample.length,
     `已索引 ${sample.length} 個檔案，bin 檔應至少含 ${sample.length} 筆（實際 ${count} 筆）`);
+  assert.ok(!fs.existsSync(LEGACY_SECTION_BIN),
+    '章節索引不應再寫進 LOG_DIR（v4.19.0 起放在 INDEX_DIR）');
 });
 
 test('Section Index Cache: 連續建置合併為單次寫入（去抖）', async (t) => {

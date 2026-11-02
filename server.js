@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.19.0
+ * @version 4.19.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -60,11 +60,12 @@ const readline = require('readline');
 const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
 const searchVariants = require('./i18n/search-variants');
+const { migrateLegacyIndexFiles } = require('./lib/index-dir');
 
 // ── Core Native Modules (Refactored to lib/) ───────────────────────────────
 const {
   APP_ROOT, PORT, HOST, CONFIG_PATH, APP_VERSION, MAX_LOG_BUFFER,
-  CRAWLER_UA_REGEX, LOG_DIR, ANALYTICS_STORE_PATH, ANALYTICS_STORE_VERSION,
+  CRAWLER_UA_REGEX, LOG_DIR, INDEX_DIR, ANALYTICS_STORE_PATH, ANALYTICS_STORE_VERSION,
   MIME_TYPES, SECURITY_HEADERS,
   DEPLOY_TARGET, DEPLOY_TARGET_LABEL, IS_SINGLE_USER, IS_LOOPBACK_ONLY,
   PORT_SCAN, PORT_SCAN_RANGE, isUnknownDeployTarget
@@ -1564,8 +1565,8 @@ function flattenTreeToFiles(nodes, mdRoot) {
 // 注意：此處只有 searchIndex 狀態物件與快取路徑常數。實際的建置、
 // 載入與儲存函式位於約 2030 行之後（「§12 (續)」標記處），因為
 // §11 章節索引後來插在中間。直接跳到 §12 (續) 才找得到函式。
-const SEARCH_INDEX_CACHE_FILE = path.join(LOG_DIR, 'search-index-cache.json');
-const SEARCH_INDEX_CACHE_BIN = path.join(LOG_DIR, 'search-index-cache.bin');
+const SEARCH_INDEX_CACHE_FILE = path.join(INDEX_DIR, 'search-index-cache.json');
+const SEARCH_INDEX_CACHE_BIN = path.join(INDEX_DIR, 'search-index-cache.bin');
 
 let searchIndex = {
   ready: false,
@@ -1580,8 +1581,8 @@ let searchIndex = {
 
 // ── §11 Document Section Index Engine ─────────────────────────
 const LARGE_FILE_MIN_BYTES = 1024 * 1024; // files >= 1MB get a section index
-const SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'section-index-cache.bin');
-const DICT_SECTION_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-section-index-cache.bin');
+const SECTION_INDEX_CACHE_BIN = path.join(INDEX_DIR, 'section-index-cache.bin');
+const DICT_SECTION_INDEX_CACHE_BIN = path.join(INDEX_DIR, 'dict-section-index-cache.bin');
 const SECTION_INDEX_MAGIC = 0x53455833; // "SEX3" (v3: groups carry lineStart)
 const SECTION_INDEX_MAX_CACHE = 20;     // hot in-memory LRU size (keeps reads cheap)
 // Upper bound for the on-disk mirror. Must comfortably exceed the number of
@@ -1973,7 +1974,7 @@ async function doSaveSectionIndexBin(cache, binPath, label) {
     const files = Array.from(cache.values());
     if (files.length === 0) return;
 
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+    fs.mkdirSync(INDEX_DIR, { recursive: true });
 
     let totalBytes = 4 + 4; // magic + fileCount
     for (const idx of files) {
@@ -2306,6 +2307,7 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, units, bigrams) 
   const tmpCacheFile = SEARCH_INDEX_CACHE_BIN + '.tmp';
   try {
     const saveStart = Date.now();
+    await fs.promises.mkdir(INDEX_DIR, { recursive: true });
     const useUint16 = units.length < 65536;
     // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.1)
     const magic = useUint16 ? 0x42475837 : 0x42475838;
@@ -2417,6 +2419,7 @@ async function saveSearchIndexCacheAsync(vaultSig, fileList, bigrams) {
       bigrams: bigramsArr
     };
     const jsonStr = JSON.stringify(data);
+    await fs.promises.mkdir(INDEX_DIR, { recursive: true });
     await fs.promises.writeFile(SEARCH_INDEX_CACHE_FILE, jsonStr, 'utf-8');
     const sizeMb = (Buffer.byteLength(jsonStr) / (1024 * 1024)).toFixed(1);
     Logger.info('Index', `Saved Bigram Index to disk cache (${sizeMb} MB) in ${Date.now() - saveStart}ms`);
@@ -2727,7 +2730,7 @@ async function buildSearchIndexAsync(forceRebuild = false) {
 // (config.settings.dictionaryPath), are entry-level (one unit per headword), and
 // are served by `/api/dict-headwords` + `/api/dict-search` only — never mixed into
 // the main vault search or its disk cache.
-const DICT_INDEX_CACHE_BIN = path.join(LOG_DIR, 'dict-index-cache.bin');
+const DICT_INDEX_CACHE_BIN = path.join(INDEX_DIR, 'dict-index-cache.bin');
 
 let dictIndex = {
   ready: false,
@@ -2907,6 +2910,7 @@ async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
   const tmpCacheFile = DICT_INDEX_CACHE_BIN + '.tmp';
   try {
     const saveStart = Date.now();
+    await fs.promises.mkdir(INDEX_DIR, { recursive: true });
     const useUint16 = units.length < 65536;
     // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.1)
     const magic = useUint16 ? 0x44475837 : 0x44475838;
@@ -4983,6 +4987,7 @@ async function getSystemHardwareStats() {
   let analyticsStoreSize = 0;
   try { analyticsStoreSize = (await fs.promises.stat(ANALYTICS_STORE_PATH)).size; } catch (_) {}
   const logsDirSize = await getDirSizeAsync(LOG_DIR);
+  const indexDirSize = await getDirSizeAsync(INDEX_DIR);
 
   let indexFileMtime = searchIndex.createdAt || null;
   try {
@@ -5069,7 +5074,8 @@ async function getSystemHardwareStats() {
       vaultFs: storageStats,
       cacheSizeBytes: cacheSize,
       analyticsStoreSizeBytes: analyticsStoreSize,
-      logsDirSizeBytes: logsDirSize
+      logsDirSizeBytes: logsDirSize,
+      indexDirSizeBytes: indexDirSize
     },
     index: {
       ready: searchIndex.ready,
@@ -6343,6 +6349,10 @@ if (require.main === module) {
       `falling back to "${DEPLOY_TARGET}". Valid values: web, mac-app, win-app, linux-app, ios-app, android-app.`);
   }
   Logger.info('Boot', `Deployment target: ${DEPLOY_TARGET_LABEL}`);
+
+  // 升級：v4.19.0 以前索引快取寫在 logs/，搬到 index/ 免得重建（同步執行，
+  // 必須在任何索引載入之前完成）。
+  migrateLegacyIndexFiles({ logDir: LOG_DIR, indexDir: INDEX_DIR, logger: Logger });
 
   listenWithFallback(server, PORT, HOST, (err, actualPort) => {
     if (err) {

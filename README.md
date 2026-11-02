@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.19.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.19.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -99,12 +99,24 @@ services:
       - ./data:/data
       - ./md:/data/md
       - ./dicts:/data/dicts
+      # 搜尋索引（約 650MB，可重建、不必備份）。保留下來，重開或更新容器時就不必重建索引。
+      - ./index:/data/index
     restart: unless-stopped
 ```
 
 ```bash
 docker-compose up -d
 ```
+
+**資料夾分工**
+
+| 資料夾（容器內） | 放什麼 | 要備份嗎 |
+| :--- | :--- | :--- |
+| `./data`（`/data`） | 網站設定 `config.json`、帳號 `users.db`、`backups/`、`secrets.key` | ✅ 一定要 |
+| `./data/logs`（`/data/logs`，可用 `LOG_DIR` 改） | 存取日誌與流量統計（保留 90 天） | 想留統計就備份 |
+| `./index`（`/data/index`，可用 `INDEX_DIR` 改） | 全文搜尋、辭典、章節的索引快取（`*.bin`） | 不用，刪掉會自動重建 |
+
+> 🔄 **從 v4.18 以前升級**：以前索引放在 `logs/` 裡。v4.19.0 第一次啟動時會自動把 `logs/` 裡的索引檔搬到 `index/`，不必重建；`logs/` 和 `index/` 是不同掛載點時改用複製，幾 GB 以內大約幾秒到幾十秒。沒有加 `./index` 掛載也能跑，索引會存在 `./data/index`。
 
 **關於記憶體**
 
@@ -196,6 +208,8 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 mdWebview/
 ├── md/                 # 你的經論檔案放這裡（可再分資料夾）
 ├── dicts/              # 佛學辭典檔案（.txt）
+├── logs/               # 存取日誌與流量統計（自動產生）
+├── index/              # 搜尋索引快取 *.bin（自動產生，可刪除重建）
 ├── tests/              # 自動測試
 ├── tools/              # 開發工具（如產生搜尋字組表）
 ├── lib/                # 網站主程式會用到的模組
@@ -209,7 +223,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v4.4.1）
+├── package.json        # 專案資訊（v4.19.1）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -255,7 +269,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.19.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.19.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -346,12 +360,24 @@ services:
       - ./data:/data
       - ./md:/data/md
       - ./dicts:/data/dicts
+      # Search index (~650MB, rebuildable, no need to back up). Keeping it means restarts and updates skip the rebuild.
+      - ./index:/data/index
     restart: unless-stopped
 ```
 
 ```bash
 docker-compose up -d
 ```
+
+**What goes where**
+
+| Folder (in container) | Contents | Back up? |
+| :--- | :--- | :--- |
+| `./data` (`/data`) | Site settings `config.json`, accounts `users.db`, `backups/`, `secrets.key` | ✅ Yes |
+| `./data/logs` (`/data/logs`, override with `LOG_DIR`) | Access logs and traffic statistics (kept 90 days) | If you want the statistics |
+| `./index` (`/data/index`, override with `INDEX_DIR`) | Full-text, dictionary and section index caches (`*.bin`) | No — deleted files are rebuilt automatically |
+
+> 🔄 **Upgrading from v4.18 or earlier**: indexes used to live in `logs/`. On its first start, v4.19.0 moves the index files from `logs/` into `index/` so nothing has to be rebuilt; when `logs/` and `index/` are separate mounts it copies them instead (seconds to a few tens of seconds). Without the `./index` mount it still works and keeps the index in `./data/index`.
 
 **About memory**
 
@@ -414,6 +440,8 @@ In single-user mode:
 mdWebview/
 ├── md/                 # Put your texts here (subfolders allowed)
 ├── dicts/              # Buddhist dictionary files (.txt)
+├── logs/               # Access logs and traffic statistics (generated)
+├── index/              # Search index caches *.bin (generated; safe to delete, rebuilt automatically)
 ├── tests/              # Automated tests
 ├── tools/              # Developer tools (e.g. generating the search variant table)
 ├── lib/                # Modules used by the main server program
@@ -427,7 +455,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.19.0)
+├── package.json        # Project information (v4.19.1)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

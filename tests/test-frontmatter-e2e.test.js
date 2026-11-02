@@ -30,6 +30,7 @@ fs.mkdirSync(tmpLogs, { recursive: true });
 fs.writeFileSync(tmpConfig, JSON.stringify({ settings: { mdRoot: tmpVault } }), 'utf-8');
 
 process.env.LOG_DIR = tmpLogs;
+process.env.INDEX_DIR = tmpLogs;
 process.env.CONFIG_PATH = tmpConfig;
 process.env.MD_ROOT = tmpVault;
 

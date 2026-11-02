@@ -9,6 +9,7 @@ const path = require('path');
 
 const LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-reports-'));
 process.env.LOG_DIR = LOG_DIR;
+process.env.INDEX_DIR = LOG_DIR;
 process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://reader.example';
 process.env.SCRYPT_LN = process.env.SCRYPT_LN || '10';
 

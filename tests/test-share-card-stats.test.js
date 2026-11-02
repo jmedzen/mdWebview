@@ -9,6 +9,7 @@ const path = require('path');
 
 const TEST_LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-share-stats-'));
 process.env.LOG_DIR = TEST_LOG_DIR;
+process.env.INDEX_DIR = TEST_LOG_DIR;
 
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
