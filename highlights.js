@@ -552,9 +552,37 @@
     return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
   }
 
+  /** 檔名的一段：去掉 Windows／macOS 不允許的字元與控制字元，空白收成一個，最長 max 個字。 */
+  function safeFileNamePart(v, max) {
+    const s = String(v == null ? '' : v)
+      .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^[.\s]+|[.\s]+$/g, '');
+    return Array.from(s).slice(0, max || 40).join('').trim();
+  }
+
+  /**
+   * 個人匯出檔的檔名：「網站站名-使用者名稱-標籤-日期.副檔名」。
+   * 沒有使用者（未登入、單機模式）就省略那一段；站名空白時用 mdWebview。
+   * 使用者名稱是 email 時只取 @ 前面。
+   */
+  function exportFileName(o) {
+    const site = safeFileNamePart(o && o.siteName) || 'mdWebview';
+    let user = String((o && o.userName) || '');
+    if (/^[^@\s]+@[^@\s]+$/.test(user)) user = user.split('@')[0];
+    user = safeFileNamePart(user);
+    const parts = [site];
+    if (user) parts.push(user);
+    if (o && o.label) parts.push(safeFileNamePart(o.label));
+    if (o && o.date) parts.push(safeFileNamePart(o.date));
+    return parts.filter(Boolean).join('-') + '.' + String((o && o.ext) || 'txt').replace(/^\./, '');
+  }
+
   return {
     LIMITS, COLORS, newId, normalizeWire, lineAt, lineStart, trimRange, makeAnchor,
     contextScore, approxSearch, locate, sutraNumber, findMovedFile,
-    EXPORT, plainLine, plainTextOfMarkdown, buildExcerpts, buildLibraryMarkdown
+    EXPORT, plainLine, plainTextOfMarkdown, buildExcerpts, buildLibraryMarkdown,
+    safeFileNamePart, exportFileName
   };
 });

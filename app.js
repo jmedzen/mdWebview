@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.9.0
+   mdWebview — Application Logic (app.js) v4.9.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -9069,12 +9069,23 @@
   // §18.5 USER PREFERENCES BACKUP (EXPORT & IMPORT)
   // ═══════════════════════════════════════════════════════════
 
+  /** 個人匯出檔名：「網站站名-使用者名稱-標籤-日期」（未登入或單機模式不加使用者名稱）。 */
+  function personalExportFileName(label, ext) {
+    const u = !state.isSingleUser && state.account && state.account.user;
+    const userName = u ? (u.displayName || u.username || u.email || '') : '';
+    const date = getTodayDateIso();
+    if (HL && typeof HL.exportFileName === 'function') {
+      return HL.exportFileName({ siteName: state.siteName, userName, label, date, ext });
+    }
+    return `mdWebview-${label}-${date}.${ext}`;
+  }
+
   /**
    * 匯出並下載當前使用者的個人偏好設定、閱讀進度、書籤與歷史紀錄 (JSON 格式)
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -9113,9 +9124,8 @@
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const dateStr = getTodayDateIso();
       a.href = url;
-      a.download = `mdWebview-user-preferences-${dateStr}.json`;
+      a.download = personalExportFileName('個人偏好備份', 'json');
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -9180,7 +9190,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mdWebview-bookmarks-highlights-${getTodayDateIso()}.md`;
+      a.download = personalExportFileName('書籤與劃線', 'md');
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -11039,7 +11049,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11407,7 +11417,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12297,7 +12307,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.9.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
