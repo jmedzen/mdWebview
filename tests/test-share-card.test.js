@@ -145,7 +145,7 @@ describe('lib/share-card-server：伺服器畫圖', () => {
         assert.equal(buf[0], 0xff);
         assert.equal(buf[1], 0xd8);
         const img = await loadImage(buf);
-        assert.deepEqual([img.width, img.height], ShareCard.SIZES[size]);
+        assert.deepEqual([img.width, img.height], ShareCard.PIXEL_SIZES[size]);
       }
     }
   });
@@ -184,7 +184,7 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /SHARE_GREETING_MODES = \['time', '法安', '自在', '吉祥'\]/);
     assert.match(indexHtml, /id="shareCardGreetings"/);
     assert.match(appJs, /shareRt\.date = localYmd\(now\);/);
-    assert.match(appJs, /shareRt\.greeting = window\.ShareCard\.greetingForHour\(now\.getHours\(\)\);/);
+    assert.match(appJs, /shareRt\.greeting = shareGreetingFor\(shareRt\.greetingMode, now\);/);
   });
 
   test('分享卡永遠用畫面上正在顯示的那一句', () => {

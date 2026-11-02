@@ -10,18 +10,27 @@
  *   A 晨光留白：圖在上，往下淡成紙色，深墨色字寫在紙上（任何背景都清楚）
  *   B 沉浸全幅：圖片滿版，下方墨色漸層，白字；漸層深淺依圖片下半部的亮度自動調整
  *   C 經籤直書：圖片滿版，中間一張直書經籤，紅字問候與印章
- * 兩種尺寸：portrait 1080×1350（直接傳圖）、og 1200×630（連結預覽）。
+ * 兩種尺寸：portrait（直接傳圖）、og 1200×630（連結預覽）。
+ *   版面一律以 SIZES 的座標畫（直式 1080×1350）；實際畫布用 PIXEL_SIZES（直式放大 1.5 倍 = 1620×2025），
+ *   draw() 依畫布寬度自動縮放，QR 小籤在實際像素上畫整數格才銳利。
+ * QR 碼（原文連結）：opts.qr = 網址字串，只畫在直式上；QR 產生器是 vendor/qrcode/qrcode.js（MIT），
+ *   瀏覽器要先載入（全域 qrcode），伺服器用 require 自動載入。
  */
 (function (root, factory) {
-  const api = factory();
+  let qrLib = root && root.qrcode;
+  if (!qrLib && typeof require === 'function') {
+    try { qrLib = require('./vendor/qrcode/qrcode.js'); } catch (_) { qrLib = null; }
+  }
+  const api = factory(() => qrLib || (root && root.qrcode) || null);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.ShareCard = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (getQrLib) {
   'use strict';
 
   const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'];
   const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式' };
-  const SIZES = { portrait: [1080, 1350], og: [1200, 630] };
+  const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
+  const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
   const GREETINGS = ['早安', '午安', '晚安', '法安', '自在', '吉祥'];   // 法安／自在／吉祥 = 不分時間，給跨時區的收件人
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
 
@@ -347,7 +356,13 @@
       ctx.fillStyle = '#8b7d68';
       ctx.font = font(500, 24);
       drawSpaced(ctx, `${o.siteName} · ${o.label}`, 64, h - 74, 3);
-      drawSeal(ctx, '吉祥', w - 64 - 64, h - 116, 64);
+      if (o.qr) {
+        // QR 與「吉祥」印同大，排在印的右邊
+        drawSeal(ctx, '吉祥', w - 64 - QR_BOX - 20 - 64, h - 116, 64);
+        drawQrBadge(ctx, o, w - 64 - QR_BOX, h - 116);
+      } else {
+        drawSeal(ctx, '吉祥', w - 64 - 64, h - 116, 64);
+      }
       return;
     }
     // 橫式：左圖右文
@@ -415,6 +430,7 @@
     });
 
     const left = 80 * k, right = w - 80 * k;
+    const qb = o.qr && !land ? qrBadgeSize() : null;
     const fit = land
       ? fitText(o.verse.text.replace(/\s+/g, ''), { boxW: right - left, boxH: 140, maxSize: 52, minSize: 28, advance: 1.12, lead: 1.5, maxLines: 2 })
       : fitText(o.verse.text, { boxW: right - left, boxH: 420, maxSize: 70, minSize: 36, advance: 1.12, lead: 1.6, maxLines: 6 });
@@ -438,8 +454,9 @@
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.font = font(500, 22 * k);
       drawSpaced(ctx, `${o.siteName} · ${o.label}`, left, footY, 3);
-      if (o.host) drawSpaced(ctx, o.host, right, footY, 2, 'right');
+      if (o.host && !qb) drawSpaced(ctx, o.host, right, footY, 2, 'right');
     });
+    if (qb) drawQrBadge(ctx, o, right - qb.w + 16, h - 26 - qb.h);
   }
 
   // ── 版型 C：經籤直書 ─────────────────────────────────────────────────
@@ -526,10 +543,11 @@
     withGlow(ctx, 'rgba(255,255,255,0.95)', 14, () => {
       ctx.fillStyle = '#3a3226';
       ctx.font = font(500, land ? 22 : 28);
-      const label = `${o.siteName} · ${o.label}${!land && o.host ? ' · ' + o.host : ''}`;
+      const label = `${o.siteName} · ${o.label}${!land && o.host && !o.qr ? ' · ' + o.host : ''}`;
       if (land) drawSpaced(ctx, label, 60, h - 40, 6);
       else drawSpaced(ctx, label, w / 2, h - 44, 6, 'center');
     });
+    if (o.qr && !land) { const b = qrBadgeSize(); drawQrBadge(ctx, o, 40, h - 40 - b.h); }
   }
 
 
@@ -707,6 +725,7 @@
     ctx.fillStyle = '#8b7d68';
     ctx.font = font(500, 22);
     drawSpaced(ctx, `${o.siteName} · ${o.label}`, 80, h - 40, 4);
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 96 - b.w + 20, h - 44 - b.h); }
   }
 
   // ── 版型 J：象牙拱門 ────────────────────────────────────────────────
@@ -719,9 +738,11 @@
     grain(ctx, w, h, 9, 0.06, false);
     // 廊柱：兩側細金線，端點小菱形
     ctx.strokeStyle = goldGrad(ctx, 0, 0, 0, h); ctx.lineWidth = 2;
+    const qbJ = o.qr ? qrBadgeSize() : null;
     for (const x of [78, w - 78]) {
-      ctx.beginPath(); ctx.moveTo(x, 130); ctx.lineTo(x, h - 130); ctx.stroke();
-      for (const y of [130, h - 130]) {
+      const yEnd = qbJ ? h - 40 - qbJ.h - 36 : h - 130;
+      ctx.beginPath(); ctx.moveTo(x, 130); ctx.lineTo(x, yEnd); ctx.stroke();
+      for (const y of [130, yEnd]) {
         ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4);
         ctx.fillStyle = goldGrad(ctx, -8, -8, 8, 8); ctx.fillRect(-7, -7, 14, 14); ctx.restore();
       }
@@ -769,6 +790,7 @@
     ctx.fillStyle = '#9a8c74';
     ctx.font = font(500, 20);
     drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 64, 5, 'center');
+    if (qbJ) drawQrBadge(ctx, o, w - 78 - qbJ.w / 2 - 6, h - 40 - qbJ.h);
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -817,6 +839,7 @@
     ctx.fillRect(0, split, w, 6);
     grain(ctx, w, h - split, 3, 0.05, false);
     redSeal(ctx, o.greeting, w / 2 - 62, split - 62, 124);
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 64 - b.w, split - b.h / 2); }
     ctx.fillStyle = '#2a2318';
     const r = centerVerse(ctx, o, w / 2, 1085, w - 200, 230, { maxSize: 62, minSize: 32, lead: 1.6, maxLines: 4 });
     sourceLine(ctx, o, w / 2, r.bottom + 50, '#8b7248', 28);
@@ -856,6 +879,7 @@
     let x = left + areaW / 2 + blockW / 2 - size / 2;
     for (const line of lines) { drawVertical(ctx, line, x, top, size, size * 1.14); x -= size * 1.5; }
     redSeal(ctx, o.greeting, left + areaW / 2 - 62, 110, 124);
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, pw / 2 - b.w / 2, h - 48 - b.h); }
     if (o.verse.source) {
       ctx.fillStyle = '#8b7248';
       ctx.font = font(500, 26);
@@ -882,7 +906,8 @@
     ctx.font = font(500, 26);
     drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, 64, 244, 5);
     ctx.fillStyle = '#b8322a';
-    ctx.fillRect(w - 64 - 90, 240, 90, 8);
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 64 - b.w, 290 - 4 - 22 - b.h); }
+    else ctx.fillRect(w - 64 - 90, 240, 90, 8);
     drawCover(ctx, o.image, 0, t1, w, t2 - t1, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
     ctx.fillRect(0, t1 - 4, w, 8);
@@ -1061,13 +1086,72 @@
     drawSpaced(ctx, `${o.siteName} · ${o.label}`, cx, h - 42, 4, 'center');
   }
 
+  // ── QR 碼小籤（原文連結）────────────────────────────────────────────
+  // o.qr = { modules: boolean[][] }。一律畫在不透明的米色籤上（深色格子＋淺色底），
+  // 背景圖亮或暗都掃得到；不寫字。籤與「吉祥」印同大（版面座標 64），
+  // 格子用實際畫布像素的整數大小畫（1620 寬時 25×25 格每格 3 px），邊緣才銳利。
+  const QR_BOX = 64;
+  const QR_ALNUM_RE = /^[0-9A-Z $%*+\-.\/:]+$/;
+
+  /** 網址 → QR 格子（容錯 M）。全大寫網址用英數模式，格數較少。沒有產生器或失敗回 null。 */
+  function qrMatrix(text) {
+    const lib = getQrLib();
+    const s = String(text || '');
+    if (!lib || !s) return null;
+    try {
+      const q = lib(0, 'M');
+      q.addData(s, QR_ALNUM_RE.test(s) ? 'Alphanumeric' : 'Byte');
+      q.make();
+      const n = q.getModuleCount();
+      const modules = [];
+      for (let r = 0; r < n; r++) {
+        const row = [];
+        for (let c = 0; c < n; c++) row.push(q.isDark(r, c));
+        modules.push(row);
+      }
+      return { modules };
+    } catch (_) {
+      return null;
+    }
+  }
+  function qrBadgeSize() { return { w: QR_BOX, h: QR_BOX }; }
+  function drawQrBadge(ctx, o, x, y) {
+    const m = o.qr.modules, n = m.length;
+    const t = ctx.getTransform ? ctx.getTransform() : { a: 1, e: 0, f: 0 };
+    const s = t.a || 1;
+    const X = Math.round(x * s + t.e), Y = Math.round(y * s + t.f), W = Math.round(QR_BOX * s);
+    const mod = Math.max(1, Math.floor(W / (n + 4)));
+    const pad = Math.floor((W - n * mod) / 2);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.shadowColor = 'rgba(40,30,10,0.18)';
+    ctx.shadowBlur = 6 * s;
+    ctx.shadowOffsetY = 1.5 * s;
+    ctx.fillStyle = '#fbf7ec';
+    roundRect(ctx, X, Y, W, W, 6 * s);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(176,141,74,0.8)';
+    ctx.lineWidth = Math.max(1, s);
+    roundRect(ctx, X + 0.5, Y + 0.5, W - 1, W - 1, 6 * s);
+    ctx.stroke();
+    ctx.fillStyle = '#211c16';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (m[r][c]) ctx.fillRect(X + pad + c * mod, Y + pad + r * mod, mod, mod);
+    }
+    ctx.restore();
+    return { x, y, w: QR_BOX, h: QR_BOX };
+  }
+
   /**
    * 畫一張卡。ctx 是 2D context（瀏覽器或 @napi-rs/canvas 都可以），畫布大小要先設好。
-   * opts: { layout, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host, label }
+   * opts: { layout, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host, label, qr }
+   * qr = 原文連結網址（短網址），只畫在直式；不給就不畫。畫布請用 PIXEL_SIZES 的大小。
    * label = 頁尾站名後的字：每日經句（預設）或 經文選句（選字製作的卡片）。
    */
   function draw(ctx, opts) {
-    const [w, h] = SIZES[normalizeSize(opts.size)];
+    const size = normalizeSize(opts.size);
+    const [w, h] = SIZES[size];
     const o = {
       image: opts.image || null,
       verse: { text: String((opts.verse && opts.verse.text) || ''), source: String((opts.verse && opts.verse.source) || '').replace(/^《|》$/g, '') },
@@ -1075,9 +1159,15 @@
       date: dateInfo(opts.date),
       siteName: String(opts.siteName || 'mdWebview'),
       host: String(opts.host || ''),
-      label: normalizeLabel(opts.label)
+      label: normalizeLabel(opts.label),
+      // QR 只畫在直式（og 是連結預覽，本身就能點，縮圖後也掃不到）
+      qr: size === 'portrait' && opts.qr ? qrMatrix(opts.qr) : null
     };
     const layout = normalizeLayout(opts.layout);
+    // 畫布比版面大（直式 1620 寬）時整體放大
+    const sc = ctx.canvas && ctx.canvas.width ? ctx.canvas.width / w : 1;
+    ctx.save();
+    if (sc !== 1) ctx.scale(sc, sc);
     if (layout === 'B') drawB(ctx, w, h, o);
     else if (layout === 'C') drawC(ctx, w, h, o);
     else if (layout === 'I') drawI(ctx, w, h, o);
@@ -1086,6 +1176,7 @@
     else if (layout === 'P') drawP(ctx, w, h, o);
     else if (layout === 'Q') drawQ(ctx, w, h, o);
     else drawA(ctx, w, h, o);
+    ctx.restore();
   }
 
   /** 由字串算出穩定的 32-bit 雜湊（FNV-1a），用來挑背景圖。 */
@@ -1099,7 +1190,7 @@
   }
 
   return {
-    LAYOUTS, LAYOUT_NAMES, SIZES, GREETINGS, SERIF,
+    LAYOUTS, LAYOUT_NAMES, SIZES, PIXEL_SIZES, GREETINGS, SERIF, qrMatrix,
     draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, zonedNow, normalizeGreeting, normalizeLayout, normalizeSize,
     packLines, fitText, clauses, sealText, hash32
   };

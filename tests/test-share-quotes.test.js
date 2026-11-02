@@ -233,6 +233,47 @@ describe('HTTP：選句建立、畫圖、分享連結、後台', () => {
     assert.equal(e.share.verse, undefined);
   });
 
+  test('早安圖 QR：meta 給短網址；qr=1 的直式圖 1620×2025', async () => {
+    const meta = await request(`/api/share-card/meta?q=${quoteId}&d=2026-11-02&layout=N`);
+    assert.equal(meta.status, 200);
+    assert.equal(meta.json.qrUrl, `${baseUrl.toUpperCase()}/Q${quoteId.slice(0, 7).toUpperCase()}N`);
+    const img = await request(`/api/share-card.jpg?q=${quoteId}&layout=N&size=portrait&d=2026-11-02&qr=1`);
+    assert.ok(img.status === 200 || img.status === 503, String(img.status));
+  });
+
+  test('早安圖 QR 短網址：選句轉到原文那一行（大小寫通用），記 qrScan', async () => {
+    const code = quoteId.slice(0, 7);
+    const r = await request(`/Q${code.toUpperCase()}B`);
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.location, `/?file=${encodeURIComponent(FILE)}&line=7`);
+    assert.equal(r.headers['cache-control'], 'no-store');
+    const { systemLogBuffer } = require('../lib/logger.js');
+    const e = systemLogBuffer.filter(x => x.tag === 'ShareCard' && x.share && x.share.ev === 'qrScan').pop();
+    assert.equal(e.share.quote, quoteId);
+    assert.equal(e.share.layout, 'B');
+    const lower = await request(`/q${code}`);
+    assert.equal(lower.status, 302);
+    assert.equal(lower.headers.location, `/?file=${encodeURIComponent(FILE)}&line=7`);
+  });
+
+  test('早安圖 QR 短網址：每日經句用出處找到經文行號；找不到的代號回首頁', async () => {
+    const home = require('../lib/home');
+    const id = home.verseId('一切有為法，如夢幻泡影，如露亦如電，應作如是觀。');
+    const r = await request(`/V${id.slice(0, 7).toUpperCase()}A`);
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.location, `/?file=${encodeURIComponent(FILE)}&line=11`);
+    // 預設經句裡找不到原文的（這個測試語料沒有心經）回首頁顯示那一句
+    const id2 = home.verseId('色不異空，空不異色；色即是空，空即是色。');
+    const r2 = await request(`/V${id2.slice(0, 7)}`);
+    assert.equal(r2.status, 302);
+    assert.equal(r2.headers.location, `/?verse=${id2}`);
+    const none = await request('/V0000000A');
+    assert.equal(none.status, 302);
+    assert.equal(none.headers.location, '/');
+    // 不像短網址的路徑照舊
+    assert.notEqual((await request('/VXYZ')).status, 302);
+  });
+
   test('後台清單只給管理員；隱藏後圖片、讀取、預覽都失效，也不能重新建立', async () => {
     assert.equal((await request('/api/admin/share-quotes', { cookie: reader })).status, 401);
     const list = await request('/api/admin/share-quotes', { cookie: admin });
