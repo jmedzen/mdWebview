@@ -65,6 +65,18 @@ describe('share-card.js：日期與斷行', () => {
     assert.equal(ShareCard.greetingForHour(ShareCard.zonedNow('America/Los_Angeles', t).hour), '午安');
   });
 
+  test('版型 Q 的英文問候：自在＝Boundless Ease（不用軍隊口令 At Ease），每個問候都有英文', () => {
+    const en = ShareCard.GREETING_EN;
+    assert.equal(en['自在'], 'Boundless Ease');
+    assert.equal(en['法安'], 'Dharma Peace');
+    assert.equal(en['吉祥'], 'Blessings');
+    assert.ok(!Object.values(en).some(v => /^at ease$/i.test(v)));
+    for (const g of ShareCard.GREETINGS) {
+      assert.ok(en[g], `${g} 缺英文`);
+      assert.ok(en[g].length <= 'Good Afternoon'.length, `${g} 的英文太長，會擠到 QR 碼`);
+    }
+  });
+
   test('印章字取站名前兩個漢字，沒有就用「吉祥」', () => {
     assert.equal(ShareCard.sealText('大覺藏集'), '大覺');
     assert.equal(ShareCard.sealText('mdWebview'), '吉祥');
