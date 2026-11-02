@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.13.1
+   mdWebview — Application Logic (app.js) v4.13.2
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2590,7 +2590,6 @@
   // 回 503，這裡改用 share-card.js 在瀏覽器畫。卡片永遠是畫面上正在顯示的那一句。
 
   const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
-  const SHARE_MODE_KEY = 'mdWebview-share-card-mode';
   const shareRt = {
     open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安',
     blobs: new Map(),      // `${layout}|${size}` → Promise<Blob>
@@ -2712,8 +2711,7 @@
     const wrap = $('shareCardSlides');
     const dots = $('shareCardDots');
     if (!wrap || !SC) return;
-    const size = shareRt.mode === 'link' ? 'og' : 'portrait';
-    wrap.classList.toggle('is-og', size === 'og');
+    const size = 'portrait';
     wrap.textContent = '';
     dots.textContent = '';
     for (const layout of SC.LAYOUTS) {
@@ -2769,21 +2767,9 @@
     for (const d of $('shareCardDots').children) d.classList.toggle('on', d.dataset.layout === layout);
   }
 
-  function setShareMode(mode) {
-    shareRt.mode = mode === 'link' ? 'link' : 'image';
-    storage.set(SHARE_MODE_KEY, shareRt.mode);
-    $('shareModeImage').setAttribute('aria-checked', shareRt.mode === 'image' ? 'true' : 'false');
-    $('shareModeLink').setAttribute('aria-checked', shareRt.mode === 'link' ? 'true' : 'false');
-    $('shareCardModeNote').textContent = shareRt.mode === 'image'
-      ? '傳一張直式大圖（4:5），在聊天室裡最大、最有感覺。'
-      : '傳一個連結，LINE 會自動顯示這張橫式卡片；點開就到本站讀這一句。';
-    renderShareSlides();
-    // 先把要傳的那張準備好：手機分享要在按下的當下就有檔案
-    prefetchShareBlob();
-  }
-
+  /** 先把要傳的那張準備好：手機分享要在按下的當下就有檔案。 */
   function prefetchShareBlob() {
-    if (shareRt.mode === 'image') getShareCardBlob(shareRt.layout, 'portrait').catch(() => {});
+    getShareCardBlob(shareRt.layout, 'portrait').catch(() => {});
   }
 
   function openShareCard() {
@@ -2803,7 +2789,8 @@
     ov.style.display = 'flex';
     document.body.classList.add('modal-open');
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
-    setShareMode(storage.get(SHARE_MODE_KEY, 'image'));
+    renderShareSlides();
+    prefetchShareBlob();
     const card = ov.querySelector('.share-card-card');
     if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
   }
@@ -2834,11 +2821,6 @@
   }
 
   async function shareToLine() {
-    if (shareRt.mode === 'link') {
-      const text = `${shareLineText()}\n${shareLinkUrl()}`;
-      window.open(`https://line.me/R/share?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-      return;
-    }
     let blob;
     try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) { showToast('圖片畫不出來，請稍後再試', 'error'); return; }
     const file = new File([blob], shareCardFileName(), { type: 'image/jpeg' });
@@ -2857,17 +2839,15 @@
   }
 
   async function saveShareImage() {
-    const size = shareRt.mode === 'link' ? 'og' : 'portrait';
     try {
-      const blob = await getShareCardBlob(shareRt.layout, size);
+      const blob = await getShareCardBlob(shareRt.layout, 'portrait');
       downloadBlob(blob, shareCardFileName());
     } catch (_) { showToast('圖片畫不出來，請稍後再試', 'error'); }
   }
 
   async function copyShareImage() {
-    const size = shareRt.mode === 'link' ? 'og' : 'portrait';
     // 剪貼簿只收 PNG：把 JPEG 轉一次（用 Promise 交給 ClipboardItem，Safari 才不會說沒有使用者手勢）
-    const png = getShareCardBlob(shareRt.layout, size).then(blob => new Promise((resolve, reject) => {
+    const png = getShareCardBlob(shareRt.layout, 'portrait').then(blob => new Promise((resolve, reject) => {
       const url = URL.createObjectURL(blob);
       const im = new Image();
       im.onload = () => {
@@ -2926,8 +2906,6 @@
         if (best && best.dataset.layout !== shareRt.layout) { selectShareLayout(best.dataset.layout, false); prefetchShareBlob(); }
       }, 90);
     }, { passive: true });
-    $('shareModeImage').addEventListener('click', () => setShareMode('image'));
-    $('shareModeLink').addEventListener('click', () => setShareMode('link'));
     $('shareCardLine').addEventListener('click', shareToLine);
     $('shareCardSave').addEventListener('click', saveShareImage);
     $('shareCardCopyImg').addEventListener('click', copyShareImage);
@@ -9509,7 +9487,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11473,7 +11451,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11841,7 +11819,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12731,7 +12709,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.2';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
