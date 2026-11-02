@@ -149,12 +149,12 @@ describe('lib/share-card-server：伺服器畫圖', () => {
 });
 
 describe('首頁與伺服器接線', () => {
-  test('首頁經句下有「換一句」與「分享早安圖」，分享面板有三種版型與兩種方式', () => {
+  test('首頁經句下有「換一句」與「分享早安圖」，分享面板有四顆動作按鈕', () => {
     assert.match(indexHtml, /id="homeVerseShuffle"/);
     assert.match(indexHtml, /id="homeVerseShare"/);
     assert.match(indexHtml, /id="shareCardOverlay"/);
-    assert.match(indexHtml, /data-mode="image"/);
-    assert.match(indexHtml, /data-mode="link"/);
+    assert.doesNotMatch(indexHtml, /id="shareMode(Image|Link)"/, '分享方式切換已拿掉，連結功能在「複製連結」');
+    assert.match(indexHtml, /id="shareCardCopyLink"/);
     assert.match(indexHtml, /<script src="share-card\.js\?v=[^"]+" defer><\/script>\s*<script src="highlights\.js/);
   });
 
@@ -164,9 +164,9 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /const verse = state\._homeVerseCurrent;/);
   });
 
-  test('「只傳圖片」走系統分享（檔案），「圖片＋連結」走 LINE 分享網址', () => {
+  test('「傳到 LINE」走系統分享（檔案）；「複製連結」複製帶 ?verse= 的分享連結', () => {
     assert.match(appJs, /navigator\.share\(\{ files: \[file\] \}\)/);
-    assert.match(appJs, /https:\/\/line\.me\/R\/share\?text=/);
+    assert.match(appJs, /\/\?verse=\$\{encodeURIComponent\(v\.id\)\}/);
   });
 
   test('分享連結換 og:image；API 路由都接上', () => {
