@@ -851,15 +851,16 @@
     grain(ctx, w, h, 8, 0.05, false);
     ctx.fillStyle = '#231e18';
     const en = GREETING_EN[o.greeting] || 'Good Morning';
-    let es = 132;
-    for (; es > 70; es -= 4) { ctx.font = font(900, es); if (ctx.measureText(en).width + en.length * 3 <= w - 112) break; }
-    ctx.font = font(900, es);
-    drawSpaced(ctx, en, 56, 176, 3);
+    const hand = o.enFont ? (sz) => `${Math.round(sz)}px "${o.enFont}", ${SERIF}` : (sz) => font(900, sz);
+    let es = o.enFont ? 190 : 132;
+    for (; es > 70; es -= 4) { ctx.font = hand(es); if (ctx.measureText(en).width + en.length * 3 <= w - 112) break; }
+    ctx.font = hand(es);
+    if (o.enFont) { ctx.textAlign = 'left'; ctx.fillText(en, 56, 190); } else drawSpaced(ctx, en, 56, 176, 3);
     ctx.fillStyle = '#6b5d46';
     ctx.font = font(500, 26);
-    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, 60, 250, 5);
+    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, 60, o.enFont ? 270 : 250, 5);
     ctx.fillStyle = '#b8322a';
-    ctx.fillRect(w - 64 - 90, 246, 90, 8);
+    ctx.fillRect(w - 64 - 90, o.enFont ? 266 : 246, 90, 8);
     drawCover(ctx, o.image, 0, t1, w, t2 - t1, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
     ctx.fillRect(0, t1 - 4, w, 8);
@@ -1049,7 +1050,8 @@
       greeting: normalizeGreeting(opts.greeting),
       date: dateInfo(opts.date),
       siteName: String(opts.siteName || 'mdWebview'),
-      host: String(opts.host || '')
+      host: String(opts.host || ''),
+      enFont: opts.enFont || ''
     };
     const layout = normalizeLayout(opts.layout);
     if (layout === 'B') drawB(ctx, w, h, o);
