@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.17.0
+   mdWebview — Application Logic (app.js) v4.17.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -9613,7 +9613,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11580,7 +11580,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11948,7 +11948,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12838,7 +12838,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -17502,6 +17502,10 @@
     let mouseSelecting = false;      // 滑鼠按住拖曳中，交給 mouseup 處理
     let lastInputWasTouch = false;   // 觸控時彈窗放在選取下方，避開系統選單
     let popupTouchGuardUntil = 0;    // 點彈窗按鈕時選取可能先被清掉，暫緩隱藏
+    // 手指／滑鼠一碰到彈窗就「釘住」：之後系統才清掉選取（iOS 點選單外會收掉
+    // 選取，時間點不一定，可能晚於上面的暫緩時間），也不因此收起彈窗或「更多」。
+    // 點彈窗以外、按 Esc、或執行動作時才解除。
+    let popupPinned = false;
 
     function setMoreOpen(open) {
       moreMenu.hidden = !open;
@@ -17524,6 +17528,7 @@
       moreMenu.classList.add(up ? 'up' : 'down');
     }
     const hidePopup = () => {
+      popupPinned = false;
       popup.classList.remove('visible');
       setMoreOpen(false);
     };
@@ -17605,7 +17610,7 @@
       const text = selection ? selection.toString().trim() : '';
 
       if (!text || !state.currentFile || selection.rangeCount === 0) {
-        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        if (!popupPinned && Date.now() >= popupTouchGuardUntil) hidePopup();
         return;
       }
 
@@ -17648,7 +17653,11 @@
     }
 
     document.addEventListener('pointerdown', (e) => {
-      if (popup.contains(e.target)) return;
+      if (popup.contains(e.target)) {
+        if (popup.classList.contains('visible')) popupPinned = true;
+        return;
+      }
+      popupPinned = false;
       lastInputWasTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
       mouseSelecting = e.pointerType === 'mouse' && e.button === 0;
     }, true);
@@ -17673,10 +17682,12 @@
       if (!selection || selection.isCollapsed) {
         clearTimeout(selectionTimer);
         selectionTimer = null;
-        if (Date.now() >= popupTouchGuardUntil) hidePopup();
+        if (!popupPinned && Date.now() >= popupTouchGuardUntil) hidePopup();
         return;
       }
       if (mouseSelecting) return;
+      // 已釘住且選取文字沒變（系統只是重整選取）：不重畫，免得「更多」被收起
+      if (popupPinned && selection.toString().trim() === currentDisplayText) return;
       // 選取仍在變動（拖曳把手中）：先藏起來，停手後再依新位置顯示
       hidePopup();
       scheduleSelectionCheck(SELECTION_CHANGE_DELAY);
@@ -17684,6 +17695,7 @@
 
     // 觸碰彈窗按鈕時，系統可能在 click 前先清掉選取；暫緩隱藏讓 click 能送達
     popup.addEventListener('touchstart', () => {
+      if (popup.classList.contains('visible')) popupPinned = true;
       popupTouchGuardUntil = Date.now() + 800;
     }, { passive: true });
 
