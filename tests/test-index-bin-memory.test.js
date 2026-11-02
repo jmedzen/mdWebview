@@ -63,7 +63,7 @@ test('Index Binary Cache: Vault Search Index Save & Load Round-trip', async () =
     // Save with ChunkedBinaryWriter directly
     const writer = new ChunkedBinaryWriter(testBinPath, 64);
     const useUint16 = units.length < 65536;
-    const magic = useUint16 ? 0x42475835 : 0x42475836;
+    const magic = useUint16 ? 0x42475837 : 0x42475838;
     await writer.writeUInt32BE(magic);
     const sigBuf = Buffer.from(vaultSig);
     await writer.writeUInt16BE(sigBuf.length);
@@ -123,7 +123,7 @@ test('Index Binary Cache: Vault Search Index Save & Load Round-trip', async () =
 
     // Verify file contents match binary format specification
     const buf = await fs.promises.readFile(testBinPath);
-    assert.equal(buf.readUInt32BE(0), 0x42475835);
+    assert.equal(buf.readUInt32BE(0), 0x42475837);
     const readSigLen = buf.readUInt16BE(4);
     assert.equal(buf.toString('utf-8', 6, 6 + readSigLen), vaultSig);
 

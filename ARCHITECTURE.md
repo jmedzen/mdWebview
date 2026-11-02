@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.11.0 | 最後更新：2026-11
+> 版本：v4.12.0 | 最後更新：2026-11
 
 ---
 
@@ -346,7 +346,7 @@ sequenceDiagram
     U->>B: 輸入關鍵詞（空白分隔多詞，支援嚴格/寬鬆模式切換）
     B->>S: GET /api/search?q=詞A+詞B&folder=...&mode=strict|loose&variants=0|1
     S->>IX: executeIndexJob('search-scan', {fullPath, units, terms, maxProximityDist, maxPerFile, ignorePunct, variants})
-    Note over IX: 1. 標點/換行透明 Bigram 倒排縮小候選<br/>2. scanText 文本掃描（原文座標）<br/>3. 嚴格比對或寬鬆（忽略 T 集合：標點與換行）比對<br/>4. 鄰近距離過濾 (≤150 chars)<br/>5. 依命中數與相關性排序
+    Note over IX: 1. 標點/空白/換行透明 Bigram 倒排縮小候選<br/>2. scanText 文本掃描（原文座標）<br/>3. 嚴格比對或寬鬆（忽略 T 集合：標點、空白與換行）比對<br/>4. 鄰近距離過濾 (≤150 chars)<br/>5. 依命中數與相關性排序
     IX-->>S: [{file, fileName, entryIndex, headword, line, snippet}]
     S-->>B: JSON results {query, mode, variants, terms, results, total, capped}
     B->>B: renderSearchResults()<br/>（分批 SEARCH_RENDER_BATCH=300，寬鬆高亮 highlightLooseSnippet）
@@ -354,8 +354,8 @@ sequenceDiagram
 
 **Bigram 索引架構：**
 - **建立時機**：首次搜尋時 lazy build，之後快取（記憶體 + `.bin` 二進位磁碟快取）
-- **標點/換行透明性**：CJK 字元間遇到標點符號或行終止符（`\p{P}`、LF `\n`、CR `\r`、NEL `\u0085`、`\u2028`、`\u2029`）等透明字元 T 時不中斷 Bigram 產生（如「菩薩，行深」或跨行「菩薩\n行深」均產生「薩行」）；空白（半形、Tab、全形空格、NBSP）為詞分隔符號不屬於 T（「菩薩 行深」不產生「薩行」）。
-- **索引超集不變式 (Index Superset Invariant)**：索引抽取透明集必須 ⊇ 掃描透明集。目前磁碟 `.bin` 以「標點+空白+換行」建置，比掃描的「標點+換行」更寬，故仍為合法超集，無需 bump magic 或重建現有 `.bin`。日後若要放寬掃描透明集（例如重新納入空白），才需 bump magic 並觸發重建。
+- **標點/空白/換行透明性**：CJK 字元間遇到標點符號、空白或行終止符（`\p{P}`、`\s`——含半形空白、Tab、全形空格 U+3000、NBSP、LF、CR、`\u2028`、`\u2029`——以及 NEL `\u0085`）等透明字元 T 時不中斷 Bigram 產生（如「菩薩，行深」、「菩薩　行深」或跨行「菩薩\n行深」均產生「薩行」）。v4.12.0 以前空白不屬於 T、會斷詞；現在寬鬆比對也忽略空白。查詢字串仍先以空白切成多詞（多詞鄰近比對），切完才正規化。
+- **索引超集不變式 (Index Superset Invariant)**：索引抽取透明集必須 ⊇ 掃描透明集，否則寬鬆查詢的候選檔會缺跨字元 Bigram 而漏掉。目前兩者共用 `lib/text.js` 的同一張表。v4.12.0 把空白納入 T 時已 bump magic（主庫 `BGX5/BGX6` → `BGX7/BGX8`，辭典 `DGX5/DGX6` → `DGX7/DGX8`），舊 `.bin` 讀取時被拒、自動重建一次。日後再改 T 也要 bump。
 - **辭典索引**：獨立於主庫索引，避免辭典大小影響主庫搜尋速度
 - **索引格式與串流寫入**：`bigramMap: Map<string, number|Uint16Array|Uint32Array>` 記錄 unitId 清單；建置時採 in-place 就地壓縮（單元素收納為 number primitive、多元素原地轉換為 TypedArray，避免雙 Map 同時存活），並以分塊串流（`ChunkedBinaryWriter`）寫入二進位磁碟快取（Magic: 0x42475835 / 0x42475836），不再配置單一巨大 Buffer，使建置過程可平穩完成。
 - **部署記憶體需求與 NODE_MAX_OLD_SPACE_MB 調校**：
@@ -1014,7 +1014,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.11.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.12.0'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
