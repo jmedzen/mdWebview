@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.12.0
+   mdWebview — Application Logic (app.js) v4.12.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -9102,7 +9102,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11066,7 +11066,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11434,7 +11434,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12324,7 +12324,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.12.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -16676,7 +16676,6 @@
     share: SEL_ICON('<path d="M8 10V2.5M5 5.3L8 2.3l3 3"/><path d="M4.5 7.5H3.5v6h9v-6h-1"/>'),
     more: SEL_ICON('<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>'),
     cite: SEL_ICON('<path d="M3 4h10M3 7h10M3 10h6"/><path d="M11 10.5c1 0 1.8.6 1.8 1.6S12 14 11 14"/>'),
-    link: SEL_ICON('<path d="M7 9a2.5 2.5 0 003.5 0l2-2A2.5 2.5 0 009 3.5l-.8.8"/><path d="M9 7a2.5 2.5 0 00-3.5 0l-2 2A2.5 2.5 0 007 12.5l.8-.8"/>'),
     find: SEL_ICON('<path d="M3.5 2.5h6l3 3v8h-9z"/><circle cx="7.5" cy="9" r="2"/><path d="M9 10.5l1.5 1.5"/>'),
   };
 
@@ -16713,7 +16712,7 @@
           <button type="button" id="selectionSearchBtn" class="sel-main" title="在全文庫中搜尋此文字">
             ${SEL_ICONS.search}<span>搜尋</span>
           </button>
-          <button type="button" id="selectionShareBtn" class="sel-main" title="分享這段經文與出處">
+          <button type="button" id="selectionShareBtn" class="sel-main" title="複製帶行號的分享連結">
             ${SEL_ICONS.share}<span id="selectionShareLabel">分享</span>
           </button>
           <div class="popup-divider sel-more-divider"></div>
@@ -16723,7 +16722,6 @@
         </div>
         <div class="sel-more-menu" id="selectionMoreMenu" role="menu" hidden>
           <button type="button" role="menuitem" id="selectionCiteBtn">${SEL_ICONS.cite}<span>複製（附出處）</span></button>
-          <button type="button" role="menuitem" id="selectionLinkBtn">${SEL_ICONS.link}<span id="selectionLinkLabel">複製本行連結</span></button>
           <div class="sel-more-sep"></div>
           <button type="button" role="menuitem" id="selectionFindBtn">${SEL_ICONS.find}<span>在本篇中尋找</span></button>
         </div>
@@ -16736,7 +16734,6 @@
     const shareBtn = $('selectionShareBtn');
     const moreBtn = $('selectionMoreBtn');
     const moreMenu = $('selectionMoreMenu');
-    const linkLabel = $('selectionLinkLabel');
     let currentShareUrl = '';
     let currentRange = null;     // 選取範圍（劃線用）
     let editHighlightId = null;  // 點已劃線處叫出彈窗時，那一處的 id
@@ -16898,7 +16895,6 @@
       const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
       currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
 
-      linkLabel.textContent = `複製第 ${lineNum} 行連結`;
     }
 
     document.addEventListener('pointerdown', (e) => {
@@ -17056,23 +17052,8 @@
       writeClipboard(text, '已複製經文與出處');
     });
 
-    // 分享：有系統分享面板（手機、Safari 等）就用它；沒有就改成複製經文與出處
+    // 分享：直接複製帶行號的連結（不叫系統分享面板），並把網址列與畫面定位到那一行
     shareBtn.addEventListener('click', () => {
-      if (!currentDisplayText) return;
-      const c = citationParts();
-      const text = citationText();
-      hidePopup();
-      if (navigator.share) {
-        navigator.share({ title: c.name, text: `${c.quote}\n${c.source}`, url: c.url }).catch((err) => {
-          if (err && err.name === 'AbortError') return;
-          writeClipboard(text, '已複製經文與出處');
-        });
-        return;
-      }
-      writeClipboard(text, '已複製經文與出處');
-    });
-
-    $('selectionLinkBtn').addEventListener('click', () => {
       if (!currentShareUrl) return;
       const rawUrl = decodeURIComponent(currentShareUrl);
       // Capture now: the async clipboard path below runs after the user may have

@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.12.0
+ * @version 4.12.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -2083,7 +2083,7 @@ async function loadSearchIndexFromBinCacheAsync(expectedVaultSig) {
 
     let readPos = 0;
     const magic = binBuf.readUInt32BE(readPos); readPos += 4;
-    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.0)
+    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.1)
     if (magic !== 0x42475837 && magic !== 0x42475838) return false;
     const isUint16Format = (magic === 0x42475837);
 
@@ -2302,7 +2302,7 @@ async function saveSearchIndexBinCacheAsync(vaultSig, fileList, units, bigrams) 
   try {
     const saveStart = Date.now();
     const useUint16 = units.length < 65536;
-    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.0)
+    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.1)
     const magic = useUint16 ? 0x42475837 : 0x42475838;
 
     const writer = new ChunkedBinaryWriter(tmpCacheFile, 1024 * 1024);
@@ -2817,7 +2817,7 @@ async function loadDictIndexFromBinCacheAsync(expectedDictSig) {
 
     let readPos = 0;
     const magic = binBuf.readUInt32BE(readPos); readPos += 4;
-    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.0)
+    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.1)
     if (magic !== 0x44475837 && magic !== 0x44475838) return false;
     const isUint16Format = (magic === 0x44475837);
 
@@ -2903,7 +2903,7 @@ async function saveDictIndexBinCacheAsync(dictSig, fileList, units, bigrams) {
   try {
     const saveStart = Date.now();
     const useUint16 = units.length < 65536;
-    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.0)
+    // v5 (BGX7/BGX8): punctuation + whitespace + newline transparent bigrams (loose search mode, v4.12.1)
     const magic = useUint16 ? 0x44475837 : 0x44475838;
 
     const writer = new ChunkedBinaryWriter(tmpCacheFile, 1024 * 1024);
