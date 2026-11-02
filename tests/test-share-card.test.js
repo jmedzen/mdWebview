@@ -211,18 +211,25 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /\/\?verse=\$\{encodeURIComponent\(v\.id\)\}/);
   });
 
-  test('手機不能分享檔案（Firefox Android）時「傳到 LINE」改傳連結，不再變成下載', () => {
+  test('手機不能分享檔案（Firefox Android）時「傳到 LINE」顯示大圖兩步驟（長按複製→開啟 LINE），另附改傳連結，不再下載', () => {
     assert.match(appJs, /function canShareFiles\(\)/);
     assert.match(appJs, /function shareLinkToLine\(\)/);
+    assert.match(appJs, /async function lineManualImage\(\)/);
     const fn = appJs.slice(appJs.indexOf('async function shareToLine()'), appJs.indexOf('function isPhoneOrTablet()'));
-    // 先判斷，再畫圖：Firefox 要在使用者點擊後馬上叫分享選單
+    // 先判斷，再畫圖
     assert.ok(fn.indexOf('isPhoneOrTablet() && !canShareFiles()') < fn.indexOf('await getShareCardBlob'));
-    assert.ok(fn.indexOf('if (isPhoneOrTablet()) { shareLinkToLine(); return; }') < fn.indexOf('downloadBlob('), '手機不會走下載');
-    const link = appJs.slice(appJs.indexOf('function shareLinkToLine()'), appJs.indexOf('async function shareToLine()'));
+    assert.ok(fn.indexOf('if (isPhoneOrTablet()) { lineManualImage(); return; }') < fn.indexOf('downloadBlob('), '手機不會走下載');
+    const man = appJs.slice(appJs.indexOf('async function lineManualImage()'), appJs.indexOf('async function shareToLine()'));
+    assert.match(man, /showSaveImageOverlay\(blob, /);
+    assert.match(man, /https:\/\/line\.me\/R\//);
+    assert.match(man, /shareLinkToLine\(\)/);
+    assert.match(man, /sendShareEvent\('lineManual'\)/);
+    assert.match(appJs, /傳到 LINE（兩步）/);
+    assert.match(indexHtml, /id="shareCardLineLabel"/);
+    const link = appJs.slice(appJs.indexOf('function shareLinkToLine()'), appJs.indexOf('async function lineManualImage()'));
     assert.match(link, /navigator\.share\(\{ text, url \}\)/);
     assert.match(link, /lineMsgUrl\(/);
     assert.match(link, /sendShareEvent\('lineLink'\)/);
-    assert.match(appJs, /https:\/\/line\.me\/R\/msg\/text\/\?\$\{encodeURIComponent\(text\)\}/);
   });
 
   test('不能複製圖片（Firefox）時改顯示大圖讓人長按複製，電腦版改存檔', () => {
@@ -238,7 +245,7 @@ describe('首頁與伺服器接線', () => {
 
   test('手機「存圖片」顯示大圖讓人長按存相簿（和「傳到 LINE」的分享選單不同）；電腦版仍是下載', () => {
     assert.match(appJs, /function isPhoneOrTablet\(\)/);
-    assert.match(appJs, /function showSaveImageOverlay\(blob, tip\)/);
+    assert.match(appJs, /function showSaveImageOverlay\(blob, tip, actions\)/);
     const fn = appJs.slice(appJs.indexOf('async function saveShareImage()'), appJs.indexOf('async function copyShareImage()'));
     assert.match(fn, /isPhoneOrTablet\(\)/);
     assert.match(fn, /showSaveImageOverlay\(blob\)/);
