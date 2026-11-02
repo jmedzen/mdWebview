@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.18.7
+   mdWebview — Style System (style.css) v4.18.8
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11730,11 +11730,17 @@ a.small-btn {
   padding: 18px 16px; background: rgba(0, 0, 0, 0.86);
 }
 .share-save-overlay img {
-  max-width: 100%; max-height: calc(100dvh - 190px);
+  max-width: 100%; max-height: calc(100dvh - 360px);
   border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   -webkit-touch-callout: default; user-select: auto;
 }
 .share-save-tip { margin: 0; color: #f3ead6; font-size: 0.95rem; text-align: center; letter-spacing: 0.04em; }
+.share-save-tip { white-space: pre-line; text-align: left; line-height: 1.7; max-width: 22em; }
+.share-save-act {
+  min-height: 44px; padding: 0 28px; border-radius: 22px; border: 1px solid rgba(243, 234, 214, 0.6);
+  background: transparent; color: #f3ead6; font-size: 1rem; cursor: pointer;
+}
+.share-save-act.is-primary { background: #06c755; border-color: #06c755; color: #fff; }
 .share-save-close {
   min-height: 44px; padding: 0 28px; border-radius: 22px; border: 1px solid rgba(243, 234, 214, 0.6);
   background: transparent; color: #f3ead6; font-size: 1rem; cursor: pointer;
