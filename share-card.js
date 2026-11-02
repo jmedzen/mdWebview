@@ -798,7 +798,7 @@
   // ════════════════════════════════════════════════════════════════════
   // 英文問候用手寫體（Dancing Script；伺服器由 Docker 建置時下載，沒有就退回宋體）
   const enFont = (sz) => `${Math.round(sz)}px "Dancing Script", ${SERIF}`;
-  const GREETING_EN = { '早安': 'Good Morning', '午安': 'Good Afternoon', '晚安': 'Good Evening', '法安': 'Dharma Peace', '自在': 'At Ease', '吉祥': 'Blessings' };
+  const GREETING_EN = { '早安': 'Good Morning', '午安': 'Good Afternoon', '晚安': 'Good Evening', '法安': 'Dharma Peace', '自在': 'Boundless Ease', '吉祥': 'Blessings' };
 
   function redSeal(ctx, text, x, y, s, r) {
     ctx.save();
@@ -1190,7 +1190,7 @@
   }
 
   return {
-    LAYOUTS, LAYOUT_NAMES, SIZES, PIXEL_SIZES, GREETINGS, SERIF, qrMatrix,
+    LAYOUTS, LAYOUT_NAMES, SIZES, PIXEL_SIZES, GREETINGS, GREETING_EN, SERIF, qrMatrix,
     draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, zonedNow, normalizeGreeting, normalizeLayout, normalizeSize,
     packLines, fitText, clauses, sealText, hash32
   };
