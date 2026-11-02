@@ -75,3 +75,24 @@ describe('首頁歡迎畫面垂直溢出防護', () => {
     assert.ok(welcomeEnd > cardIdx, '安裝卡片必須在 welcomeScreen 內，才會隨首頁一起捲動');
   });
 });
+
+describe('回首頁一律從最上方開始', () => {
+  // 症狀：讀經捲到中後段，點左上角蓮花回首頁，畫面停在首頁中段的公告區。
+  // 成因：#content 是閱讀器與首頁共用的捲動容器，goHome 沒把 scrollTop 歸零。
+  const appJs = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
+
+  test('goHome 會呼叫 resetHomeScroll', () => {
+    const start = appJs.indexOf('function goHome(');
+    assert.ok(start > 0);
+    const body = appJs.slice(start, appJs.indexOf('\n  }\n', start));
+    assert.match(body, /resetHomeScroll\(\)/);
+  });
+
+  test('resetHomeScroll 把 #content 捲回 0', () => {
+    const start = appJs.indexOf('function resetHomeScroll(');
+    assert.ok(start > 0);
+    const body = appJs.slice(start, appJs.indexOf('\n  }\n', start));
+    assert.match(body, /\$\('content'\)/);
+    assert.match(body, /scrollTop = 0/);
+  });
+});
