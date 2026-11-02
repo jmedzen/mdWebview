@@ -19,8 +19,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const LAYOUTS = ['A', 'B', 'C'];
-  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書' };
+  const LAYOUTS = ['A', 'B', 'C', 'I', 'J'];
+  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };
   const GREETINGS = ['早安', '午安', '晚安'];
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
@@ -509,6 +509,338 @@
     });
   }
 
+
+  function goldLine(ctx, x, y, w, color = GOLD, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, 2);
+    ctx.restore();
+  }
+
+  /** 把經句排進 (cx, cy) 為中心的框裡，置中。回傳 {size, lines, top, bottom}。 */
+  function centerVerse(ctx, o, cx, cy, boxW, boxH, opts) {
+    const fit = fitText(o.verse.text, Object.assign({ boxW, boxH, maxSize: 66, minSize: 30, advance: 1.12, lead: 1.65, maxLines: 6 }, opts || {}));
+    const lead = (opts && opts.lead) || 1.65;
+    const blockH = fit.size + (fit.lines.length - 1) * fit.size * lead;
+    let y = cy - blockH / 2 + fit.size * 0.82;
+    ctx.font = font(700, fit.size);
+    for (const line of fit.lines) { drawSpaced(ctx, line, cx, y, fit.size * 0.12, 'center'); y += fit.size * lead; }
+    return { size: fit.size, lines: fit.lines, top: cy - blockH / 2, bottom: cy + blockH / 2 };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // 精品版面 I–M（直式 1080×1350 為主；橫式暫時沿用 A）
+  // 共用的質感工具：紙紋、金箔漸層、金粉、蓮瓣
+  // ════════════════════════════════════════════════════════════════════
+  function rng(seed) {
+    let a = seed >>> 0 || 1;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /** 紙紋：很淡的隨機細點，同一句同一天每次畫出來都一樣。 */
+  function grain(ctx, w, h, seed, alpha, dark) {
+    const r = rng(seed);
+    ctx.save();
+    for (let i = 0; i < 5200; i++) {
+      const x = r() * w, y = r() * h, s = 0.6 + r() * 1.6;
+      ctx.globalAlpha = alpha * (0.4 + r() * 0.6);
+      ctx.fillStyle = (i % 3 === 0) ? (dark ? '#fff' : '#fff') : (dark ? '#000' : '#8a7550');
+      ctx.fillRect(x, y, s, s);
+    }
+    ctx.restore();
+  }
+
+  function goldGrad(ctx, x0, y0, x1, y1) {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, '#f3dc9c');
+    g.addColorStop(0.35, '#d2a64c');
+    g.addColorStop(0.6, '#f6e4ac');
+    g.addColorStop(1, '#b98a35');
+    return g;
+  }
+
+  /** 金粉：大小不一、半透明的光點。 */
+  function dust(ctx, x, y, w, h, count, seed, color) {
+    const r = rng(seed);
+    ctx.save();
+    for (let i = 0; i < count; i++) {
+      const px = x + r() * w, py = y + r() * h, rad = 1.2 + Math.pow(r(), 3) * 7;
+      const g = ctx.createRadialGradient(px, py, 0, px, py, rad * 2.4);
+      g.addColorStop(0, color || 'rgba(255,236,170,0.95)');
+      g.addColorStop(1, 'rgba(255,236,170,0)');
+      ctx.globalAlpha = 0.35 + r() * 0.65;
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(px, py, rad * 2.4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** 一片蓮瓣（尖頭），從圓心往外 r1→r2，寬 wid；畫在已 translate/rotate 的座標裡，朝 -y。 */
+  function petalPath(ctx, r1, r2, wid) {
+    ctx.beginPath();
+    ctx.moveTo(0, -r1);
+    ctx.bezierCurveTo(wid, -r1 - (r2 - r1) * 0.25, wid * 0.8, -r2 + (r2 - r1) * 0.28, 0, -r2);
+    ctx.bezierCurveTo(-wid * 0.8, -r2 + (r2 - r1) * 0.28, -wid, -r1 - (r2 - r1) * 0.25, 0, -r1);
+    ctx.closePath();
+  }
+
+  /** 蓮花分隔線：中間一片大瓣，兩側小瓣，左右拉出金線。 */
+  function lotusDivider(ctx, cx, y, span, color) {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(cx - span, y, span - 46, 1.6);
+    ctx.fillRect(cx + 46, y, span - 46, 1.6);
+    for (const [ang, sc] of [[-52, 0.62], [52, 0.62], [-26, 0.82], [26, 0.82], [0, 1]]) {
+      ctx.save();
+      ctx.translate(cx, y + 14);
+      ctx.rotate(ang * Math.PI / 180);
+      petalPath(ctx, 2, 40 * sc, 13 * sc);
+      ctx.globalAlpha = 0.22; ctx.fill();
+      ctx.globalAlpha = 0.95; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // ── 版型 I：晨鐘大字 ────────────────────────────────────────────────
+  // 海報式不對稱：整幅圖往右漸隱成米色，右側兩欄超大直書經句，「早安」是一方紅印。
+  function drawI(ctx, w, h, o) {
+    if (w > h) return drawILand(ctx, w, h, o);
+    const CREAM = '246,240,226';
+    ctx.fillStyle = `rgb(${CREAM})`;
+    ctx.fillRect(0, 0, w, h);
+    drawCover(ctx, o.image, 0, 0, w, h, 0.4, 0.5);
+    const gx = ctx.createLinearGradient(0, 0, w, 0);
+    gx.addColorStop(0, `rgba(${CREAM},0)`);
+    gx.addColorStop(0.22, `rgba(${CREAM},0.05)`);
+    gx.addColorStop(0.58, `rgba(${CREAM},0.93)`);
+    gx.addColorStop(1, `rgba(${CREAM},0.98)`);
+    ctx.fillStyle = gx;
+    ctx.fillRect(0, 0, w, h);
+    const gy = ctx.createLinearGradient(0, h * 0.72, 0, h);
+    gy.addColorStop(0, `rgba(${CREAM},0)`);
+    gy.addColorStop(1, `rgba(${CREAM},0.97)`);
+    ctx.fillStyle = gy;
+    ctx.fillRect(0, h * 0.72, w, h * 0.28);
+    dust(ctx, 0, 0, w * 0.62, h * 0.7, 46, 11);
+    grain(ctx, w, h, 5, 0.05, false);
+    // 右側直書
+    const top = 250, bottom = h - 250;
+    const longest = Math.max(1, ...clauses(o.verse.text).map(c => Array.from(c.replace(TRAIL_PUNCT_RE, '')).length));
+    let size = 132, lines = null;
+    for (; size >= 56 && !lines; size -= 4) {
+      const cap = Math.floor((bottom - top) / (size * 1.14));
+      for (let pc = Math.min(longest, cap); pc <= cap && !lines; pc++) {
+        const ls = packLines(o.verse.text, pc);
+        if (ls.length <= 3 && ls.length * size * 1.5 <= 470) lines = ls;
+      }
+      if (lines) break;
+    }
+    if (!lines) { size = 56; lines = packLines(o.verse.text, Math.floor((bottom - top) / (size * 1.14))); }
+    ctx.fillStyle = '#231e18';
+    ctx.font = font(900, size);
+    let x = w - 96 - size / 2;
+    for (const line of lines) { drawVertical(ctx, line, x, top, size, size * 1.14); x -= size * 1.5; }
+    const colLen = Math.max(...lines.map(l => Array.from(l).length)) * size * 1.14;
+    // 出處（直書、較小，貼在最左一欄的下方）
+    if (o.verse.source) {
+      ctx.fillStyle = '#8b7248';
+      ctx.font = font(500, 30);
+      const txt = `《${o.verse.source}》`;
+      const step = 34;
+      drawVertical(ctx, txt, x + size * 0.5 - 6, Math.min(top + colLen + 40, bottom - (Array.from(txt).length - 1) * step), 30, step);
+    }
+    // 紅印「早安」
+    const ss = 138;
+    const sx = w - 96 - ss + 6, sy = 84;
+    ctx.save();
+    ctx.fillStyle = '#b8322a';
+    roundRect(ctx, sx, sy, ss, ss, 10);
+    ctx.fill();
+    ctx.fillStyle = '#fbf3e4';
+    ctx.font = font(900, 56);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const gch = Array.from(o.greeting);
+    ctx.fillText(gch[0] || '', sx + ss * 0.5, sy + ss * 0.29);
+    ctx.fillText(gch[1] || '', sx + ss * 0.5, sy + ss * 0.72);
+    ctx.restore();
+    ctx.textBaseline = 'alphabetic';
+    // 左下：日期
+    ctx.fillStyle = '#2b251c';
+    ctx.font = font(700, 46);
+    drawSpaced(ctx, `${o.date.monthCn}${cnNumber(+o.date.day)}日`, 80, h - 150, 6);
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 28);
+    drawSpaced(ctx, `${o.date.week} · ${o.date.term}`, 80, h - 100, 5);
+    goldLine(ctx, 80, h - 76, 120, '#b8932f');
+    ctx.fillStyle = '#8b7d68';
+    ctx.font = font(500, 22);
+    drawSpaced(ctx, `${o.siteName} · 每日經句`, 80, h - 40, 4);
+  }
+
+  // ── 版型 J：象牙拱門 ────────────────────────────────────────────────
+  // 象牙白的紙，一座尖頂拱門的畫窗、金色雙線與廊柱，蓮花分隔線，經句沉靜地寫在下方。
+  function drawJ(ctx, w, h, o) {
+    if (w > h) return drawJLand(ctx, w, h, o);
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#f6f0e1'); bg.addColorStop(1, '#efe6d0');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+    grain(ctx, w, h, 9, 0.06, false);
+    // 廊柱：兩側細金線，端點小菱形
+    ctx.strokeStyle = goldGrad(ctx, 0, 0, 0, h); ctx.lineWidth = 2;
+    for (const x of [78, w - 78]) {
+      ctx.beginPath(); ctx.moveTo(x, 130); ctx.lineTo(x, h - 130); ctx.stroke();
+      for (const y of [130, h - 130]) {
+        ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = goldGrad(ctx, -8, -8, 8, 8); ctx.fillRect(-7, -7, 14, 14); ctx.restore();
+      }
+    }
+    // 問候
+    ctx.fillStyle = '#9c2f27';
+    ctx.font = font(900, 66);
+    drawSpaced(ctx, o.greeting, w / 2, 148, 30, 'center');
+    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
+    ctx.fillRect(w / 2 - 250, 118, 130, 2); ctx.fillRect(w / 2 + 120, 118, 130, 2);
+    // 拱形畫窗
+    const ax = 170, aw = w - 340, ay = 200, ah = 660, ar = aw / 2;
+    const arch = (inset) => {
+      ctx.beginPath();
+      ctx.moveTo(ax - inset, ay + ah + inset);
+      ctx.lineTo(ax - inset, ay + ar);
+      ctx.arc(ax + ar, ay + ar, ar + inset, Math.PI, 0);
+      ctx.lineTo(ax + aw + inset, ay + ah + inset);
+      ctx.closePath();
+    };
+    ctx.save(); arch(0); ctx.clip();
+    drawCover(ctx, o.image, ax, ay, aw, ah, 0.5, 0.5);
+    const sh = ctx.createLinearGradient(0, ay + ah * 0.6, 0, ay + ah);
+    sh.addColorStop(0, 'rgba(60,40,10,0)'); sh.addColorStop(1, 'rgba(60,40,10,0.28)');
+    ctx.fillStyle = sh; ctx.fillRect(ax, ay, aw, ah);
+    ctx.restore();
+    ctx.strokeStyle = goldGrad(ctx, ax, ay, ax + aw, ay + ah); ctx.lineWidth = 5; arch(0); ctx.stroke();
+    ctx.lineWidth = 1.6; arch(16); ctx.stroke();
+    ctx.lineWidth = 1; ctx.globalAlpha = 0.55; arch(30); ctx.stroke(); ctx.globalAlpha = 1;
+    // 拱頂小寶珠
+    ctx.fillStyle = goldGrad(ctx, 0, ay - 40, 0, ay);
+    ctx.beginPath(); ctx.arc(w / 2, ay - 22, 9, 0, Math.PI * 2); ctx.fill();
+    // 蓮花分隔線與經句
+    lotusDivider(ctx, w / 2, 930, 300, '#b8932f');
+    ctx.fillStyle = '#2a2318';
+    const r = centerVerse(ctx, o, w / 2, 1065, w - 260, 190, { maxSize: 56, minSize: 30, lead: 1.6, maxLines: 4 });
+    if (o.verse.source) {
+      ctx.fillStyle = '#8b7248';
+      ctx.font = font(500, 26);
+      drawSpaced(ctx, `——《${o.verse.source}》`, w / 2, r.bottom + 46, 4, 'center');
+    }
+    ctx.fillStyle = '#7a6a52';
+    ctx.font = font(500, 24);
+    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, h - 100, 4, 'center');
+    ctx.fillStyle = '#9a8c74';
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 64, 5, 'center');
+  }
+
+  // 版型 I 的橫式（連結預覽圖 1200×630）：圖在左、漸隱成米色，右側直書。
+  function drawILand(ctx, w, h, o) {
+    const CREAM = '246,240,226';
+    ctx.fillStyle = `rgb(${CREAM})`;
+    ctx.fillRect(0, 0, w, h);
+    drawCover(ctx, o.image, 0, 0, w, h, 0.4, 0.5);
+    const gx = ctx.createLinearGradient(0, 0, w, 0);
+    gx.addColorStop(0, `rgba(${CREAM},0)`);
+    gx.addColorStop(0.3, `rgba(${CREAM},0.06)`);
+    gx.addColorStop(0.58, `rgba(${CREAM},0.94)`);
+    gx.addColorStop(1, `rgba(${CREAM},0.98)`);
+    ctx.fillStyle = gx;
+    ctx.fillRect(0, 0, w, h);
+    dust(ctx, 0, 0, w * 0.6, h, 26, 11);
+    grain(ctx, w, h, 5, 0.05, false);
+    const top = 150, bottom = h - 56, colH = bottom - top;
+    let size = 56, lines = null;
+    for (; size >= 28 && !lines; size -= 2) {
+      const cap = Math.floor(colH / (size * 1.14));
+      for (let pc = 4; pc <= cap && !lines; pc++) {
+        const ls = packLines(o.verse.text, pc);
+        if (ls.length <= 4 && ls.length * size * 1.5 <= 520) lines = ls;
+      }
+    }
+    if (!lines) { size = 28; lines = packLines(o.verse.text, Math.floor(colH / (size * 1.14))); }
+    ctx.fillStyle = '#231e18';
+    ctx.font = font(900, size);
+    let x = w - 70 - size / 2;
+    for (const line of lines) { drawVertical(ctx, line, x, top, size, size * 1.14); x -= size * 1.5; }
+    // 紅印
+    const ss = 78, sx = w - 70 - ss + 4, sy = 40;
+    ctx.save();
+    ctx.fillStyle = '#b8322a';
+    roundRect(ctx, sx, sy, ss, ss, 7);
+    ctx.fill();
+    ctx.fillStyle = '#fbf3e4';
+    ctx.font = font(900, 32);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const gch = Array.from(o.greeting);
+    ctx.fillText(gch[0] || '', sx + ss * 0.5, sy + ss * 0.29);
+    ctx.fillText(gch[1] || '', sx + ss * 0.5, sy + ss * 0.72);
+    ctx.restore();
+    ctx.textBaseline = 'alphabetic';
+    // 日期放在紅印左邊（左下角壓在圖上不好讀）
+    ctx.fillStyle = '#2b251c';
+    ctx.font = font(700, 32);
+    drawSpaced(ctx, `${o.date.monthCn}${cnNumber(+o.date.day)}日`, sx - 22, 74, 5, 'right');
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.date.week} · ${o.date.term}`, sx - 22, 106, 4, 'right');
+  }
+
+  // 版型 J 的橫式：左邊拱形畫窗，右邊問候、蓮花線、經句。
+  function drawJLand(ctx, w, h, o) {
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#f6f0e1'); bg.addColorStop(1, '#efe6d0');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+    grain(ctx, w, h, 9, 0.06, false);
+    const ax = 86, aw = 380, ay = 74, ah = 482, ar = aw / 2;
+    const arch = (inset) => {
+      ctx.beginPath();
+      ctx.moveTo(ax - inset, ay + ah + inset);
+      ctx.lineTo(ax - inset, ay + ar);
+      ctx.arc(ax + ar, ay + ar, ar + inset, Math.PI, 0);
+      ctx.lineTo(ax + aw + inset, ay + ah + inset);
+      ctx.closePath();
+    };
+    ctx.save(); arch(0); ctx.clip();
+    drawCover(ctx, o.image, ax, ay, aw, ah, 0.5, 0.5);
+    ctx.restore();
+    ctx.strokeStyle = goldGrad(ctx, ax, ay, ax + aw, ay + ah); ctx.lineWidth = 4; arch(0); ctx.stroke();
+    ctx.lineWidth = 1.4; arch(12); ctx.stroke();
+    ctx.lineWidth = 1; ctx.globalAlpha = 0.55; arch(23); ctx.stroke(); ctx.globalAlpha = 1;
+    const cx = ax + aw + (w - ax - aw) / 2 + 6;
+    ctx.fillStyle = '#9c2f27';
+    ctx.font = font(900, 50);
+    drawSpaced(ctx, o.greeting, cx, 128, 24, 'center');
+    lotusDivider(ctx, cx, 168, 240, '#b8932f');
+    ctx.fillStyle = '#2a2318';
+    const r = centerVerse(ctx, o, cx, 318, w - ax - aw - 170, 210, { maxSize: 42, minSize: 24, lead: 1.6, maxLines: 5 });
+    if (o.verse.source) {
+      ctx.fillStyle = '#8b7248';
+      ctx.font = font(500, 22);
+      drawSpaced(ctx, `——《${o.verse.source}》`, cx, r.bottom + 40, 3, 'center');
+    }
+    ctx.fillStyle = '#7a6a52';
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, cx, h - 70, 3, 'center');
+    ctx.fillStyle = '#9a8c74';
+    ctx.font = font(500, 17);
+    drawSpaced(ctx, `${o.siteName} · 每日經句`, cx, h - 42, 4, 'center');
+  }
+
   /**
    * 畫一張卡。ctx 是 2D context（瀏覽器或 @napi-rs/canvas 都可以），畫布大小要先設好。
    * opts: { layout, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host }
@@ -526,6 +858,8 @@
     const layout = normalizeLayout(opts.layout);
     if (layout === 'B') drawB(ctx, w, h, o);
     else if (layout === 'C') drawC(ctx, w, h, o);
+    else if (layout === 'I') drawI(ctx, w, h, o);
+    else if (layout === 'J') drawJ(ctx, w, h, o);
     else drawA(ctx, w, h, o);
   }
 
