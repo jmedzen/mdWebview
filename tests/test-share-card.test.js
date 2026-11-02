@@ -199,9 +199,34 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /\/\?verse=\$\{encodeURIComponent\(v\.id\)\}/);
   });
 
+  test('手機不能分享檔案（Firefox Android）時「傳到 LINE」改傳連結，不再變成下載', () => {
+    assert.match(appJs, /function canShareFiles\(\)/);
+    assert.match(appJs, /function shareLinkToLine\(\)/);
+    const fn = appJs.slice(appJs.indexOf('async function shareToLine()'), appJs.indexOf('function isPhoneOrTablet()'));
+    // 先判斷，再畫圖：Firefox 要在使用者點擊後馬上叫分享選單
+    assert.ok(fn.indexOf('isPhoneOrTablet() && !canShareFiles()') < fn.indexOf('await getShareCardBlob'));
+    assert.ok(fn.indexOf('if (isPhoneOrTablet()) { shareLinkToLine(); return; }') < fn.indexOf('downloadBlob('), '手機不會走下載');
+    const link = appJs.slice(appJs.indexOf('function shareLinkToLine()'), appJs.indexOf('async function shareToLine()'));
+    assert.match(link, /navigator\.share\(\{ text, url \}\)/);
+    assert.match(link, /lineMsgUrl\(/);
+    assert.match(link, /sendShareEvent\('lineLink'\)/);
+    assert.match(appJs, /https:\/\/line\.me\/R\/msg\/text\/\?\$\{encodeURIComponent\(text\)\}/);
+  });
+
+  test('不能複製圖片（Firefox）時改顯示大圖讓人長按複製，電腦版改存檔', () => {
+    assert.match(appJs, /function canCopyImage\(\)/);
+    assert.match(appJs, /ClipboardItem\.supports\('image\/png'\)/);
+    const fn = appJs.slice(appJs.indexOf('async function copyShareImage()'), appJs.indexOf('function setupShareCard()'));
+    assert.match(fn, /if \(!canCopyImage\(\)\) \{ copyImageByHand\(\); return; \}/);
+    assert.match(fn, /'image\/png': await png/, '不收 Promise 時再試一次');
+    const hand = appJs.slice(appJs.indexOf('async function copyImageByHand()'), appJs.indexOf('async function copyShareImage()'));
+    assert.match(hand, /showSaveImageOverlay\(blob, '/);
+    assert.match(hand, /downloadBlob\(blob, shareCardFileName\(\)\)/);
+  });
+
   test('手機「存圖片」顯示大圖讓人長按存相簿（和「傳到 LINE」的分享選單不同）；電腦版仍是下載', () => {
     assert.match(appJs, /function isPhoneOrTablet\(\)/);
-    assert.match(appJs, /function showSaveImageOverlay\(blob\)/);
+    assert.match(appJs, /function showSaveImageOverlay\(blob, tip\)/);
     const fn = appJs.slice(appJs.indexOf('async function saveShareImage()'), appJs.indexOf('async function copyShareImage()'));
     assert.match(fn, /isPhoneOrTablet\(\)/);
     assert.match(fn, /showSaveImageOverlay\(blob\)/);
