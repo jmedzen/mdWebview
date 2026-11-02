@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.18.2
+   mdWebview — Style System (style.css) v4.18.3
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11739,3 +11739,12 @@ a.small-btn {
   min-height: 44px; padding: 0 28px; border-radius: 22px; border: 1px solid rgba(243, 234, 214, 0.6);
   background: transparent; color: #f3ead6; font-size: 1rem; cursor: pointer;
 }
+
+/* 早安圖問候語選擇（早安／午安／晚安／吉祥） */
+.share-card-greetings { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 12px 0 2px; }
+.share-card-greeting {
+  min-height: 36px; padding: 0 16px; border-radius: 18px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  font-family: var(--cjk-serif), serif; font-size: 0.95rem; letter-spacing: 0.1em;
+}
+.share-card-greeting.is-selected { border-color: var(--accent); color: var(--text-primary); background: var(--bg-secondary); box-shadow: inset 0 0 0 1px var(--accent); }

@@ -31,7 +31,7 @@
   const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
   const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
-  const GREETINGS = ['早安', '午安', '晚安'];
+  const GREETINGS = ['早安', '午安', '晚安', '法安', '自在', '吉祥'];   // 法安／自在／吉祥 = 不分時間，給跨時區的收件人
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
 
   const CN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
@@ -101,6 +101,19 @@
     if (h >= 5 && h < 11) return '早安';
     if (h >= 11 && h < 18) return '午安';
     return '晚安';
+  }
+
+  /** 某個時區此刻的日期（YYYY-MM-DD）與小時（0–23）；時區無效時用 UTC。 */
+  function zonedNow(tz, date) {
+    const d = date instanceof Date ? date : new Date();
+    let parts;
+    try {
+      parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit' }).formatToParts(d);
+    } catch (_) {
+      return zonedNow('UTC', d);
+    }
+    const get = (t) => (parts.find(p => p.type === t) || {}).value;
+    return { ymd: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) % 24 };
   }
 
   function normalizeGreeting(g) { return GREETINGS.includes(g) ? g : '早安'; }
@@ -785,7 +798,7 @@
   // ════════════════════════════════════════════════════════════════════
   // 英文問候用手寫體（Dancing Script；伺服器由 Docker 建置時下載，沒有就退回宋體）
   const enFont = (sz) => `${Math.round(sz)}px "Dancing Script", ${SERIF}`;
-  const GREETING_EN = { '早安': 'Good Morning', '午安': 'Good Afternoon', '晚安': 'Good Evening' };
+  const GREETING_EN = { '早安': 'Good Morning', '午安': 'Good Afternoon', '晚安': 'Good Evening', '法安': 'Dharma Peace', '自在': 'At Ease', '吉祥': 'Blessings' };
 
   function redSeal(ctx, text, x, y, s, r) {
     ctx.save();
@@ -1178,7 +1191,7 @@
 
   return {
     LAYOUTS, LAYOUT_NAMES, SIZES, PIXEL_SIZES, GREETINGS, SERIF, qrMatrix,
-    draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, normalizeGreeting, normalizeLayout, normalizeSize,
+    draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, zonedNow, normalizeGreeting, normalizeLayout, normalizeSize,
     packLines, fitText, clauses, sealText, hash32
   };
 });

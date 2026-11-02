@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.2
+   mdWebview — Application Logic (app.js) v4.18.3
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2596,7 +2596,7 @@
   const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
   const SHARE_QR_KEY = 'mdWebview-share-card-qr';   // '1' = 卡片附 QR 碼（預設不附）
   const shareRt = {
-    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安', qr: false,
+    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安', greetingMode: 'time', qr: false,
     blobs: new Map(),      // `${layout}|${size}` → Promise<Blob>
     urls: [],              // 要回收的 blob: 網址
     meta: null, serverOk: true
@@ -2678,14 +2678,20 @@
     return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}${qr}`;
   }
 
+  /** 連結帶的問候：只有不分時間的（法安／自在／吉祥）才帶；「時間問候」不帶，預覽圖用「吉祥」，
+   *  因為收件人可能在別的時區（傳的人是早上，收的人可能是晚上）。 */
+  function shareLinkGreeting() {
+    return shareRt.greetingMode && shareRt.greetingMode !== 'time' ? `&g=${encodeURIComponent(shareRt.greeting)}` : '';
+  }
+
   function shareLinkUrl() {
     const v = shareRt.verse;
     if (v.kind === 'quote') {
       // 選句：朋友點開直接到那一篇的那一行；quote= 讓預覽圖換成這張早安圖
       return `${window.location.origin}/?file=${encodeURIComponent(v.path)}${v.line ? `&line=${v.line}` : ''}` +
-        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}`;
     }
-    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}`;
   }
 
   /** QR 產生器（vendor/qrcode，MIT）只有瀏覽器自己畫、又要附 QR 時才載入。 */
@@ -2695,7 +2701,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.2';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.18.3';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -2742,7 +2748,7 @@
 
   /** 取得某版型、某尺寸的卡片（Blob），同一次開面板內快取。 */
   function getShareCardBlob(layout, size) {
-    const key = `${layout}|${size}|${shareRt.qr && size === 'portrait' ? 'qr' : ''}`;
+    const key = `${layout}|${size}|${shareRt.greeting}|${shareRt.qr && size === 'portrait' ? 'qr' : ''}`;
     if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
     const job = (async () => {
       if (shareRt.serverOk) {
@@ -2761,6 +2767,47 @@
   function shareCardFileName() {
     const site = String(state.siteName || 'mdWebview').replace(/[\\/:*?"<>|\s]+/g, '');
     return `${site}-${shareRt.greeting}圖-${shareRt.date}-${shareRt.layout}.jpg`;
+  }
+
+  // 問候語開關：時間問候（依傳送者本機時間，預設）／法安／自在／吉祥（後三者不分時間，適合跨時區）
+  const SHARE_GREETING_KEY = 'mdWebview-share-card-greeting';
+  const SHARE_GREETING_MODES = ['time', '法安', '自在', '吉祥'];
+
+  function shareGreetingFor(mode, now = new Date()) {
+    return mode === 'time' ? window.ShareCard.greetingForHour(now.getHours()) : mode;
+  }
+
+  function renderShareGreetings() {
+    const wrap = $('shareCardGreetings');
+    if (!wrap || !window.ShareCard) return;
+    wrap.textContent = '';
+    for (const mode of SHARE_GREETING_MODES) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      const on = mode === shareRt.greetingMode;
+      b.className = 'share-card-greeting' + (on ? ' is-selected' : '');
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.textContent = mode === 'time' ? '時間問候' : mode;
+      if (mode === 'time') b.title = '依你現在的時間：早安／午安／晚安';
+      b.addEventListener('click', () => selectShareGreeting(mode));
+      wrap.appendChild(b);
+    }
+  }
+
+  function selectShareGreeting(mode) {
+    if (!shareRt.open || mode === shareRt.greetingMode) return;
+    shareRt.greetingMode = mode;
+    storage.set(SHARE_GREETING_KEY, mode);
+    shareRt.greeting = shareGreetingFor(mode);
+    shareRt.blobs = new Map();
+    for (const u of shareRt.urls) URL.revokeObjectURL(u);
+    shareRt.urls = [];
+    const verse = shareRt.verse;
+    $('shareCardTitle').textContent = verse && verse.kind === 'quote' ? `用這段經文做${shareRt.greeting}圖` : `分享${shareRt.greeting}圖`;
+    renderShareGreetings();
+    renderShareSlides();
+    prefetchShareBlob();
   }
 
   function renderShareSlides() {
@@ -2893,7 +2940,11 @@
     shareRt.open = true;
     shareRt.verse = verse;
     shareRt.date = localYmd(now);
-    shareRt.greeting = window.ShareCard.greetingForHour(now.getHours());
+    {
+      const saved = storage.get(SHARE_GREETING_KEY, 'time');
+      shareRt.greetingMode = SHARE_GREETING_MODES.includes(saved) ? saved : 'time';
+      shareRt.greeting = shareGreetingFor(shareRt.greetingMode, now);
+    }
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
     shareRt.qr = storage.get(SHARE_QR_KEY, '0') === '1';
     const qrBox = $('shareCardQr');
@@ -2906,6 +2957,7 @@
     ov.style.display = 'flex';
     document.body.classList.add('modal-open');
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
+    renderShareGreetings();
     renderShareSlides();
     prefetchShareBlob();
     sendShareEvent('open');
@@ -9677,7 +9729,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.2';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.3';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11644,7 +11696,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.2';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.3';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12012,7 +12064,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.2';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.3';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12902,7 +12954,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.2';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.3';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
