@@ -9,6 +9,7 @@ const path = require('path');
 
 const TEST_LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-share-stats-'));
 process.env.LOG_DIR = TEST_LOG_DIR;
+process.env.INDEX_DIR = TEST_LOG_DIR;
 
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -220,7 +221,7 @@ describe('前端與後台接線', () => {
     for (const id of ['analyticsShareTrendChart', 'analyticsShareHoursChart', 'analyticsShareMethodsChart']) {
       assert.ok(indexHtml.includes(`id="${id}"`), id);
     }
-    assert.match(appJs, /function buildShareChartSvg\(/);
+    assert.match(appJs, /function renderInteractiveChart\(/);
   });
 });
 

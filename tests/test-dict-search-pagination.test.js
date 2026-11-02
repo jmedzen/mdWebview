@@ -574,6 +574,7 @@ describe('辭典全文搜尋分頁 5：多檔走查必須終止且無重複（�
     process.env.MD_ROOT = mdDir;
     process.env.DICTIONARY_PATH = dictsDir;
     process.env.LOG_DIR = path.join(tmpRoot, 'logs');
+    process.env.INDEX_DIR = path.join(tmpRoot, 'index');
     serverMod = require('../server.js');
     httpMod = require('http');
 

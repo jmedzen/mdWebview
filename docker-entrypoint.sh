@@ -8,7 +8,7 @@
 # Existing deployments bind-mount ./data and ./logs, which a previous root
 # container may have created as root-owned. When started as root we therefore
 # hand ONLY the paths the server writes to (config file + its directory, the
-# logs/index-cache directory, the users.db account database and its backups) to the unprivileged `node` user, then drop
+# logs directory, the index/ search-cache directory, the users.db account database and its backups) to the unprivileged `node` user, then drop
 # privileges. The vault (MD_ROOT) and dictionaries are only read, so their
 # ownership on the host is never changed.
 set -e
@@ -17,13 +17,17 @@ if [ "$(id -u)" = "0" ]; then
   CONFIG_FILE="${CONFIG_PATH:-/data/config.json}"
   CONFIG_DIR="$(dirname "$CONFIG_FILE")"
   LOGS="${LOG_DIR:-/data/logs}"
+  # 搜尋索引快取（v4.19.0 起與 logs 分開）。升級時伺服器會把 logs 裡的舊索引
+  # 搬過來，所以兩個目錄都必須交給 node。
+  INDEX="${INDEX_DIR:-/data/index}"
 
-  mkdir -p "$CONFIG_DIR" "$LOGS" 2>/dev/null || true
+  mkdir -p "$CONFIG_DIR" "$LOGS" "$INDEX" 2>/dev/null || true
   chown node:node "$CONFIG_DIR" 2>/dev/null || true
   [ -e "$CONFIG_FILE" ] && chown node:node "$CONFIG_FILE" 2>/dev/null || true
   # A config written atomically may leave a sibling temp file behind.
   for f in "$CONFIG_FILE".tmp*; do [ -e "$f" ] && chown node:node "$f" 2>/dev/null || true; done
   chown -R node:node "$LOGS" 2>/dev/null || true
+  chown -R node:node "$INDEX" 2>/dev/null || true
   # 使用者帳號資料庫（SQLite 主檔、WAL、共享記憶體檔）與備份資料夾。
   DB_FILE="${USERS_DB_PATH:-$CONFIG_DIR/users.db}"
   BACKUPS="${DB_BACKUP_DIR:-$(dirname "$DB_FILE")/backups}"

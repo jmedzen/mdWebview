@@ -15,6 +15,9 @@ services:
       - CONFIG_PATH=/data/config.json
       - MD_ROOT=/data/md
       - DICTIONARY_PATH=/data/dicts
+      - LOG_DIR=/data/logs
+      # 搜尋索引快取（.bin）放這裡；舊版寫在 logs/ 的索引，第一次啟動新版時會自動搬過來。
+      - INDEX_DIR=/data/index
       # Bigram 索引 .bin 快取約 650MB，建置峰值記憶體需 ≥ 索引大小之 2 倍。
       # 建議容器主機至少提供 4GB（建議 8GB）RAM。可透過 NODE_MAX_OLD_SPACE_MB 彈性調校 V8 heap 上限。
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144} --disable-warning=ExperimentalWarning
@@ -26,6 +29,8 @@ services:
       - ./data:/data
       # Mount local ./logs folder for 90-day log persistence
       - ./logs:/data/logs
+      # 搜尋索引快取（全庫約 650MB）。可重建、不必備份，但保留下來重開容器才不必重建索引。
+      - ./index:/data/index
       # Mount local ./md directory so markdown files are directly accessible inside container
       - ./md:/data/md
       # Mount local ./dicts directory so dictionary files are accessible and persist inside container

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.18.9
+   mdWebview — Style System (style.css) v4.19.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -7864,13 +7864,13 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   margin-top: 12px;
 }
 
-/* 早安圖趨勢圖：SVG 顏色全用主題變數，深淺主題都看得清楚 */
+/* 早安圖圖表：外框與畫法同「全站流量與檢索動態趨勢圖」（共用 .analytics-trend-svg / .ichart-*） */
 .analytics-share-chart-box {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
   margin-bottom: 12px;
-  background: var(--bg-primary);
   min-width: 0;
 }
 
@@ -7886,35 +7886,12 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   font-size: calc(13px * var(--ui-font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-.analytics-share-chart svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.analytics-share-chart .share-chart-grid { stroke: var(--border); stroke-width: 1; }
-.analytics-share-chart .share-chart-axis,
-.analytics-share-chart .share-chart-empty { fill: var(--text-secondary); }
-
-.analytics-share-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 4px;
-  font-size: calc(12px * var(--ui-font-scale, 1));
-  color: var(--text-secondary);
-}
-
-.analytics-share-legend i {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  margin-right: 5px;
-  vertical-align: -1px;
+.analytics-share-chart {
+  position: relative;
+  min-height: 200px;
 }
 
 /* 動作與版型表不超過十列，整張攤開，不要內捲 */
@@ -9549,41 +9526,15 @@ body.modal-open {
   pointer-events: none;
 }
 
-.trend-line-views {
-  stroke: var(--accent);
-  stroke-width: 2.4;
-}
-
-.trend-line-ips {
-  stroke: #2ac3de;
-  stroke-width: 1.9;
-  stroke-dasharray: 5, 4;
-  opacity: 0.95;
-}
-
 .trend-dot {
   pointer-events: none;
 }
 
-.trend-dot-view { fill: var(--accent); }
-.trend-dot-ip { fill: #2ac3de; }
 
 .trend-focus {
   opacity: 0;
   transition: opacity 0.12s ease;
   pointer-events: none;
-}
-
-.trend-focus-view {
-  fill: var(--accent);
-  stroke: var(--bg-secondary);
-  stroke-width: 2;
-}
-
-.trend-focus-ip {
-  fill: #2ac3de;
-  stroke: var(--bg-secondary);
-  stroke-width: 1.8;
 }
 
 /* 整片感應區：覆蓋整個 SVG，滑鼠在任何高度都能觸發對應日期的細部數據 */
@@ -9645,14 +9596,103 @@ body.modal-open {
   flex: 0 0 auto;
 }
 
-.chart-tt-swatch.is-view { background: var(--accent); }
-.chart-tt-swatch.is-ip { background: #2ac3de; }
 
 .chart-tt-num {
   margin-left: auto;
   padding-left: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
+}
+
+/* ── 共用互動圖表（renderInteractiveChart）────────────────────────────────
+   系列顏色走 tone class 的 color，線、點、長條、圖例、提示框色塊都用 currentColor。
+   accent / success / muted 跟著主題變數；cyan 沿用原趨勢圖第二條線的青藍，
+   amber / violet 是深淺主題都看得清楚的中間色，只在同一張圖需要更多色相時使用。 */
+.ichart-tone-accent { color: var(--accent); }
+.ichart-tone-cyan { color: #2ac3de; }
+.ichart-tone-success { color: var(--success); }
+.ichart-tone-amber { color: #e0a63c; }
+.ichart-tone-violet { color: #9b7ad8; }
+.ichart-tone-muted { color: var(--text-muted); }
+
+linearGradient[class*="ichart-tone-"] .trend-grad-0,
+linearGradient[class*="ichart-tone-"] .trend-grad-1,
+linearGradient[class*="ichart-tone-"] .trend-grad-2 { stop-color: currentColor; }
+
+.trend-glow[class*="ichart-tone-"] { stroke: currentColor; }
+
+.ichart-line {
+  stroke: currentColor;
+  stroke-width: 1.9;
+  opacity: 0.95;
+}
+
+.ichart-line.is-main {
+  stroke-width: 2.4;
+  opacity: 1;
+}
+
+.ichart-line.is-dashed {
+  stroke-dasharray: 5, 4;
+}
+
+.trend-dot[class*="ichart-tone-"] { fill: currentColor; }
+
+.ichart-focus {
+  fill: currentColor;
+  stroke: var(--bg-secondary);
+  stroke-width: 2;
+}
+
+.ichart-bar {
+  fill: currentColor;
+  fill-opacity: 0.82;
+  pointer-events: none;
+  transition: fill-opacity 0.12s ease;
+}
+
+.analytics-trend-svg.is-focusing .ichart-bar { fill-opacity: 0.55; }
+.analytics-trend-svg.is-focusing .ichart-bar.is-focus { fill-opacity: 1; }
+
+/* 聚焦那一格的底帶 */
+.ichart-band {
+  fill: var(--accent);
+  fill-opacity: 0.08;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.ichart-empty {
+  font-size: 12px;
+  fill: var(--text-muted);
+}
+
+.chart-legend-line[class*="ichart-tone-"] { background: currentColor; }
+.chart-legend-line.is-dashed[class*="ichart-tone-"] {
+  background: repeating-linear-gradient(to right, currentColor 0 5px, transparent 5px 9px);
+}
+
+
+.chart-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.chart-tt-swatch[class*="ichart-tone-"] { background: currentColor; }
+
+.chart-tt-total {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .analytics-chart-legend { gap: 6px 14px; font-size: calc(12px * var(--ui-font-scale, 1)); }
+  .analytics-share-chart-box { padding: 12px 10px 10px; }
 }
 
 /* Analytics Table Filter & Action Link */

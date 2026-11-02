@@ -29,6 +29,7 @@ const SUTRA = [
 fs.writeFileSync(path.join(MD_ROOT, FILE), SUTRA);
 process.env.MD_ROOT = MD_ROOT;
 process.env.LOG_DIR = path.join(TMP, 'logs');
+process.env.INDEX_DIR = path.join(TMP, 'index');
 process.env.SCRYPT_LN = process.env.SCRYPT_LN || '10';
 
 const { test, describe, before, after } = require('node:test');

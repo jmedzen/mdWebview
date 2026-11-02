@@ -18,6 +18,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 // 正式 logs/*.jsonl（並經由 analytics 聚合汙染統計）。
 const TEST_LOG_DIR = fs.mkdtempSync(path.join(require('os').tmpdir(), 'mdwebview-test-logs-'));
 process.env.LOG_DIR = TEST_LOG_DIR;
+process.env.INDEX_DIR = TEST_LOG_DIR;
 
 const { Logger, systemLogBuffer, safeDecodeURI } = require('../lib/logger.js');
 const { terminateWorkerPools } = require('../lib/worker-pool.js');

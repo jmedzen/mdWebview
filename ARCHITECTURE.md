@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.18.9 | 最後更新：2026-11
+> 版本：v4.19.1 | 最後更新：2026-11
 
 ---
 
@@ -76,7 +76,7 @@ flowchart TD
         Dicts["📖 dicts/ (佛學辭典庫)"]
         Config["📄 config.json (持久化設定)"]
         Logs["📊 logs/ (access-*.jsonl, analytics-aggregates.json)"]
-        BinCache["⚡ *.bin (二進位索引快取)"]
+        BinCache["⚡ index/*.bin (二進位索引快取，INDEX_DIR)"]
     end
 
     UI --> StateStore
@@ -683,7 +683,8 @@ flowchart TD
 
 | 模組檔案 | 核心職責 | 主要導出方法與物件 |
 |---------|---------|-------------------|
-| `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
+| `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `INDEX_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
+| `lib/index-dir.js` | 索引快取檔名清單與舊位置遷移：啟動時把 `LOG_DIR` 裡的 `*-index-cache.*` 搬到 `INDEX_DIR`（同檔案系統 rename；跨掛載點 EXDEV 改為複製→改名→刪舊檔；目的地已有檔以新為準；失敗只記警告，索引照常重建） | `INDEX_CACHE_FILES`, `migrateLegacyIndexFiles` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
 | `lib/auth.js` | 管理員權限閘門（讀 `lib/session.js` 的 session 並檢查 role=admin）、時序安全比對、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`（僅舊格式）, `verifySameOrigin`, `getAdminUser`, `isAuthenticated`, `isAuthorizedAdmin`, `requireAdmin`, `readJSONBody` |
@@ -844,7 +845,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | §21.1 | 面板開關與髒值追蹤 | `closeAdminModal`、`setAdminDirty`、`setupAdminDirtyTracking` |
 | §21.2 | 設定維護 | `setupConfigBackupAndRestore`、`setupPathDiagnostics`、`setupHardwareClearCache` |
-| §21.3 | 流量趨勢圖繪製 | `computeNiceScale`、`monotonePath`、`renderAnalyticsTrendChart` |
+| §21.3 | 數據分析共用互動圖表 | `computeNiceScale`、`monotonePath`、`renderInteractiveChart`（全站流量與早安圖所有圖表共用：平滑曲線、漸層面積、整片感應區、游標線、側邊提示框；長條可堆疊；系列色用 `.ichart-tone-*`；依容器寬度重畫）、`renderAnalyticsTrendChart` |
 | §21.4 | 硬體監控儀表板 | `formatBytes`、`formatUptime`、`loadHardwareStats`、`renderHardwareDashboard`、`setupHardwareIndexRebuild` |
 | §21.5 | 日誌與流量報表 | `openSettingsOverlay`、`filterLogEntries`、`fetchAdminLogs`、`loadAdminAnalytics`、`renderAdminAnalytics` |
 | §21.6 | 設定表單與 SEO | `setupAdminTabEvents`、`setupArticlePicker`、`setupSuggestFormEvents`、`loadSeoSettings`、`setupAdminSeoEvents` |
@@ -1027,7 +1028,9 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.18.9'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.19.1'` | 應用程式當前核心版本號 |
+| `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
+| `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1114,7 +1117,7 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 | **辭典關閉即不可讀** | `server.js` `resolveRoot` | `dict:` 前綴改走 `getDictionaryPath()`，辭典功能關閉時一律 404 |
 | **X-Forwarded-Host 僅信任代理** | `lib/utils.js` `getBaseUrl` | 未設定 `siteUrl` 時，`X-Forwarded-Host`／`-Proto` 只採信受信任代理對端，Host 需符合主機名格式，避免汙染 `lastKnownBaseUrl` 與背景 Sitemap |
 | **Console 日誌防偽造** | `lib/logger.js` `sanitizeConsoleLine` | 解碼後的訊息輸出到 console 前，CR／LF／控制字元／U+2028 一律轉為跳脫序列，`?q=%0A[ERROR]…` 無法在 `docker logs` 偽造新行 |
-| **容器以非 root 執行** | `Dockerfile`、`docker-entrypoint.sh` | `npm ci --omit=dev`；entrypoint 以 root 啟動時只把設定檔與 logs 目錄交給 `node` 使用者（不改動經文庫／辭典的擁有者），再以 `su-exec node` 降權執行，node 仍為 PID 1 可收 SIGTERM |
+| **容器以非 root 執行** | `Dockerfile`、`docker-entrypoint.sh` | `npm ci --omit=dev`；entrypoint 以 root 啟動時只把設定檔、logs 與 index 目錄交給 `node` 使用者（不改動經文庫／辭典的擁有者），再以 `su-exec node` 降權執行，node 仍為 PID 1 可收 SIGTERM |
 | **Analytics 匯出同源保護 (P0-4)** | `server.js` `handleAnalyticsExport` | 所有匯出路徑強制執行 `verifySameOrigin(req)` 同源檢查，杜絕 CSRF 跨站竊取日誌 |
 | **Analytics 匯出標頭專用認證** | `server.js` `handleAnalyticsExport` | 匯出端點**只接受 `X-Admin-Token` 標頭**，明確拒絕 `?token=` 查詢字串認證；前端改以已驗證的 `fetch` 取得 Blob 後觸發下載，避免 session token 進入瀏覽器歷史、複製連結、反向代理與監控日誌 |
 | **設定檔靜態存取封鎖** | `lib/static-cache.js` `serveStatic()` | 除比對 `CONFIG_PATH` 解析路徑外，另以 `basename === 'config.json'`（不分大小寫）無條件拒絕，即使 `CONFIG_PATH` 指向他處（如 Docker `/data/config.json`）而 `APP_ROOT/config.json` 存在，亦不會外洩管理員帳號、PBKDF2 雜湊與 salt |
@@ -1585,7 +1588,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 前端 `sendShareEvent()` → `POST /api/share-card/event`：`open` 打開面板、`line`（系統分享選單成功）、`lineFile`（電腦版改存檔）、`save`、`copyImage`、`copyLink`、`shuffle` 換一句、`error`（`stage` = preview／line／save／copyImage／shuffle）。`og`、`visit` 前端不能送（400）。背景圖由伺服器依經句＋日期 `pickPic()` 算，不收前端的值。
 - 伺服器自記：`visit` = 有人打開 `/?verse=` 分享連結（爬蟲照 `isBotEntry` 排除）；`og` = `/api/share-card.jpg?size=og` 被抓（多半是 LINE／FB 預覽機器人：照算早安圖，但不算請求數與訪客 IP，`isShareServerEntry()`）；`error` stage render／meta／verse。面板內直式預覽不記（每次打開面板都會自動畫 5 張）。舊的 ShareCard ERROR 日誌（沒有 share）算一次 render 失敗。
 - 聚合：每筆事件換成鍵 `ev:<事件>`；分享出去的動作（line、lineFile、save、copyImage、copyLink）另加 `layout:`、`verse:`、`pic:`；失敗加 `err:<stage>`。存在 `analytics-aggregates.json` 每日摘要與 lifetime 的 `share` 映射（舊檔沒有也能正規化，不需升 `ANALYTICS_STORE_VERSION`），歸檔舊日誌時一樣以單日最大值冪等合併。
-- 趨勢圖（v4.16.4）：`shareCard.trend` 與 `dailyTrend` 同格（1d = 小時，其餘 = 日；7 天以前的日子用每日摘要，以 UTC 日計），每格 open／sends／visit／og 與各分享方式；`shareCard.hours` = 原始日誌（最多 7 天）依時區分 0–23 時的 open／sends（allTime 為 null）。後台 `buildShareChartSvg()` 畫三張主題色 SVG：打開／分享出去／進站折線、幾點打開與分享長條、分享方式堆疊長條。報表信 `chart id = share`：日報 = 昨天 24 小時長條，週報 = 7 天折線；這段期間沒有早安圖資料就不畫、不附圖。
+- 趨勢圖（v4.16.4）：`shareCard.trend` 與 `dailyTrend` 同格（1d = 小時，其餘 = 日；7 天以前的日子用每日摘要，以 UTC 日計），每格 open／sends／visit／og 與各分享方式；`shareCard.hours` = 原始日誌（最多 7 天）依時區分 0–23 時的 open／sends（allTime 為 null）。後台 `renderShareCharts()` 以共用 `renderInteractiveChart()`（v4.19.1，與全站流量趨勢圖同畫風與互動）畫三張圖：打開／分享出去／進站折線、幾點打開與分享長條、分享方式堆疊長條。報表信 `chart id = share`：日報 = 昨天 24 小時長條，週報 = 7 天折線；這段期間沒有早安圖資料就不畫、不附圖。
 - 顯示：`/api/admin/analytics` 多一個 `shareCard` 摘要（events、sends、sendRate = 分享出去／打開面板、layouts、verses 附經文、pics、errors）；後台流量統計「🌅 早安圖分享」區塊；CSV 匯出 `[早安圖分享]`；日報／週報「🌅 早安圖」（與前期比較、版型、經句與背景圖 Top 5）。
 
 ### 每日／每週報表信（v4.3.0）
