@@ -9,7 +9,7 @@ RUN npm ci --omit=dev && npm cache clean --force \
 
 # 早安圖（每日經句分享卡）由伺服器畫，需要宋體：建置時從 Google Fonts 下載 Noto Serif TC（SIL OFL）。
 # 下載失敗不讓建置失敗——之後也可以把字型放到 /data/fonts/。
-RUN mkdir -p /app/fonts && for w in 500 700; do \
+RUN mkdir -p /app/fonts && for w in 500 700 900; do \
       url=$(wget -qO- "https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@${w}" | grep -o 'https://[^)]*\.ttf' | head -n 1); \
       if [ -n "$url" ] && wget -qO "/app/fonts/NotoSerifTC-${w}.ttf" "$url"; then echo "font ${w} ok"; \
       else rm -f "/app/fonts/NotoSerifTC-${w}.ttf"; echo "WARNING: Noto Serif TC ${w} download failed"; fi; \
