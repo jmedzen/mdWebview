@@ -19,8 +19,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'O', 'P', 'Q', 'R'];
-  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', O: '畫廊裱框', P: '左右分割', Q: '三段式', R: '色隨圖卡片' };
+  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'];
+  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };
   const GREETINGS = ['早安', '午安', '晚安'];
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
@@ -751,6 +751,8 @@
   // ════════════════════════════════════════════════════════════════════
   // 圖文並重版面 N–R（直式；圖片完整露出、不蓋半透明，文字有自己的底色區）
   // ════════════════════════════════════════════════════════════════════
+  const GREETING_EN = { '早安': 'Good Morning', '午安': 'Good Afternoon', '晚安': 'Good Evening' };
+
   function redSeal(ctx, text, x, y, s, r) {
     ctx.save();
     ctx.fillStyle = '#b8322a';
@@ -782,7 +784,7 @@
   // ── 版型 N：上圖下文 ────────────────────────────────────────────────
   // 上半整幅是圖，下半是宣紙色的字區；紅印「早安」跨在兩區交界。
   function drawN(ctx, w, h, o) {
-    if (w > h) return drawA(ctx, w, h, o);
+    if (w > h) return drawNLand(ctx, w, h, o);
     const split = 820;
     paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
     drawCover(ctx, o.image, 0, 0, w, split, 0.5, 0.5);
@@ -800,39 +802,10 @@
     drawSpaced(ctx, `${o.date.week} · ${o.date.term}`, w - 64, h - 54, 4, 'right');
   }
 
-  // ── 版型 O：畫廊裱框 ────────────────────────────────────────────────
-  // 墨色牆面，圖片裝進金框與象牙襯紙，像掛在展間；字用淺色，一目了然。
-  function drawO(ctx, w, h, o) {
-    if (w > h) return drawA(ctx, w, h, o);
-    paperBg(ctx, 0, 0, w, h, '#23201b', '#14120f');
-    dust(ctx, 0, 0, w, h, 26, 21);
-    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
-    ctx.font = font(900, 58);
-    drawSpaced(ctx, o.greeting, w / 2, 124, 28, 'center');
-    const fx = 90, fy = 170, fw = w - 180, fh = 690;
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
-    ctx.fillStyle = goldGrad(ctx, fx, fy, fx + fw, fy + fh);
-    ctx.fillRect(fx, fy, fw, fh);
-    ctx.restore();
-    ctx.fillStyle = '#f3ead6';
-    ctx.fillRect(fx + 14, fy + 14, fw - 28, fh - 28);
-    ctx.fillStyle = goldGrad(ctx, fx, fy, fx + fw, fy + fh);
-    ctx.fillRect(fx + 42, fy + 42, fw - 84, fh - 84);
-    drawCover(ctx, o.image, fx + 46, fy + 46, fw - 92, fh - 92, 0.5, 0.5);
-    ctx.fillStyle = '#f3ead6';
-    const r = centerVerse(ctx, o, w / 2, 1085, w - 200, 230, { maxSize: 60, minSize: 32, lead: 1.6, maxLines: 4 });
-    sourceLine(ctx, o, w / 2, r.bottom + 50, '#c9a85c', 28);
-    ctx.fillStyle = '#a89878';
-    ctx.font = font(500, 23);
-    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, h - 66, 4, 'center');
-    grain(ctx, w, h, 4, 0.05, true);
-  }
-
   // ── 版型 P：左右分割 ────────────────────────────────────────────────
   // 左邊整條直立的圖，右邊宣紙色字區放直書經句與紅印。
   function drawP(ctx, w, h, o) {
-    if (w > h) return drawA(ctx, w, h, o);
+    if (w > h) return drawPLand(ctx, w, h, o);
     const pw = 440;
     paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
     grain(ctx, w, h, 6, 0.05, false);
@@ -872,19 +845,21 @@
   // ── 版型 Q：三段式 ──────────────────────────────────────────────────
   // 上段超大「早安」，中段整幅的圖，下段經句；段與段之間用粗金線隔開。
   function drawQ(ctx, w, h, o) {
-    if (w > h) return drawA(ctx, w, h, o);
+    if (w > h) return drawQLand(ctx, w, h, o);
     const t1 = 290, t2 = 1000;
     paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
     grain(ctx, w, h, 8, 0.05, false);
     ctx.fillStyle = '#231e18';
-    ctx.font = font(900, 190);
-    drawSpaced(ctx, o.greeting, 56, 222, 16);
+    const en = GREETING_EN[o.greeting] || 'Good Morning';
+    let es = 132;
+    for (; es > 70; es -= 4) { ctx.font = font(900, es); if (ctx.measureText(en).width + en.length * 3 <= w - 112) break; }
+    ctx.font = font(900, es);
+    drawSpaced(ctx, en, 56, 176, 3);
     ctx.fillStyle = '#6b5d46';
     ctx.font = font(500, 26);
-    drawSpaced(ctx, o.date.dotted, w - 64, 150, 6, 'right');
-    drawSpaced(ctx, `${o.date.week} · ${o.date.term}`, w - 64, 196, 5, 'right');
+    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, 60, 250, 5);
     ctx.fillStyle = '#b8322a';
-    ctx.fillRect(w - 64 - 90, 222, 90, 8);
+    ctx.fillRect(w - 64 - 90, 246, 90, 8);
     drawCover(ctx, o.image, 0, t1, w, t2 - t1, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
     ctx.fillRect(0, t1 - 4, w, 8);
@@ -897,62 +872,76 @@
     drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 36, 5, 'center');
   }
 
-  // ── 版型 R：色隨圖卡片 ──────────────────────────────────────────────
-  // 底色取自圖片平均色（調淡），圖片與經句各是一張帶陰影的圓角卡片。
-  function avgColor(ctx, img) {
-    try {
-      if (!img || !img.width) return [236, 228, 208];
-      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, 1, 1);
-      const d = ctx.getImageData(0, 0, 1, 1).data;
-      return [d[0], d[1], d[2]];
-    } catch (_) { return [236, 228, 208]; }
-  }
-
-  function drawR(ctx, w, h, o) {
-    if (w > h) return drawA(ctx, w, h, o);
-    const a = avgColor(ctx, o.image);
-    const mix = (k, base) => a.map((v, i) => Math.round(v * k + base[i] * (1 - k)));
-    const c0 = mix(0.38, [250, 246, 236]), c1 = mix(0.55, [244, 236, 218]);
-    paperBg(ctx, 0, 0, w, h, `rgb(${c0})`, `rgb(${c1})`);
-    grain(ctx, w, h, 12, 0.04, false);
-    const px = 80, pw = w - 160;
-    ctx.save();
-    ctx.shadowColor = 'rgba(40,30,10,0.35)'; ctx.shadowBlur = 44; ctx.shadowOffsetY = 18;
-    ctx.fillStyle = '#fff';
-    roundRect(ctx, px, 90, pw, 700, 34); ctx.fill();
-    ctx.restore();
-    clipRoundRect(ctx, px, 90, pw, 700, 34, () => drawCover(ctx, o.image, px, 90, pw, 700, 0.5, 0.5));
-    ctx.save();
-    ctx.shadowColor = 'rgba(40,30,10,0.3)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 16;
-    ctx.fillStyle = '#fbf7ec';
-    roundRect(ctx, px, 850, pw, 380, 34); ctx.fill();
-    ctx.restore();
-    // 圓形紅印，跨在兩張卡片之間
-    ctx.save();
-    ctx.fillStyle = '#b8322a';
-    ctx.beginPath(); ctx.arc(w / 2, 820, 54, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#fbf7ec'; ctx.lineWidth = 6; ctx.stroke();
-    ctx.fillStyle = '#fbf3e4';
-    ctx.font = font(900, 40);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const g = Array.from(o.greeting);
-    ctx.fillText(g[0] || '', w / 2 - 22, 822);
-    ctx.fillText(g[1] || '', w / 2 + 22, 822);
-    ctx.restore();
-    ctx.textBaseline = 'alphabetic';
+  // 版型 N 的橫式：左圖右文。
+  function drawNLand(ctx, w, h, o) {
+    const split = 720;
+    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    drawCover(ctx, o.image, 0, 0, split, h, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h);
+    ctx.fillRect(split, 0, 6, h);
+    grain(ctx, w, h, 3, 0.05, false);
+    const cx = split + 6 + (w - split - 6) / 2;
+    redSeal(ctx, o.greeting, cx - 44, 46, 88);
     ctx.fillStyle = '#2a2318';
-    const r = centerVerse(ctx, o, w / 2, 1030, pw - 120, 190, { maxSize: 54, minSize: 30, lead: 1.6, maxLines: 3 });
-    sourceLine(ctx, o, w / 2, r.bottom + 44, '#8b7248', 25);
-    ctx.fillStyle = '#7a6a52';
-    ctx.font = font(500, 22);
-    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, 1190, 3, 'center');
-    ctx.fillStyle = 'rgba(60,45,20,0.55)';
-    ctx.font = font(500, 20);
-    drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 54, 5, 'center');
+    const r = centerVerse(ctx, o, cx, 330, w - split - 90, 240, { maxSize: 40, minSize: 24, lead: 1.6, maxLines: 6 });
+    sourceLine(ctx, o, cx, r.bottom + 38, '#8b7248', 21);
+    goldLine(ctx, split + 46, h - 82, w - split - 92, '#b8932f', 0.7);
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 19);
+    drawSpaced(ctx, `${o.date.monthCn}${cnNumber(+o.date.day)}日　${o.date.week} · ${o.date.term}`, cx, h - 44, 3, 'center');
   }
 
-  function clipRoundRect(ctx, x, y, w, h, r, fn) {
-    ctx.save(); roundRect(ctx, x, y, w, h, r); ctx.clip(); fn(); ctx.restore();
+  // 版型 P 的橫式：左邊直立的圖、右邊置中直書經句。
+  function drawPLand(ctx, w, h, o) {
+    const pw = 360;
+    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    grain(ctx, w, h, 6, 0.05, false);
+    drawCover(ctx, o.image, 0, 0, pw, h, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h);
+    ctx.fillRect(pw, 0, 6, h);
+    const left = pw + 6, areaW = w - left, cx = left + areaW / 2;
+    const top = 134, bottom = h - 78, colH = bottom - top;
+    let size = 64, lines = null;
+    for (; size >= 26 && !lines; size -= 2) {
+      const cap = Math.floor(colH / (size * 1.14));
+      for (let pc = 4; pc <= cap && !lines; pc++) {
+        const ls = packLines(o.verse.text, pc);
+        if (ls.length <= 5 && ls.length * size * 1.5 <= areaW - 160) lines = ls;
+      }
+    }
+    if (!lines) { size = 26; lines = packLines(o.verse.text, Math.floor(colH / (size * 1.14))); }
+    ctx.fillStyle = '#231e18';
+    ctx.font = font(900, size);
+    const blockW = lines.length * size * 1.5 - size * 0.5;
+    let x = cx + blockW / 2 - size / 2;
+    for (const line of lines) { drawVertical(ctx, line, x, top, size, size * 1.14); x -= size * 1.5; }
+    redSeal(ctx, o.greeting, cx - 36, 34, 72);
+    ctx.fillStyle = '#8b7248';
+    ctx.font = font(500, 19);
+    if (o.verse.source) drawSpaced(ctx, `《${o.verse.source}》`, cx, h - 46, 3, 'center');
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 17);
+    drawSpaced(ctx, `${o.date.monthCn}${cnNumber(+o.date.day)}日　${o.date.week} · ${o.date.term}`, cx, h - 20, 3, 'center');
+  }
+
+  // 版型 Q 的橫式：上條英文問候與日期、中間整幅的圖、下方經句。
+  function drawQLand(ctx, w, h, o) {
+    const t1 = 100, t2 = 440;
+    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    grain(ctx, w, h, 8, 0.05, false);
+    ctx.fillStyle = '#231e18';
+    ctx.font = font(900, 54);
+    drawSpaced(ctx, GREETING_EN[o.greeting] || 'Good Morning', 44, 68, 3);
+    ctx.fillStyle = '#6b5d46';
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, w - 44, 66, 4, 'right');
+    drawCover(ctx, o.image, 0, t1, w, t2 - t1, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
+    ctx.fillRect(0, t1 - 3, w, 6);
+    ctx.fillRect(0, t2 - 3, w, 6);
+    ctx.fillStyle = '#2a2318';
+    const r = centerVerse(ctx, o, w / 2, 518, w - 160, 90, { maxSize: 36, minSize: 22, lead: 1.5, maxLines: 2 });
+    sourceLine(ctx, o, w / 2, Math.min(r.bottom + 30, h - 14), '#8b7248', 18);
   }
 
   // 版型 I 的橫式（連結預覽圖 1200×630）：圖在左、漸隱成米色，右側直書。
@@ -1068,10 +1057,8 @@
     else if (layout === 'I') drawI(ctx, w, h, o);
     else if (layout === 'J') drawJ(ctx, w, h, o);
     else if (layout === 'N') drawN(ctx, w, h, o);
-    else if (layout === 'O') drawO(ctx, w, h, o);
     else if (layout === 'P') drawP(ctx, w, h, o);
     else if (layout === 'Q') drawQ(ctx, w, h, o);
-    else if (layout === 'R') drawR(ctx, w, h, o);
     else drawA(ctx, w, h, o);
   }
 
