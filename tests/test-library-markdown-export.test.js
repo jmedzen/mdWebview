@@ -195,3 +195,32 @@ describe('接線', () => {
     assert.match(app, /HL\.buildLibraryMarkdown\(/);
   });
 });
+
+describe('匯出檔名', () => {
+  test('網站站名-使用者名稱-標籤-日期', () => {
+    assert.equal(H.exportFileName({ siteName: '大覺藏集', userName: '覺明', label: '書籤與劃線', date: '2026-11-02', ext: 'md' }),
+      '大覺藏集-覺明-書籤與劃線-2026-11-02.md');
+  });
+
+  test('未登入省略使用者；站名空白用 mdWebview', () => {
+    assert.equal(H.exportFileName({ siteName: '大覺藏集', userName: '', label: '個人偏好備份', date: '2026-11-02', ext: 'json' }),
+      '大覺藏集-個人偏好備份-2026-11-02.json');
+    assert.equal(H.exportFileName({ siteName: '  ', label: 'x', date: 'd', ext: '.md' }), 'mdWebview-x-d.md');
+  });
+
+  test('email 只取 @ 前；去掉檔名不合法字元', () => {
+    assert.equal(H.exportFileName({ siteName: 'A/B:C*?', userName: 'ven@example.org', label: 'L', date: 'D', ext: 'md' }), 'A B C-ven-L-D.md');
+    assert.equal(H.exportFileName({ siteName: '站<名>', userName: ' ..a"b|c.. ', label: 'L', date: 'D', ext: 'md' }), '站 名-a b c-L-D.md');
+  });
+
+  test('過長的名稱截斷', () => {
+    assert.equal(H.safeFileNamePart('字'.repeat(80)).length, 40);
+  });
+
+  test('兩個個人匯出都用新檔名', () => {
+    const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    assert.match(app, /personalExportFileName\('個人偏好備份', 'json'\)/);
+    assert.match(app, /personalExportFileName\('書籤與劃線', 'md'\)/);
+    assert.ok(!/a\.download = `mdWebview-(user-preferences|bookmarks-highlights)/.test(app));
+  });
+});
