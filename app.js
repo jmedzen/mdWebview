@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.13.0
+   mdWebview — Application Logic (app.js) v4.13.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -3868,16 +3868,32 @@
   // the matched text entirely (the "cmd+f sometimes fails + no highlight" bug). The
   // containing block's anchor is always at-or-before the line, so the jump lands on
   // the right entry and the highlight walk reaches the body text.
+  //
+  // Footnote-definition anchors ([data-fn]) are left out of the search:
+  // the footnote list is rendered after the body, so when definitions sit in
+  // the middle of a file their anchors break the ascending order the binary
+  // search needs. Every non-blank footnote line has its own anchor, so a hit
+  // inside a footnote is found by the exact getElementById lookup first.
+  let _bodyAnchorsFor = null;
+  let _bodyAnchors = [];
+  function bodyLineAnchors() {
+    if (_bodyAnchorsFor !== cachedLineAnchors) {
+      _bodyAnchorsFor = cachedLineAnchors;
+      _bodyAnchors = cachedLineAnchors.filter(a => !a.hasAttribute('data-fn'));
+    }
+    return _bodyAnchors;
+  }
   function anchorAtOrBefore(lineNum) {
-    if (!cachedLineAnchors.length) return null;
-    let lo = 0, hi = cachedLineAnchors.length - 1, ans = 0;
+    const anchors = bodyLineAnchors();
+    if (!anchors.length) return null;
+    let lo = 0, hi = anchors.length - 1, ans = 0;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      const n = parseInt(cachedLineAnchors[mid].dataset.line || '0', 10);
+      const n = parseInt(anchors[mid].dataset.line || '0', 10);
       if (n <= lineNum) { ans = mid; lo = mid + 1; }
       else hi = mid - 1;
     }
-    return cachedLineAnchors[ans];
+    return anchors[ans];
   }
 
   // Mount a single contiguous window of chunks centered on `centerCi`, removing
@@ -5418,6 +5434,36 @@
   }
   window.__mdwSanitizeRenderedHtml = sanitizeRenderedHtml; // exposed for tests
 
+  /**
+   * Footnote definition lines with a line-number anchor in front of each text line,
+   * so a search hit inside a footnote (e.g. [^119] of a long juan) has its own
+   * `#L<n>` target instead of falling back to the last body line above the
+   * footnote list. The anchor goes after any list / quote / heading marker so the
+   * block still parses the same, and is left off lines marked would read as an
+   * indented code block (4+ spaces after a blank line), where it would show up
+   * as literal text.
+   * @param {{text:string[], nums:number[]}} fn
+   * @param {number} lineOffset
+   * @returns {string[]}
+   */
+  function anchorFootnoteLines(fn, lineOffset) {
+    const out = [];
+    let prevBlank = false;
+    let seenText = false;
+    for (let k = 0; k < fn.text.length; k++) {
+      const t = fn.text[k];
+      if (!t.trim()) { out.push(t); prevBlank = true; continue; }
+      const code = seenText && prevBlank && /^(?: {4}|\t)/.test(t);
+      prevBlank = false;
+      seenText = true;
+      if (code || t.trim().startsWith('```')) { out.push(t); continue; }
+      const n = lineOffset + fn.nums[k];
+      const lead = t.match(/^\s*(?:>\s*)*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+)?/)[0];
+      out.push(`${lead}<span id="L${n}" data-line="${n}" class="line-anchor" data-fn="1"></span>${t.slice(lead.length)}`);
+    }
+    return out;
+  }
+
   function inlineParseMarkdown(body) {
     if (!body) return '';
     body = preprocessObsidianFormatting(body);
@@ -5425,6 +5471,10 @@
     // ── 1. Extract footnote definitions (O(N) single pass) ────────
     const lines = body.split('\n');
     const cleanLines = [];
+    // Original (1-based) source line of each cleanLines entry. Footnote definitions
+    // are pulled out of the body, so cleanLines' own index drifts from the file's
+    // line numbers after the first definition; anchors must use the real ones.
+    const cleanNums = [];
     const footnotes = [];
     let currentFootnote = null;
 
@@ -5434,20 +5484,24 @@
       if (match) {
         const id = match[1];
         const text = match[2];
-        currentFootnote = { id, text: [text] };
+        currentFootnote = { id, text: [text], nums: [i + 1] };
         footnotes.push(currentFootnote);
       } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
         currentFootnote.text.push(line);
+      currentFootnote.nums.push(i + 1);
       } else if (currentFootnote && line.trim() === '') {
         currentFootnote.text.push(line);
+      currentFootnote.nums.push(i + 1);
       } else {
         if (currentFootnote) {
           while (currentFootnote.text.length > 1 && currentFootnote.text[currentFootnote.text.length - 1].trim() === '') {
             currentFootnote.text.pop();
+          currentFootnote.nums.pop();
           }
           currentFootnote = null;
         }
         cleanLines.push(line);
+      cleanNums.push(i + 1);
       }
     }
 
@@ -5458,7 +5512,7 @@
 
     for (let i = 0; i < cleanLines.length; i++) {
       const line = cleanLines[i];
-      const lineNum = i + 1;
+      const lineNum = cleanNums[i];
       const trimmed = line.trim();
 
       // 1. Code blocks: do not inject anchors
@@ -5574,7 +5628,7 @@
 
       // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
       const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
-      const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
+      const combinedFnText = footnotes.map(fn => anchorFootnoteLines(fn, 0).join('\n').trim()).join(FN_DELIM);
       setScanGates(combinedFnText); // same gates as the main body parse above
       let combinedFnHtml = marked.parse(combinedFnText).trim();
       combinedFnHtml = sanitizeDangerousTags(combinedFnHtml);
@@ -9455,7 +9509,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11419,7 +11473,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11787,7 +11841,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12677,7 +12731,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.13.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

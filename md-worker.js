@@ -185,6 +185,36 @@ function normalizeImageSrcs(html, currentFilePath) {
   });
 }
 
+/**
+ * Footnote definition lines with a line-number anchor in front of each text line,
+ * so a search hit inside a footnote (e.g. [^119] of a long juan) has its own
+ * `#L<n>` target instead of falling back to the last body line above the
+ * footnote list. The anchor goes after any list / quote / heading marker so the
+ * block still parses the same, and is left off lines marked would read as an
+ * indented code block (4+ spaces after a blank line), where it would show up
+ * as literal text.
+ * @param {{text:string[], nums:number[]}} fn
+ * @param {number} lineOffset
+ * @returns {string[]}
+ */
+function anchorFootnoteLines(fn, lineOffset) {
+  const out = [];
+  let prevBlank = false;
+  let seenText = false;
+  for (let k = 0; k < fn.text.length; k++) {
+    const t = fn.text[k];
+    if (!t.trim()) { out.push(t); prevBlank = true; continue; }
+    const code = seenText && prevBlank && /^(?: {4}|\t)/.test(t);
+    prevBlank = false;
+    seenText = true;
+    if (code || t.trim().startsWith('```')) { out.push(t); continue; }
+    const n = lineOffset + fn.nums[k];
+    const lead = t.match(/^\s*(?:>\s*)*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+)?/)[0];
+    out.push(`${lead}<span id="L${n}" data-line="${n}" class="line-anchor" data-fn="1"></span>${t.slice(lead.length)}`);
+  }
+  return out;
+}
+
 function parseMarkdown(body, filePath) {
   if (!body) return { html: '' };
   body = preprocessObsidianFormatting(body);
@@ -193,6 +223,10 @@ function parseMarkdown(body, filePath) {
   // ── 1. Extract footnote definitions (O(N) single pass) ────────
   const lines = body.split('\n');
   const cleanLines = [];
+  // Original (1-based) source line of each cleanLines entry. Footnote definitions
+  // are pulled out of the body, so cleanLines' own index drifts from the file's
+  // line numbers after the first definition; anchors must use the real ones.
+  const cleanNums = [];
   const footnotes = [];
   let currentFootnote = null;
 
@@ -202,20 +236,24 @@ function parseMarkdown(body, filePath) {
     if (match) {
       const id = match[1];
       const text = match[2];
-      currentFootnote = { id, text: [text] };
+      currentFootnote = { id, text: [text], nums: [i + 1] };
       footnotes.push(currentFootnote);
     } else if (currentFootnote && (line.startsWith('    ') || line.startsWith('\t'))) {
       currentFootnote.text.push(line);
+    currentFootnote.nums.push(i + 1);
     } else if (currentFootnote && line.trim() === '') {
       currentFootnote.text.push(line);
+    currentFootnote.nums.push(i + 1);
     } else {
       if (currentFootnote) {
         while (currentFootnote.text.length > 1 && currentFootnote.text[currentFootnote.text.length - 1].trim() === '') {
           currentFootnote.text.pop();
+        currentFootnote.nums.pop();
         }
         currentFootnote = null;
       }
       cleanLines.push(line);
+    cleanNums.push(i + 1);
     }
   }
 
@@ -226,7 +264,7 @@ function parseMarkdown(body, filePath) {
 
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i];
-    const lineNum = i + 1;
+    const lineNum = cleanNums[i];
     const trimmed = line.trim();
 
     // 1. Code blocks: do not inject anchors
@@ -346,7 +384,7 @@ function parseMarkdown(body, filePath) {
 
     // ── 6. Batch Process Footnotes (Single marked.parse Call) ──
     const FN_DELIM = '\n\n<!--FN_SPLIT_DELIMITER-->\n\n';
-    const combinedFnText = footnotes.map(fn => fn.text.join('\n').trim()).join(FN_DELIM);
+    const combinedFnText = footnotes.map(fn => anchorFootnoteLines(fn, 0).join('\n').trim()).join(FN_DELIM);
     setScanGates(combinedFnText); // same gates as the main body parse above
     let combinedFnHtml = marked.parse(combinedFnText).trim();
     combinedFnHtml = normalizeImageSrcs(combinedFnHtml, filePath);
