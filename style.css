@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.16.4
+   mdWebview — Style System (style.css) v4.17.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -6072,6 +6072,20 @@ img.markdown-img:hover {
   width: 17px;
   height: 17px;
 }
+.selection-share-popup .sel-more-menu button[hidden],
+.selection-share-popup .sel-more-sep[hidden] { display: none; }
+/* 製作早安圖：「登入後可用」「選取太長」的小字 */
+.selection-share-popup .sel-more-menu .sel-more-hint {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.selection-share-popup .sel-more-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .selection-share-popup .sel-more-sep {
   height: 1px;
   background: var(--border-color);
@@ -7915,6 +7929,8 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   }
 }
 
+.analytics-share-quotes { margin-top: 16px; }
+.analytics-share-quotes tr.is-hidden-quote td:first-child { opacity: 0.55; }
 .analytics-share-verse-src {
   color: var(--text-secondary);
   font-size: calc(12px * var(--ui-font-scale, 1));

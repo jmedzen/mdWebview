@@ -95,6 +95,8 @@
   }
 
   function normalizeGreeting(g) { return GREETINGS.includes(g) ? g : '早安'; }
+  const LABELS = ['每日經句', '經文選句'];
+  function normalizeLabel(l) { return LABELS.includes(String(l || '')) ? String(l) : LABELS[0]; }
   function normalizeLayout(l) { return LAYOUTS.includes(String(l || '').toUpperCase()) ? String(l).toUpperCase() : 'A'; }
   function normalizeSize(s) { return s === 'og' ? 'og' : 'portrait'; }
 
@@ -153,7 +155,15 @@
       best = { size, lines };
       if (lines.length <= maxLines && h <= boxH) return best;
     }
-    return best || { size: minSize, lines: [String(text || '')] };
+    if (!best) return { size: minSize, lines: [String(text || '')] };
+    // 縮到最小字級還放不下：只留排得下的行數，最後一行補「…」，不畫出界
+    const room = Math.max(1, Math.min(maxLines, Math.floor((boxH - best.size) / (best.size * lead)) + 1));
+    if (best.lines.length > room) {
+      const kept = best.lines.slice(0, room);
+      kept[room - 1] = `${kept[room - 1].replace(TRAIL_PUNCT_RE, '')}…`;
+      best = { size: best.size, lines: kept };
+    }
+    return best;
   }
 
   // ── 繪圖小工具 ───────────────────────────────────────────────────────
@@ -323,7 +333,7 @@
       ctx.fillRect(64, h - 140, w - 128, 1.5);
       ctx.fillStyle = '#8b7d68';
       ctx.font = font(500, 24);
-      drawSpaced(ctx, `${o.siteName} · 每日經句`, 64, h - 74, 3);
+      drawSpaced(ctx, `${o.siteName} · ${o.label}`, 64, h - 74, 3);
       drawSeal(ctx, '吉祥', w - 64 - 64, h - 116, 64);
       return;
     }
@@ -414,7 +424,7 @@
       }
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.font = font(500, 22 * k);
-      drawSpaced(ctx, `${o.siteName} · 每日經句`, left, footY, 3);
+      drawSpaced(ctx, `${o.siteName} · ${o.label}`, left, footY, 3);
       if (o.host) drawSpaced(ctx, o.host, right, footY, 2, 'right');
     });
   }
@@ -503,7 +513,7 @@
     withGlow(ctx, 'rgba(255,255,255,0.95)', 14, () => {
       ctx.fillStyle = '#3a3226';
       ctx.font = font(500, land ? 22 : 28);
-      const label = `${o.siteName} · 每日經句${!land && o.host ? ' · ' + o.host : ''}`;
+      const label = `${o.siteName} · ${o.label}${!land && o.host ? ' · ' + o.host : ''}`;
       if (land) drawSpaced(ctx, label, 60, h - 40, 6);
       else drawSpaced(ctx, label, w / 2, h - 44, 6, 'center');
     });
@@ -683,7 +693,7 @@
     goldLine(ctx, 80, h - 76, 120, '#b8932f');
     ctx.fillStyle = '#8b7d68';
     ctx.font = font(500, 22);
-    drawSpaced(ctx, `${o.siteName} · 每日經句`, 80, h - 40, 4);
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, 80, h - 40, 4);
   }
 
   // ── 版型 J：象牙拱門 ────────────────────────────────────────────────
@@ -745,7 +755,7 @@
     drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, h - 100, 4, 'center');
     ctx.fillStyle = '#9a8c74';
     ctx.font = font(500, 20);
-    drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 64, 5, 'center');
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 64, 5, 'center');
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -869,7 +879,7 @@
     sourceLine(ctx, o, w / 2, r.bottom + 46, '#8b7248', 26);
     ctx.fillStyle = '#9a8c74';
     ctx.font = font(500, 20);
-    drawSpaced(ctx, `${o.siteName} · 每日經句`, w / 2, h - 36, 5, 'center');
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 36, 5, 'center');
   }
 
   // 版型 N 的橫式：左圖右文。
@@ -1035,12 +1045,13 @@
     drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, cx, h - 70, 3, 'center');
     ctx.fillStyle = '#9a8c74';
     ctx.font = font(500, 17);
-    drawSpaced(ctx, `${o.siteName} · 每日經句`, cx, h - 42, 4, 'center');
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, cx, h - 42, 4, 'center');
   }
 
   /**
    * 畫一張卡。ctx 是 2D context（瀏覽器或 @napi-rs/canvas 都可以），畫布大小要先設好。
-   * opts: { layout, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host }
+   * opts: { layout, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host, label }
+   * label = 頁尾站名後的字：每日經句（預設）或 經文選句（選字製作的卡片）。
    */
   function draw(ctx, opts) {
     const [w, h] = SIZES[normalizeSize(opts.size)];
@@ -1050,7 +1061,8 @@
       greeting: normalizeGreeting(opts.greeting),
       date: dateInfo(opts.date),
       siteName: String(opts.siteName || 'mdWebview'),
-      host: String(opts.host || '')
+      host: String(opts.host || ''),
+      label: normalizeLabel(opts.label)
     };
     const layout = normalizeLayout(opts.layout);
     if (layout === 'B') drawB(ctx, w, h, o);
@@ -1075,7 +1087,7 @@
 
   return {
     LAYOUTS, LAYOUT_NAMES, SIZES, GREETINGS, SERIF,
-    draw, dateInfo, normalizeDate, greetingForHour, normalizeGreeting, normalizeLayout, normalizeSize,
+    draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, normalizeGreeting, normalizeLayout, normalizeSize,
     packLines, fitText, clauses, sealText, hash32
   };
 });
