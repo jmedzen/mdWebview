@@ -134,7 +134,7 @@ describe('lib/share-card-server：伺服器畫圖', () => {
         assert.equal(buf[0], 0xff);
         assert.equal(buf[1], 0xd8);
         const img = await loadImage(buf);
-        assert.deepEqual([img.width, img.height], ShareCard.SIZES[size]);
+        assert.deepEqual([img.width, img.height], ShareCard.PIXEL_SIZES[size]);
       }
     }
   });
