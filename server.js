@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.10.0
+ * @version 4.10.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -3821,25 +3821,37 @@ async function handleSearchFile(req, res, query) {
   const MAX_RESULTS = 5000;
 
   try {
-    if (!cachedTree) {
-      cachedTree = await scanDirAsync(getMdRoot(), '');
-      setupTreeWatcher();
+    // 辭典檔（`dict:` 前綴）不在經論樹裡，要從辭典資料夾與辭典索引找；
+    // 否則在辭典頁用頁內搜尋（Cmd+F、選字「在本篇中尋找」）一律 404。
+    const isDict = String(relPath).startsWith('dict:');
+    let file;
+    let index;
+    if (isDict) {
+      if (!getDictionaryPath()) {
+        return sendJSON(res, 404, { error: 'File not found: ' + relPath });
+      }
+      file = (await scanDictFiles()).find(f => f.relPath === relPath);
+      index = dictIndex;
+    } else {
+      if (!cachedTree) {
+        cachedTree = await scanDirAsync(getMdRoot(), '');
+        setupTreeWatcher();
+      }
+      if (!searchIndex.ready && !searchIndex.building && !treeWatcherDebounceTimer) {
+        buildSearchIndexAsync().catch(() => {});
+      }
+      file = flattenTreeToFiles(cachedTree, getMdRoot()).find(f => f.relPath === relPath);
+      index = searchIndex;
     }
-    if (!searchIndex.ready && !searchIndex.building && !treeWatcherDebounceTimer) {
-      buildSearchIndexAsync().catch(() => {});
-    }
-
-    const files = flattenTreeToFiles(cachedTree, getMdRoot());
-    const file = files.find(f => f.relPath === relPath);
     if (!file) {
       return sendJSON(res, 404, { error: 'File not found: ' + relPath });
     }
 
     // Prefer entry-level units from the index; fall back to one whole-file unit.
     let units = null;
-    if (searchIndex.ready && searchIndex.fileMap && searchIndex.fileMap.has(relPath)) {
-      const fileId = searchIndex.fileMap.get(relPath);
-      const fileUnits = searchIndex.units.filter(u => u && u.fileId === fileId);
+    if (index.ready && index.fileMap && index.fileMap.has(relPath)) {
+      const fileId = index.fileMap.get(relPath);
+      const fileUnits = index.units.filter(u => u && u.fileId === fileId);
       if (fileUnits.length > 0) units = fileUnits;
     }
     if (!units) {
