@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.4
+   mdWebview — Application Logic (app.js) v4.18.5
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2701,7 +2701,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.4';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.18.5';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -3001,7 +3001,49 @@
     return `${shareRt.greeting}！${first}`;
   }
 
+  /**
+   * 這個瀏覽器能不能用系統分享選單「傳檔案」？
+   * Firefox Android 有 navigator.share 但不收檔案（canShare({files}) 為 false），
+   * 以前就掉到「存檔」那條路，變成下載。用一個小的假檔案先問，不必先畫圖。
+   */
+  function canShareFiles() {
+    try {
+      if (!navigator.canShare || typeof File !== 'function') return false;
+      return !!navigator.canShare({ files: [new File([new Uint8Array(1)], 'x.jpg', { type: 'image/jpeg' })] });
+    } catch (_) { return false; }
+  }
+
+  /** LINE 官方的「傳文字」網址：手機上會打開 LINE App 選聊天室；連結的預覽圖就是這張早安圖（og:image）。 */
+  function lineMsgUrl(text) {
+    return `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+  }
+
+  /**
+   * 手機不能分享檔案（Firefox Android 等）：改傳「問候＋分享連結」。
+   * 有 navigator.share 就叫系統分享選單（使用者選 LINE）；沒有就直接開 LINE 的傳訊網址。
+   * 不先 await 任何東西，免得 Firefox 認為已經不是使用者點的（失去 user activation）。
+   */
+  function shareLinkToLine() {
+    const url = shareLinkUrl();
+    const text = shareLineText();
+    if (navigator.share) {
+      navigator.share({ text, url }).then(() => sendShareEvent('lineLink')).catch(err => {
+        if (err && err.name === 'AbortError') return; // 使用者自己關掉
+        window.location.href = lineMsgUrl(`${text}\n${url}`);
+        sendShareEvent('lineLink');
+      });
+      return;
+    }
+    window.location.href = lineMsgUrl(`${text}\n${url}`);
+    sendShareEvent('lineLink');
+  }
+
   async function shareToLine() {
+    if (isPhoneOrTablet() && !canShareFiles()) {
+      shareLinkToLine();
+      showToast('這個瀏覽器不能直接傳圖片，改傳連結（LINE 會顯示早安圖預覽）；要圖檔請按「存圖片」', 'info', 5200);
+      return;
+    }
     let blob;
     try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) {
       sendShareEvent('error', { stage: 'line' });
@@ -3019,6 +3061,7 @@
       }
       return;
     }
+    if (isPhoneOrTablet()) { shareLinkToLine(); return; }
     // 電腦版瀏覽器多半不能直接把檔案交給 LINE：先存下來
     downloadBlob(blob, file.name);
     sendShareEvent('lineFile');
@@ -3032,7 +3075,7 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
-  function showSaveImageOverlay(blob) {
+  function showSaveImageOverlay(blob, tip) {
     const old = document.getElementById('shareSaveOverlay');
     if (old) old.remove();
     const url = URL.createObjectURL(blob);
@@ -3040,6 +3083,7 @@
     ov.id = 'shareSaveOverlay';
     ov.className = 'share-save-overlay';
     ov.innerHTML = '<p class="share-save-tip">長按下方圖片，選「加入照片」（iPhone）或「下載圖片／儲存到相簿」（Android）</p><img alt="早安圖"><button type="button" class="share-save-close">完成</button>';
+    if (tip) ov.querySelector('.share-save-tip').textContent = tip;
     ov.querySelector('img').src = url;
     const close = () => { ov.remove(); URL.revokeObjectURL(url); };
     ov.querySelector('.share-save-close').addEventListener('click', close);
@@ -3063,9 +3107,18 @@
     }
   }
 
-  async function copyShareImage() {
-    // 剪貼簿只收 PNG：把 JPEG 轉一次（用 Promise 交給 ClipboardItem，Safari 才不會說沒有使用者手勢）
-    const png = getShareCardBlob(shareRt.layout, 'portrait').then(blob => new Promise((resolve, reject) => {
+  /** 這個瀏覽器能不能把 PNG 放進剪貼簿？Firefox（尤其 Android）常常不行。 */
+  function canCopyImage() {
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem !== 'function') return false;
+    if (typeof ClipboardItem.supports === 'function') {
+      try { return ClipboardItem.supports('image/png'); } catch (_) { return false; }
+    }
+    return true;
+  }
+
+  function shareCardPng() {
+    // 剪貼簿只收 PNG：把 JPEG 轉一次
+    return getShareCardBlob(shareRt.layout, 'portrait').then(blob => new Promise((resolve, reject) => {
       const url = URL.createObjectURL(blob);
       const im = new Image();
       im.onload = () => {
@@ -3079,13 +3132,41 @@
       im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
       im.src = url;
     }));
+  }
+
+  /** 不能直接複製時：顯示大圖，請使用者長按自己複製或存下來（Firefox 手機的長按選單有「複製圖片」）。 */
+  async function copyImageByHand() {
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      const blob = await getShareCardBlob(shareRt.layout, 'portrait');
+      if (isPhoneOrTablet()) {
+        showSaveImageOverlay(blob, '這個瀏覽器不能直接複製圖片。請長按下方圖片，選「複製圖片」；或選「下載圖片」再到 LINE 傳送');
+        sendShareEvent('copyImage');
+        return;
+      }
+      downloadBlob(blob, shareCardFileName());
+      sendShareEvent('save');
+      showToast('這個瀏覽器不能複製圖片，已改成存檔，可以拖進 LINE', 'info', 4200);
+    } catch (_) {
+      sendShareEvent('error', { stage: 'copyImage' });
+      showToast('圖片畫不出來，請稍後再試', 'error');
+    }
+  }
+
+  async function copyShareImage() {
+    if (!canCopyImage()) { copyImageByHand(); return; }
+    // 用 Promise 交給 ClipboardItem，Safari 才不會說沒有使用者手勢
+    const png = shareCardPng();
+    try {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      } catch (err) {
+        // 有些瀏覽器（舊版 Firefox）的 ClipboardItem 不收 Promise：等圖好了再試一次
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': await png })]);
+      }
       sendShareEvent('copyImage');
       showToast('已複製圖片，可以貼到 LINE', 'success');
     } catch (_) {
-      sendShareEvent('error', { stage: 'copyImage' });
-      showToast('這個瀏覽器不能複製圖片，請改用「存圖片」', 'error');
+      copyImageByHand();
     }
   }
 
@@ -9729,7 +9810,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.4';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.5';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11696,7 +11777,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.4';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.5';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12064,7 +12145,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.4';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.5';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12954,7 +13035,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.4';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.5';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13497,7 +13578,7 @@
     renderShareChart('analyticsShareMethodsChart', 'analyticsShareMethodsLegend', {
       labels, stacked: true, height: 200,
       series: [
-        { name: '傳到 LINE', color: C.line, type: 'bar', values: trend.map(r => r.line + r.lineFile) },
+        { name: '傳到 LINE', color: C.line, type: 'bar', values: trend.map(r => r.line + r.lineFile + (r.lineLink || 0)) },
         { name: '存圖片', color: C.save, type: 'bar', values: trend.map(r => r.save) },
         { name: '複製圖片', color: C.copyImage, type: 'bar', values: trend.map(r => r.copyImage) },
         { name: '複製連結', color: C.copyLink, type: 'bar', values: trend.map(r => r.copyLink) }
