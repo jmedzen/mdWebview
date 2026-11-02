@@ -122,7 +122,7 @@ describe('lib/share-card-server：圖庫', () => {
 });
 
 describe('lib/share-card-server：伺服器畫圖', () => {
-  test('三種版型 × 兩種尺寸都畫得出 JPEG，尺寸正確', async (t) => {
+  test('所有版型 × 兩種尺寸都畫得出 JPEG，尺寸正確', async (t) => {
     if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
     const { loadImage } = require('@napi-rs/canvas');
     for (const layout of ShareCard.LAYOUTS) {

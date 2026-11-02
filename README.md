@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.13.3) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.14.1) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -138,7 +138,7 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 首頁經句下有兩顆按鈕：
 
 - **↻ 換一句**：隨機換成清單裡的另一句（只換自己畫面上的，不影響別人）。
-- **分享早安圖**：把畫面上這一句做成「早安圖」（依時間顯示早安／午安／晚安、日期、節氣）。三種版型左右滑選：晨光留白、沉浸全幅、經籤直書。面板下方四顆按鈕：「傳到 LINE」（直式 1080×1350 圖片，手機會叫出系統分享選 LINE；電腦會存成圖檔）、存圖片、複製圖片，以及「複製連結」（複製 `/?verse=…` 連結，貼到 LINE 會顯示 1200×630 的卡片預覽，點開就到首頁這一句）。
+- **分享早安圖**：把畫面上這一句做成「早安圖」（依時間顯示早安／午安／晚安、日期、節氣）。五種版型左右滑選：晨光留白、沉浸全幅、經籤直書、晨鐘大字、象牙拱門。面板下方四顆按鈕：「傳到 LINE」（直式 1080×1350 圖片，手機會叫出系統分享選 LINE；電腦會存成圖檔）、存圖片、複製圖片，以及「複製連結」（複製 `/?verse=…` 連結，貼到 LINE 會顯示 1200×630 的卡片預覽，點開就到首頁這一句）。
 
 背景圖放在 `./data/pic-card/`（容器內 `/data/pic-card`，可用環境變數 `PIC_CARD_DIR` 改位置），**所有子資料夾**的 jpg／png／webp 都會讀進來，約一分鐘內生效；同一天同一句會固定用同一張圖。沒有圖時用預設的天空漸層。
 
@@ -255,7 +255,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.13.3) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.14.1) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -427,7 +427,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.13.3)
+├── package.json        # Project information (v4.14.1)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers
