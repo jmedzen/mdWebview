@@ -201,7 +201,7 @@ describe('報表信：沒有早安圖資料', () => {
 
 describe('前端與後台接線', () => {
   test('分享面板每個動作都回報事件', () => {
-    for (const ev of ['open', 'line', 'lineFile', 'lineLink', 'save', 'copyImage', 'copyLink', 'shuffle']) {
+    for (const ev of ['open', 'line', 'lineFile', 'lineLink', 'lineManual', 'save', 'copyImage', 'copyLink', 'shuffle']) {
       assert.ok(appJs.includes(`sendShareEvent('${ev}'`), ev);
     }
     for (const stage of ['preview', 'line', 'save', 'copyImage', 'shuffle']) {

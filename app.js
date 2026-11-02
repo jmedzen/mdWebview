@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.18.7
+   mdWebview — Application Logic (app.js) v4.18.8
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2727,7 +2727,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.18.7';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.18.8';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -2965,6 +2965,7 @@
     const now = new Date();
     shareRt.open = true;
     shareRt.verse = verse;
+    { const lb = $('shareCardLineLabel'); if (lb) lb.textContent = isPhoneOrTablet() && !canShareFiles() ? '傳到 LINE（兩步）' : '傳到 LINE'; }
     shareRt.date = localYmd(now);
     {
       const saved = storage.get(SHARE_GREETING_KEY, 'time');
@@ -3064,12 +3065,27 @@
     sendShareEvent('lineLink');
   }
 
-  async function shareToLine() {
-    if (isPhoneOrTablet() && !canShareFiles()) {
-      shareLinkToLine();
-      showToast('這個瀏覽器不能直接傳圖片，改傳連結（LINE 會顯示早安圖預覽）；要圖檔請按「存圖片」', 'info', 5200);
+  /**
+   * 手機瀏覽器不能把圖片檔交給 LINE（Firefox Android 的 Web Share 只收文字／連結，canShare({files}) 為 false，
+   * 網頁也沒有任何辦法直接推圖片進 LINE）。最好的做法：顯示大圖，教兩步——
+   * ① 長按圖片「複製／下載」 ② 按「開啟 LINE」貼上或選取圖片；另附「改傳連結」。
+   */
+  async function lineManualImage() {
+    let blob;
+    try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) {
+      sendShareEvent('error', { stage: 'line' });
+      showToast('圖片畫不出來，請稍後再試', 'error');
       return;
     }
+    showSaveImageOverlay(blob, '這個瀏覽器不能直接把圖片傳給 LINE。\n① 長按下方圖片，選「複製圖片」或「下載圖片」\n② 按「開啟 LINE」，到聊天室貼上或選取那張圖', [
+      { label: '② 開啟 LINE', primary: true, onClick: () => { window.location.href = 'https://line.me/R/'; } },
+      { label: '改傳連結（預覽圖）', onClick: () => shareLinkToLine() }
+    ]);
+    sendShareEvent('lineManual');
+  }
+
+  async function shareToLine() {
+    if (isPhoneOrTablet() && !canShareFiles()) { lineManualImage(); return; }
     let blob;
     try { blob = await getShareCardBlob(shareRt.layout, 'portrait'); } catch (_) {
       sendShareEvent('error', { stage: 'line' });
@@ -3087,7 +3103,7 @@
       }
       return;
     }
-    if (isPhoneOrTablet()) { shareLinkToLine(); return; }
+    if (isPhoneOrTablet()) { lineManualImage(); return; }
     // 電腦版瀏覽器多半不能直接把檔案交給 LINE：先存下來
     downloadBlob(blob, file.name);
     sendShareEvent('lineFile');
@@ -3101,7 +3117,7 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
-  function showSaveImageOverlay(blob, tip) {
+  function showSaveImageOverlay(blob, tip, actions) {
     const old = document.getElementById('shareSaveOverlay');
     if (old) old.remove();
     const url = URL.createObjectURL(blob);
@@ -3112,6 +3128,15 @@
     if (tip) ov.querySelector('.share-save-tip').textContent = tip;
     ov.querySelector('img').src = url;
     const close = () => { ov.remove(); URL.revokeObjectURL(url); };
+    const doneBtn = ov.querySelector('.share-save-close');
+    for (const a of actions || []) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'share-save-act' + (a.primary ? ' is-primary' : '');
+      b.textContent = a.label;
+      b.addEventListener('click', e => { e.stopPropagation(); a.onClick(); });
+      ov.insertBefore(b, doneBtn);
+    }
     ov.querySelector('.share-save-close').addEventListener('click', close);
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     document.body.appendChild(ov);
@@ -9836,7 +9861,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11803,7 +11828,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12171,7 +12196,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13061,7 +13086,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.7';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.8';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -13604,7 +13629,7 @@
     renderShareChart('analyticsShareMethodsChart', 'analyticsShareMethodsLegend', {
       labels, stacked: true, height: 200,
       series: [
-        { name: '傳到 LINE', color: C.line, type: 'bar', values: trend.map(r => r.line + r.lineFile + (r.lineLink || 0)) },
+        { name: '傳到 LINE', color: C.line, type: 'bar', values: trend.map(r => r.line + r.lineFile + (r.lineLink || 0) + (r.lineManual || 0)) },
         { name: '存圖片', color: C.save, type: 'bar', values: trend.map(r => r.save) },
         { name: '複製圖片', color: C.copyImage, type: 'bar', values: trend.map(r => r.copyImage) },
         { name: '複製連結', color: C.copyLink, type: 'bar', values: trend.map(r => r.copyLink) }
