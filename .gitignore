@@ -9,6 +9,9 @@ data/*
 !data/.gitkeep
 logs/*
 !logs/.gitkeep
+# 搜尋索引快取（*.bin，可重建；v4.19.0 起從 logs/ 移出）
+index/*
+!index/.gitkeep
 tests/logs/
 .DS_Store
 .agents
