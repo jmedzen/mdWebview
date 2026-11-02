@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.17.1
+ * @version 4.18.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -98,6 +98,7 @@ const sutraQuotes = require('./lib/sutra-quotes');
 const shareCardServer = require('./lib/share-card-server');
 const ShareCard = require('./share-card.js');
 const shareQuotes = require('./lib/share-quotes');
+const shareQr = require('./lib/share-qr');
 const shareStats = require('./lib/share-stats');
 
 const {
@@ -4356,8 +4357,15 @@ function shareCardParams(query) {
     date: ShareCard.normalizeDate(query.d) || ShareCard.normalizeDate(new Date().toISOString().slice(0, 10)),
     greeting: ShareCard.normalizeGreeting(query.g),
     layout: ShareCard.normalizeLayout(query.layout || query.l),
-    size: ShareCard.normalizeSize(query.size)
+    size: ShareCard.normalizeSize(query.size),
+    qr: query.qr === '1'
   };
+}
+
+/** 卡片上 QR 碼的短網址（只有直式、而且分享面板打開 QR 開關時才畫）。 */
+function shareCardQrUrl(req, subject, p) {
+  if (!p.qr || p.size !== 'portrait' || !subject) return '';
+  return shareQr.qrUrl(getBaseUrl(req, config.settings.siteUrl), subject.kind === 'quote' ? 'quote' : 'verse', subject.id, p.layout);
 }
 
 /** GET /api/daily-verse?id=… 取某一句；GET /api/daily-verse/random?not=… 隨機換另一句。 */
@@ -4398,6 +4406,7 @@ async function handleShareCardMeta(req, res, query) {
       label: cardLabel(v),
       date: p.date,
       pic: rel ? `/api/pic-card?p=${encodeURIComponent(rel)}` : null,
+      qrUrl: shareCardQrUrl(req, v, { ...p, qr: true, size: 'portrait' }),
       renderer: shareCardServer.available(),
       ...shareCardSite(req)
     });
@@ -4420,7 +4429,7 @@ async function handleShareCardImage(req, res, query) {
     const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
     let picAbs = rel ? shareCardServer.resolvePic(rel) : null;
     if (picAbs && !(await shareCardServer.isRealPicPath(picAbs))) picAbs = null;
-    const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, ...shareCardSite(req) });
+    const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, qr: shareCardQrUrl(req, v, p), ...shareCardSite(req) });
     const etag = `"sc-${crypto.createHash('md5').update(buf).digest('hex').slice(0, 16)}"`;
     const headers = Object.assign({
       'Content-Type': 'image/jpeg',
@@ -4503,6 +4512,58 @@ async function handleAdminShareCard(req, res) {
   if (!requireAdmin(req, res, sendJSON)) return;
   await shareCardServer.listPics().catch(() => {});
   sendJSON(res, 200, shareCardServer.status());
+}
+
+// ── 早安圖 QR 碼的短網址（/V…、/Q…，見 lib/share-qr.js） ─────────────────
+let qrFileList = { at: 0, files: null, pending: null };
+/** 經文檔清單（每日經句沒填路徑時用出處找經；10 分鐘重掃一次）。 */
+function listMdFilesForQr() {
+  if (qrFileList.files && Date.now() - qrFileList.at < 10 * 60 * 1000) return Promise.resolve(qrFileList.files);
+  if (!qrFileList.pending) {
+    qrFileList.pending = collectFilesAsync(getMdRoot())
+      .then(files => { qrFileList = { at: Date.now(), files, pending: null }; return files; })
+      .catch(err => { qrFileList.pending = null; throw err; });
+  }
+  return qrFileList.pending;
+}
+
+/**
+ * GET /V<7 碼><版型>、/Q<7 碼><版型>：掃早安圖上的 QR 進來。
+ * 記一筆 qrScan，再 302 轉到原文那一行；找不到就回首頁（每日經句顯示那一句）。
+ * 用 302（不用 301），經文或行號改了，舊圖上的 QR 也會跟著轉到新的地方。
+ */
+async function handleShareQrRedirect(req, res, parsed) {
+  let location = '/';
+  let share = { ev: 'qrScan', layout: parsed.layout || undefined };
+  try {
+    if (parsed.kind === 'quote') {
+      let r = null;
+      if (accountsDb.isAvailable()) {
+        try { r = accountsDb.getShareQuoteByPrefix(parsed.code); } catch (_) { r = null; }
+      }
+      if (r && !r.hidden_at && r.path) {
+        location = shareQr.fileUrl(r.path, r.line);
+        share.quote = r.id;
+      }
+    } else {
+      const dv = await collectDailyVerses();
+      const v = dv.merged.find(x => home.verseId(x.text).startsWith(parsed.code));
+      if (v) {
+        const id = home.verseId(v.text);
+        share.verse = id;
+        const target = await shareQr.locateVerse(v, { resolveMdPath, listFiles: listMdFilesForQr });
+        location = target ? shareQr.fileUrl(target.path, target.line) : `/?verse=${id}`;
+      }
+    }
+  } catch (err) {
+    Logger.warn('ShareCard', `QR redirect lookup failed: ${err && err.message ? err.message : err}`, req);
+  }
+  if (req.method === 'GET') {
+    const what = share.quote ? `quote ${share.quote}` : share.verse ? `verse ${share.verse}` : `unknown ${parsed.kind} ${parsed.code}`;
+    Logger.info('ShareCard', `Share card qrScan: ${parsed.layout ? `layout ${parsed.layout}, ` : ''}${what} -> ${location}`, req, { share });
+  }
+  res.writeHead(302, Object.assign({ Location: location, 'Cache-Control': 'no-store' }, SECURITY_HEADERS));
+  res.end();
 }
 
 /** 首頁 HTML，og／twitter 標籤換成早安圖（og 為 null 時原樣送出）。 */
@@ -5520,6 +5581,12 @@ const server = http.createServer((req, res) => {
       Logger.debug('HTTP', `${req.method} ${pathname} -> ${res.statusCode} (${duration}ms)`, req, { durationMs: duration });
     }
   };
+
+  // 早安圖 QR 碼的短網址 /V…、/Q…
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const qrPath = shareQr.parseQrPath(pathname);
+    if (qrPath) return handleShareQrRedirect(req, res, qrPath);
+  }
 
   // Log share link access if present, and handle Crawler Dynamic SSR for Homepage or Specific Markdown File
   if (pathname === '/' || pathname === '') {

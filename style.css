@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.17.1
+   mdWebview — Style System (style.css) v4.18.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11623,6 +11623,19 @@ a.small-btn {
 .share-card-slide:focus-visible .share-card-frame { outline-color: var(--accent); }
 
 .share-card-dots { display: none; justify-content: center; gap: 6px; margin-top: 8px; }
+.share-card-qr-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.share-card-qr-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.share-card-qr-note { color: var(--text-muted); }
 .share-card-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: background 0.2s, width 0.2s; }
 .share-card-dots span.on { width: 16px; border-radius: 3px; background: var(--accent); }
 

@@ -171,7 +171,7 @@ describe('報表信：早安圖區塊', () => {
       assert.ok(out.html.includes('J 象牙拱門'));
       assert.ok(out.html.includes('gold/1.png'));
       assert.ok(out.html.includes('複製圖片失敗'));
-      assert.match(out.text, /早安圖：打開面板 2，分享出去 2，從分享連結進站 0，連結預覽抓圖 1，失敗 1/);
+      assert.match(out.text, /早安圖：打開面板 2，分享出去 2，從分享連結進站 0，掃 QR 進站 0，連結預覽抓圖 1，失敗 1/);
       // 日報：早安圖小時長條圖（台北 10:00 那格）
       assert.equal(r.shareCard.buckets.length, 24);
       assert.deepEqual(r.shareCard.buckets[10], { open: 2, sends: 2, visit: 0 });

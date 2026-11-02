@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.17.1
+   mdWebview — Application Logic (app.js) v4.18.1
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2594,8 +2594,9 @@
   // 回 503，這裡改用 share-card.js 在瀏覽器畫。卡片永遠是畫面上正在顯示的那一句。
 
   const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
+  const SHARE_QR_KEY = 'mdWebview-share-card-qr';   // '1' = 卡片附 QR 碼（預設不附）
   const shareRt = {
-    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安',
+    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安', qr: false,
     blobs: new Map(),      // `${layout}|${size}` → Promise<Blob>
     urls: [],              // 要回收的 blob: 網址
     meta: null, serverOk: true
@@ -2673,7 +2674,8 @@
   function shareCardQuery(layout, size) {
     const v = shareRt.verse;
     const key = v.kind === 'quote' ? 'q' : 'id';
-    return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}`;
+    const qr = shareRt.qr && size === 'portrait' ? '&qr=1' : '';
+    return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}${qr}`;
   }
 
   function shareLinkUrl() {
@@ -2684,6 +2686,22 @@
         `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
     }
     return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}&l=${shareRt.layout}`;
+  }
+
+  /** QR 產生器（vendor/qrcode，MIT）只有瀏覽器自己畫、又要附 QR 時才載入。 */
+  let qrLibLoading = null;
+  function loadQrLib() {
+    if (window.qrcode) return Promise.resolve(true);
+    if (!qrLibLoading) {
+      qrLibLoading = new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = '/vendor/qrcode/qrcode.js?v=4.18.1';
+        s.onload = () => resolve(!!window.qrcode);
+        s.onerror = () => { qrLibLoading = null; resolve(false); };
+        document.head.appendChild(s);
+      });
+    }
+    return qrLibLoading;
   }
 
   /** 瀏覽器自己畫（伺服器沒有畫圖引擎時）。 */
@@ -2709,21 +2727,22 @@
       const sample = `${shareRt.greeting}${meta.verse.text}${meta.verse.source || ''}${meta.siteName}星期一二三四五六日〇十月年`;
       await Promise.all([500, 700].map(w => document.fonts.load(`${w} 40px "Noto Serif TC"`, sample).catch(() => {})));
     }
-    const [w, h] = SC.SIZES[size];
+    const withQr = shareRt.qr && size === 'portrait' && meta.qrUrl && await loadQrLib();
+    const [w, h] = (SC.PIXEL_SIZES || SC.SIZES)[size];
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     SC.draw(canvas.getContext('2d'), {
       layout, size, image: img, verse: meta.verse, greeting: shareRt.greeting,
       date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host,
-      label: meta.label
+      label: meta.label, qr: withQr ? meta.qrUrl : ''
     });
     return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.9));
   }
 
   /** 取得某版型、某尺寸的卡片（Blob），同一次開面板內快取。 */
   function getShareCardBlob(layout, size) {
-    const key = `${layout}|${size}`;
+    const key = `${layout}|${size}|${shareRt.qr && size === 'portrait' ? 'qr' : ''}`;
     if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
     const job = (async () => {
       if (shareRt.serverOk) {
@@ -2864,6 +2883,9 @@
     shareRt.date = localYmd(now);
     shareRt.greeting = window.ShareCard.greetingForHour(now.getHours());
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
+    shareRt.qr = storage.get(SHARE_QR_KEY, '0') === '1';
+    const qrBox = $('shareCardQr');
+    if (qrBox) qrBox.checked = shareRt.qr;
     shareRt.blobs = new Map();
     shareRt.meta = null;
     shareRt.serverOk = true;
@@ -2877,6 +2899,17 @@
     sendShareEvent('open');
     const card = ov.querySelector('.share-card-card');
     if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
+  }
+
+  /** 「附 QR 碼」開關：記在本機，換了就重畫面板上的預覽。 */
+  function setShareQr(on) {
+    shareRt.qr = !!on;
+    storage.set(SHARE_QR_KEY, shareRt.qr ? '1' : '0');
+    if (!shareRt.open) return;
+    for (const u of shareRt.urls) URL.revokeObjectURL(u);
+    shareRt.urls = [];
+    renderShareSlides();
+    prefetchShareBlob();
   }
 
   function closeShareCard() {
@@ -3000,6 +3033,8 @@
     const ov = $('shareCardOverlay');
     if (!ov) return;
     $('shareCardCloseBtn').addEventListener('click', closeShareCard);
+    const qrBox = $('shareCardQr');
+    if (qrBox) qrBox.addEventListener('change', () => setShareQr(qrBox.checked));
     ov.addEventListener('click', e => { if (e.target === ov) closeShareCard(); });
     document.addEventListener('keydown', e => {
       if (!shareRt.open) return;
@@ -9613,7 +9648,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.1';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11580,7 +11615,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.1';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -11948,7 +11983,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.1';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -12838,7 +12873,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.17.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.18.1';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
