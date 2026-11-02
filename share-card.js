@@ -534,7 +534,7 @@
       if (land) drawSpaced(ctx, label, 60, h - 40, 6);
       else drawSpaced(ctx, label, w / 2, h - 44, 6, 'center');
     });
-    if (o.qr && !land) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 40 - b.w, h - 40 - b.h); }
+    if (o.qr && !land) { const b = qrBadgeSize(); drawQrBadge(ctx, o, 40, h - 40 - b.h); }
   }
 
 

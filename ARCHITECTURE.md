@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.18.0 | 最後更新：2026-11
+> 版本：v4.18.1 | 最後更新：2026-11
 
 ---
 
@@ -1027,7 +1027,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.18.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.18.1'` | 應用程式當前核心版本號 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
 | `MAX_STATIC_CACHE_ENTRIES`| `lib/static-cache.js` | `200` | 靜態資源記憶體 LRU 快取上限筆數（單檔 > 5MB 不入快取，直接串流） |
 | `STATIC_CACHE_TTL_MS` | `lib/static-cache.js` | `5,000`（5s） | 靜態資源快取有效時間（TTL） |
@@ -1563,7 +1563,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 - 分享面板「附 QR 碼」開關（`#shareCardQr`，本機 `mdWebview-share-card-qr`，**預設不附**）。打開時直式卡片多一個 QR 小籤，連回原文；og 連結預覽圖永遠不畫（預覽本身就能點）。
 - 直式輸出放大 1.5 倍：`ShareCard.PIXEL_SIZES.portrait = 1620×2025`，版面座標仍是 `SIZES` 的 1080×1350，`draw()` 依畫布寬度 `ctx.scale()`。圖庫的圖最好放大到 2 倍以上（例如 2688×1792）才不糊。
-- QR 小籤與 A 版「吉祥」印同大（版面 64 = 實際 96 px），米色不透明底、深色格子、無字；格子以實際像素整數畫（`drawQrBadge()` 先 `setTransform(1,0,0,1,0,0)`），25×25 格時每格 3 px。位置：A 吉祥印右邊；B、C、I、J 右下；N 右側跨在圖文交界；P 左邊圖條下方；Q 右上角（取代紅色短線）。
+- QR 小籤與 A 版「吉祥」印同大（版面 64 = 實際 96 px），米色不透明底、深色格子、無字；格子以實際像素整數畫（`drawQrBadge()` 先 `setTransform(1,0,0,1,0,0)`），25×25 格時每格 3 px。位置：A 吉祥印右邊；B、I、J 右下；C 左下；N 右側跨在圖文交界；P 左邊圖條下方；Q 右上角（取代紅色短線）。
 - 產生器：`vendor/qrcode/qrcode.js`（qrcode-generator 2.0.4，MIT）。伺服器由 `share-card.js` `require`；瀏覽器只有自己畫（伺服器不能畫）又要附 QR 時才 `loadQrLib()` 動態載入。容錯 M。
 - 網址（`lib/share-qr.js qrUrl()`）：`HTTPS://<主機>/V<經句代號前 7 碼><版型>`、`…/Q<選句代號前 7 碼><版型>`，協定與主機名大寫，整串大寫英數 → QR 英數模式，`mbt.mahabodhi.co` 為 25×25。主機取後台「網站網址」（`siteUrl`），沒設就用當下的網址。
 - 轉址 `handleShareQrRedirect()`：每日經句在合併後的經句清單用代號開頭比對；有經文路徑就在那一篇找行號，沒填就用出處經名找同名的經（`candidateFiles()`，最多 6 篇），結果快取 10 分鐘；找不到轉 `/?verse=<id>`。選句用 `getShareQuoteByPrefix()`，隱藏或不存在回首頁。一律 302、`no-store`。記 `ShareCard` 事件 `qrScan`（後台動作表、日報／週報「掃 QR 進站」）。
