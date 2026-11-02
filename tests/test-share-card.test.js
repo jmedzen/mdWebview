@@ -139,6 +139,13 @@ describe('lib/share-card-server：伺服器畫圖', () => {
     }
   });
 
+  test('Q 版型的英文手寫體 Dancing Script 隨程式附上，會被載入', async (t) => {
+    if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
+    assert.ok(fs.existsSync(path.join(ROOT_DIR, 'vendor', 'fonts', 'DancingScript-700.ttf')));
+    assert.ok(sc.fontDirs({}).some(d => d.endsWith(path.join('vendor', 'fonts'))));
+    assert.ok(sc.status().fonts.includes('DancingScript-700.ttf'), '字型沒被載入');
+  });
+
   test('同樣參數第二次直接用快取', async (t) => {
     if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
     const opts = { layout: 'B', size: 'og', verse: { text: '應無所住，而生其心。', source: '' }, greeting: '午安', date: '2026-11-03', siteName: 's', host: '' };
