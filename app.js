@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.22.0
+   mdWebview — Application Logic (app.js) v4.23.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2631,6 +2631,8 @@
   // ── 每日經句：換一句、分享早安圖 ──────────────────────────────────
   // 卡片由伺服器畫（/api/share-card.jpg，og:image 也用同一支）；伺服器沒有畫圖引擎時
   // 回 503，這裡改用 share-card.js 在瀏覽器畫。卡片永遠是畫面上正在顯示的那一句。
+  // 面板裡 8 個版型只載小預覽（size=preview，幾十 KB 一張），選中的那張先載；
+  // 全尺寸（size=portrait）只預先準備「選中的那一張」，傳到 LINE／存圖片／複製圖片都用全尺寸。
 
   const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
   const SHARE_QR_KEY = 'mdWebview-share-card-qr';   // '1' = 卡片附 QR 碼（預設不附）
@@ -2735,7 +2737,7 @@
   function shareCardQuery(layout, size) {
     const v = shareRt.verse;
     const key = v.kind === 'quote' ? 'q' : 'id';
-    const qr = shareRt.qr && size === 'portrait' ? '&qr=1' : '';
+    const qr = shareRt.qr && size !== 'og' ? '&qr=1' : '';
     return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}${qr}`;
   }
 
@@ -2762,7 +2764,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.22.0';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.23.0';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -2794,22 +2796,24 @@
       const sample = `${shareRt.greeting}${meta.verse.text}${meta.verse.source || ''}${meta.siteName}星期一二三四五六日〇十月年`;
       await Promise.all([500, 700].map(w => document.fonts.load(`${w} 40px "Noto Serif TC"`, sample).catch(() => {})));
     }
-    const withQr = shareRt.qr && size === 'portrait' && meta.qrUrl && await loadQrLib();
-    const [w, h] = (SC.PIXEL_SIZES || SC.SIZES)[size];
+    const preview = size === 'preview';
+    const drawSize = preview ? 'portrait' : size;
+    const withQr = shareRt.qr && drawSize === 'portrait' && meta.qrUrl && await loadQrLib();
+    const [w, h] = preview && SC.PREVIEW_PIXELS ? SC.PREVIEW_PIXELS : (SC.PIXEL_SIZES || SC.SIZES)[drawSize];
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     SC.draw(canvas.getContext('2d'), {
-      layout, size, image: img, verse: meta.verse, greeting: shareRt.greeting,
+      layout, size: drawSize, image: img, verse: meta.verse, greeting: shareRt.greeting,
       date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host,
       label: meta.label, qr: withQr ? meta.qrUrl : ''
     });
-    return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.9));
+    return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', preview ? 0.8 : 0.9));
   }
 
-  /** 取得某版型、某尺寸的卡片（Blob），同一次開面板內快取。 */
+  /** 取得某版型、某尺寸（preview｜portrait｜og）的卡片（Blob），同一次開面板內快取。 */
   function getShareCardBlob(layout, size) {
-    const key = `${layout}|${size}|${shareRt.greeting}|${shareRt.qr && size === 'portrait' ? 'qr' : ''}`;
+    const key = `${layout}|${size}|${shareRt.greeting}|${shareRt.qr && size !== 'og' ? 'qr' : ''}`;
     if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
     const job = (async () => {
       if (shareRt.serverOk) {
@@ -2867,8 +2871,7 @@
     const verse = shareRt.verse;
     $('shareCardTitle').textContent = verse && verse.kind === 'quote' ? `用這段經文做${shareRt.greeting}圖` : `分享${shareRt.greeting}圖`;
     renderShareGreetings();
-    renderShareSlides();
-    prefetchShareBlob();
+    renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
   }
 
   function renderShareSlides() {
@@ -2876,7 +2879,8 @@
     const wrap = $('shareCardSlides');
     const dots = $('shareCardDots');
     if (!wrap || !SC) return;
-    const size = 'portrait';
+    const size = 'preview';
+    const slideImgs = new Map();
     wrap.textContent = '';
     dots.textContent = '';
     for (const layout of SC.LAYOUTS) {
@@ -2900,24 +2904,58 @@
       const dot = document.createElement('span');
       dot.dataset.layout = layout;
       dots.appendChild(dot);
-      getShareCardBlob(layout, size).then(blob => {
-        if (!shareRt.open) return;
+      slideImgs.set(layout, { img, frame });
+    }
+    selectShareLayout(shareRt.layout, true);
+    // 載入順序：選中的那張 → 它的左右鄰居 → 再外面；同時最多 SHARE_PREVIEW_PARALLEL 張，
+    // 免得選中的那張排在瀏覽器的連線佇列後面
+    const sel = SC.LAYOUTS.indexOf(shareRt.layout);
+    const order = SC.LAYOUTS.slice().sort((a, b) => Math.abs(SC.LAYOUTS.indexOf(a) - sel) - Math.abs(SC.LAYOUTS.indexOf(b) - sel));
+    const gen = ++sharePreviewGen;
+    const loadOne = layout => {
+      const { img, frame } = slideImgs.get(layout);
+      return getShareCardBlob(layout, size).then(blob => {
+        if (!shareRt.open || gen !== sharePreviewGen) return;
         const url = URL.createObjectURL(blob);
         shareRt.urls.push(url);
         img.src = url;
         frame.classList.remove('is-loading');
       }).catch(() => {
+        if (gen !== sharePreviewGen) return;
         frame.classList.remove('is-loading');
         frame.classList.add('is-error');
         frame.title = '這張圖畫不出來';
         if (shareRt.open) sendShareEvent('error', { layout, stage: 'preview' });
       });
-    }
-    selectShareLayout(shareRt.layout, true);
+    };
+    sharePreviewQueue = order;
+    const worker = async () => {
+      while (shareRt.open && gen === sharePreviewGen && sharePreviewQueue.length) {
+        await loadOne(sharePreviewQueue.shift());
+      }
+    };
+    // 先等選中那張出來，再開其餘的（和選中那張的全尺寸預取）並行
+    const first = sharePreviewQueue.shift();
+    loadOne(first).then(() => {
+      if (gen !== sharePreviewGen) return;
+      prefetchShareBlob();
+      for (let i = 0; i < SHARE_PREVIEW_PARALLEL; i++) worker();
+    });
+  }
+
+  const SHARE_PREVIEW_PARALLEL = 2;
+  let sharePreviewGen = 0;
+  let sharePreviewQueue = [];
+
+  /** 使用者換到還沒載好的版型：把它的預覽排到佇列最前面。 */
+  function bumpSharePreview(layout) {
+    const i = sharePreviewQueue.indexOf(layout);
+    if (i > 0) { sharePreviewQueue.splice(i, 1); sharePreviewQueue.unshift(layout); }
   }
 
   function selectShareLayout(layout, scroll) {
     shareRt.layout = layout;
+    bumpSharePreview(layout);
     storage.set(SHARE_LAYOUT_KEY, layout);
     const wrap = $('shareCardSlides');
     if (!wrap) return;
@@ -3020,8 +3058,7 @@
     document.body.classList.add('modal-open');
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
     renderShareGreetings();
-    renderShareSlides();
-    prefetchShareBlob();
+    renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
     sendShareEvent('open');
     const card = ov.querySelector('.share-card-card');
     if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
@@ -3034,8 +3071,7 @@
     if (!shareRt.open) return;
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
     shareRt.urls = [];
-    renderShareSlides();
-    prefetchShareBlob();
+    renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
   }
 
   function closeShareCard() {
@@ -9900,7 +9936,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11887,7 +11923,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12255,7 +12291,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13242,7 +13278,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
