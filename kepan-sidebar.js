@@ -258,6 +258,28 @@
     return rounds.map((r, i) => ({ topic: r.topic || r.label, rounds: [i] }));
   }
 
+  /**
+   * 範圍選單的選項：範圍那一層的科，依上層分組。只有一個上層（或範圍就在最上層）時不分組。
+   * @returns {{ parent: number, items: object[] }[]} parent 為 0 表示不加分組標題
+   */
+  function scopeOptions(N, depth) {
+    const groups = [], byParent = new Map();
+    for (const n of N) {
+      if (n.id === 0 || n.d !== depth) continue;
+      const p = n.p > 0 ? n.p : 0;
+      let g = byParent.get(p);
+      if (!g) { g = { parent: p, items: [] }; byParent.set(p, g); groups.push(g); }
+      g.items.push(n);
+    }
+    if (groups.length <= 1) return groups.map(g => ({ parent: 0, items: g.items }));
+    return groups;
+  }
+
+  /** 地標列路徑收合時保留幾層（含目前科）：手機 2 層、桌機 3 層。 */
+  function pathKeep(width) {
+    return width <= 768 ? 2 : 3;
+  }
+
   const DOUBLE_TAP_MS = 260;
 
   const api = {
@@ -265,7 +287,7 @@
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
-    navTargets, navLabel, roundDetail, roundGroups,
+    navTargets, navLabel, roundDetail, roundGroups, scopeOptions, pathKeep,
   };
   if (typeof document === 'undefined') return api;
 
@@ -275,6 +297,7 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const LEAF_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 1.8h5.5L12.5 5v9.2H4z"/><path d="M6.3 8h4M6.3 10.8h4"/></svg>';
   const STORE = 'mdw-kepan-v1';
+  const PATH_STORE = 'mdw-kepan-path-open';
 
   const S = {
     payload: null, N: null, dir: '', file: '', fileIndex: -1,
@@ -284,7 +307,8 @@
     anchors: [], anchorsDirty: true, barMax: 0,
     loadToken: 0, busyInTree: false, busyTimer: null,
     hay: [], found: [], active: -1, composing: false,
-    scopeDepth: SCOPE_DEPTH, pendingAlt: null,
+    scopeDepth: SCOPE_DEPTH, pendingAlt: null, virtual: false,
+    pathOpen: (() => { try { return localStorage.getItem('mdw-kepan-path-open') === '1'; } catch (_) { return false; } })(),
   };
   // 資料夾 → { list: payload[], none: Set<檔名>, wait: Map<檔名, Promise> }。
   // 同一資料夾可能有好幾棵樹（每輪一棵、合輯每篇一棵），依檔名找所屬的那棵。
@@ -444,9 +468,13 @@
   function renderScopeSelect() {
     const { N } = S, sel = $('kepanScope');
     // 第一項是整棵樹、不分組（v4.27.5 起固定寫「全文（不分組）」；書名已在側欄標題與地標列）
-    const opts = [`<option value="0">${ALL_LABEL}</option>`];
-    for (const n of N) if (n.d === S.scopeDepth) opts.push(`<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`);
-    sel.innerHTML = opts.join('');
+    // 範圍分屬不同上層時依上層分組（v4.27.7）：否則會出現兩個「乙一」分不出來
+    let html = `<option value="0">${ALL_LABEL}</option>`;
+    for (const g of scopeOptions(N, S.scopeDepth)) {
+      const items = g.items.map(n => `<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`).join('');
+      html += g.parent ? `<optgroup label="${esc(N[g.parent].m + ' ' + N[g.parent].t)}">${items}</optgroup>` : items;
+    }
+    sel.innerHTML = html;
     sel.value = String(S.rootId);
   }
 
@@ -515,11 +543,23 @@
       + `<span>第 ${N[id].d + 1} 層</span>`
       + `<span class="kepan-progress" title="在「${esc(P.title)}」中的位置"><i style="width:${pct}%"></i></span><span>${pct}%</span>`
       + alt;
-    $('kepanPath').innerHTML = ancestors(N, id).concat(id).map(x => {
+    // 路徑預設只留最後幾層（目前科一定看得到），前面收成「⋯ 上 N 層」，點了展開完整路徑（v4.27.7）
+    const chain = ancestors(N, id).concat(id);
+    const keep = pathKeep(window.innerWidth);
+    const hidden = S.pathOpen ? 0 : Math.max(0, chain.length - keep);
+    const links = chain.slice(hidden).map(x => {
       const n = N[x], sib = N[n.p].k;
       const pos = sib.length > 1 ? `<small>${sib.indexOf(x) + 1}/${sib.length}</small>` : '';
-      return `<a href="#" data-go="${x}" title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(n.t)}${pos}</a>`;
+      return `<a href="#" data-go="${x}"${x === id ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(n.t)}${pos}</a>`;
     }).join('<span class="kepan-sep">›</span>');
+    const more = hidden
+      ? `<button type="button" class="kepan-path-more" data-path-toggle aria-expanded="false" title="顯示完整路徑：${esc(chain.slice(0, hidden).map(x => N[x].m + ' ' + N[x].t).join(' › '))}">⋯ 上 ${hidden} 層</button><span class="kepan-sep">›</span>`
+      : '';
+    const less = S.pathOpen && chain.length > keep
+      ? `<button type="button" class="kepan-path-more is-open" data-path-toggle aria-expanded="true" title="只顯示最後幾層">收起</button>` : '';
+    const path = $('kepanPath');
+    path.innerHTML = more + links + less;
+    if (S.pathOpen) path.scrollTop = path.scrollHeight;   // 展開後若仍在列內捲動，停在目前科
     const t = navTargets(N, id), nx = t.next ? N[t.next] : null, pv = t.prev ? N[t.prev] : null;
     setNavBtn($('kepanPrev'), pv, '前一科', '已是第一科');
     setNavBtn($('kepanNext'), nx, '後一科', '已是最後一科');
@@ -568,6 +608,14 @@
   }
 
   function scrollToLine(line) {
+    if (S.virtual) {
+      // 大檔：目標段落可能還沒掛上，交給 app.js 的虛擬捲動（它也會讓開地標列）
+      S.lockSpyUntil = Date.now() + 1500;
+      if (typeof window.mdwScrollToLine === 'function') {
+        Promise.resolve(window.mdwScrollToLine(line)).then(() => { S.lockSpyUntil = Date.now() + 300; });
+      }
+      return;
+    }
     const content = $('content'), el = document.getElementById('L' + line);
     if (!content || !el) return;
     const target = el.closest('h1, h2, h3, h4, h5, h6') || el;
@@ -593,10 +641,13 @@
   function spy() {
     if (!S.payload || S.fileIndex < 0) return;
     if (S.lockSpyUntil && Date.now() < S.lockSpyUntil) return;
-    if (S.anchorsDirty) collectAnchors();
-    const y = spyLine($('content').scrollTop, S.barMax);
     let line = 0;
-    for (const [top, l] of S.anchors) { if (top <= y) line = l; else break; }
+    if (S.virtual) line = virtualSpyLine();
+    else {
+      if (S.anchorsDirty) collectAnchors();
+      const y = spyLine($('content').scrollTop, S.barMax);
+      for (const [top, l] of S.anchors) { if (top <= y) line = l; else break; }
+    }
     const id = hereFromLine(S.payload, S.fileIndex, line);
     // 剛點選的上層科與子科共用同一行標題時，保留點選的那一層
     if (S.pendingHere && (id === S.pendingHere || ancestors(S.N, id).includes(S.pendingHere))) {
@@ -604,6 +655,25 @@
     }
     S.pendingHere = 0;
     setHere(id, true);
+  }
+
+  /**
+   * 大檔（虛擬捲動）的閱讀位置：只有附近幾段掛在畫面上，不能事先量好所有標題。
+   * 以畫面頂端那一行為底，再看已掛上的科判標題有沒有已經捲進地標列下緣。
+   */
+  function virtualSpyLine() {
+    const top = typeof window.mdwVirtualTopLine === 'function' ? window.mdwVirtualTopLine() : -1;
+    let line = top > 0 ? top : 0;
+    const content = $('content'), hs = S.payload.heads[S.fileIndex] || [];
+    const y = content.getBoundingClientRect().top + S.barMax + JUMP_GAP + 4;
+    for (const [l] of hs) {
+      if (l <= line) continue;
+      const el = document.getElementById('L' + l);
+      if (!el) continue;
+      const h = el.closest('h1, h2, h3, h4, h5, h6') || el;
+      if (h.getBoundingClientRect().top <= y) line = l; else break;
+    }
+    return line;
   }
 
   // 一行多層的科判標題，改繪成由淺到深的階梯；保留行號錨點與標題 id
@@ -777,6 +847,7 @@
     }
     S.file = filePath;
     S.fileIndex = payload.files.indexOf(name);
+    S.virtual = typeof window.mdwIsVirtual === 'function' && !!window.mdwIsVirtual();
     setTabMode(true);
     S.barMax = 0;
     restyleHeadings();
@@ -789,15 +860,27 @@
       const line = S.pendingLine;
       S.hereId = 0;
       setHere(want);
-      scrollToLine(line);
-      S.lockSpyUntil = Date.now() + 900;
-      setTimeout(() => { if (token === S.loadToken) scrollToLine(line); }, 250);
-      setTimeout(() => { if (token === S.loadToken) { S.lockSpyUntil = 0; spy(); } }, 950);
+      if (S.virtual) {
+        // 大檔：openFile 已用虛擬捲動到該行，不再重捲，只等它定位完
+        S.lockSpyUntil = Date.now() + 1500;
+        setTimeout(() => { if (token === S.loadToken) { S.lockSpyUntil = 0; spy(); } }, 1600);
+      } else {
+        scrollToLine(line);
+        S.lockSpyUntil = Date.now() + 900;
+        setTimeout(() => { if (token === S.loadToken) scrollToLine(line); }, 250);
+        setTimeout(() => { if (token === S.loadToken) { S.lockSpyUntil = 0; spy(); } }, 950);
+      }
     } else {
       S.lockSpyUntil = 0;
       spy();
     }
     if (!S.hereId) rebuild();
+  }
+
+  /** 大檔虛擬捲動新掛上一段（app.js 呼叫）：改繪其中的科判標題 */
+  function onChunkMounted() {
+    if (!S.payload || !S.virtual || S.fileIndex < 0) return;
+    restyleHeadings();
   }
 
   function onDocumentClosed() {
@@ -870,6 +953,12 @@
       goRound(+a.dataset.altRound, { file: a.dataset.altFile, line: +a.dataset.altLine, id: +a.dataset.altId });
     });
     $('kepanPath').addEventListener('click', e => {
+      if (e.target.closest('[data-path-toggle]')) {
+        S.pathOpen = !S.pathOpen;
+        try { localStorage.setItem(PATH_STORE, S.pathOpen ? '1' : '0'); } catch (_) { /* 不記也能用 */ }
+        renderBar();
+        return;
+      }
       const a = e.target.closest('[data-go]');
       if (!a) return;
       e.preventDefault();
@@ -894,7 +983,7 @@
     if (typeof ResizeObserver === 'function' && $('kepanBar')) {
       new ResizeObserver(() => { S.anchorsDirty = true; barHeight(); }).observe($('kepanBar'));
     }
-    window.addEventListener('resize', () => { S.anchorsDirty = true; renderRows(); });
+    window.addEventListener('resize', () => { S.anchorsDirty = true; renderRows(); if (S.N && S.hereId) renderBar(); });
     document.addEventListener('click', e => {
       if (e.target.closest('.sidebar-tab[data-tab="kepan"]')) requestAnimationFrame(() => { renderRows(); keepVisible(S.hereId); });
     });
@@ -903,5 +992,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  return Object.assign(api, { onDocumentRendered, onDocumentClosed, _state: S });
+  return Object.assign(api, { onDocumentRendered, onDocumentClosed, onChunkMounted, _state: S });
 });
