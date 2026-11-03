@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.24.0
+   mdWebview — Application Logic (app.js) v4.27.10
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1258,6 +1258,29 @@
    * 變高，又隨所在的科改變，所以每次跳轉都現量；捲到頂端的目標要讓開這段高度，
    * 否則標題會被它蓋住。
    */
+  /**
+   * 浮動膠囊（.entry-nav）是 position: fixed，原本以 left: 50% 對齊整個視窗；
+   * 桌機左側欄打開時閱讀區往右移，膠囊看起來就偏左。這裡把閱讀區（#content）
+   * 的水平中心與寬度寫進 CSS 變數，讓膠囊改對齊閱讀區正中。
+   * 側欄開關、拖寬、視窗縮放都會改變 #content 的寬度，以 ResizeObserver 追蹤。
+   */
+  function syncFloatingNavCenter(contentEl) {
+    if (!contentEl) return;
+    const root = document.documentElement;
+    let raf = 0;
+    const apply = () => {
+      raf = 0;
+      const r = contentEl.getBoundingClientRect();
+      if (!r.width) return;
+      root.style.setProperty('--reading-center', (r.left + r.width / 2).toFixed(1) + 'px');
+      root.style.setProperty('--reading-width', r.width.toFixed(1) + 'px');
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
+    apply();
+    if (typeof ResizeObserver === 'function') new ResizeObserver(schedule).observe(contentEl);
+    window.addEventListener('resize', schedule);
+  }
+
   function stickyTopInset(containerEl) {
     const bar = document.getElementById('kepanBar');
     if (!bar || bar.hidden || !containerEl || !containerEl.contains(bar)) return 0;
@@ -2764,7 +2787,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.24.0';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.27.10';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -4064,6 +4087,8 @@
         setSanitizedHTML(sectionEl, html);
         postProcessMarkdownDOM(sectionEl);
         insertChunkSorted(ci, sectionEl);
+        // 科判系列的大檔：新掛上的片段也要改繪科判標題、重算定位錨點
+        if (window.MdwKepan && typeof window.MdwKepan.onChunkMounted === 'function') window.MdwKepan.onChunkMounted(sectionEl);
         v.chunks.set(ci, { sectionEl, from, to });
         // Measure this chunk and refresh the spacers so `scrollTop` keeps mapping
         // to the absolute position (mounting above/below never shifts the view).
@@ -5143,6 +5168,10 @@
     setupVirtualScroll();
     updateEntryNav();
     setTimeout(() => saveReadProgress(filePath), 350);
+    // 大檔（≥1 MB）也走科判側欄：一般檔是在 generateTOC 裡通知，虛擬捲動不經過那裡（v4.27.10）
+    if (!filePath.startsWith('dict:') && window.MdwKepan && typeof window.MdwKepan.onDocumentRendered === 'function') {
+      window.MdwKepan.onDocumentRendered(filePath);
+    }
     return true;
   }
 
@@ -9936,7 +9965,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.10';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10633,6 +10662,10 @@
   // 科判側欄（kepan-sidebar.js）用：開檔並捲到某行、手機關閉側欄
   window.mdwOpenFile = (filePath, line) => openFile(filePath, line);
   window.mdwCloseMobileSidebars = () => closeMobileSidebars();
+  // 大檔虛擬捲動時，科判側欄靠這些定位：是否虛擬、畫面頂端是第幾行、捲到某行（會先掛上該段）
+  window.mdwIsVirtual = () => isVirtualMode();
+  window.mdwVirtualTopLine = () => (isVirtualMode() ? virtualTopLine() : -1);
+  window.mdwScrollToLine = line => (isVirtualMode() ? scrollToLineVirtual(line) : scrollToLine(line));
 
   // ═══════════════════════════════════════════════════════════
   // §20 EVENT LISTENERS (全站事件綁定：鍵盤、側邊欄、搜尋、排序、捲動…)
@@ -11484,6 +11517,9 @@
       contentEl.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
+    // ── 浮動膠囊（前一科／後一科、前一條／後一條）對齊閱讀區正中 ──
+    syncFloatingNavCenter(contentEl);
+
     // ── Sidebar resize ──
     setupResizeHandle();
     setupDictResizeHandle();
@@ -11923,7 +11959,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.10';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12291,7 +12327,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.10';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13278,7 +13314,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.10';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

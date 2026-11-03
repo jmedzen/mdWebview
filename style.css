@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.24.0
+   mdWebview — Style System (style.css) v4.27.10
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -8966,7 +8966,8 @@ details.callout[open] > summary .callout-fold-icon {
 .entry-nav {
   position: fixed;
   bottom: 28px;
-  left: 50%;
+  /* 對齊閱讀區（#content）正中，而非整個視窗；變數由 app.js syncFloatingNavCenter 寫入 */
+  left: var(--reading-center, 50%);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -11798,8 +11799,76 @@ a.small-btn {
 /* ── 科判側欄（v4.21.0，kepan-sidebar.js）────────────────────
    科判系列的講記：側欄「科判」分頁取代「大綱」，閱讀框頂端有地標與完整路徑，
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
-.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
+.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden], .kepan-hint[hidden], .kepan-none[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+#panelKepan.is-none .kepan-scope, #panelKepan.is-none .kepan-tree, #panelKepan.is-none .kepan-results, #panelKepan.is-none .kepan-toast { display: none !important; }
+/* 本篇沒有科判（v4.27.10）：說明並列出本經有科判的講次 */
+.kepan-none { padding: 14px 14px 18px; font-size: var(--sidebar-font-size); color: var(--text-secondary, var(--text-muted)); }
+.kepan-none p { margin: 0 0 8px; line-height: 1.6; }
+.kepan-none-msg { color: var(--text-primary); font-weight: 600; }
+.kepan-none-list { display: grid; gap: 6px; margin: 10px 0 12px; }
+.kepan-none-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 8px 10px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font: inherit;
+}
+.kepan-none-item:hover { border-color: var(--accent); }
+.kni-label { font-weight: 600; min-width: 0; }
+.kni-topic { min-width: 0; color: var(--text-muted); font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kni-n { margin-left: auto; flex: none; color: var(--text-muted); font-size: 0.85em; }
+.kepan-none-tip { font-size: 0.9em; color: var(--text-muted); }
+/* 講輪選單（v4.27.1）：以講的內容分組，同一內容的幾講才比年份地點 */
+.kepan-rounds[hidden], .kepan-round-menu[hidden] { display: none !important; }
+.kepan-rounds { position: relative; margin-bottom: 6px; }
+.kepan-round-pick {
+  position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 8px; width: 100%;
+  padding: 6px 28px 6px 10px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary);
+  color: var(--text-primary); font-family: var(--cjk-serif), serif; line-height: 1.45;
+}
+.kepan-round-pick:hover { border-color: var(--accent); }
+.kepan-round-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kepan-round-pick[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.krp-row { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.krp-k { flex: none; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); letter-spacing: 0.05em; }
+.krp-topic { min-width: 0; font-size: var(--sidebar-font-size); font-weight: 600; overflow-wrap: anywhere; }
+.krp-value { min-width: 0; font-size: var(--sidebar-font-size); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.krp-meta { flex: none; font-size: calc(var(--sidebar-font-size) * 12 / 13); color: var(--text-muted); }
+.kepan-round-pick.is-compact { padding-top: 7px; padding-bottom: 7px; }
+.krp-caret { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 1.1em; line-height: 1; }
+.kepan-round-pick[aria-expanded="true"] .krp-caret { transform: translateY(-50%) rotate(180deg); }
+.kepan-round-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30;
+  max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+.krm-group { padding: 6px 4px 4px; }
+.krm-group + .krm-group { border-top: 1px solid var(--border-subtle, var(--border)); }
+.krm-topic {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 0 6px 2px;
+  font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size); font-weight: 600; color: var(--text-primary);
+}
+.krm-badge {
+  font-size: calc(var(--sidebar-font-size) * 11 / 13); font-weight: normal; color: var(--text-secondary, var(--text-muted));
+  padding: 0 7px; border: 1px solid var(--border); border-radius: 999px;
+}
+.krm-item {
+  display: block; width: 100%; margin-top: 2px; padding: 5px 8px 5px 22px; text-align: left; cursor: pointer;
+  position: relative; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary);
+  font-family: var(--cjk-serif), serif; line-height: 1.45;
+}
+.krm-group:not(.is-multi) .krm-item { padding-top: 2px; }
+.krm-item:hover, .krm-item:focus-visible { background: var(--hover-bg); outline: none; }
+.krm-item.is-current { background: var(--bg-secondary); box-shadow: inset 3px 0 0 var(--accent); }
+.krm-item.is-current::before { content: '✓'; position: absolute; left: 7px; top: 5px; color: var(--accent); font-size: 0.85em; }
+.krm-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.krm-label { font-size: calc(var(--sidebar-font-size) * 12.5 / 13); }
+.krm-n { flex: none; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.krm-detail { display: block; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); overflow-wrap: anywhere; }
+/* 地標列的「另講」：同一科在其他講輪 */
+.kepan-alt { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kepan-alt a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+.kepan-alt a:hover { border-bottom-style: solid; }
 .kepan-scope select {
   width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--input-bg, var(--bg-secondary)); color: var(--text-primary);
@@ -11830,6 +11899,7 @@ a.small-btn {
 .kepan-row {
   position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; gap: 6px;
   padding-right: 10px; cursor: pointer; white-space: nowrap; border-radius: 4px;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;   /* 雙擊／雙點展開收合：不選字、不縮放 */
   font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size); color: var(--text-secondary);
 }
 .kepan-row:hover { background: var(--hover-bg); }
@@ -11843,10 +11913,28 @@ a.small-btn {
   color: var(--accent); font: 700 12px/1 -apple-system, sans-serif; cursor: pointer;
 }
 .kepan-toggle:hover { border-color: var(--accent); }
+/* 觸控：＋／− 看起來仍是小框，實際可按範圍放大到 36×28px（整列高，往左延伸到縮排區；v4.27.10） */
+@media (hover: none), (max-width: 768px) {
+  .kepan-toggle { position: relative; }
+  .kepan-toggle::after { content: ''; position: absolute; inset: -5px -4px -5px -14px; }
+}
 .kepan-leaf { flex: none; width: 18px; height: 18px; display: grid; place-items: center; color: var(--accent); opacity: .8; }
 .kepan-leaf svg { width: 13px; height: 13px; }
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
+#panelKepan.is-none .kepan-hint { display: none !important; }
+.kepan-hint {
+  display: flex; align-items: center; gap: 8px; margin: 6px 10px 0; padding: 6px 8px 6px 10px; border-radius: 8px;
+  background: var(--accent-dim, var(--bg-tertiary, var(--border-subtle))); color: var(--text-secondary, var(--text-muted));
+  font-size: calc(var(--sidebar-font-size) * 12 / 13); line-height: 1.5;
+}
+.kepan-hint b { color: var(--accent); }
+.kepan-hint-ok {
+  flex: none; margin-left: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-primary); color: var(--text-primary); font: inherit; cursor: pointer;
+}
+.kepan-hit-level { margin-left: 6px; opacity: .75; font-size: .92em; }
 .kepan-count { flex: none; font-size: 10.5px; color: var(--text-muted); font-family: -apple-system, sans-serif; }
 
 .kepan-bar {
@@ -11857,12 +11945,18 @@ a.small-btn {
   font-size: calc(var(--ui-font-scale, 1) * 12.5px); color: var(--text-muted);
 }
 .kepan-landmark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.kepan-landmark b { color: var(--text-primary); font-weight: 600; }
 .kepan-progress { width: 120px; height: 4px; border-radius: 2px; background: var(--bg-tertiary, var(--border-subtle)); overflow: hidden; }
 .kepan-progress i { display: block; height: 100%; background: var(--accent); }
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
 .kepan-path a { color: var(--text-muted); text-decoration: none; white-space: nowrap; }
-.kepan-path a:last-child { color: var(--text-primary); font-weight: 600; }
+.kepan-path a.is-current { color: var(--text-primary); font-weight: 600; }
+/* 路徑收合鈕（v4.27.10）：「⋯ 上 N 層」／「收起」 */
+.kepan-path-more {
+  flex: none; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary);
+  color: var(--text-muted); font: inherit; font-size: 0.92em; line-height: 1.6; cursor: pointer; white-space: nowrap;
+}
+.kepan-path-more:hover { color: var(--accent); border-color: var(--accent); }
+.kepan-path-more.is-open { margin-left: 4px; }
 .kepan-path a:hover { color: var(--accent); }
 .kepan-path small { font-size: 10px; margin-left: 2px; opacity: .7; font-weight: 400; }
 .kepan-sep { color: var(--text-muted); opacity: .6; }
@@ -11871,7 +11965,7 @@ a.small-btn {
    兩側各留出回到頂部鈕的位置（28px + 40px），避免重疊。 */
 .kepan-nav {
   gap: 4px;
-  max-width: min(680px, calc(100vw - 160px));
+  max-width: min(680px, calc(var(--reading-width, 100vw) - 160px));
 }
 .kepan-nav-btn {
   display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 300px;
