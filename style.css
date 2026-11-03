@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.6
+   mdWebview — Style System (style.css) v4.27.7
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11914,7 +11914,14 @@ a.small-btn {
 .kepan-progress i { display: block; height: 100%; background: var(--accent); }
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
 .kepan-path a { color: var(--text-muted); text-decoration: none; white-space: nowrap; }
-.kepan-path a:last-child { color: var(--text-primary); font-weight: 600; }
+.kepan-path a.is-current { color: var(--text-primary); font-weight: 600; }
+/* 路徑收合鈕（v4.27.7）：「⋯ 上 N 層」／「收起」 */
+.kepan-path-more {
+  flex: none; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary);
+  color: var(--text-muted); font: inherit; font-size: 0.92em; line-height: 1.6; cursor: pointer; white-space: nowrap;
+}
+.kepan-path-more:hover { color: var(--accent); border-color: var(--accent); }
+.kepan-path-more.is-open { margin-left: 4px; }
 .kepan-path a:hover { color: var(--accent); }
 .kepan-path small { font-size: 10px; margin-left: 2px; opacity: .7; font-weight: 400; }
 .kepan-sep { color: var(--text-muted); opacity: .6; }

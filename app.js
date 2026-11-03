@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.27.6
+   mdWebview — Application Logic (app.js) v4.27.7
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2787,7 +2787,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.27.6';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.27.7';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -4087,6 +4087,8 @@
         setSanitizedHTML(sectionEl, html);
         postProcessMarkdownDOM(sectionEl);
         insertChunkSorted(ci, sectionEl);
+        // 科判系列的大檔：新掛上的片段也要改繪科判標題、重算定位錨點
+        if (window.MdwKepan && typeof window.MdwKepan.onChunkMounted === 'function') window.MdwKepan.onChunkMounted(sectionEl);
         v.chunks.set(ci, { sectionEl, from, to });
         // Measure this chunk and refresh the spacers so `scrollTop` keeps mapping
         // to the absolute position (mounting above/below never shifts the view).
@@ -5166,6 +5168,10 @@
     setupVirtualScroll();
     updateEntryNav();
     setTimeout(() => saveReadProgress(filePath), 350);
+    // 大檔（≥1 MB）也走科判側欄：一般檔是在 generateTOC 裡通知，虛擬捲動不經過那裡（v4.27.7）
+    if (!filePath.startsWith('dict:') && window.MdwKepan && typeof window.MdwKepan.onDocumentRendered === 'function') {
+      window.MdwKepan.onDocumentRendered(filePath);
+    }
     return true;
   }
 
@@ -9959,7 +9965,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.6';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.7';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10656,6 +10662,10 @@
   // 科判側欄（kepan-sidebar.js）用：開檔並捲到某行、手機關閉側欄
   window.mdwOpenFile = (filePath, line) => openFile(filePath, line);
   window.mdwCloseMobileSidebars = () => closeMobileSidebars();
+  // 大檔虛擬捲動時，科判側欄靠這些定位：是否虛擬、畫面頂端是第幾行、捲到某行（會先掛上該段）
+  window.mdwIsVirtual = () => isVirtualMode();
+  window.mdwVirtualTopLine = () => (isVirtualMode() ? virtualTopLine() : -1);
+  window.mdwScrollToLine = line => (isVirtualMode() ? scrollToLineVirtual(line) : scrollToLine(line));
 
   // ═══════════════════════════════════════════════════════════
   // §20 EVENT LISTENERS (全站事件綁定：鍵盤、側邊欄、搜尋、排序、捲動…)
@@ -11949,7 +11959,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.6';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.7';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12317,7 +12327,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.6';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.7';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13304,7 +13314,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.6';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.27.7';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
