@@ -11,6 +11,10 @@
  *   - 閱讀框頂端有地標列（卷、地、層數、全論位置）與從根到末端科的完整路徑；
  *     底部有前一科／後一科（沿用辭典前一條／後一條的浮動膠囊，按鈕上寫前後科科名），跨卷時自動換檔。
  *
+ * 多講輪（v4.25.0）：同一部經論講過多次時，伺服器每輪給一棵樹（payload.rounds 列出各輪）。
+ * 側欄上方有講輪切換鈕；前後科、搜尋都只在本輪。兩輪相同的科（payload.alt）在地標列顯示「另講」，
+ * 點了跳到另一輪的同一科。章節式標題（第一章／第一節…）的樹以章為範圍（payload.scopeDepth）。
+ *
  * 上半部是純函式（Node 測試直接 require），下半部是瀏覽器接線，由 app.js 在文件渲染後呼叫
  * window.MdwKepan.onDocumentRendered(filePath)。
  */
@@ -53,9 +57,34 @@
   }
 
   /** 某科所屬的範圍（丙層那一科）；比丙層淺的科屬於全論（0）。 */
-  function scopeOf(N, id) {
-    if (!id || N[id].d < SCOPE_DEPTH) return 0;
-    return ancestors(N, id).concat(id).find(x => N[x].d === SCOPE_DEPTH) || 0;
+  function scopeOf(N, id, depth) {
+    const sd = depth === undefined ? SCOPE_DEPTH : depth;
+    if (!id || N[id].d < sd) return 0;
+    return ancestors(N, id).concat(id).find(x => N[x].d === sd) || 0;
+  }
+
+  /**
+   * 目前這科在其他講輪的同一科（v4.25.0）。本科沒有對照時往上找最近有對照的上層科。
+   * @returns {{ id: number, hits: Array<[number, string, number, number]> }|null}
+   *   id 是有對照的那一科（本科或上層），hits 為 [輪次, 檔名, 行號, 該輪科 id]
+   */
+  function altFor(payload, N, id) {
+    const alt = payload && payload.alt;
+    if (!alt || !id) return null;
+    for (let x = id; x > 0; x = N[x].p) if (alt[x] && alt[x].length) return { id: x, hits: alt[x] };
+    return null;
+  }
+
+  /**
+   * 切換到第 ri 輪時要去的位置：目前這科（或上層）在該輪有對照就去那一科，否則到該輪開頭。
+   * @returns {{ file: string, line: number, id: number }}
+   */
+  function roundTarget(payload, N, hereId, ri) {
+    const a = altFor(payload, N, hereId);
+    const hit = a && a.hits.find(h => h[0] === ri);
+    if (hit) return { file: hit[1], line: hit[2], id: hit[3] };
+    const r = payload.rounds[ri];
+    return { file: r.file, line: 0, id: 0 };
   }
 
   /** 第 level 層（範圍內相對層級）的縮排像素。 */
@@ -152,7 +181,7 @@
     for (let id = 1; id < N.length; id++) {
       const h = hay[id] !== undefined ? hay[id] : (hay[id] = normalizeQuery(N[id].m + N[id].t));
       if (!terms.every(t => h.includes(t))) continue;
-      (rootId && scopeOf(N, id) === rootId ? near : far).push(id);
+      (rootId && scopeOf(N, id, o.scopeDepth) === rootId ? near : far).push(id);
     }
     // 科判字完全相同（輸入「丙一」）的科排在最前
     const exact = normalizeQuery(query);
@@ -173,7 +202,7 @@
 
   const api = {
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
-    expandNodes, ancestors, scopeOf, indentFor, computeExpanded, visibleRows,
+    expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
     navTargets, navLabel,
   };
@@ -194,8 +223,11 @@
     anchors: [], anchorsDirty: true, barMax: 0,
     loadToken: 0, busyInTree: false, busyTimer: null,
     hay: [], found: [], active: -1, composing: false,
+    scopeDepth: SCOPE_DEPTH, pendingAlt: null,
   };
-  const payloadCache = new Map();   // 資料夾 → payload|null
+  // 資料夾 → { list: payload[], none: Set<檔名>, wait: Map<檔名, Promise> }。
+  // 同一資料夾可能有好幾棵樹（每輪一棵、合輯每篇一棵），依檔名找所屬的那棵。
+  const payloadCache = new Map();
 
   function loadPrefs(dir) {
     try { const all = JSON.parse(localStorage.getItem(STORE)) || {}; return all[dir] || {}; } catch (_) { return {}; }
@@ -209,16 +241,31 @@
   }
 
   async function fetchPayload(filePath) {
-    const dir = filePath.split('/').slice(0, -1).join('/');
-    if (payloadCache.has(dir)) return payloadCache.get(dir);
+    const parts = filePath.split('/');
+    const name = parts.pop().replace(/\.md$/i, '');
+    const dir = parts.join('/');
+    let c = payloadCache.get(dir);
+    if (!c) payloadCache.set(dir, (c = { list: [], none: new Set(), wait: new Map() }));
+    const known = c.list.find(p => p.files.includes(name) || p.toc === name);
+    if (known) return known;
+    if (c.none.has(name)) return null;
+    if (c.wait.has(name)) return c.wait.get(name);
     const p = fetch('/api/kepan?path=' + encodeURIComponent(filePath))
       .then(r => (r.ok ? r.json() : { kepan: null }))
       .then(j => j.kepan || null)
-      .catch(() => null);
-    payloadCache.set(dir, p);
-    const v = await p;
-    payloadCache.set(dir, v);
-    return v;
+      .catch(() => null)
+      .then(v => {
+        c.wait.delete(name);
+        if (!v) { c.none.add(name); return null; }
+        // 同一棵樹已經有了（例：從總目錄進來）就沿用同一份，避免側欄重設
+        const same = c.list.find(x => (x.key || x.dir) === (v.key || v.dir));
+        if (same) { if (!same.files.includes(name)) same.toc = name; return same; }
+        if (!v.files.includes(name)) v.toc = name;
+        c.list.push(v);
+        return v;
+      });
+    c.wait.set(name, p);
+    return p;
   }
 
   // ── 側欄分頁：科判系列時以「科判」取代「大綱」 ──
@@ -272,10 +319,36 @@
     $('kepanSpacer').innerHTML = html;
   }
 
+  // 講輪切換鈕：只有一輪時不顯示
+  function renderRounds() {
+    const box = $('kepanRounds'), P = S.payload;
+    if (!box) return;
+    const rounds = P.rounds || [];
+    box.hidden = rounds.length < 2;
+    if (rounds.length < 2) { box.innerHTML = ''; return; }
+    box.innerHTML = `<span class="kepan-rounds-label">講輪</span>` + rounds.map((r, i) =>
+      `<button type="button" class="kepan-round${i === P.roundIndex ? ' is-current' : ''}" data-round="${i}" aria-pressed="${i === P.roundIndex}" title="${esc(r.label)}（${r.n} 科）">${esc(r.label)}</button>`).join('');
+  }
+
+  // 跳到另一輪：有對照的科就到那一科，否則到該輪第一篇
+  function goRound(ri, viaAlt) {
+    const P = S.payload;
+    if (!P || !P.rounds || !P.rounds[ri] || ri === P.roundIndex) return;
+    const t = viaAlt || roundTarget(P, S.N, S.hereId, ri);
+    const file = (P.dir ? P.dir + '/' : '') + t.file + '.md';
+    S.pendingAlt = t.id ? { key: P.dir + '#' + P.rounds[ri].label, id: t.id, line: t.line } : null;
+    S.pendingHere = 0;
+    if (typeof window.mdwOpenFile === 'function') {
+      S.lockSpyUntil = Date.now() + 5000;
+      window.mdwOpenFile(file, t.line || undefined);
+    }
+    if (window.innerWidth <= 768 && typeof window.mdwCloseMobileSidebars === 'function') window.mdwCloseMobileSidebars();
+  }
+
   function renderScopeSelect() {
     const { N } = S, sel = $('kepanScope');
     const opts = [`<option value="0">全論（${esc(S.payload.title)}）</option>`];
-    for (const n of N) if (n.d === SCOPE_DEPTH) opts.push(`<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`);
+    for (const n of N) if (n.d === S.scopeDepth) opts.push(`<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`);
     sel.innerHTML = opts.join('');
     sel.value = String(S.rootId);
   }
@@ -305,7 +378,7 @@
     if (!id || id === S.hereId) return;
     const tree = $('kepanTree');
     const anchor = S.hereId && S.rowIndex.has(S.hereId) ? S.rowIndex.get(S.hereId) * ROW_HEIGHT - tree.scrollTop : null;
-    const sc = scopeOf(S.N, id);
+    const sc = scopeOf(S.N, id, S.scopeDepth);
     const crossed = !S.scopeAll && sc !== S.rootId;
     if (crossed) setScope(sc, S.hereId !== 0);
     S.hereId = id;
@@ -332,15 +405,21 @@
   function renderBar() {
     const { N } = S, id = S.hereId;
     if (!id) return;
-    const sc = scopeOf(N, id);
+    const sc = scopeOf(N, id, S.scopeDepth);
     const juan = juanOf(document.title);
     const pct = Math.round(id / (N.length - 1) * 100);
+    const P = S.payload, whole = P.rounds ? '本輪' : '全論';
+    const a = altFor(P, N, id);
+    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講輪' : `上層「${N[a.id].m} ${N[a.id].t}」在其他講輪`)}">另講`
+      + a.hits.map(h => `<a href="#" data-alt-round="${h[0]}" data-alt-id="${h[3]}" data-alt-file="${esc(h[1])}" data-alt-line="${h[2]}">${esc(P.rounds[h[0]].label)}</a>`).join('')
+      + '</span>' : '';
     $('kepanLandmark').innerHTML =
       (juan ? `<span>卷${esc(juan)}</span>` : '')
       + (sc ? `<b>${esc(N[sc].m + ' ' + N[sc].t)}</b>` : '')
       + (N[id].pg ? `<span>《披尋記》p.${N[id].pg}</span>` : '')
       + `<span>第 ${N[id].d + 1} 層</span>`
-      + `<span class="kepan-progress" title="在全論中的位置"><i style="width:${pct}%"></i></span><span>全論 ${pct}%</span>`;
+      + `<span class="kepan-progress" title="在${whole}中的位置"><i style="width:${pct}%"></i></span><span>${whole} ${pct}%</span>`
+      + alt;
     $('kepanPath').innerHTML = ancestors(N, id).concat(id).map(x => {
       const n = N[x], sib = N[n.p].k;
       const pos = sib.length > 1 ? `<small>${sib.indexOf(x) + 1}/${sib.length}</small>` : '';
@@ -434,6 +513,7 @@
 
   // 一行多層的科判標題，改繪成由淺到深的階梯；保留行號錨點與標題 id
   function restyleHeadings() {
+    if (S.payload.chapters) return;   // 章節式標題本來就一行一層，不必改繪
     const hs = S.payload.heads[S.fileIndex] || [];
     for (const [line] of hs) {
       const el = document.getElementById('L' + line);
@@ -474,7 +554,7 @@
     const q = input.value.trim();
     $('kepanSearchClear').hidden = !input.value;
     if (!q) { showResults(false); return; }
-    const { ids, total, inScope } = searchNodes(S.N, q, { rootId: S.rootId, limit: RESULT_LIMIT, hay: S.hay });
+    const { ids, total, inScope } = searchNodes(S.N, q, { rootId: S.rootId, limit: RESULT_LIMIT, hay: S.hay, scopeDepth: S.scopeDepth });
     S.found = ids;
     S.active = ids.length ? 0 : -1;
     const { N } = S;
@@ -482,7 +562,7 @@
       + (total ? `找到 ${total} 科${S.rootId && inScope && inScope < total ? `（本地 ${inScope}）` : ''}${total > ids.length ? `，先列 ${ids.length} 科` : ''}` : '沒有符合的科名')
       + `<span class="kepan-results-keys">Enter 前往・Esc 清除</span></div>`;
     ids.forEach((id, i) => {
-      const n = N[id], sc = scopeOf(N, id), par = n.p > 0 ? N[n.p] : null;
+      const n = N[id], sc = scopeOf(N, id, S.scopeDepth), par = n.p > 0 ? N[n.p] : null;
       const where = [sc && sc !== id ? N[sc].m + ' ' + N[sc].t : '', par && par.id !== sc ? par.m + ' ' + par.t : '', `第 ${n.d + 1} 層`]
         .filter(Boolean).join(' › ');
       html += `<div class="kepan-hit${i === S.active ? ' is-active' : ''}" id="kepanHit${i}" role="option" aria-selected="${i === S.active}" data-hit="${id}" title="${esc(n.m + '、' + n.t)}">`
@@ -534,7 +614,7 @@
     clearSearch();
     for (const a of ancestors(S.N, id)) S.userClosed.delete(a);
     S.busyInTree = false;
-    if (!S.scopeAll) setScope(scopeOf(S.N, id), false);
+    if (!S.scopeAll) setScope(scopeOf(S.N, id, S.scopeDepth), false);
     if (id === S.hereId) { rebuild(); keepVisible(id); }
     goTo(id);
     requestAnimationFrame(() => { renderRows(); keepVisible(id); });
@@ -582,8 +662,14 @@
     if (S.payload !== payload) {
       S.payload = payload;
       S.N = expandNodes(payload);
-      S.dir = payload.dir;
+      S.dir = payload.key || payload.dir;
+      S.scopeDepth = payload.scopeDepth === undefined ? SCOPE_DEPTH : payload.scopeDepth;
       S.hereId = 0;
+      // 從另一輪的「另講」或講輪鈕過來：換成這棵樹裡的那一科
+      const pa = S.pendingAlt;
+      S.pendingAlt = null;
+      if (pa && pa.key === S.dir && S.N[pa.id]) { S.pendingHere = pa.id; S.pendingLine = S.N[pa.id].l || pa.line; }
+      else S.pendingHere = 0;
       const prefs = loadPrefs(S.dir);
       S.userOpen = new Set(prefs.open || []);
       S.userClosed = new Set();
@@ -592,6 +678,7 @@
       S.hay = [];
       clearSearch();
       renderScopeSelect();
+      renderRounds();
     }
     S.file = filePath;
     S.fileIndex = payload.files.indexOf(name);
@@ -648,6 +735,16 @@
       if ($('kepanSearch') && $('kepanSearch').value.trim()) runSearch();   // 換地後「本地」排序跟著變
     });
     initSearch();
+    if ($('kepanRounds')) $('kepanRounds').addEventListener('click', e => {
+      const b = e.target.closest('[data-round]');
+      if (b) goRound(+b.dataset.round);
+    });
+    $('kepanLandmark').addEventListener('click', e => {
+      const a = e.target.closest('[data-alt-round]');
+      if (!a) return;
+      e.preventDefault();
+      goRound(+a.dataset.altRound, { file: a.dataset.altFile, line: +a.dataset.altLine, id: +a.dataset.altId });
+    });
     $('kepanPath').addEventListener('click', e => {
       const a = e.target.closest('[data-go]');
       if (!a) return;
