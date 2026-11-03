@@ -8,7 +8,7 @@
  *   - 前 5 層正常縮排，更深的每層只縮 3px，四十層也放得進側欄寬度。
  *   - 可展開的科是帶框的 ＋／− 按鈕；末端科是書頁圖示，點了就讀。
  *   - 下拉選單下方有快速搜尋（v4.21.0）：輸入科判字或科名，結果暫時取代樹，點選即前往。
- *   - 閱讀框頂端有地標列（卷、地、層數、全論位置）與從根到末端科的完整路徑；
+ *   - 閱讀框頂端有地標列（卷、地、層數、在整棵樹的位置）與從根到末端科的完整路徑；
  *     底部有前一科／後一科（沿用辭典前一條／後一條的浮動膠囊，按鈕上寫前後科科名），跨卷時自動換檔。
  *
  * 多講輪（v4.25.0）：同一部經論講過多次時，伺服器每輪給一棵樹（payload.rounds 列出各輪）。
@@ -388,7 +388,8 @@
 
   function renderScopeSelect() {
     const { N } = S, sel = $('kepanScope');
-    const opts = [`<option value="0">全論（${esc(S.payload.title)}）</option>`];
+    // 第一項是整棵樹：直接寫講課內容名（v4.26.1 起不再加「全論」）
+    const opts = [`<option value="0">${esc(S.payload.title)}</option>`];
     for (const n of N) if (n.d === S.scopeDepth) opts.push(`<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`);
     sel.innerHTML = opts.join('');
     sel.value = String(S.rootId);
@@ -449,7 +450,7 @@
     const sc = scopeOf(N, id, S.scopeDepth);
     const juan = juanOf(document.title);
     const pct = Math.round(id / (N.length - 1) * 100);
-    const P = S.payload, whole = P.rounds ? '本輪' : '全論';
+    const P = S.payload;
     const a = altFor(P, N, id);
     const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講輪' : `上層「${N[a.id].m} ${N[a.id].t}」在其他講輪`)}">另講`
       + a.hits.map(h => `<a href="#" data-alt-round="${h[0]}" data-alt-id="${h[3]}" data-alt-file="${esc(h[1])}" data-alt-line="${h[2]}">${esc(P.rounds[h[0]].label)}</a>`).join('')
@@ -459,7 +460,7 @@
       + (sc ? `<b>${esc(N[sc].m + ' ' + N[sc].t)}</b>` : '')
       + (N[id].pg ? `<span>《披尋記》p.${N[id].pg}</span>` : '')
       + `<span>第 ${N[id].d + 1} 層</span>`
-      + `<span class="kepan-progress" title="在${whole}中的位置"><i style="width:${pct}%"></i></span><span>${whole} ${pct}%</span>`
+      + `<span class="kepan-progress" title="在「${esc(P.title)}」中的位置"><i style="width:${pct}%"></i></span><span>${pct}%</span>`
       + alt;
     $('kepanPath').innerHTML = ancestors(N, id).concat(id).map(x => {
       const n = N[x], sib = N[n.p].k;
@@ -727,7 +728,7 @@
     S.barMax = 0;
     restyleHeadings();
     S.anchorsDirty = true;
-    if (S.rootId === -1) { S.rootId = 0; $('kepanScope').value = '0'; }   // 選單初始在「全論」，不留空白
+    if (S.rootId === -1) { S.rootId = 0; $('kepanScope').value = '0'; }   // 選單初始在整棵樹，不留空白
     const want = S.pendingHere;
     if (want && S.N[want]) {
       // 從側欄或前後科換檔過來：openFile 稍後才捲到該行，等它捲完再恢復依捲動定位
