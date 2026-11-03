@@ -325,26 +325,23 @@ describe('講輪說明與分組（v4.27.0）', () => {
     assert.equal(p.rounds[0].k, 2);
     assert.deepEqual(p.roundGroups.map(g => [g.topic, g.rounds]), [['甲品第一', [0, 1, 3]], ['乙品第二', [2]]]);
     assert.equal(p.rounds[2].note, '禪七開示');
-    assert.ok(p.rounds[1].only && p.rounds[1].only[0] === '第三段', '加州多講第三段');
-    assert.equal(p.rounds[1].onlyN, 4);
-    assert.deepEqual(p.rounds[2].tops, ['乙總說']);
+    assert.equal(p.rounds[1].only, undefined, '不再自動摘要');
   });
 
-  test('篇名都一樣、科判不同：各組列出特有的科', () => {
+  test('篇名都一樣、科判不同：分成兩組', () => {
     const mk = (body, title, round) => ({ group: { label: round, names: [round], perFile: false }, tree: K.buildKepanTree([{ name: round, text: body }], { title }) });
     const rounds = [mk(kepanBody(2, 3), 'x', 'A'), mk(kepanBody(2, 3, '別'), 'x', 'B')];
     const fmm = new Map([['A', { title: '某經講記（1996）' }], ['B', { title: '某經講記（1999）' }]]);
     const d = K.describeRounds(rounds, K.linkRounds(rounds), fmm);
-    assert.equal(d.groups.length, 2);
-    assert.deepEqual(d.groups.map(g => g.topic), ['某經講記', '某經講記']);
-    assert.deepEqual(d.groups[1].marks, ['別總說']);
+    assert.deepEqual(d.groups.map(g => g.rounds), [[0], [1]]);
   });
 
   test('roundDetail／roundGroups', () => {
-    assert.equal(UI.roundDetail({ note: '禪七' }, true), '禪七');
-    assert.equal(UI.roundDetail({ only: ['甲', '乙'], onlyN: 5 }, true), '多講 「甲」「乙」 等 5 科');
-    assert.equal(UI.roundDetail({ tops: ['甲'], topsN: 1 }, false), '綱要：甲');
-    assert.equal(UI.roundDetail({ tops: ['甲'], topsN: 1 }, true), '');
+    assert.equal(UI.roundDetail({ note: '禪七' }), '禪七');
+    assert.equal(UI.roundDetail({ only: ['甲'], onlyN: 5, tops: ['甲'] }), '', '只顯示手寫說明');
+    const js = fs.readFileSync(path.join(ROOT, 'kepan-sidebar.js'), 'utf8');
+    assert.match(js, /<span class="krp-k">講次 /);
+    assert.doesNotMatch(js, /也講到這段|綱要：/);
     assert.deepEqual(UI.roundGroups({ rounds: [{ label: 'A' }, { label: 'B', topic: 'x' }] }).map(g => [g.topic, g.rounds]), [['A', [0]], ['x', [1]]]);
   });
 });

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.0
+   mdWebview — Style System (style.css) v4.27.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11801,7 +11801,7 @@ a.small-btn {
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
 .sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
-/* 講輪選單（v4.27.0）：以講的內容分組，同一內容的幾講才比年份地點 */
+/* 講輪選單（v4.27.1）：以講的內容分組，同一內容的幾講才比年份地點 */
 .kepan-rounds[hidden], .kepan-round-menu[hidden] { display: none !important; }
 .kepan-rounds { position: relative; margin-bottom: 6px; }
 .kepan-round-pick {
@@ -11835,7 +11835,6 @@ a.small-btn {
   font-size: calc(var(--sidebar-font-size) * 11 / 13); font-weight: normal; color: var(--text-secondary, var(--text-muted));
   padding: 0 7px; border: 1px solid var(--border); border-radius: 999px;
 }
-.krm-sub { padding: 0 6px 2px; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); }
 .krm-item {
   display: block; width: 100%; margin-top: 2px; padding: 5px 8px 5px 22px; text-align: left; cursor: pointer;
   position: relative; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary);
