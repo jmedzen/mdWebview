@@ -48,7 +48,7 @@ describe('其餘項目：接線', () => {
     assert.match(CSS, /\.kepan-toggle::after \{ content: ''; position: absolute; inset:/);
   });
 
-  test('B6：操作說明改成搜尋框旁的「?」小鈕，按了才出現小卡，沒有常駐、要按「知道了」的提示條（v4.28.0）', () => {
+  test('B6：操作說明改成搜尋框旁的「?」小鈕，按了才出現小卡，沒有常駐、要按「知道了」的提示條（v4.27.13）', () => {
     assert.match(HTML, /id="kepanHelpBtn"/);
     assert.match(HTML, /id="kepanHelp"[^>]*hidden/);
     assert.doesNotMatch(HTML, /id="kepanHint"/);
