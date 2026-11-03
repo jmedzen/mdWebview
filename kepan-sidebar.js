@@ -238,6 +238,35 @@
     };
   }
 
+  /**
+   * 講輪選單的一行說明（v4.27.0）：手寫的 round_note 優先；同一內容有幾講時寫這輪多講的科；
+   * 只有這一講時寫最上層的科（綱要）。
+   * @param {object} r - payload.rounds 的一項
+   * @param {boolean} shared - 同組有其他講
+   * @returns {string}
+   */
+  function roundDetail(r, shared) {
+    if (!r) return '';
+    if (r.note) return r.note;
+    if (shared && r.only && r.only.length) {
+      return '多講 ' + r.only.map(t => `「${t}」`).join('') + (r.onlyN > r.only.length ? ` 等 ${r.onlyN} 科` : '');
+    }
+    if (!shared && r.tops && r.tops.length) {
+      return '綱要：' + r.tops.join('、') + (r.topsN > r.tops.length ? ` 等 ${r.topsN} 科` : '');
+    }
+    return '';
+  }
+
+  /**
+   * 講輪選單的分組。伺服器有 roundGroups 就照用；舊快取沒有時每輪自成一組、以年份地點為題。
+   * @returns {{ topic: string, rounds: number[], also: number[], marks: string[] }[]}
+   */
+  function roundGroups(payload) {
+    const rounds = (payload && payload.rounds) || [];
+    if (payload && Array.isArray(payload.roundGroups) && payload.roundGroups.length) return payload.roundGroups;
+    return rounds.map((r, i) => ({ topic: r.topic || r.label, rounds: [i], also: [], marks: [] }));
+  }
+
   const DOUBLE_TAP_MS = 260;
 
   const api = {
@@ -245,7 +274,7 @@
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
-    navTargets, navLabel,
+    navTargets, navLabel, roundDetail, roundGroups,
   };
   if (typeof document === 'undefined') return api;
 
@@ -360,15 +389,52 @@
     $('kepanSpacer').innerHTML = html;
   }
 
-  // 講輪切換鈕：只有一輪時不顯示
+  // 講輪選單（v4.27.0）：以「講的內容」為主分組，同一內容才列出年份地點來選；只有一輪時不顯示
   function renderRounds() {
     const box = $('kepanRounds'), P = S.payload;
     if (!box) return;
     const rounds = P.rounds || [];
     box.hidden = rounds.length < 2;
     if (rounds.length < 2) { box.innerHTML = ''; return; }
-    box.innerHTML = `<span class="kepan-rounds-label">講輪</span>` + rounds.map((r, i) =>
-      `<button type="button" class="kepan-round${i === P.roundIndex ? ' is-current' : ''}" data-round="${i}" aria-pressed="${i === P.roundIndex}" title="${esc(r.label)}（${r.n} 科）">${esc(r.label)}</button>`).join('');
+    const groups = roundGroups(P);
+    const cur = P.roundIndex, cr = rounds[cur] || {};
+    const cg = groups.find(g => g.rounds.includes(cur)) || { topic: cr.label, rounds: [cur], also: [], marks: [] };
+    const nTopics = groups.length;
+    const meta = cg.rounds.length > 1 ? `${esc(cr.label)}・同一內容 ${cg.rounds.length} 講` : esc(cr.label);
+    let menu = '';
+    for (const g of groups) {
+      const multi = g.rounds.length > 1;
+      menu += `<div class="krm-group${multi ? ' is-multi' : ''}" role="group" aria-label="${esc(g.topic)}">`
+        + `<div class="krm-topic"><span>${esc(g.topic)}</span>${multi ? `<span class="krm-badge">同一內容 ${g.rounds.length} 講</span>` : ''}</div>`
+        + (g.marks && g.marks.length ? `<div class="krm-sub">科判：${esc(g.marks.join('、'))}…</div>` : '')
+        + (g.also && g.also.length ? `<div class="krm-sub">${esc(g.also.map(i => rounds[i].label).join('、'))} 也講到這段</div>` : '');
+      for (const i of g.rounds) {
+        const r = rounds[i], on = i === cur;
+        const size = `${r.n} 科` + (r.k > 1 ? `・${r.k} 篇` : '');
+        const detail = roundDetail(r, multi);
+        menu += `<button type="button" class="krm-item${on ? ' is-current' : ''}" data-round="${i}" role="menuitemradio" aria-checked="${on}">`
+          + `<span class="krm-line"><span class="krm-label">${esc(r.label)}</span><span class="krm-n">${size}</span></span>`
+          + (detail ? `<span class="krm-detail">${esc(detail)}</span>` : '') + '</button>';
+      }
+      menu += '</div>';
+    }
+    box.innerHTML = `<button type="button" class="kepan-round-pick" id="kepanRoundPick" aria-haspopup="menu" aria-expanded="false" aria-controls="kepanRoundMenu" title="這部經論講過 ${rounds.length} 次，分 ${nTopics} 段內容；點此切換">`
+      + `<span class="krp-k">講輪 <b>${nTopics > 1 ? `${groups.indexOf(cg) + 1}／${nTopics} 段` : `${rounds.length} 講`}</b></span>`
+      + `<span class="krp-topic">${esc(cg.topic)}</span>`
+      + `<span class="krp-meta">${meta}</span>`
+      + `<span class="krp-caret" aria-hidden="true">⌄</span></button>`
+      + `<div class="kepan-round-menu" id="kepanRoundMenu" role="menu" aria-label="選擇講輪" hidden>${menu}</div>`;
+  }
+
+  function setRoundMenu(open) {
+    const pick = $('kepanRoundPick'), menu = $('kepanRoundMenu');
+    if (!pick || !menu) return;
+    menu.hidden = !open;
+    pick.setAttribute('aria-expanded', String(open));
+    if (open) {
+      const cur = menu.querySelector('.krm-item.is-current') || menu.querySelector('.krm-item');
+      if (cur) { cur.scrollIntoView({ block: 'nearest' }); cur.focus({ preventScroll: true }); }
+    }
   }
 
   // 跳到另一輪：有對照的科就到那一科，否則到該輪第一篇
@@ -786,10 +852,30 @@
       if ($('kepanSearch') && $('kepanSearch').value.trim()) runSearch();   // 換地後「本地」排序跟著變
     });
     initSearch();
-    if ($('kepanRounds')) $('kepanRounds').addEventListener('click', e => {
-      const b = e.target.closest('[data-round]');
-      if (b) goRound(+b.dataset.round);
-    });
+    if ($('kepanRounds')) {
+      const box = $('kepanRounds');
+      box.addEventListener('click', e => {
+        if (e.target.closest('#kepanRoundPick')) { setRoundMenu($('kepanRoundMenu').hidden); return; }
+        const b = e.target.closest('[data-round]');
+        if (!b) return;
+        setRoundMenu(false);
+        goRound(+b.dataset.round);
+      });
+      box.addEventListener('keydown', e => {
+        const menu = $('kepanRoundMenu');
+        if (!menu || menu.hidden) return;
+        if (e.key === 'Escape') { e.preventDefault(); setRoundMenu(false); $('kepanRoundPick').focus(); return; }
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        e.preventDefault();
+        const items = [...menu.querySelectorAll('.krm-item')];
+        const i = items.indexOf(document.activeElement);
+        const next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+        if (next) next.focus();
+      });
+      document.addEventListener('click', e => {
+        if (!e.target.closest('#kepanRounds')) setRoundMenu(false);
+      });
+    }
     $('kepanLandmark').addEventListener('click', e => {
       const a = e.target.closest('[data-alt-round]');
       if (!a) return;

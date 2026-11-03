@@ -272,7 +272,8 @@ describe('kepan-sidebar.js：講輪', () => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /id="kepanRounds"[^>]*hidden/);
     const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
-    assert.match(css, /\.kepan-round\.is-current \{[^}]*var\(--accent\)[^}]*color: var\(--bg-primary\)/);
+    assert.match(css, /\.krm-item\.is-current \{[^}]*var\(--accent\)/);
+    assert.match(css, /\.kepan-round-menu \{[^}]*background: var\(--bg-primary\)/);
     assert.match(css, /\.kepan-alt a \{[^}]*var\(--accent\)/);
     const js = fs.readFileSync(path.join(ROOT, 'kepan-sidebar.js'), 'utf8');
     assert.match(js, /data-alt-round/);
@@ -286,5 +287,64 @@ describe('kepan-sidebar.js：範圍選單第一項（v4.26.1）', () => {
     assert.match(js, /<option value="0">\$\{esc\(S\.payload\.title\)\}<\/option>/);
     assert.doesNotMatch(js, />全論（/);
     assert.doesNotMatch(js, /'本輪' : '全論'/);
+  });
+});
+
+describe('講輪說明與分組（v4.27.0）', () => {
+  const root = path.join(tmpRoot, 'topics');
+  before(() => {
+    const d = path.join(root, '大品');
+    write(d, '0大品_總目錄', { title: '大品 總目錄', kepan: true }, '- [[甲品-上]]\n- [[甲品-下]]\n- [[甲品-加州]]\n- [[乙品]]\n- [[甲品-高雄]]\n');
+    // 1998：甲品分上下兩篇；2002：同一品、科判相同且多講一段；乙品：別的品；高雄：甲品的節講
+    write(d, '甲品-上', { title: '大品經．甲品第一（上）', round: '1998 台北・台中' }, kepanBody(2, 3));
+    write(d, '甲品-下', { title: '大品經．甲品第一（下）', round: '1998 台北・台中' }, '#### 丙四、第二段之四\n\n文。\n');
+    write(d, '甲品-加州', { title: '大品經．甲品第一', round: '2002 加州' }, kepanBody(3, 3));
+    write(d, '乙品', { title: '大品經．乙品第二', round: '1994 萬佛寺', round_note: '禪七開示' }, kepanBody(3, 3, '乙'));
+    write(d, '甲品-高雄', { title: '大品經．甲品第一', round: '1998 高雄' }, '## 甲一、總說\n\n### 乙一、第一段\n\n' + Array.from({ length: 30 }, (_, i) => `#### 丙${'一二三四五六七八九十'[i % 10]}、雜${i}\n\n文。\n`).join(''));
+    K.clearKepanCache();
+  });
+
+  test('topicOfTitle：去書名前綴、句尾括號與錄音帶編號', () => {
+    assert.equal(K.topicOfTitle('摩訶般若波羅蜜經．舍利品第三十七（上）'), '舍利品第三十七');
+    assert.equal(K.topicOfTitle('《解深密經》卷第二．一切法相品第四'), '一切法相品第四');
+    assert.equal(K.topicOfTitle('維摩詰經散講 弟子品．羅睺羅章（三重，2000）'), '弟子品．羅睺羅章');
+    assert.equal(K.topicOfTitle('金剛般若波羅蜜經講記（1999．後輯）'), '金剛般若波羅蜜經講記');
+    assert.equal(K.topicOfTitle('攝大乘論（2002）．Tape01｜甲一、總標綱要分'), '甲一、總標綱要分');
+  });
+
+  test('roundTopic：多篇寫「首～尾」，同名合併', () => {
+    const fmm = new Map([['a', { title: '經 甲品第一（筆錄）' }], ['b', { title: '經 乙品第二' }], ['c', { title: '經 丙品第三' }], ['d', { title: '經 丁品第四' }]]);
+    assert.equal(K.roundTopic(['a', 'b', 'c', 'd'], fmm), '甲品第一～丁品第四');
+    assert.equal(K.roundTopic(['a', 'b'], fmm), '甲品第一、乙品第二');
+  });
+
+  test('同一品的各講併成一組；別的品自成一組；round_note 與多講的科', async () => {
+    const p = await K.getKepanForFile(root, '大品/甲品-上.md');
+    assert.deepEqual(p.rounds.map(r => r.label), ['1998 台北・台中', '2002 加州', '1994 萬佛寺', '1998 高雄']);
+    assert.deepEqual(p.rounds.map(r => r.topic), ['甲品第一', '甲品第一', '乙品第二', '甲品第一']);
+    assert.equal(p.rounds[0].k, 2);
+    assert.deepEqual(p.roundGroups.map(g => [g.topic, g.rounds]), [['甲品第一', [0, 1, 3]], ['乙品第二', [2]]]);
+    assert.equal(p.rounds[2].note, '禪七開示');
+    assert.ok(p.rounds[1].only && p.rounds[1].only[0] === '第三段', '加州多講第三段');
+    assert.equal(p.rounds[1].onlyN, 4);
+    assert.deepEqual(p.rounds[2].tops, ['乙總說']);
+  });
+
+  test('篇名都一樣、科判不同：各組列出特有的科', () => {
+    const mk = (body, title, round) => ({ group: { label: round, names: [round], perFile: false }, tree: K.buildKepanTree([{ name: round, text: body }], { title }) });
+    const rounds = [mk(kepanBody(2, 3), 'x', 'A'), mk(kepanBody(2, 3, '別'), 'x', 'B')];
+    const fmm = new Map([['A', { title: '某經講記（1996）' }], ['B', { title: '某經講記（1999）' }]]);
+    const d = K.describeRounds(rounds, K.linkRounds(rounds), fmm);
+    assert.equal(d.groups.length, 2);
+    assert.deepEqual(d.groups.map(g => g.topic), ['某經講記', '某經講記']);
+    assert.deepEqual(d.groups[1].marks, ['別總說']);
+  });
+
+  test('roundDetail／roundGroups', () => {
+    assert.equal(UI.roundDetail({ note: '禪七' }, true), '禪七');
+    assert.equal(UI.roundDetail({ only: ['甲', '乙'], onlyN: 5 }, true), '多講 「甲」「乙」 等 5 科');
+    assert.equal(UI.roundDetail({ tops: ['甲'], topsN: 1 }, false), '綱要：甲');
+    assert.equal(UI.roundDetail({ tops: ['甲'], topsN: 1 }, true), '');
+    assert.deepEqual(UI.roundGroups({ rounds: [{ label: 'A' }, { label: 'B', topic: 'x' }] }).map(g => [g.topic, g.rounds]), [['A', [0]], ['x', [1]]]);
   });
 });
