@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.8
+   mdWebview — Style System (style.css) v4.27.9
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11802,7 +11802,7 @@ a.small-btn {
 .sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
 #panelKepan.is-none .kepan-scope, #panelKepan.is-none .kepan-tree, #panelKepan.is-none .kepan-results, #panelKepan.is-none .kepan-toast { display: none !important; }
-/* 本篇沒有科判（v4.27.8）：說明並列出本經有科判的講次 */
+/* 本篇沒有科判（v4.27.9）：說明並列出本經有科判的講次 */
 .kepan-none { padding: 14px 14px 18px; font-size: var(--sidebar-font-size); color: var(--text-secondary, var(--text-muted)); }
 .kepan-none p { margin: 0 0 8px; line-height: 1.6; }
 .kepan-none-msg { color: var(--text-primary); font-weight: 600; }
@@ -11913,10 +11913,28 @@ a.small-btn {
   color: var(--accent); font: 700 12px/1 -apple-system, sans-serif; cursor: pointer;
 }
 .kepan-toggle:hover { border-color: var(--accent); }
+/* 觸控：＋／− 看起來仍是小框，實際可按範圍放大到 36×28px（整列高，往左延伸到縮排區；v4.27.9） */
+@media (hover: none), (max-width: 768px) {
+  .kepan-toggle { position: relative; }
+  .kepan-toggle::after { content: ''; position: absolute; inset: -5px -4px -5px -14px; }
+}
 .kepan-leaf { flex: none; width: 18px; height: 18px; display: grid; place-items: center; color: var(--accent); opacity: .8; }
 .kepan-leaf svg { width: 13px; height: 13px; }
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
+#panelKepan.is-none .kepan-hint { display: none !important; }
+.kepan-hint {
+  display: flex; align-items: center; gap: 8px; margin: 6px 10px 0; padding: 6px 8px 6px 10px; border-radius: 8px;
+  background: var(--accent-dim, var(--bg-tertiary, var(--border-subtle))); color: var(--text-secondary, var(--text-muted));
+  font-size: calc(var(--sidebar-font-size) * 12 / 13); line-height: 1.5;
+}
+.kepan-hint b { color: var(--accent); }
+.kepan-hint-ok {
+  flex: none; margin-left: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-primary); color: var(--text-primary); font: inherit; cursor: pointer;
+}
+.kepan-hit-level { margin-left: 6px; opacity: .75; font-size: .92em; }
 .kepan-count { flex: none; font-size: 10.5px; color: var(--text-muted); font-family: -apple-system, sans-serif; }
 
 .kepan-bar {
@@ -11932,7 +11950,7 @@ a.small-btn {
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
 .kepan-path a { color: var(--text-muted); text-decoration: none; white-space: nowrap; }
 .kepan-path a.is-current { color: var(--text-primary); font-weight: 600; }
-/* 路徑收合鈕（v4.27.8）：「⋯ 上 N 層」／「收起」 */
+/* 路徑收合鈕（v4.27.9）：「⋯ 上 N 層」／「收起」 */
 .kepan-path-more {
   flex: none; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary);
   color: var(--text-muted); font: inherit; font-size: 0.92em; line-height: 1.6; cursor: pointer; white-space: nowrap;

@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.27.8 | 最後更新：2026-11
+> 版本：v4.27.9 | 最後更新：2026-11
 
 ---
 
@@ -1031,7 +1031,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.27.8'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.27.9'` | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
@@ -1626,4 +1626,5 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **講次選單**（v4.27.0；v4.27.1 介面改稱「講次」、拿掉自動摘要，`describeRounds()`）：講次不再是一排「年份＋地點」膠囊，而是以「講的內容」分組的下拉選單（`#kepanRoundPick` → `#kepanRoundMenu`）。每次的 `topic` 取自篇名（`topicOfTitle()` 去書名前綴、句尾括號、Tape 編號；一到三篇列篇名，四篇以上整部連講用書名，v4.27.4；「．問答」附篇不另列）。兩次對得上的科占小的一次一半以上且大小相差不到四倍，或篇名範圍相同（v4.27.3 起不論各次是否全同，如金剛經三次科判分法不同仍併為一組），併為「同一內容 N 講」一組（`payload.roundGroups` [{topic, rounds}]），同組才以年份地點區分，各列科數與篇數。使用者不要自動內容摘要；frontmatter `round_note` 可手寫一行說明。
 - **審計第一批**（v4.27.7）：≥1 MB 講記走虛擬捲動時也接上科判（`tryOpenVirtualFile()` 呼叫 `onDocumentRendered`，新掛片段經 `onChunkMounted` 改繪標題；定位用 `window.mdwVirtualTopLine`／`mdwScrollToLine`）。地標列路徑預設只留最後幾層（`pathKeep()`：手機 2、桌機 3），前面收成「⋯ 上 N 層」可展開，偏好存 `mdw-kepan-path-open`。範圍選單依上層分組（`scopeOptions()`，`<optgroup>`）。測試 `tests/test-kepan-ux-batch1.test.js`。
 - **審計第二批**（v4.27.8）：同一部經裡沒有科判標題的篇，`buildFolder()` 給 `{ none, dir, title, others }`，`/api/kepan` 以 `{ kepan: null, nearby }` 回傳；側欄 `setTabMode('none')` 同時留「大綱」「科判」分頁，科判分頁列出本經有科判的講次（`#kepanNone`）。範圍不再叫「地」（搜尋「目前範圍內 N」、選單提示「切換科判範圍」）。講次按鈕 `roundPickerLabel()`：一段內容一行「講次 … 共 N 講」，多段內容分「內容」「講次」兩行。測試 `tests/test-kepan-ux-batch2.test.js`。
+- **審計第三批**（v4.27.9）：第一次讀到某部科判系列時從「檔案」分頁自動換到「科判」（`mdw-kepan-seen`，搜尋分頁不搶）；觸控時＋／−可按範圍放大；樹頂一次性操作提示（`#kepanHint`，`mdw-kepan-hint-done`）；「另講」改「其他講次：」，樹上有對照的科加小點；顯示時以 `shortTitle()` 拿掉「(分N科)」；拿掉側欄重複的「科判」標題；開檔後第一次定位不提示「已進入」；鍵盤 `[` `]` 前一科／後一科；搜尋結果層數改小字。進度仍只寫百分比（師父先前決定），滑過說明是全部幾科中的位置。測試 `tests/test-kepan-ux-batch3.test.js`。
 - **測試**：`tests/test-kepan.test.js`（抽取規則、資料夾快取、`/api/kepan` 端對端、側欄純函式、接線靜態檢查）、`tests/test-kepan-rounds.test.js`（講輪分組、kepan 開關、另講對照、章節式標題、前端講輪函式）。

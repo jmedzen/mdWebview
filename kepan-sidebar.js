@@ -198,7 +198,16 @@
   }
   // 前後科按鈕上的字：寫該科的科判字與科名；沒有（首末科）時寫 edge
   function navLabel(n, edge) {
-    return n ? `${n.m || ''} ${n.t || ''}`.trim() : edge;
+    return n ? `${n.m || ''} ${shortTitle(n.t)}`.trim() : edge;
+  }
+
+  /**
+   * 顯示用的科名：拿掉「(分四科)」「（分二科）」這類科數註記（v4.27.9）。
+   * 樹上已有「分N」小字，路徑、膠囊、選單只需要科名；完整原文仍在滑過提示裡。
+   */
+  function shortTitle(t) {
+    const s = String(t || '').replace(/[（(]分[〇零一二三四五六七八九十百\d]+科[）)]/g, '').trim();
+    return s || String(t || '');
   }
 
   /**
@@ -308,7 +317,7 @@
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
-    navTargets, navLabel, roundDetail, roundGroups, scopeOptions, pathKeep, roundPickerLabel,
+    navTargets, navLabel, roundDetail, roundGroups, scopeOptions, pathKeep, roundPickerLabel, shortTitle,
   };
   if (typeof document === 'undefined') return api;
 
@@ -386,6 +395,10 @@
     kTab.hidden = !on && !none;
     tTab.hidden = on;
     if (on && active === tTab) kTab.click();
+    // 第一次讀到某部科判系列：從「檔案」自動換到「科判」分頁，讓人知道有科判樹（每部只一次；
+    // 正在看搜尋結果時不搶走，v4.27.9）
+    else if (on && active && active.dataset.tab === 'files' && S.dir && !seenBook(S.dir)) kTab.click();
+    if (on && S.dir) markSeen(S.dir);
     if (!on && !none && active === kTab) tTab.click();
     $('kepanBar').hidden = !on;
     $('kepanNav').hidden = !on;
@@ -393,6 +406,31 @@
     const panel = $('panelKepan');
     if (panel) panel.classList.toggle('is-none', none);
     if ($('kepanNone')) $('kepanNone').hidden = !none;
+  }
+
+  const SEEN_STORE = 'mdw-kepan-seen';
+  function seenBook(dir) {
+    try { return (JSON.parse(localStorage.getItem(SEEN_STORE)) || []).includes(dir); } catch (_) { return true; }
+  }
+  function markSeen(dir) {
+    try {
+      const all = JSON.parse(localStorage.getItem(SEEN_STORE)) || [];
+      if (!all.includes(dir)) { all.push(dir); localStorage.setItem(SEEN_STORE, JSON.stringify(all.slice(-200))); }
+    } catch (_) { /* 私密模式：每次都換也無妨 */ }
+  }
+
+  // 樹頂一次性的操作提示（v4.27.9）：雙擊展開原本只寫在滑過提示裡，觸控裝置看不到
+  const HINT_STORE = 'mdw-kepan-hint-done';
+  function renderHint() {
+    const box = $('kepanHint');
+    if (!box) return;
+    let done = false;
+    try { done = localStorage.getItem(HINT_STORE) === '1'; } catch (_) { done = false; }
+    box.hidden = done;
+    if (done) return;
+    const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+    box.innerHTML = `<span>點科名閱讀；點 <b>＋</b>${touch ? '或連點兩下' : '或雙擊'}展開、收合。</span>`
+      + `<button type="button" class="kepan-hint-ok" data-hint-ok>知道了</button>`;
   }
 
   /** 本篇沒有科判：說明，並列出本經有科判的講次（點了開那一講的第一篇） */
@@ -429,6 +467,7 @@
     const to = Math.min(S.rows.length, Math.ceil((top + h) / ROW_HEIGHT) + 6);
     const onPath = new Set(S.hereId ? ancestors(N, S.hereId) : []);
     const base = S.rootId ? N[S.rootId].d : 0;
+    const alt = S.payload && S.payload.rounds ? S.payload.alt : null;
     let html = '';
     for (let i = from; i < to; i++) {
       const id = S.rows[i], n = N[id], kids = n.k.length, open = S.expanded.has(id);
@@ -441,7 +480,8 @@
         ? `<button type="button" class="kepan-toggle" data-toggle title="${open ? '收合' : '展開'}（分${kids}科）" aria-expanded="${open}">${open ? '−' : '+'}</button>`
         : `<span class="kepan-leaf" title="末端科，點選閱讀">${LEAF_ICON}</span>`;
       html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層${kids ? `；雙擊${open ? '收合' : '展開'}` : ''}）">`
-        + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(n.t)}</span>`
+        + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(shortTitle(n.t))}</span>`
+        + (alt && alt[id] && alt[id].length ? `<span class="kepan-alt-dot" title="其他講次也講到這一科：${esc(alt[id].map(h => (S.payload.rounds[h[0]] || {}).label).join('、'))}"></span>` : '')
         + (kids && !open ? `<span class="kepan-count">分${kids}</span>` : '') + '</div>';
     }
     $('kepanSpacer').innerHTML = html;
@@ -514,8 +554,8 @@
     // 範圍分屬不同上層時依上層分組（v4.27.7）：否則會出現兩個「乙一」分不出來
     let html = `<option value="0">${ALL_LABEL}</option>`;
     for (const g of scopeOptions(N, S.scopeDepth)) {
-      const items = g.items.map(n => `<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`).join('');
-      html += g.parent ? `<optgroup label="${esc(N[g.parent].m + ' ' + N[g.parent].t)}">${items}</optgroup>` : items;
+      const items = g.items.map(n => `<option value="${n.id}">${esc(n.m + ' ' + shortTitle(n.t))}</option>`).join('');
+      html += g.parent ? `<optgroup label="${esc(N[g.parent].m + ' ' + shortTitle(N[g.parent].t))}">${items}</optgroup>` : items;
     }
     sel.innerHTML = html;
     sel.value = String(S.rootId);
@@ -526,7 +566,7 @@
     S.rootId = id;
     $('kepanScope').value = String(id);
     $('kepanTree').scrollTop = 0;
-    if (announce && id) {
+    if (announce && id && Date.now() > (S.quietUntil || 0)) {
       const t = $('kepanToast');
       t.textContent = `已進入 ${S.N[id].m} ${S.N[id].t}`;
       t.hidden = false;
@@ -577,14 +617,14 @@
     const pct = Math.round(id / (N.length - 1) * 100);
     const P = S.payload;
     const a = altFor(P, N, id);
-    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講次' : `上層「${N[a.id].m} ${N[a.id].t}」在其他講次`)}">另講`
+    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講次也講過，點講次名稱過去' : `上層「${N[a.id].m} ${shortTitle(N[a.id].t)}」在其他講次也講過`)}">其他講次：`
       + a.hits.map(h => `<a href="#" data-alt-round="${h[0]}" data-alt-id="${h[3]}" data-alt-file="${esc(h[1])}" data-alt-line="${h[2]}">${esc(P.rounds[h[0]].label)}</a>`).join('')
       + '</span>' : '';
     $('kepanLandmark').innerHTML =
       (juan ? `<span>卷${esc(juan)}</span>` : '')
       + (N[id].pg ? `<span>《披尋記》p.${N[id].pg}</span>` : '')
       + `<span>第 ${N[id].d + 1} 層</span>`
-      + `<span class="kepan-progress" title="在「${esc(P.title)}」中的位置"><i style="width:${pct}%"></i></span><span>${pct}%</span>`
+      + `<span class="kepan-progress" title="目前這一科在「${esc(P.title)}」全部 ${N.length - 1} 科中的位置"><i style="width:${pct}%"></i></span><span>${pct}%</span>`
       + alt;
     // 路徑預設只留最後幾層（目前科一定看得到），前面收成「⋯ 上 N 層」，點了展開完整路徑（v4.27.7）
     const chain = ancestors(N, id).concat(id);
@@ -593,10 +633,10 @@
     const links = chain.slice(hidden).map(x => {
       const n = N[x], sib = N[n.p].k;
       const pos = sib.length > 1 ? `<small>${sib.indexOf(x) + 1}/${sib.length}</small>` : '';
-      return `<a href="#" data-go="${x}"${x === id ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(n.t)}${pos}</a>`;
+      return `<a href="#" data-go="${x}"${x === id ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(shortTitle(n.t))}${pos}</a>`;
     }).join('<span class="kepan-sep">›</span>');
     const more = hidden
-      ? `<button type="button" class="kepan-path-more" data-path-toggle aria-expanded="false" title="顯示完整路徑：${esc(chain.slice(0, hidden).map(x => N[x].m + ' ' + N[x].t).join(' › '))}">⋯ 上 ${hidden} 層</button><span class="kepan-sep">›</span>`
+      ? `<button type="button" class="kepan-path-more" data-path-toggle aria-expanded="false" title="顯示完整路徑：${esc(chain.slice(0, hidden).map(x => N[x].m + ' ' + shortTitle(N[x].t)).join(' › '))}">⋯ 上 ${hidden} 層</button><span class="kepan-sep">›</span>`
       : '';
     const less = S.pathOpen && chain.length > keep
       ? `<button type="button" class="kepan-path-more is-open" data-path-toggle aria-expanded="true" title="只顯示最後幾層">收起</button>` : '';
@@ -615,7 +655,7 @@
     btn.disabled = !n;
     const span = btn.querySelector('.kepan-nav-name');
     if (span) span.textContent = name; else btn.textContent = name;
-    btn.title = n ? `${kind}：${n.m}、${n.t}` : edge;
+    btn.title = n ? `${kind}：${n.m}、${n.t}（鍵盤 ${kind === '前一科' ? '[' : ']'}）` : edge;
     btn.setAttribute('aria-label', n ? `${kind}：${n.m} ${n.t}` : edge);
   }
 
@@ -771,11 +811,11 @@
       + `<span class="kepan-results-keys">Enter 前往・Esc 清除</span></div>`;
     ids.forEach((id, i) => {
       const n = N[id], sc = scopeOf(N, id, S.scopeDepth), par = n.p > 0 ? N[n.p] : null;
-      const where = [sc && sc !== id ? N[sc].m + ' ' + N[sc].t : '', par && par.id !== sc ? par.m + ' ' + par.t : '', `第 ${n.d + 1} 層`]
+      const where = [sc && sc !== id ? N[sc].m + ' ' + shortTitle(N[sc].t) : '', par && par.id !== sc ? par.m + ' ' + shortTitle(par.t) : '']
         .filter(Boolean).join(' › ');
       html += `<div class="kepan-hit${i === S.active ? ' is-active' : ''}" id="kepanHit${i}" role="option" aria-selected="${i === S.active}" data-hit="${id}" title="${esc(n.m + '、' + n.t)}">`
         + `<div class="kepan-hit-title"><span class="kepan-mark">${markHit(n.m, q)}</span>${markHit(n.t, q)}</div>`
-        + `<div class="kepan-hit-where">${esc(where)}</div></div>`;
+        + `<div class="kepan-hit-where">${esc(where)}<small class="kepan-hit-level">第 ${n.d + 1} 層</small></div></div>`;
     });
     box.innerHTML = html;
     box.scrollTop = 0;
@@ -894,7 +934,10 @@
       clearSearch();
       renderScopeSelect();
       renderRounds();
+      renderHint();
     }
+    // 開檔後第一次定位不提示「已進入…」（讀者沒有跨範圍，只是剛打開）
+    if (S.file !== filePath) S.quietUntil = Date.now() + 2500;
     S.file = filePath;
     S.fileIndex = payload.files.indexOf(name);
     S.virtual = typeof window.mdwIsVirtual === 'function' && !!window.mdwIsVirtual();
@@ -972,6 +1015,23 @@
       if ($('kepanSearch') && $('kepanSearch').value.trim()) runSearch();   // 換地後「本地」排序跟著變
     });
     initSearch();
+    if ($('kepanHint')) {
+      $('kepanHint').addEventListener('click', e => {
+        if (!e.target.closest('[data-hint-ok]')) return;
+        try { localStorage.setItem(HINT_STORE, '1'); } catch (_) { /* 只關這次 */ }
+        $('kepanHint').hidden = true;
+      });
+    }
+    // 鍵盤 [ ／ ]：前一科／後一科（v4.27.9；不在輸入框、不帶修飾鍵時）
+    document.addEventListener('keydown', e => {
+      if (e.key !== '[' && e.key !== ']') return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+      if (!document.body.classList.contains('has-kepan')) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      step(e.key === '[' ? 'prev' : 'next');
+    });
     if ($('kepanNone')) {
       $('kepanNone').addEventListener('click', e => {
         const b = e.target.closest('[data-none-file]');
