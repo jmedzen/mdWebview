@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.24.0
+   mdWebview — Style System (style.css) v4.25.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11800,6 +11800,22 @@ a.small-btn {
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
 .sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+/* 講輪切換（v4.25.0）：同一部經論講過多次，每輪一棵樹 */
+.kepan-rounds[hidden] { display: none !important; }
+.kepan-rounds { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
+.kepan-rounds-label { font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); margin-right: 2px; }
+.kepan-round {
+  padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
+  color: var(--text-secondary, var(--text-primary)); font-family: var(--cjk-serif), serif;
+  font-size: calc(var(--sidebar-font-size) * 12 / 13); line-height: 1.6; cursor: pointer; white-space: nowrap;
+}
+.kepan-round:hover { background: var(--hover-bg); color: var(--text-primary); }
+.kepan-round.is-current { border-color: var(--accent); background: var(--accent); color: var(--bg-primary); cursor: default; }
+.kepan-round:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 地標列的「另講」：同一科在其他講輪 */
+.kepan-alt { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kepan-alt a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+.kepan-alt a:hover { border-bottom-style: solid; }
 .kepan-scope select {
   width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--input-bg, var(--bg-secondary)); color: var(--text-primary);
