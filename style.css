@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.25.1
+   mdWebview — Style System (style.css) v4.26.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11847,6 +11847,7 @@ a.small-btn {
 .kepan-row {
   position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; gap: 6px;
   padding-right: 10px; cursor: pointer; white-space: nowrap; border-radius: 4px;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;   /* 雙擊／雙點展開收合：不選字、不縮放 */
   font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size); color: var(--text-secondary);
 }
 .kepan-row:hover { background: var(--hover-bg); }
