@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.9
+   mdWebview — Style System (style.css) v4.27.10
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11799,10 +11799,10 @@ a.small-btn {
 /* ── 科判側欄（v4.21.0，kepan-sidebar.js）────────────────────
    科判系列的講記：側欄「科判」分頁取代「大綱」，閱讀框頂端有地標與完整路徑，
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
-.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
+.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden], .kepan-hint[hidden], .kepan-none[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
 #panelKepan.is-none .kepan-scope, #panelKepan.is-none .kepan-tree, #panelKepan.is-none .kepan-results, #panelKepan.is-none .kepan-toast { display: none !important; }
-/* 本篇沒有科判（v4.27.9）：說明並列出本經有科判的講次 */
+/* 本篇沒有科判（v4.27.10）：說明並列出本經有科判的講次 */
 .kepan-none { padding: 14px 14px 18px; font-size: var(--sidebar-font-size); color: var(--text-secondary, var(--text-muted)); }
 .kepan-none p { margin: 0 0 8px; line-height: 1.6; }
 .kepan-none-msg { color: var(--text-primary); font-weight: 600; }
@@ -11913,7 +11913,7 @@ a.small-btn {
   color: var(--accent); font: 700 12px/1 -apple-system, sans-serif; cursor: pointer;
 }
 .kepan-toggle:hover { border-color: var(--accent); }
-/* 觸控：＋／− 看起來仍是小框，實際可按範圍放大到 36×28px（整列高，往左延伸到縮排區；v4.27.9） */
+/* 觸控：＋／− 看起來仍是小框，實際可按範圍放大到 36×28px（整列高，往左延伸到縮排區；v4.27.10） */
 @media (hover: none), (max-width: 768px) {
   .kepan-toggle { position: relative; }
   .kepan-toggle::after { content: ''; position: absolute; inset: -5px -4px -5px -14px; }
@@ -11950,7 +11950,7 @@ a.small-btn {
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
 .kepan-path a { color: var(--text-muted); text-decoration: none; white-space: nowrap; }
 .kepan-path a.is-current { color: var(--text-primary); font-weight: 600; }
-/* 路徑收合鈕（v4.27.9）：「⋯ 上 N 層」／「收起」 */
+/* 路徑收合鈕（v4.27.10）：「⋯ 上 N 層」／「收起」 */
 .kepan-path-more {
   flex: none; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary);
   color: var(--text-muted); font: inherit; font-size: 0.92em; line-height: 1.6; cursor: pointer; white-space: nowrap;
