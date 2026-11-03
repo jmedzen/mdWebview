@@ -333,6 +333,62 @@ describe('kepan-sidebar.js：側欄規則', () => {
   });
 });
 
+describe('kepan-sidebar.js：快速搜尋科名（v4.21.0）', () => {
+  // 甲一 本地分 > 乙一 五識身相應地 > 丙一 五識身自性、丙二 意地 > 丁一 意地自性；乙二 意地 > 丙一 意自性
+  const nodes = [
+    [0, '甲一', '本地分', 0, 0, 1],
+    [1, '乙一', '五識身相應地', 0, 0, 2],
+    [2, '丙一', '五識身 自性', 0, 0, 3],
+    [2, '丙二', '意地', 0, 0, 4],
+    [4, '丁一', '意地自性', 0, 0, 5],
+    [1, '乙二', '意地', 0, 1, 6],
+    [6, '丙一', '意自性', 0, 1, 7],
+  ];
+  const N = UI.expandNodes({ title: '論', files: ['T1', 'T2'], heads: {}, nodes });
+
+  test('normalizeQuery 去空白、全形空白與標點，英文轉小寫', () => {
+    assert.equal(UI.normalizeQuery(' 五識身　自性、（分二科）'), '五識身自性分二科');
+    assert.equal(UI.normalizeQuery('Tape 92'), 'tape92');
+  });
+
+  test('找科名：依閱讀順序；空白不影響比對', () => {
+    assert.deepEqual(UI.searchNodes(N, '自性').ids, [3, 5, 7]);
+    assert.deepEqual(UI.searchNodes(N, '五識身自性').ids, [3], '原文「五識身 自性」中間有空白也找得到');
+  });
+
+  test('多個關鍵字須全部符合，可混用科判字與科名', () => {
+    assert.deepEqual(UI.searchNodes(N, '意地 自性').ids, [5]);
+    assert.deepEqual(UI.searchNodes(N, '丙一 意').ids, [7]);
+  });
+
+  test('輸入科判字：該字號的科排最前', () => {
+    assert.deepEqual(UI.searchNodes(N, '丙一').ids, [3, 7]);
+    assert.deepEqual(UI.searchNodes(N, '丙二').ids, [4]);
+  });
+
+  test('目前範圍（地）的結果排前面，並回報數量', () => {
+    const r = UI.searchNodes(N, '自性', { rootId: 4 });
+    assert.equal(UI.scopeOf(N, 5), 4);
+    assert.deepEqual(r.ids, [5, 3, 7]);
+    assert.equal(r.inScope, 1);
+    assert.equal(r.total, 3);
+  });
+
+  test('空字串不回傳結果；limit 限制列出數量但 total 仍是全部', () => {
+    assert.deepEqual(UI.searchNodes(N, '  ').ids, []);
+    const r = UI.searchNodes(N, '地', { limit: 2 });
+    assert.equal(r.ids.length, 2);
+    assert.equal(r.total, 5);
+  });
+
+  test('hay 快取：同一份陣列重複搜尋，結果一致', () => {
+    const hay = [];
+    assert.deepEqual(UI.searchNodes(N, '意', { hay }).ids, UI.searchNodes(N, '意').ids);
+    assert.equal(hay.length, N.length);
+    assert.deepEqual(UI.searchNodes(N, '意', { hay }).ids, [4, 5, 6, 7]);
+  });
+});
+
 describe('接線（靜態檢查）', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
@@ -343,6 +399,12 @@ describe('接線（靜態檢查）', () => {
     for (const id of ['panelKepan', 'kepanScope', 'kepanTree', 'kepanSpacer', 'kepanToast', 'kepanBar', 'kepanLandmark', 'kepanPath', 'kepanNav', 'kepanPrev', 'kepanNext']) {
       assert.ok(html.includes(`id="${id}"`), `缺少 #${id}`);
     }
+    // 快速搜尋：在下拉選單下方，結果清單在樹之前
+    const scope = html.indexOf('id="kepanScope"'), search = html.indexOf('id="kepanSearch"');
+    assert.ok(search > scope && search < html.indexOf('id="kepanTree"'), '搜尋框應在下拉選單下方、樹之上');
+    assert.match(html, /<input type="search" id="kepanSearch"[^>]*role="combobox"[^>]*aria-controls="kepanResults"/);
+    assert.match(html, /id="kepanSearch" class="sidebar-filter-input"/, '沿用側欄篩選框樣式（手機 16px 防縮放）');
+    assert.match(html, /<div class="kepan-results" id="kepanResults" role="listbox"[^>]*hidden>/);
     const k = html.indexOf(`kepan-sidebar.js?v=${pkg.version}`);
     assert.ok(k > 0, 'kepan-sidebar.js 應帶目前版本號');
     assert.ok(k < html.indexOf('app.js?v='), 'kepan-sidebar.js 應在 app.js 之前');
@@ -352,6 +414,15 @@ describe('接線（靜態檢查）', () => {
     assert.ok(app.includes('window.MdwKepan.onDocumentRendered(state.currentFile)'));
     assert.ok(app.includes('window.MdwKepan.onDocumentClosed()'));
     assert.ok(app.includes('window.mdwOpenFile = (filePath, line) => openFile(filePath, line)'));
+  });
+
+  test('快速搜尋鍵盤操作：輸入法選字中不搜尋不跳轉；Enter 前往、Esc 清除、↑↓ 選擇', () => {
+    const js = fs.readFileSync(path.join(ROOT, 'kepan-sidebar.js'), 'utf8');
+    assert.ok(js.includes("addEventListener('compositionstart'"));
+    assert.ok(js.includes("addEventListener('compositionend'"));
+    assert.match(js, /if \(e\.isComposing \|\| S\.composing \|\| e\.keyCode === 229\) return;/);
+    for (const k of ["'Enter'", "'Escape'", "'ArrowDown'", "'ArrowUp'"]) assert.ok(js.includes(`e.key === ${k}`), `缺少 ${k}`);
+    assert.ok(js.includes('chooseHit(S.found[Math.max(0, S.active)])'), 'Enter 預設前往第一筆');
   });
 
   test('離線與 Docker 映像都帶上 kepan-sidebar.js 與 lib/kepan.js', () => {
