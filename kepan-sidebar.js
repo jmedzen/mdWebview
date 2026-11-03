@@ -331,7 +331,7 @@
 
   const S = {
     payload: null, N: null, dir: '', file: '', fileIndex: -1,
-    rootId: 0, scopeAll: false, hereId: 0,
+    rootId: 0, scopeAll: true, scopePick: '', hereId: 0,
     userOpen: new Set(), userClosed: new Set(), expanded: new Set(),
     rows: [], rowIndex: new Map(),
     anchors: [], anchorsDirty: true, barMax: 0,
@@ -350,7 +350,8 @@
   function savePrefs() {
     try {
       const all = JSON.parse(localStorage.getItem(STORE)) || {};
-      all[S.dir] = { open: [...S.userOpen].slice(-300), all: S.scopeAll };
+      // pick：讀者自己在範圍選單選過才記（'all' 全文／'part' 某一段）；沒選過就照預設「全文（不分組）」
+      all[S.dir] = { open: [...S.userOpen].slice(-300), pick: S.scopePick || undefined };
       localStorage.setItem(STORE, JSON.stringify(all));
     } catch (_) { /* 私密模式等：不記也能用 */ }
   }
@@ -928,7 +929,10 @@
       const prefs = loadPrefs(S.dir);
       S.userOpen = new Set(prefs.open || []);
       S.userClosed = new Set();
-      S.scopeAll = !!prefs.all;
+      // v4.27.12 起預設「全文（不分組）」；只有讀者自己選過某一段才跟著讀到的段落換範圍。
+      // 舊版存的 all:false 分不出是選過還是只展開過，一律當沒選過
+      S.scopePick = prefs.pick === 'part' || prefs.pick === 'all' ? prefs.pick : '';
+      S.scopeAll = S.scopePick !== 'part';
       S.rootId = -1;
       S.hay = [];
       clearSearch();
@@ -1008,6 +1012,7 @@
     $('kepanScope').addEventListener('change', e => {
       const id = +e.target.value;
       S.scopeAll = id === 0;
+      S.scopePick = id === 0 ? 'all' : 'part';
       setScope(id, false);
       rebuild();
       keepVisible(S.hereId);
