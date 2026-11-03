@@ -312,10 +312,14 @@ describe('講輪說明與分組（v4.27.0）', () => {
     assert.equal(K.topicOfTitle('攝大乘論（2002）．Tape01｜甲一、總標綱要分'), '甲一、總標綱要分');
   });
 
-  test('roundTopic：多篇寫「首～尾」，同名合併', () => {
-    const fmm = new Map([['a', { title: '經 甲品第一（筆錄）' }], ['b', { title: '經 乙品第二' }], ['c', { title: '經 丙品第三' }], ['d', { title: '經 丁品第四' }]]);
-    assert.equal(K.roundTopic(['a', 'b', 'c', 'd'], fmm), '甲品第一～丁品第四');
+  test('roundTopic：四篇以上寫書名（v4.27.4），附篇問答不另列', () => {
+    const fmm = new Map([['a', { title: '某經 甲品第一（筆錄）' }], ['b', { title: '某經 乙品第二' }], ['c', { title: '某經 丙品第三' }], ['d', { title: '某經 丁品第四' }],
+      ['q', { title: '某經 甲品第一．問答' }]]);
+    assert.equal(K.roundTopic(['a', 'b', 'c', 'd'], fmm), '某經');
     assert.equal(K.roundTopic(['a', 'b'], fmm), '甲品第一、乙品第二');
+    assert.equal(K.roundTopic(['a', 'q'], fmm), '甲品第一');
+    assert.equal(K.bookOfTitle('攝大乘論（2002）．Tape01｜甲一、總標綱要分'), '攝大乘論');
+    assert.equal(K.bookOfTitle('《解深密經》卷第二．一切法相品第四'), '解深密經卷第二');
   });
 
   test('同一品的各講併成一組；別的品自成一組；round_note 與多講的科', async () => {
