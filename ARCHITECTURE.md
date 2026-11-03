@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.27.2 | 最後更新：2026-11
+> 版本：v4.27.3 | 最後更新：2026-11
 
 ---
 
@@ -1031,7 +1031,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.27.2'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.27.3'` | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
@@ -1623,5 +1623,5 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **多講輪與合輯**（v4.25.0）：同一部經論講過多次時，各輪各自一棵樹（`groupFiles()`、`buildFolder()`）。講記 frontmatter `round: "1996 法雲寺"` 決定分組（同一輪寫同一值；沒寫 round 的各自一組）；總目錄 frontmatter `kepan:` 為 `true`（一定是科判系列，每棵樹只要 `MIN_NODES_FORCED` 5 科）、`false`（不顯示科判）、`per-file`（多場講學的合輯，每篇一棵樹，彼此不連結），沒寫就自動判定（≥ 30 科）；單篇 `kepan: false` 不算（例：講義原文）。都沒寫 round 時整個資料夾一棵樹（舊行為），總目錄頁顯示第一輪的樹。單篇講記常從中間某層講起（如丙一），上面幾層以虛擬根補齊，不記成誤植。`/api/kepan` 回傳該檔所屬那棵樹，另加 `key`（資料夾＃講輪）、`round`、`rounds`（[{label, file, n}]，兩輪以上才有）、`roundIndex`、`alt`、`scopeDepth`、`chapters`。
 - **另講對照**（`linkRounds()`）：兩輪「從根到該科的科名」相同就是同一科；各輪開頭分法常不同，所以另用「上一科＋本科」短鍵，在兩輪都只出現一次時也算。比對前去掉括號補充、「分N科」與句尾科數（「序分(分二科)」＝「序分二」）。`alt[本輪科] = [[輪次, 檔名, 行號, 該輪科], …]`。前端（`altFor()`、`roundTarget()`）在地標列顯示「另講」（本科沒有就用最近有對照的上層科），側欄上方有講輪切換鈕（`#kepanRounds`），切換時有對照就到那一科、否則到該輪開頭；前後科、搜尋、範圍選單都只在本輪。
 - **章節式標題**（`parseChapterHeading()`、`buildChapterTree()`）：「第一章／第一節／第一項／甲、／一、」依位階建樹（攝論 1996 年講記），一組講記裡章節標題 ≥ 5 且多於甲乙科判時採用；範圍層級 `pickScopeDepth()` 取最淺而至少 4 科的一層（本地分仍是丙層、攝論 1996 是章），章節標題不改繪階梯。
-- **講次選單**（v4.27.0；v4.27.1 介面改稱「講次」、拿掉自動摘要，`describeRounds()`）：講次不再是一排「年份＋地點」膠囊，而是以「講的內容」分組的下拉選單（`#kepanRoundPick` → `#kepanRoundMenu`）。每次的 `topic` 取自篇名（`topicOfTitle()` 去書名前綴、句尾括號、Tape 編號；多篇寫「首～尾」）。兩次對得上的科占小的一次一半以上且大小相差不到四倍，或篇名範圍相同（各次不全相同時），併為「同一內容 N 講」一組（`payload.roundGroups` [{topic, rounds}]），同組才以年份地點區分，各列科數與篇數。使用者不要自動內容摘要；frontmatter `round_note` 可手寫一行說明。
+- **講次選單**（v4.27.0；v4.27.1 介面改稱「講次」、拿掉自動摘要，`describeRounds()`）：講次不再是一排「年份＋地點」膠囊，而是以「講的內容」分組的下拉選單（`#kepanRoundPick` → `#kepanRoundMenu`）。每次的 `topic` 取自篇名（`topicOfTitle()` 去書名前綴、句尾括號、Tape 編號；多篇寫「首～尾」）。兩次對得上的科占小的一次一半以上且大小相差不到四倍，或篇名範圍相同（v4.27.3 起不論各次是否全同，如金剛經三次科判分法不同仍併為一組），併為「同一內容 N 講」一組（`payload.roundGroups` [{topic, rounds}]），同組才以年份地點區分，各列科數與篇數。使用者不要自動內容摘要；frontmatter `round_note` 可手寫一行說明。
 - **測試**：`tests/test-kepan.test.js`（抽取規則、資料夾快取、`/api/kepan` 端對端、側欄純函式、接線靜態檢查）、`tests/test-kepan-rounds.test.js`（講輪分組、kepan 開關、另講對照、章節式標題、前端講輪函式）。

@@ -328,12 +328,12 @@ describe('講輪說明與分組（v4.27.0）', () => {
     assert.equal(p.rounds[1].only, undefined, '不再自動摘要');
   });
 
-  test('篇名都一樣、科判不同：分成兩組', () => {
+  test('篇名都一樣、科判不同：仍是同一內容（金剛經，v4.27.3）', () => {
     const mk = (body, title, round) => ({ group: { label: round, names: [round], perFile: false }, tree: K.buildKepanTree([{ name: round, text: body }], { title }) });
     const rounds = [mk(kepanBody(2, 3), 'x', 'A'), mk(kepanBody(2, 3, '別'), 'x', 'B')];
     const fmm = new Map([['A', { title: '某經講記（1996）' }], ['B', { title: '某經講記（1999）' }]]);
     const d = K.describeRounds(rounds, K.linkRounds(rounds), fmm);
-    assert.deepEqual(d.groups.map(g => g.rounds), [[0], [1]]);
+    assert.deepEqual(d.groups.map(g => [g.topic, g.rounds]), [['某經講記', [0, 1]]]);
   });
 
   test('roundDetail／roundGroups', () => {
