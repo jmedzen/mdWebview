@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.23.0 | 最後更新：2026-11
+> 版本：v4.24.0 | 最後更新：2026-11
 
 ---
 
@@ -766,7 +766,7 @@ flowchart TD
 | `/api/admin/daily-verses` | GET | `handleAdminDailyVerses()` | ✅ | 每日經文兩個來源（文字框、經句資料夾）的筆數、資料夾路徑、目前這句與下次換句時間 |
 | `/api/daily-verse` | GET | `handleDailyVerseApi()` | ❌ | `?id=` 依經句代號取一句（分享連結用） |
 | `/api/daily-verse/random` | GET | `handleDailyVerseApi()` | ❌ | `?not=` 隨機換另一句（首頁「換一句」） |
-| `/api/share-card.jpg` | GET | `handleShareCardImage()` | ❌ | 早安圖：`id`、`layout` A/B/C、`size` portrait/preview/og（preview = 分享面板小預覽 864×1080，v4.23.0；回應帶 `Server-Timing`）、`d` 日期、`g` 問候；伺服器不能畫圖時回 503 |
+| `/api/share-card.jpg` | GET | `handleShareCardImage()` | ❌ | 早安圖：`id`、`layout` A/B/C、`size` portrait/preview/og（preview = 分享面板小預覽 864×1080，v4.23.0；回應帶 `Server-Timing`；v4.24.0 起成品存磁碟、畫圖在工作執行緒）、`d` 日期、`g` 問候；伺服器不能畫圖時回 503 |
 | `/api/share-card/meta` | GET | `handleShareCardMeta()` | ❌ | 瀏覽器備援繪圖需要的經句、背景圖網址、站名 |
 | `/api/pic-card` | GET | `handlePicCard()` | ❌ | `?p=` 圖庫裡的背景圖（擋 `..`、隱藏檔、symlink 跑出圖庫） |
 | `/api/share-card/event` | POST | `handleShareCardEvent()` | ❌ | 早安圖動作回報 `{ev, verse, layout, d, stage}`（v4.15.0，見下方「早安圖記錄與統計」） |
@@ -1031,7 +1031,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.23.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.24.0'` | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
@@ -1562,7 +1562,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - 首頁經句下 `#homeVerseShuffle`「換一句」（`/api/daily-verse/random`，只換自己畫面）與 `#homeVerseShare`「分享早安圖」。畫面上這句存在 `state._homeVerseCurrent`；換一句或分享連結指定的句子放 `state._homeVerseOverride`，優先於伺服器時段挑的那句。經句代號 `home.verseId()` = `verseKey` 的 SHA-1 前 10 碼，清單順序變了也不變。
 - 繪圖程式 `share-card.js`（UMD，前後端共用，只用兩邊都有的 Canvas 2D API；字距、直書標點自己畫）。版型 A 晨光留白／B 沉浸全幅（依圖片下半部亮度調漸層深淺）／C 經籤直書／I 晨鐘大字／J 象牙拱門／N 上圖下文／P 左右分割／Q 三段式（N、P、Q 圖片不蓋半透明、字區獨立，Q 問候為英文、Dancing Script 手寫體，字檔隨程式附在 vendor/fonts/，不靠網路下載）（I、J 用 900 粗體，Docker 建置時一併下載；紙紋、金粉、蓮瓣等質感工具在 share-card.js）；尺寸 portrait 1080×1350、og 1200×630。
 - 問候語開關（v4.18.3，分享面板）：時間問候（預設，依傳送者本機時間）／法安／自在／吉祥（不分時間）。「時間問候」模式的分享連結不帶問候，預覽圖用「吉祥」，避免跨時區的收件人看到傳送者的早安／晚安；其餘三種會帶 `g=`。
-- 伺服器 `lib/share-card-server.js`：`@napi-rs/canvas` 延遲載入（失敗 = 不能畫，`/api/share-card.jpg` 回 503，前端改用 `share-card.js` 在瀏覽器畫）；字型從 `SHARE_CARD_FONT_DIR`、`config.json` 旁 `fonts/`、程式目錄 `fonts/`（Docker 建置時下載 Noto Serif TC 500/700）註冊；圖庫 `pic-card/`（`PIC_CARD_DIR`）遞迴掃 jpg/png/webp，每分鐘最多重掃一次；挑圖 = `hash32(id|日期) % 張數`。解碼圖快取 8 張、成品 JPEG 快取 80 張；同一張背景圖同時多個請求只解碼一次（`imagePending`，v4.23.0）。
+- 伺服器 `lib/share-card-server.js`：`@napi-rs/canvas` 延遲載入（失敗 = 不能畫，`/api/share-card.jpg` 回 503，前端改用 `share-card.js` 在瀏覽器畫）；字型從 `SHARE_CARD_FONT_DIR`、`config.json` 旁 `fonts/`、程式目錄 `fonts/`（Docker 建置時下載 Noto Serif TC 500/700）註冊；圖庫 `pic-card/`（`PIC_CARD_DIR`）遞迴掃 jpg/png/webp，每分鐘最多重掃一次；挑圖 = `hash32(id|日期) % 張數`。解碼圖快取 8 張、成品 JPEG 記憶體快取 80 張；同一張背景圖同時多個請求只解碼一次（`imagePending`，v4.23.0）。v4.24.0：畫圖搬到工作執行緒 `lib/share-card-render-worker.js`（單一執行緒，閒置時 `unref()`；死掉下一張自動重開，連續 3 次失敗或 `SHARE_CARD_WORKER=0` 改在主執行緒畫；字型是行程共用的 GlobalFonts，主執行緒註冊即可），解碼／縮圖／畫圖本身在 `lib/share-card-draw.js`（工作執行緒和主執行緒備援共用）。磁碟快取在 `cacheDir()` = `SHARE_CARD_CACHE_DIR` 或 `INDEX_DIR/share-card`：`bg/` 是大背景圖縮成剛好蓋滿 1620×2025 的 JPEG q90（`bgVariantSize()`，檔名 = 原圖路徑＋mtime＋大小的雜湊），`out/` 是成品 JPEG（檔名 = share-card.js 內容與字型的雜湊＋全部參數的雜湊，所以改版型後自動失效），上限 `SHARE_CARD_CACHE_MB`（預設 200），超過時依 mtime 刪到 80%（讀到時會 touch）。`render()` 依序：記憶體 → 同一張正在畫 → 磁碟 → 畫；`timing.cache` = hit／shared／disk／miss，Server-Timing 另有 `read`、`thread`。
 - 分享連結 `/?verse=<id>&d=&g=&l=`：`handleVerseShareLink()` 照常回首頁，但 og/twitter 標籤換成這句與 `/api/share-card.jpg?size=og`；前端 `applyVerseLinkFromUrl()` 顯示那句後把參數清掉。
 - 分享面板 `#shareCardOverlay`：桌機三張並排點選，兩側 ‹ › 箭頭（`#shareCardPrev`／`#shareCardNext`，v4.18.2）、滑鼠滾輪與左右鍵換上一個／下一個版型（`stepShareLayout()`），手機底部抽屜 scroll-snap 左右滑；「傳到 LINE」用 `navigator.share({ files })`（電腦改下載），另有存圖片、複製圖片、「複製連結」（`/?verse=<id>…`，貼到 LINE 由 og:image 出橫式預覽卡）。面板（v4.23.0）只載 `size=preview` 小預覽：選中的那張先載，其餘依離選中版型的距離、同時 2 張（`SHARE_PREVIEW_PARALLEL`），換到還沒載的版型會排到最前（`bumpSharePreview()`）；全尺寸只預取選中的那一張，分享、存圖片、複製圖片一律用全尺寸。選的版型記在 `mdWebview-share-card-layout`（v4.13.1 起拿掉「只傳圖片／圖片＋連結」切換，不再有 `-mode`）。
 
