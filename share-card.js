@@ -31,6 +31,9 @@
   const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
   const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
+  // 分享面板裡的小預覽（直式版面縮成 0.8 倍）：手機上一格只有約 260 CSS px 寬，
+  // 用不到 1620 寬；真正傳出去、存下來的仍是 PIXEL_SIZES.portrait 全尺寸。
+  const PREVIEW_PIXELS = [864, 1080];
   const GREETINGS = ['早安', '午安', '晚安', '法安', '自在', '吉祥'];   // 法安／自在／吉祥 = 不分時間，給跨時區的收件人
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
 
@@ -1190,7 +1193,7 @@
   }
 
   return {
-    LAYOUTS, LAYOUT_NAMES, SIZES, PIXEL_SIZES, GREETINGS, GREETING_EN, SERIF, qrMatrix,
+    LAYOUTS, LAYOUT_NAMES, SIZES, PIXEL_SIZES, PREVIEW_PIXELS, GREETINGS, GREETING_EN, SERIF, qrMatrix,
     draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, zonedNow, normalizeGreeting, normalizeLayout, normalizeSize,
     packLines, fitText, clauses, sealText, hash32
   };
