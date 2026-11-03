@@ -282,9 +282,10 @@ describe('kepan-sidebar.js：講輪', () => {
 });
 
 describe('kepan-sidebar.js：範圍選單第一項（v4.26.1）', () => {
-  test('第一項直接寫講課內容名，不加「全論」；地標列進度只寫百分比', () => {
+  test('範圍選單第一項固定寫「全文（不分組）」，不加「全論」；地標列進度只寫百分比', () => {
     const js = fs.readFileSync(path.join(ROOT, 'kepan-sidebar.js'), 'utf8');
-    assert.match(js, /<option value="0">\$\{esc\(S\.payload\.title\)\}<\/option>/);
+    assert.match(js, /ALL_LABEL = '全文（不分組）'/);
+    assert.match(js, /<option value="0">\$\{ALL_LABEL\}<\/option>/);
     assert.doesNotMatch(js, />全論（/);
     assert.doesNotMatch(js, /'本輪' : '全論'/);
   });

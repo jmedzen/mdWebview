@@ -25,6 +25,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  const ALL_LABEL = '全文（不分組）';   // 範圍選單第一項：整棵樹
   const SCOPE_DEPTH = 2;       // 以「丙」層（十七地）為一個範圍
   const FULL_LEVELS = 5;       // 前 5 層正常縮排
   const INDENT = 14;
@@ -442,8 +443,8 @@
 
   function renderScopeSelect() {
     const { N } = S, sel = $('kepanScope');
-    // 第一項是整棵樹：直接寫講課內容名（v4.26.1 起不再加「全論」）
-    const opts = [`<option value="0">${esc(S.payload.title)}</option>`];
+    // 第一項是整棵樹、不分組（v4.27.5 起固定寫「全文（不分組）」；書名已在側欄標題與地標列）
+    const opts = [`<option value="0">${ALL_LABEL}</option>`];
     for (const n of N) if (n.d === S.scopeDepth) opts.push(`<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`);
     sel.innerHTML = opts.join('');
     sel.value = String(S.rootId);
