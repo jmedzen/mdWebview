@@ -96,7 +96,11 @@ describe('lib/kepan.js：講輪分組與 kepan 開關', () => {
   });
 
   test('沒寫 round 的篇不在任何樹；總目錄顯示第一輪', async () => {
-    assert.equal(await K.getKepanForFile(root, '某經/導讀.md'), null);
+    // v4.27.8：沒有科判的篇不給樹，但列出本經有科判的講次（側欄提示用）
+    const near = await K.getKepanForFile(root, '某經/導讀.md');
+    assert.equal(near.none, true);
+    assert.equal(near.nodes, undefined, '不給樹');
+    assert.deepEqual(near.others.map(o => [o.label, o.file]), [['1996 法雲寺', '講記A1'], ['2002 台北', '講記B']]);
     const toc = await K.getKepanForFile(root, '某經/0某經_總目錄.md');
     assert.equal(toc.round, '1996 法雲寺');
   });
@@ -345,7 +349,8 @@ describe('講輪說明與分組（v4.27.0）', () => {
     assert.equal(UI.roundDetail({ note: '禪七' }), '禪七');
     assert.equal(UI.roundDetail({ only: ['甲'], onlyN: 5, tops: ['甲'] }), '', '只顯示手寫說明');
     const js = fs.readFileSync(path.join(ROOT, 'kepan-sidebar.js'), 'utf8');
-    assert.match(js, /<span class="krp-k">講次 /);
+    assert.match(js, /<span class="krp-k">講次<\/span>/);
+    assert.doesNotMatch(js, /段`/, "講次按鈕不再寫「N／M 段」");
     assert.doesNotMatch(js, /也講到這段|綱要：/);
     assert.deepEqual(UI.roundGroups({ rounds: [{ label: 'A' }, { label: 'B', topic: 'x' }] }).map(g => [g.topic, g.rounds]), [['A', [0]], ['x', [1]]]);
   });

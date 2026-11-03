@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.7
+   mdWebview — Style System (style.css) v4.27.8
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11801,6 +11801,21 @@ a.small-btn {
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
 .sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+#panelKepan.is-none .kepan-scope, #panelKepan.is-none .kepan-tree, #panelKepan.is-none .kepan-results, #panelKepan.is-none .kepan-toast { display: none !important; }
+/* 本篇沒有科判（v4.27.8）：說明並列出本經有科判的講次 */
+.kepan-none { padding: 14px 14px 18px; font-size: var(--sidebar-font-size); color: var(--text-secondary, var(--text-muted)); }
+.kepan-none p { margin: 0 0 8px; line-height: 1.6; }
+.kepan-none-msg { color: var(--text-primary); font-weight: 600; }
+.kepan-none-list { display: grid; gap: 6px; margin: 10px 0 12px; }
+.kepan-none-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 8px 10px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font: inherit;
+}
+.kepan-none-item:hover { border-color: var(--accent); }
+.kni-label { font-weight: 600; min-width: 0; }
+.kni-topic { min-width: 0; color: var(--text-muted); font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kni-n { margin-left: auto; flex: none; color: var(--text-muted); font-size: 0.85em; }
+.kepan-none-tip { font-size: 0.9em; color: var(--text-muted); }
 /* 講輪選單（v4.27.1）：以講的內容分組，同一內容的幾講才比年份地點 */
 .kepan-rounds[hidden], .kepan-round-menu[hidden] { display: none !important; }
 .kepan-rounds { position: relative; margin-bottom: 6px; }
@@ -11813,10 +11828,12 @@ a.small-btn {
 .kepan-round-pick:hover { border-color: var(--accent); }
 .kepan-round-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .kepan-round-pick[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.krp-k { grid-column: 1 / -1; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); letter-spacing: 0.05em; }
-.krp-k b { font-weight: normal; color: var(--text-secondary, var(--text-muted)); margin-left: 4px; }
-.krp-topic { grid-column: 1 / -1; font-size: var(--sidebar-font-size); font-weight: 600; overflow-wrap: anywhere; }
-.krp-meta { grid-column: 1 / -1; font-size: calc(var(--sidebar-font-size) * 12 / 13); color: var(--text-muted); }
+.krp-row { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.krp-k { flex: none; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); letter-spacing: 0.05em; }
+.krp-topic { min-width: 0; font-size: var(--sidebar-font-size); font-weight: 600; overflow-wrap: anywhere; }
+.krp-value { min-width: 0; font-size: var(--sidebar-font-size); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.krp-meta { flex: none; font-size: calc(var(--sidebar-font-size) * 12 / 13); color: var(--text-muted); }
+.kepan-round-pick.is-compact { padding-top: 7px; padding-bottom: 7px; }
 .krp-caret { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 1.1em; line-height: 1; }
 .kepan-round-pick[aria-expanded="true"] .krp-caret { transform: translateY(-50%) rotate(180deg); }
 .kepan-round-menu {
@@ -11915,7 +11932,7 @@ a.small-btn {
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
 .kepan-path a { color: var(--text-muted); text-decoration: none; white-space: nowrap; }
 .kepan-path a.is-current { color: var(--text-primary); font-weight: 600; }
-/* 路徑收合鈕（v4.27.7）：「⋯ 上 N 層」／「收起」 */
+/* 路徑收合鈕（v4.27.8）：「⋯ 上 N 層」／「收起」 */
 .kepan-path-more {
   flex: none; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary);
   color: var(--text-muted); font: inherit; font-size: 0.92em; line-height: 1.6; cursor: pointer; white-space: nowrap;
