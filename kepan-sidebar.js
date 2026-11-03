@@ -200,7 +200,48 @@
     return n ? `${n.m || ''} ${n.t || ''}`.trim() : edge;
   }
 
+  /**
+   * 單擊／雙擊分流（v4.26.0）：有子科的列，單擊跳到該科、雙擊展開／收合。
+   * 第一下先等 delay 毫秒；期間同一列再點一下就算雙擊（不跳轉、只切換），
+   * 否則時間到才當單擊。點了別列時，前一列待決的單擊立即生效。
+   * 不靠瀏覽器的 dblclick 事件：手機上的雙點也走同一條路。
+   * @param {number} delay
+   * @param {{ set: Function, clear: Function }} [timers] 測試時注入
+   */
+  function makeTapGate(delay, timers) {
+    const T = timers || { set: (f, ms) => setTimeout(f, ms), clear: h => clearTimeout(h) };
+    let pending = null;
+    function flush() {
+      if (!pending) return;
+      const p = pending;
+      pending = null;
+      T.clear(p.h);
+      p.single(p.key);
+    }
+    return {
+      tap(key, single, double) {
+        if (pending && pending.key === key) {
+          T.clear(pending.h);
+          pending = null;
+          double(key);
+          return 'double';
+        }
+        flush();
+        const p = { key, single };
+        p.h = T.set(() => { if (pending === p) { pending = null; single(key); } }, delay);
+        pending = p;
+        return 'pending';
+      },
+      flush,
+      cancel() { if (pending) { T.clear(pending.h); pending = null; } },
+      get pendingKey() { return pending ? pending.key : null; },
+    };
+  }
+
+  const DOUBLE_TAP_MS = 260;
+
   const api = {
+    DOUBLE_TAP_MS, makeTapGate,
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
@@ -312,7 +353,7 @@
       const toggle = kids
         ? `<button type="button" class="kepan-toggle" data-toggle title="${open ? '收合' : '展開'}（分${kids}科）" aria-expanded="${open}">${open ? '−' : '+'}</button>`
         : `<span class="kepan-leaf" title="末端科，點選閱讀">${LEAF_ICON}</span>`;
-      html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層）">`
+      html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層${kids ? `；雙擊${open ? '收合' : '展開'}` : ''}）">`
         + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(n.t)}</span>`
         + (kids && !open ? `<span class="kepan-count">分${kids}</span>` : '') + '</div>';
     }
@@ -347,7 +388,7 @@
 
   function renderScopeSelect() {
     const { N } = S, sel = $('kepanScope');
-    // 第一項是整棵樹：直接寫講課內容名（v4.25.2 起不再加「全論」）
+    // 第一項是整棵樹：直接寫講課內容名（v4.26.1 起不再加「全論」）
     const opts = [`<option value="0">${esc(S.payload.title)}</option>`];
     for (const n of N) if (n.d === S.scopeDepth) opts.push(`<option value="${n.id}">${esc(n.m + ' ' + n.t)}</option>`);
     sel.innerHTML = opts.join('');
@@ -714,11 +755,20 @@
 
   function init() {
     if (!$('kepanTree')) return;
+    // 有子科的列：單擊跳轉（稍等一下）、雙擊展開／收合；末端科與 +/− 鈕立即反應。
+    // 鍵盤（Enter／空白鍵觸發的 click，detail 為 0）不等。
+    const gate = makeTapGate(DOUBLE_TAP_MS);
     $('kepanSpacer').addEventListener('click', e => {
       const row = e.target.closest('.kepan-row');
       if (!row) return;
       const id = +row.dataset.id;
-      if (e.target.closest('[data-toggle]')) toggle(id); else goTo(id);
+      if (e.target.closest('[data-toggle]')) { gate.cancel(); toggle(id); return; }
+      if (!S.N || !S.N[id] || !S.N[id].k.length || e.detail === 0) { gate.flush(); goTo(id); return; }
+      gate.tap(id, goTo, toggle);
+    });
+    // 雙擊時不要選取文字
+    $('kepanSpacer').addEventListener('mousedown', e => {
+      if (e.detail > 1 && e.target.closest('.kepan-row')) e.preventDefault();
     });
     $('kepanTree').addEventListener('scroll', () => {
       S.busyInTree = true;
