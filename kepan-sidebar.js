@@ -26,6 +26,7 @@
   const INDENT = 14;
   const DEEP_INDENT = 3;
   const ROW_HEIGHT = 28;
+  const JUMP_GAP = 12;         // 跳到某科時，標題頂端與黏性地標列底緣的間距（同 app.js 跳行）
 
   // ───────────── 純函式 ─────────────
 
@@ -117,6 +118,16 @@
     return m ? m[1] : '';
   }
 
+  /** 讓標題頂端落在黏性列下方 gap 像素處的 scrollTop。 */
+  function jumpScrollTop(headingTop, contentTop, scrollTop, barH, gap) {
+    return Math.max(0, headingTop - contentTop + scrollTop - barH - (gap === undefined ? JUMP_GAP : gap));
+  }
+
+  /** 捲動定位的判定線：標題要越過黏性列底下才算讀到（取本篇最高列高，避免列高變動來回跳）。 */
+  function spyLine(scrollTop, barMax) {
+    return scrollTop + Math.max(80, barMax + JUMP_GAP + 16);
+  }
+
   /** 搜尋用的正規化：去空白與標點、英文小寫，「五識 身」「五識身」都找得到。 */
   function normalizeQuery(s) {
     return String(s || '').toLowerCase()
@@ -152,9 +163,9 @@
   }
 
   const api = {
-    SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT,
+    SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, indentFor, computeExpanded, visibleRows,
-    hereFromLine, headingSegments, juanOf, normalizeQuery, searchNodes,
+    hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
   };
   if (typeof document === 'undefined') return api;
 
@@ -170,7 +181,7 @@
     rootId: 0, scopeAll: false, hereId: 0,
     userOpen: new Set(), userClosed: new Set(), expanded: new Set(),
     rows: [], rowIndex: new Map(),
-    anchors: [], anchorsDirty: true,
+    anchors: [], anchorsDirty: true, barMax: 0,
     loadToken: 0, busyInTree: false, busyTimer: null,
     hay: [], found: [], active: -1, composing: false,
   };
@@ -343,8 +354,9 @@
     S.pendingHere = id;
     S.pendingLine = n.l;
     if (file === S.file) {
-      scrollToLine(n.l);
+      // 先把地標列換成目標科（路徑長短會改變列高），再依新的列高捲動
       setHere(id);
+      scrollToLine(n.l);
     } else if (typeof window.mdwOpenFile === 'function') {
       // 換檔期間舊文件的捲動事件不算數；先把側欄標到目標科
       S.lockSpyUntil = Date.now() + 5000;
@@ -354,13 +366,21 @@
     if (window.innerWidth <= 768 && typeof window.mdwCloseMobileSidebars === 'function') window.mdwCloseMobileSidebars();
   }
 
+  /** 閱讀框頂端黏性地標列目前的高度（會換行、手機上更高，隨所在的科而變）。 */
+  function barHeight() {
+    const bar = $('kepanBar');
+    const h = bar && !bar.hidden ? bar.getBoundingClientRect().height || 0 : 0;
+    if (h > S.barMax) S.barMax = h;
+    return h;
+  }
+
   function scrollToLine(line) {
     const content = $('content'), el = document.getElementById('L' + line);
     if (!content || !el) return;
     const target = el.closest('h1, h2, h3, h4, h5, h6') || el;
-    const top = target.getBoundingClientRect().top - content.getBoundingClientRect().top + content.scrollTop - 8;
+    const top = jumpScrollTop(target.getBoundingClientRect().top, content.getBoundingClientRect().top, content.scrollTop, barHeight());
     S.lockSpyUntil = Date.now() + 400;
-    content.scrollTop = Math.max(0, top);
+    content.scrollTop = top;
   }
 
   // ── 捲動定位 ──
@@ -381,7 +401,7 @@
     if (!S.payload || S.fileIndex < 0) return;
     if (S.lockSpyUntil && Date.now() < S.lockSpyUntil) return;
     if (S.anchorsDirty) collectAnchors();
-    const y = $('content').scrollTop + 80;
+    const y = spyLine($('content').scrollTop, S.barMax);
     let line = 0;
     for (const [top, l] of S.anchors) { if (top <= y) line = l; else break; }
     const id = hereFromLine(S.payload, S.fileIndex, line);
@@ -557,6 +577,7 @@
     S.file = filePath;
     S.fileIndex = payload.files.indexOf(name);
     setTabMode(true);
+    S.barMax = 0;
     restyleHeadings();
     S.anchorsDirty = true;
     if (S.rootId === -1) { S.rootId = 0; $('kepanScope').value = '0'; }   // 選單初始在「全論」，不留空白
@@ -627,6 +648,10 @@
     // 圖片載入、字級調整等會改變標題位置
     if (typeof ResizeObserver === 'function' && $('markdownBody')) {
       new ResizeObserver(() => { S.anchorsDirty = true; }).observe($('markdownBody'));
+    }
+    // 地標列在正文之前、佔版面：它變高變矮時，所有標題的位置都跟著移動
+    if (typeof ResizeObserver === 'function' && $('kepanBar')) {
+      new ResizeObserver(() => { S.anchorsDirty = true; barHeight(); }).observe($('kepanBar'));
     }
     window.addEventListener('resize', () => { S.anchorsDirty = true; renderRows(); });
     document.addEventListener('click', e => {

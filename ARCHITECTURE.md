@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.21.0 | 最後更新：2026-11
+> 版本：v4.21.1 | 最後更新：2026-11
 
 ---
 
@@ -1031,7 +1031,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.21.0'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.21.1'` | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
@@ -1617,4 +1617,5 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **快速搜尋**（v4.21.0）：下拉選單下方的搜尋框，在整個科判系列裡找科判字（「丙一」）或科名（去空白與標點後比對，空白分隔的多個關鍵字須全部符合）。結果暫時取代樹，每筆附所屬的地、上一層科與層數；目前所在那一地的結果排前，科判字完全相同的排最前，最多列 200 筆。↑↓ 選、Enter 前往（預設第一筆）、Esc 清除；注音等輸入法選字中（`compositionstart`～`compositionend`、`keyCode 229`）不搜尋也不跳轉。點選後清除搜尋、回到樹並把該科所在主幹展開（解除使用者收起的上層），同時打開講記捲到該科。純函式 `normalizeQuery()`、`searchNodes()`。
 - **閱讀框**：頂端固定地標列（卷、地、《披尋記》頁、層數、全論位置）與從根到末端科的完整路徑（每層附「第幾／共幾科」）；底部前一科／後一科依科判順序跨卷換檔。講記中一行多層的科判標題改繪成由淺到深的階梯，行號錨點節點原封保留。
 - **接線**：`generateTOC()` 開頭呼叫 `MdwKepan.onDocumentRendered(state.currentFile)`；`goHome()` 呼叫 `onDocumentClosed()`；跨卷跳轉用 `window.mdwOpenFile(path, line)`。換檔期間舊文件的捲動事件不算數，載入後由側欄自己再捲到目標行一次（標題改繪會改變高度）。
+- **讓開地標列**（v4.21.1）：地標列是 `position: sticky` 且會換行、隨所在的科變高，跳轉一律扣掉它的實際高度。側欄點科、前後科用 `jumpScrollTop()`（先 `setHere()` 重繪列再量高）；`app.js` 的 `safeScrollToElement()`、`scrollToLine()`、`scrollToLineVirtual()` 用 `stickyTopInset()`，搜尋跳行後列才換高度時由 `ResizeObserver` 再對齊一次（1.5 秒內、使用者未動手）。捲動定位判定線 `spyLine()` 取本篇最高列高 + 28px，不隨列高來回跳。測試：`tests/test-kepan-jump-offset.test.js`。
 - **測試**：`tests/test-kepan.test.js`（抽取規則、資料夾快取、`/api/kepan` 端對端、側欄純函式、接線靜態檢查）。
