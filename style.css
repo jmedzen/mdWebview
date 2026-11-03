@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.14
+   mdWebview — Style System (style.css) v4.27.15
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11923,7 +11923,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.27.14）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.27.15）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
