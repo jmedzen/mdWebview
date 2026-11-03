@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.26.1
+   mdWebview — Style System (style.css) v4.27.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11801,18 +11801,54 @@ a.small-btn {
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
 .sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
 .kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
-/* 講輪切換（v4.25.0）：同一部經論講過多次，每輪一棵樹 */
-.kepan-rounds[hidden] { display: none !important; }
-.kepan-rounds { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
-.kepan-rounds-label { font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); margin-right: 2px; }
-.kepan-round {
-  padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
-  color: var(--text-secondary, var(--text-primary)); font-family: var(--cjk-serif), serif;
-  font-size: calc(var(--sidebar-font-size) * 12 / 13); line-height: 1.6; cursor: pointer; white-space: nowrap;
+/* 講輪選單（v4.27.0）：以講的內容分組，同一內容的幾講才比年份地點 */
+.kepan-rounds[hidden], .kepan-round-menu[hidden] { display: none !important; }
+.kepan-rounds { position: relative; margin-bottom: 6px; }
+.kepan-round-pick {
+  position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 8px; width: 100%;
+  padding: 6px 28px 6px 10px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary);
+  color: var(--text-primary); font-family: var(--cjk-serif), serif; line-height: 1.45;
 }
-.kepan-round:hover { background: var(--hover-bg); color: var(--text-primary); }
-.kepan-round.is-current { border-color: var(--accent); background: var(--accent); color: var(--bg-primary); cursor: default; }
-.kepan-round:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kepan-round-pick:hover { border-color: var(--accent); }
+.kepan-round-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kepan-round-pick[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.krp-k { grid-column: 1 / -1; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); letter-spacing: 0.05em; }
+.krp-k b { font-weight: normal; color: var(--text-secondary, var(--text-muted)); margin-left: 4px; }
+.krp-topic { grid-column: 1 / -1; font-size: var(--sidebar-font-size); font-weight: 600; overflow-wrap: anywhere; }
+.krp-meta { grid-column: 1 / -1; font-size: calc(var(--sidebar-font-size) * 12 / 13); color: var(--text-muted); }
+.krp-caret { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 1.1em; line-height: 1; }
+.kepan-round-pick[aria-expanded="true"] .krp-caret { transform: translateY(-50%) rotate(180deg); }
+.kepan-round-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30;
+  max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+.krm-group { padding: 6px 4px 4px; }
+.krm-group + .krm-group { border-top: 1px solid var(--border-subtle, var(--border)); }
+.krm-topic {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 0 6px 2px;
+  font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size); font-weight: 600; color: var(--text-primary);
+}
+.krm-badge {
+  font-size: calc(var(--sidebar-font-size) * 11 / 13); font-weight: normal; color: var(--text-secondary, var(--text-muted));
+  padding: 0 7px; border: 1px solid var(--border); border-radius: 999px;
+}
+.krm-sub { padding: 0 6px 2px; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); }
+.krm-item {
+  display: block; width: 100%; margin-top: 2px; padding: 5px 8px 5px 22px; text-align: left; cursor: pointer;
+  position: relative; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary);
+  font-family: var(--cjk-serif), serif; line-height: 1.45;
+}
+.krm-group:not(.is-multi) .krm-item { padding-top: 2px; }
+.krm-item:hover, .krm-item:focus-visible { background: var(--hover-bg); outline: none; }
+.krm-item.is-current { background: var(--bg-secondary); box-shadow: inset 3px 0 0 var(--accent); }
+.krm-item.is-current::before { content: '✓'; position: absolute; left: 7px; top: 5px; color: var(--accent); font-size: 0.85em; }
+.krm-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.krm-label { font-size: calc(var(--sidebar-font-size) * 12.5 / 13); }
+.krm-n { flex: none; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.krm-detail { display: block; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); overflow-wrap: anywhere; }
 /* 地標列的「另講」：同一科在其他講輪 */
 .kepan-alt { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .kepan-alt a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
