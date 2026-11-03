@@ -8,6 +8,9 @@ const os = require('os');
 const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+// 早安圖的磁碟快取（成品、背景縮圖）寫到暫存資料夾，不碰專案的 index/
+const SC_CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-sc-cache-'));
+process.env.SHARE_CARD_CACHE_DIR = SC_CACHE_DIR;
 const ShareCard = require('../share-card.js');
 const home = require('../lib/home');
 const sc = require('../lib/share-card-server');
@@ -202,11 +205,105 @@ describe('lib/share-card-server：伺服器畫圖', () => {
     x.fillRect(0, 0, 600, 400);
     const picAbs = path.join(tmp, 'bg.png');
     fs.writeFileSync(picAbs, c.toBuffer('image/png'));
-    sc._resetForTests();
+    await sc._resetForTests();
     const before = sc.decodeCount();
     const verse = { text: '應無所住，而生其心。', source: '金剛經' };
     await Promise.all(ShareCard.LAYOUTS.map(layout => sc.render({ layout, size: 'portrait', preview: true, verse, greeting: '早安', date: '2026-11-03', siteName: 's', host: '', picAbs })));
     assert.equal(sc.decodeCount() - before, 1);
+  });
+
+  test('背景縮圖大小：剛好蓋滿 1620×2025，不夠大的原圖不縮', () => {
+    const { bgVariantSize } = require('../lib/share-card-draw');
+    assert.deepEqual(bgVariantSize(4032, 2688), [3038, 2025]);
+    assert.deepEqual(bgVariantSize(2000, 4000), [1620, 3240]);
+    assert.equal(bgVariantSize(1700, 2100), null, '只大一點點不值得多存一份');
+    assert.equal(bgVariantSize(600, 400), null);
+  });
+
+  test('畫圖在工作執行緒；大背景圖第一次縮好存磁碟，重開後直接用縮圖', async (t) => {
+    if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
+    const { createCanvas, loadImage } = require('@napi-rs/canvas');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-piccard-big-'));
+    t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+    const c = createCanvas(4000, 3000);
+    const x = c.getContext('2d');
+    x.fillStyle = '#c8a46e';
+    x.fillRect(0, 0, 4000, 3000);
+    const picAbs = path.join(tmp, 'big.png');
+    fs.writeFileSync(picAbs, c.toBuffer('image/png'));
+    await sc._resetForTests({ disk: true });
+    const verse = { text: '心如工畫師，能畫諸世間。', source: '華嚴經' };
+    const base = { size: 'portrait', preview: true, verse, greeting: '早安', date: '2026-11-03', siteName: 's', host: '', picAbs };
+    const timing = {};
+    await sc.render({ ...base, layout: 'A' }, timing);
+    assert.equal(timing.cache, 'miss');
+    assert.equal(timing.thread, 'worker', '畫圖應該在工作執行緒');
+    assert.equal(sc.status().worker, true);
+    const bgDir = path.join(SC_CACHE_DIR, 'bg');
+    const variants = fs.readdirSync(bgDir).filter(n => n.endsWith('.jpg'));
+    assert.equal(variants.length, 1);
+    const v = await loadImage(fs.readFileSync(path.join(bgDir, variants[0])));
+    assert.deepEqual([v.width, v.height], [2700, 2025]);
+    assert.equal(sc.cacheStatus().bgVariantsMade, 1);
+    // 「重開機」：記憶體快取和執行緒都清掉，縮圖留在磁碟
+    await sc._resetForTests();
+    const before = sc.decodeCount();
+    const hitsBefore = sc.cacheStatus().bgVariantHits;
+    await sc.render({ ...base, layout: 'B' });
+    assert.equal(sc.decodeCount() - before, 1);
+    assert.equal(sc.cacheStatus().bgVariantHits - hitsBefore, 1, '應該解碼縮好的那份');
+    assert.equal(sc.cacheStatus().bgVariantsMade, 1, '不用再縮一次');
+  });
+
+  test('畫好的成品存在磁碟：重開後同樣參數直接讀檔，不再畫', async (t) => {
+    if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
+    await sc._resetForTests({ disk: true });
+    const opts = { layout: 'N', size: 'portrait', verse: { text: '若人欲了知，三世一切佛。', source: '' }, greeting: '吉祥', date: '2026-11-03', siteName: 's', host: '', qr: 'https://example.org/v/0123456789A' };
+    const first = await sc.render(opts);
+    await sc._resetForTests();
+    const timing = {};
+    const again = await sc.render(opts, timing);
+    assert.equal(timing.cache, 'disk');
+    assert.ok(Number.isFinite(timing.read));
+    assert.equal(timing.draw, undefined, '沒有重畫');
+    assert.ok(first.equals(again));
+    // 參數不同（問候）就是另一張
+    const other = {};
+    await sc.render({ ...opts, greeting: '法安' }, other);
+    assert.equal(other.cache, 'miss');
+  });
+
+  test('成品快取超過上限（SHARE_CARD_CACHE_MB）時刪掉最久沒用的', async (t) => {
+    if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
+    await sc._resetForTests({ disk: true });
+    process.env.SHARE_CARD_CACHE_MB = '0.3';
+    t.after(() => { delete process.env.SHARE_CARD_CACHE_MB; });
+    const verse = { text: '一切眾生皆有佛性。', source: '涅槃經' };
+    for (const layout of ShareCard.LAYOUTS) {
+      await sc.render({ layout, size: 'portrait', verse, greeting: '早安', date: '2026-11-03', siteName: 's', host: '' });
+    }
+    const outDir = path.join(SC_CACHE_DIR, 'out');
+    let total = 0, count = 0;
+    for (const sub of fs.readdirSync(outDir)) {
+      for (const name of fs.readdirSync(path.join(outDir, sub))) { total += fs.statSync(path.join(outDir, sub, name)).size; count++; }
+    }
+    assert.ok(total <= 0.3 * 1024 * 1024, `磁碟上 ${total} B 超過上限`);
+    assert.ok(count < ShareCard.LAYOUTS.length, '舊的應該被刪掉');
+    assert.ok(sc.cacheStatus().diskPruned > 0);
+  });
+
+  test('SHARE_CARD_WORKER=0 時改在主執行緒畫；SHARE_CARD_CACHE_DIR=off 不寫磁碟', async (t) => {
+    if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
+    await sc._resetForTests({ disk: true });
+    process.env.SHARE_CARD_WORKER = '0';
+    process.env.SHARE_CARD_CACHE_DIR = 'off';
+    t.after(() => { delete process.env.SHARE_CARD_WORKER; process.env.SHARE_CARD_CACHE_DIR = SC_CACHE_DIR; });
+    const timing = {};
+    const buf = await sc.render({ layout: 'C', size: 'og', verse: { text: '諸法從緣生。', source: '' }, greeting: '吉祥', date: '2026-11-03', siteName: 's', host: '' }, timing);
+    assert.equal(buf[0], 0xff);
+    assert.equal(timing.thread, 'main');
+    assert.equal(sc.cacheDir(), '');
+    assert.equal(fs.existsSync(path.join(SC_CACHE_DIR, 'out')), false);
   });
 
   test('同樣參數第二次直接用快取', async (t) => {
@@ -321,4 +418,9 @@ describe('首頁與伺服器接線', () => {
     assert.match(dockerfile, /Noto\+Serif\+TC/);
     assert.match(swJs, /'\/share-card\.js'/);
   });
+});
+
+after(async () => {
+  await sc.shutdown();
+  fs.rmSync(SC_CACHE_DIR, { recursive: true, force: true });
 });

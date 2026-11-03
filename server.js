@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.23.0
+ * @version 4.24.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -4511,7 +4511,9 @@ async function handleShareCardImage(req, res, query) {
 /** render() 填回的耗時 → Server-Timing 標頭。 */
 function shareCardServerTiming(t) {
   const parts = [`cache;desc="${t.cache || 'miss'}"`];
-  for (const k of ['decode', 'draw', 'encode']) if (Number.isFinite(t[k])) parts.push(`${k};dur=${t[k]}`);
+  // read = 從磁碟快取讀成品；decode／draw／encode = 真的畫了一張（thread = 在工作執行緒或主執行緒畫）
+  for (const k of ['read', 'decode', 'draw', 'encode']) if (Number.isFinite(t[k])) parts.push(`${k};dur=${t[k]}`);
+  if (t.thread) parts.push(`thread;desc="${t.thread}"`);
   return parts.join(', ');
 }
 
@@ -6310,7 +6312,7 @@ function setupGracefulShutdown() {
       // before a later flush would have run.
       flushAllSectionIndexSaves()
         .catch(err => Logger.error('Boot', 'Error flushing section-index caches during shutdown', err))
-        .then(() => terminateWorkerPools())
+        .then(() => Promise.all([terminateWorkerPools(), shareCardServer.shutdown()]))
         .catch(err => Logger.error('Boot', 'Error terminating worker pools during shutdown', err))
         .finally(() => {
           try { accountsDb.close(); } catch (err) { Logger.error('Boot', 'Error closing account database during shutdown', err); }
