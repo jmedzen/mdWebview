@@ -237,4 +237,40 @@ describe('第一批：瀏覽器實測', () => {
       assert.equal(await h.page.$eval('#kepanScope option', o => o.value), '0', '第一項仍是全文');
     } finally { await h.ctx.close(); }
   });
+
+  test('範圍選單預設「全文（不分組）」，讀到別段也不自動換；自己選過某段才記住（v4.27.12）', { skip }, async (t) => {
+    const h = await open(t, { width: 1280, height: 800 }, 3000); if (!h) return;
+    try {
+      const r = await h.page.evaluate(() => ({ v: document.getElementById('kepanScope').value, here: window.MdwKepan._state.hereId }));
+      assert.ok(r.here > 0, '應標出目前所在的科');
+      assert.equal(r.v, '0', '開檔時範圍應是全文（不分組）');
+      // 舊版存的 all:false（分不出是否選過）也當沒選過
+      await h.page.evaluate(() => {
+        const all = JSON.parse(localStorage.getItem('mdw-kepan-v1') || '{}');
+        for (const k of Object.keys(all)) all[k] = { open: [], all: false };
+        localStorage.setItem('mdw-kepan-v1', JSON.stringify(all));
+      });
+      await h.page.reload({ waitUntil: 'networkidle' });
+      await h.page.waitForFunction(() => { const b = document.getElementById('kepanBar'); return b && !b.hidden && document.getElementById('kepanPath').children.length > 0; }, null, { timeout: 20000 });
+      await h.page.waitForTimeout(1500);
+      assert.equal(await h.page.$eval('#kepanScope', s => s.value), '0', '舊版 all:false 也預設全文');
+      // 讀者自己選了某一段：記住，重開仍是分段
+      const pick = await h.page.$eval('#kepanScope', s => s.options[2].value);
+      await h.page.$eval('#kepanScope', (s, v) => { s.value = v; s.dispatchEvent(new Event('change')); }, pick);
+      await h.page.waitForTimeout(200);
+      await h.page.reload({ waitUntil: 'networkidle' });
+      await h.page.waitForFunction(() => { const b = document.getElementById('kepanBar'); return b && !b.hidden && document.getElementById('kepanPath').children.length > 0; }, null, { timeout: 20000 });
+      await h.page.waitForTimeout(1500);
+      await h.page.waitForTimeout(800);
+      assert.notEqual(await h.page.$eval('#kepanScope', s => s.value), '0', '選過某段後重開，仍照讀者的選擇分段');
+      // 改回全文也記住
+      await h.page.$eval('#kepanScope', s => { s.value = '0'; s.dispatchEvent(new Event('change')); });
+      await h.page.waitForTimeout(200);
+      await h.page.reload({ waitUntil: 'networkidle' });
+      await h.page.waitForFunction(() => { const b = document.getElementById('kepanBar'); return b && !b.hidden && document.getElementById('kepanPath').children.length > 0; }, null, { timeout: 20000 });
+      await h.page.waitForTimeout(1500);
+      assert.equal(await h.page.$eval('#kepanScope', s => s.value), '0');
+      assert.deepEqual(h.errors.filter(m => !/serviceWorker/.test(m)), []);
+    } finally { await h.ctx.close(); }
+  });
 });
