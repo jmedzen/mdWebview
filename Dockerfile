@@ -16,7 +16,7 @@ RUN mkdir -p /app/fonts && for w in 500 700 900; do \
     done
 
 # Copy all essential application files
-COPY server.js app.js library-sync.js highlights.js share-card.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
+COPY server.js app.js library-sync.js highlights.js kepan-sidebar.js share-card.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
 COPY lib/ ./lib/
 COPY i18n/ ./i18n/
 COPY vendor/ ./vendor/
