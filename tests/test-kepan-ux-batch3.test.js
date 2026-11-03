@@ -48,15 +48,15 @@ describe('其餘項目：接線', () => {
     assert.match(CSS, /\.kepan-toggle::after \{ content: ''; position: absolute; inset:/);
   });
 
-  test('B6：樹頂一次性提示，可關掉並記住', () => {
-    assert.match(HTML, /id="kepanHint"[^>]*hidden/);
+  test('B6：操作說明改成搜尋框旁的「?」小鈕，按了才出現小卡，沒有常駐、要按「知道了」的提示條（v4.28.0）', () => {
+    assert.match(HTML, /id="kepanHelpBtn"/);
+    assert.match(HTML, /id="kepanHelp"[^>]*hidden/);
+    assert.doesNotMatch(HTML, /id="kepanHint"/);
+    assert.doesNotMatch(JS, /data-hint-ok|kepan-hint-ok/);
     assert.match(JS, /HINT_STORE = 'mdw-kepan-hint-done'/);
     assert.match(JS, /雙擊/);
-  });
-
-  test('B6：按「知道了」真的會隱藏（.kepan-hint 有 display:flex，[hidden] 要用 !important 蓋過；v4.27.10）', () => {
-    const rule = CSS.split('\n').find(l => l.includes('.kepan-hint[hidden]'));
-    assert.ok(rule && /display: none !important/.test(rule));
+    assert.match(JS, /e\.key === 'Escape' && !box\.hidden/);
+    assert.ok(CSS.split('\n').some(l => l.includes('.kepan-help[hidden]') && /display: none !important/.test(l)));
     assert.ok(CSS.split('\n').some(l => l.includes('.kepan-none[hidden]') && /display: none !important/.test(l)));
   });
 

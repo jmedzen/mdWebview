@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.12
+   mdWebview — Style System (style.css) v4.28.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11799,8 +11799,8 @@ a.small-btn {
 /* ── 科判側欄（v4.21.0，kepan-sidebar.js）────────────────────
    科判系列的講記：側欄「科判」分頁取代「大綱」，閱讀框頂端有地標與完整路徑，
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
-.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden], .kepan-hint[hidden], .kepan-none[hidden] { display: none !important; }
-.kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden], .kepan-help[hidden], .kepan-none[hidden] { display: none !important; }
+.kepan-scope { position: relative; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
 #panelKepan.is-none .kepan-scope, #panelKepan.is-none .kepan-tree, #panelKepan.is-none .kepan-results, #panelKepan.is-none .kepan-toast { display: none !important; }
 /* 本篇沒有科判（v4.27.12）：說明並列出本經有科判的講次 */
 .kepan-none { padding: 14px 14px 18px; font-size: var(--sidebar-font-size); color: var(--text-secondary, var(--text-muted)); }
@@ -11923,17 +11923,41 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-#panelKepan.is-none .kepan-hint { display: none !important; }
-.kepan-hint {
-  display: flex; align-items: center; gap: 8px; margin: 6px 10px 0; padding: 6px 8px 6px 10px; border-radius: 8px;
-  background: var(--accent-dim, var(--bg-tertiary, var(--border-subtle))); color: var(--text-secondary, var(--text-muted));
-  font-size: calc(var(--sidebar-font-size) * 12 / 13); line-height: 1.5;
+/* 操作說明（v4.28.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+.kepan-search .sidebar-filter-input { padding-right: 26px; }
+.kepan-search .sidebar-filter-clear { right: 38px; }
+.kepan-help-btn {
+  position: relative; flex: none; width: 28px; height: 28px; margin-left: 6px; padding: 0;
+  display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%;
+  background: var(--bg-secondary); color: var(--text-muted); cursor: pointer;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-.kepan-hint b { color: var(--accent); }
-.kepan-hint-ok {
-  flex: none; margin-left: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg-primary); color: var(--text-primary); font: inherit; cursor: pointer;
+.kepan-help-btn:hover, .kepan-help-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.kepan-help-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kepan-help-btn.is-new::after {
+  content: ''; position: absolute; top: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg-secondary);
 }
+@media (hover: none) { .kepan-help-btn::before { content: ''; position: absolute; inset: -8px; } }
+.kepan-help {
+  position: absolute; left: 10px; right: 10px; top: calc(100% - 4px); z-index: 30;
+  padding: 8px 12px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  font-size: calc(var(--sidebar-font-size) * 12.5 / 13); line-height: 1.5;
+}
+.kepan-help::before {
+  content: ''; position: absolute; top: -6px; right: 23px; width: 10px; height: 10px; transform: rotate(45deg);
+  background: var(--bg-primary); border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+}
+.kepan-help-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-weight: 600; }
+.kepan-help-close {
+  width: 24px; height: 24px; margin-right: -6px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13px;
+}
+.kepan-help-close:hover { background: var(--hover-bg); color: var(--text-primary); }
+.kepan-help-list { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+.kepan-help-list dt { color: var(--accent); white-space: nowrap; }
+.kepan-help-list dd { margin: 0; color: var(--text-secondary, var(--text-muted)); }
 .kepan-hit-level { margin-left: 6px; opacity: .75; font-size: .92em; }
 .kepan-count { flex: none; font-size: 10.5px; color: var(--text-muted); font-family: -apple-system, sans-serif; }
 
