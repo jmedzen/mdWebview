@@ -8,7 +8,7 @@
  *   - 前 5 層正常縮排，更深的每層只縮 3px，四十層也放得進側欄寬度。
  *   - 可展開的科是帶框的 ＋／− 按鈕；末端科是書頁圖示，點了就讀。
  *   - 下拉選單下方有快速搜尋（v4.21.0）：輸入科判字或科名，結果暫時取代樹，點選即前往。
- *   - 閱讀框頂端有地標列（卷、地、層數、在整棵樹的位置）與從根到末端科的完整路徑；
+ *   - 閱讀框頂端有地標列（卷、層數、在整棵樹的位置）與從根到末端科的完整路徑；
  *     底部有前一科／後一科（沿用辭典前一條／後一條的浮動膠囊，按鈕上寫前後科科名），跨卷時自動換檔。
  *
  * 多講輪（v4.25.0）：同一部經論講過多次時，伺服器每輪給一棵樹（payload.rounds 列出各輪）。
@@ -501,7 +501,6 @@
   function renderBar() {
     const { N } = S, id = S.hereId;
     if (!id) return;
-    const sc = scopeOf(N, id, S.scopeDepth);
     const juan = juanOf(document.title);
     const pct = Math.round(id / (N.length - 1) * 100);
     const P = S.payload;
@@ -511,7 +510,6 @@
       + '</span>' : '';
     $('kepanLandmark').innerHTML =
       (juan ? `<span>卷${esc(juan)}</span>` : '')
-      + (sc ? `<b>${esc(N[sc].m + ' ' + N[sc].t)}</b>` : '')
       + (N[id].pg ? `<span>《披尋記》p.${N[id].pg}</span>` : '')
       + `<span>第 ${N[id].d + 1} 層</span>`
       + `<span class="kepan-progress" title="在「${esc(P.title)}」中的位置"><i style="width:${pct}%"></i></span><span>${pct}%</span>`
