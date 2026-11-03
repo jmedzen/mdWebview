@@ -5169,7 +5169,7 @@
     setupVirtualScroll();
     updateEntryNav();
     setTimeout(() => saveReadProgress(filePath), 350);
-    // 大檔（≥1 MB）也走科判側欄：一般檔是在 generateTOC 裡通知，虛擬捲動不經過那裡（v4.27.12）
+    // 大檔（≥1 MB）也走科判側欄：一般檔是在 generateTOC 裡通知，虛擬捲動不經過那裡（v4.27.13）
     if (!filePath.startsWith('dict:') && window.MdwKepan && typeof window.MdwKepan.onDocumentRendered === 'function') {
       window.MdwKepan.onDocumentRendered(filePath);
     }
