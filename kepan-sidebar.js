@@ -280,6 +280,27 @@
     return width <= 768 ? 2 : 3;
   }
 
+  /**
+   * 講次按鈕上的字（v4.27.8）。
+   * @returns {{ content: string, round: string, count: string, title: string }}
+   *   content：分好幾段內容時才有（目前這一段的內容名），round：目前講次，count：同一內容共幾講
+   */
+  function roundPickerLabel(payload) {
+    const rounds = (payload && payload.rounds) || [];
+    const groups = roundGroups(payload);
+    const cur = payload ? payload.roundIndex : -1, cr = rounds[cur] || {};
+    const cg = groups.find(g => g.rounds.includes(cur)) || { topic: cr.label || '', rounds: [cur] };
+    const multi = groups.length > 1;
+    return {
+      content: multi ? cg.topic : '',
+      round: cr.label || '',
+      count: cg.rounds.length > 1 ? `共 ${cg.rounds.length} 講` : '',
+      title: multi
+        ? `這部經論有 ${groups.length} 段內容、共講過 ${rounds.length} 次；點此換內容或講次`
+        : `這部經論講過 ${rounds.length} 次；點此換講次`,
+    };
+  }
+
   const DOUBLE_TAP_MS = 260;
 
   const api = {
@@ -287,7 +308,7 @@
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
-    navTargets, navLabel, roundDetail, roundGroups, scopeOptions, pathKeep,
+    navTargets, navLabel, roundDetail, roundGroups, scopeOptions, pathKeep, roundPickerLabel,
   };
   if (typeof document === 'undefined') return api;
 
@@ -330,14 +351,14 @@
     const name = parts.pop().replace(/\.md$/i, '');
     const dir = parts.join('/');
     let c = payloadCache.get(dir);
-    if (!c) payloadCache.set(dir, (c = { list: [], none: new Set(), wait: new Map() }));
+    if (!c) payloadCache.set(dir, (c = { list: [], none: new Set(), near: new Map(), wait: new Map() }));
     const known = c.list.find(p => p.files.includes(name) || p.toc === name);
     if (known) return known;
     if (c.none.has(name)) return null;
     if (c.wait.has(name)) return c.wait.get(name);
     const p = fetch('/api/kepan?path=' + encodeURIComponent(filePath))
       .then(r => (r.ok ? r.json() : { kepan: null }))
-      .then(j => j.kepan || null)
+      .then(j => { if (j.nearby) c.near.set(name, j.nearby); return j.kepan || null; })
       .catch(() => null)
       .then(v => {
         c.wait.delete(name);
@@ -354,18 +375,40 @@
   }
 
   // ── 側欄分頁：科判系列時以「科判」取代「大綱」 ──
-  function setTabMode(on) {
+  // mode：true 科判系列；false 不是；'none' 本篇沒有科判標題、但同一部經的其他講次有（v4.27.8：
+  // 科判與大綱兩個分頁都留著，科判分頁裡說明並列出可去的講次）
+  function setTabMode(mode) {
+    const on = mode === true, none = mode === 'none';
     const kTab = document.querySelector('.sidebar-tab[data-tab="kepan"]');
     const tTab = document.querySelector('.sidebar-tab[data-tab="toc"]');
     if (!kTab || !tTab) return;
     const active = document.querySelector('.sidebar-tab.active');
-    kTab.hidden = !on;
+    kTab.hidden = !on && !none;
     tTab.hidden = on;
     if (on && active === tTab) kTab.click();
-    if (!on && active === kTab) tTab.click();
+    if (!on && !none && active === kTab) tTab.click();
     $('kepanBar').hidden = !on;
     $('kepanNav').hidden = !on;
     document.body.classList.toggle('has-kepan', on);
+    const panel = $('panelKepan');
+    if (panel) panel.classList.toggle('is-none', none);
+    if ($('kepanNone')) $('kepanNone').hidden = !none;
+  }
+
+  /** 本篇沒有科判：說明，並列出本經有科判的講次（點了開那一講的第一篇） */
+  function renderNone(near) {
+    const box = $('kepanNone');
+    if (!box) return;
+    const list = (near.others || []).map(o =>
+      `<button type="button" class="kepan-none-item" data-none-file="${esc(o.file)}">`
+      + `<span class="kni-label">${esc(o.label)}</span>`
+      + (o.topic && o.topic !== o.label ? `<span class="kni-topic">${esc(o.topic)}</span>` : '')
+      + `<span class="kni-n">${o.n} 科</span></button>`).join('');
+    box.innerHTML = `<p class="kepan-none-msg">本篇沒有科判標題。</p>`
+      + `<p class="kepan-none-sub">《${esc(near.title)}》以下講次有科判，可以切過去看：</p>`
+      + `<div class="kepan-none-list">${list}</div>`
+      + `<p class="kepan-none-tip">本篇的段落請看「大綱」分頁。</p>`;
+    box.dataset.dir = near.dir || '';
   }
 
   // ── 側欄樹 ──
@@ -412,10 +455,7 @@
     box.hidden = rounds.length < 2;
     if (rounds.length < 2) { box.innerHTML = ''; return; }
     const groups = roundGroups(P);
-    const cur = P.roundIndex, cr = rounds[cur] || {};
-    const cg = groups.find(g => g.rounds.includes(cur)) || { topic: cr.label, rounds: [cur] };
-    const nTopics = groups.length;
-    const meta = cg.rounds.length > 1 ? `${esc(cr.label)}・同一內容 ${cg.rounds.length} 講` : esc(cr.label);
+    const cur = P.roundIndex;
     let menu = '';
     for (const g of groups) {
       const multi = g.rounds.length > 1;
@@ -431,10 +471,13 @@
       }
       menu += '</div>';
     }
-    box.innerHTML = `<button type="button" class="kepan-round-pick" id="kepanRoundPick" aria-haspopup="menu" aria-expanded="false" aria-controls="kepanRoundMenu" title="這部經論講過 ${rounds.length} 次，分 ${nTopics} 段內容；點此切換">`
-      + `<span class="krp-k">講次 <b>${nTopics > 1 ? `${groups.indexOf(cg) + 1}／${nTopics} 段` : `${rounds.length} 講`}</b></span>`
-      + `<span class="krp-topic">${esc(cg.topic)}</span>`
-      + `<span class="krp-meta">${meta}</span>`
+    // 按鈕（v4.27.8）：只有一段內容時一行「講次 2002–2003・共 2 講」；
+    // 分好幾段內容（摩訶般若各品）時兩行，分別標「內容」與「講次」，不再寫「1／5 段」
+    const pl = roundPickerLabel(P);
+    box.innerHTML = `<button type="button" class="kepan-round-pick${pl.content ? '' : ' is-compact'}" id="kepanRoundPick" aria-haspopup="menu" aria-expanded="false" aria-controls="kepanRoundMenu" title="${esc(pl.title)}">`
+      + (pl.content ? `<span class="krp-row"><span class="krp-k">內容</span><span class="krp-topic">${esc(pl.content)}</span></span>` : '')
+      + `<span class="krp-row"><span class="krp-k">講次</span><span class="krp-value">${esc(pl.round)}</span>`
+      + (pl.count ? `<span class="krp-meta">${esc(pl.count)}</span>` : '') + '</span>'
       + `<span class="krp-caret" aria-hidden="true">⌄</span></button>`
       + `<div class="kepan-round-menu" id="kepanRoundMenu" role="menu" aria-label="選擇講次" hidden>${menu}</div>`;
   }
@@ -724,7 +767,7 @@
     S.active = ids.length ? 0 : -1;
     const { N } = S;
     let html = `<div class="kepan-results-head" role="presentation">`
-      + (total ? `找到 ${total} 科${S.rootId && inScope && inScope < total ? `（本地 ${inScope}）` : ''}${total > ids.length ? `，先列 ${ids.length} 科` : ''}` : '沒有符合的科名')
+      + (total ? `找到 ${total} 科${S.rootId && inScope && inScope < total ? `（目前範圍內 ${inScope}）` : ''}${total > ids.length ? `，先列 ${ids.length} 科` : ''}` : '沒有符合的科名')
       + `<span class="kepan-results-keys">Enter 前往・Esc 清除</span></div>`;
     ids.forEach((id, i) => {
       const n = N[id], sc = scopeOf(N, id, S.scopeDepth), par = n.p > 0 ? N[n.p] : null;
@@ -822,7 +865,14 @@
     if (!filePath || filePath.startsWith('dict:')) { setTabMode(false); return; }
     const payload = await fetchPayload(filePath);
     if (token !== S.loadToken) return;
-    if (!payload) { setTabMode(false); S.payload = null; return; }
+    if (!payload) {
+      const parts = filePath.split('/'), nm = parts.pop().replace(/\.md$/i, '');
+      const c = payloadCache.get(parts.join('/'));
+      const near = c && c.near.get(nm);
+      S.payload = null;
+      if (near) { renderNone(near); setTabMode('none'); } else setTabMode(false);
+      return;
+    }
     const name = filePath.split('/').pop().replace(/\.md$/i, '');
     if (S.payload !== payload) {
       S.payload = payload;
@@ -922,6 +972,15 @@
       if ($('kepanSearch') && $('kepanSearch').value.trim()) runSearch();   // 換地後「本地」排序跟著變
     });
     initSearch();
+    if ($('kepanNone')) {
+      $('kepanNone').addEventListener('click', e => {
+        const b = e.target.closest('[data-none-file]');
+        if (!b || typeof window.mdwOpenFile !== 'function') return;
+        const dir = $('kepanNone').dataset.dir;
+        window.mdwOpenFile((dir ? dir + '/' : '') + b.dataset.noneFile + '.md');
+        if (window.innerWidth <= 768 && typeof window.mdwCloseMobileSidebars === 'function') window.mdwCloseMobileSidebars();
+      });
+    }
     if ($('kepanRounds')) {
       const box = $('kepanRounds');
       box.addEventListener('click', e => {
