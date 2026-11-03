@@ -239,32 +239,22 @@
   }
 
   /**
-   * 講輪選單的一行說明（v4.27.0）：手寫的 round_note 優先；同一內容有幾講時寫這輪多講的科；
-   * 只有這一講時寫最上層的科（綱要）。
+   * 講次選單的一行說明：只顯示 frontmatter round_note 手寫的說明（v4.27.1 起不再自動摘要內容）。
    * @param {object} r - payload.rounds 的一項
-   * @param {boolean} shared - 同組有其他講
    * @returns {string}
    */
-  function roundDetail(r, shared) {
-    if (!r) return '';
-    if (r.note) return r.note;
-    if (shared && r.only && r.only.length) {
-      return '多講 ' + r.only.map(t => `「${t}」`).join('') + (r.onlyN > r.only.length ? ` 等 ${r.onlyN} 科` : '');
-    }
-    if (!shared && r.tops && r.tops.length) {
-      return '綱要：' + r.tops.join('、') + (r.topsN > r.tops.length ? ` 等 ${r.topsN} 科` : '');
-    }
-    return '';
+  function roundDetail(r) {
+    return (r && r.note) || '';
   }
 
   /**
-   * 講輪選單的分組。伺服器有 roundGroups 就照用；舊快取沒有時每輪自成一組、以年份地點為題。
-   * @returns {{ topic: string, rounds: number[], also: number[], marks: string[] }[]}
+   * 講次選單的分組。伺服器有 roundGroups 就照用；舊快取沒有時每輪自成一組、以年份地點為題。
+   * @returns {{ topic: string, rounds: number[] }[]}
    */
   function roundGroups(payload) {
     const rounds = (payload && payload.rounds) || [];
     if (payload && Array.isArray(payload.roundGroups) && payload.roundGroups.length) return payload.roundGroups;
-    return rounds.map((r, i) => ({ topic: r.topic || r.label, rounds: [i], also: [], marks: [] }));
+    return rounds.map((r, i) => ({ topic: r.topic || r.label, rounds: [i] }));
   }
 
   const DOUBLE_TAP_MS = 260;
@@ -389,7 +379,7 @@
     $('kepanSpacer').innerHTML = html;
   }
 
-  // 講輪選單（v4.27.0）：以「講的內容」為主分組，同一內容才列出年份地點來選；只有一輪時不顯示
+  // 講次選單（v4.27.0；v4.27.1 改稱講次、拿掉自動摘要）：以「講的內容」為主分組，同一內容才列出年份地點來選；只有一輪時不顯示
   function renderRounds() {
     const box = $('kepanRounds'), P = S.payload;
     if (!box) return;
@@ -398,20 +388,18 @@
     if (rounds.length < 2) { box.innerHTML = ''; return; }
     const groups = roundGroups(P);
     const cur = P.roundIndex, cr = rounds[cur] || {};
-    const cg = groups.find(g => g.rounds.includes(cur)) || { topic: cr.label, rounds: [cur], also: [], marks: [] };
+    const cg = groups.find(g => g.rounds.includes(cur)) || { topic: cr.label, rounds: [cur] };
     const nTopics = groups.length;
     const meta = cg.rounds.length > 1 ? `${esc(cr.label)}・同一內容 ${cg.rounds.length} 講` : esc(cr.label);
     let menu = '';
     for (const g of groups) {
       const multi = g.rounds.length > 1;
       menu += `<div class="krm-group${multi ? ' is-multi' : ''}" role="group" aria-label="${esc(g.topic)}">`
-        + `<div class="krm-topic"><span>${esc(g.topic)}</span>${multi ? `<span class="krm-badge">同一內容 ${g.rounds.length} 講</span>` : ''}</div>`
-        + (g.marks && g.marks.length ? `<div class="krm-sub">科判：${esc(g.marks.join('、'))}…</div>` : '')
-        + (g.also && g.also.length ? `<div class="krm-sub">${esc(g.also.map(i => rounds[i].label).join('、'))} 也講到這段</div>` : '');
+        + `<div class="krm-topic"><span>${esc(g.topic)}</span>${multi ? `<span class="krm-badge">同一內容 ${g.rounds.length} 講</span>` : ''}</div>`;
       for (const i of g.rounds) {
         const r = rounds[i], on = i === cur;
         const size = `${r.n} 科` + (r.k > 1 ? `・${r.k} 篇` : '');
-        const detail = roundDetail(r, multi);
+        const detail = roundDetail(r);
         menu += `<button type="button" class="krm-item${on ? ' is-current' : ''}" data-round="${i}" role="menuitemradio" aria-checked="${on}">`
           + `<span class="krm-line"><span class="krm-label">${esc(r.label)}</span><span class="krm-n">${size}</span></span>`
           + (detail ? `<span class="krm-detail">${esc(detail)}</span>` : '') + '</button>';
@@ -419,11 +407,11 @@
       menu += '</div>';
     }
     box.innerHTML = `<button type="button" class="kepan-round-pick" id="kepanRoundPick" aria-haspopup="menu" aria-expanded="false" aria-controls="kepanRoundMenu" title="這部經論講過 ${rounds.length} 次，分 ${nTopics} 段內容；點此切換">`
-      + `<span class="krp-k">講輪 <b>${nTopics > 1 ? `${groups.indexOf(cg) + 1}／${nTopics} 段` : `${rounds.length} 講`}</b></span>`
+      + `<span class="krp-k">講次 <b>${nTopics > 1 ? `${groups.indexOf(cg) + 1}／${nTopics} 段` : `${rounds.length} 講`}</b></span>`
       + `<span class="krp-topic">${esc(cg.topic)}</span>`
       + `<span class="krp-meta">${meta}</span>`
       + `<span class="krp-caret" aria-hidden="true">⌄</span></button>`
-      + `<div class="kepan-round-menu" id="kepanRoundMenu" role="menu" aria-label="選擇講輪" hidden>${menu}</div>`;
+      + `<div class="kepan-round-menu" id="kepanRoundMenu" role="menu" aria-label="選擇講次" hidden>${menu}</div>`;
   }
 
   function setRoundMenu(open) {
@@ -518,7 +506,7 @@
     const pct = Math.round(id / (N.length - 1) * 100);
     const P = S.payload;
     const a = altFor(P, N, id);
-    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講輪' : `上層「${N[a.id].m} ${N[a.id].t}」在其他講輪`)}">另講`
+    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講次' : `上層「${N[a.id].m} ${N[a.id].t}」在其他講次`)}">另講`
       + a.hits.map(h => `<a href="#" data-alt-round="${h[0]}" data-alt-id="${h[3]}" data-alt-file="${esc(h[1])}" data-alt-line="${h[2]}">${esc(P.rounds[h[0]].label)}</a>`).join('')
       + '</span>' : '';
     $('kepanLandmark').innerHTML =
