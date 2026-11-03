@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.1
+   mdWebview — Style System (style.css) v4.27.2
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11910,7 +11910,6 @@ a.small-btn {
   font-size: calc(var(--ui-font-scale, 1) * 12.5px); color: var(--text-muted);
 }
 .kepan-landmark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.kepan-landmark b { color: var(--text-primary); font-weight: 600; }
 .kepan-progress { width: 120px; height: 4px; border-radius: 2px; background: var(--bg-tertiary, var(--border-subtle)); overflow: hidden; }
 .kepan-progress i { display: block; height: 100%; background: var(--accent); }
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
