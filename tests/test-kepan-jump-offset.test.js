@@ -237,6 +237,26 @@ describe('科判跳轉讓開黏性地標列：瀏覽器實測', () => {
       } finally { await h.ctx.close(); }
     });
 
+    test(`${name}：浮動膠囊對齊閱讀區正中（側欄開或收都一樣）`, { skip }, async (t) => {
+      const h = await open(t, viewport); if (!h) return;
+      try {
+        const offset = () => h.page.evaluate(() => {
+          const c = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return (r.left + r.right) / 2; };
+          return { off: c('kepanNav') - c('content'), contentLeft: document.getElementById('content').getBoundingClientRect().left };
+        });
+        const a = await offset();
+        assert.ok(Math.abs(a.off) <= 1, `膠囊偏離閱讀區中心 ${a.off}px`);
+        if (viewport.width > 768) {
+          assert.ok(a.contentLeft > 100, '桌機側欄打開時閱讀區應在側欄右邊');
+          await h.page.click('#sidebarToggle');
+          await h.page.waitForTimeout(900);
+          const b = await offset();
+          assert.ok(b.contentLeft < a.contentLeft, '收起側欄後閱讀區應左移');
+          assert.ok(Math.abs(b.off) <= 1, `收起側欄後膠囊偏離閱讀區中心 ${b.off}px`);
+        }
+      } finally { await h.ctx.close(); }
+    });
+
     test(`${name}：從搜尋（?line=）跳進科判講記，標題不被地標列遮住`, { skip }, async (t) => {
       if (!browser) { t.skip('無法啟動 Chromium'); return; }
       // 找講記T2 後段某個戊科標題的行號
