@@ -134,7 +134,8 @@
   function headingSegments(text) {
     const NUM = '[一二三四五六七八九十]+';
     return String(text).replace(/ /g, ' ').trim()
-      .split(new RegExp(`[\\s\\u3000]+(?=\\S${NUM}、?)|(?<=科）)(?=\\S${NUM}、)`))
+      .split(new RegExp(`[\\s\\u3000]+(?=\\S${NUM}、?)|(?<=科）)(?=\\S${NUM}、)|(?<=[；;])(?=[甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥天地玄黃宇宙洪荒日月盈昃宿列張寒來暑往秋收冬藏已]${NUM}、?)`))
+      .map(s => s.replace(/[；;]+$/, ''))
       .map(s => {
         const m = s.match(new RegExp(`^(\\S)(${NUM})、?(.*?)(?:（(分${NUM}科)）)?$`));
         return m ? { mark: m[1] + m[2], title: m[3], split: m[4] || '' } : { mark: '', title: s, split: '' };
@@ -420,18 +421,54 @@
     } catch (_) { /* 私密模式：每次都換也無妨 */ }
   }
 
-  // 樹頂一次性的操作提示（v4.27.9）：雙擊展開原本只寫在滑過提示裡，觸控裝置看不到
+  // 操作說明（v4.27.13）：原本樹頂有一條要按「知道了」才收的提示（v4.27.9），在私密瀏覽、
+  // localStorage 被擋或舊快取時每次都冒出來、關不掉。改成搜尋框旁的「?」小鈕：
+  // 說明只在按了才出現，點別處／Esc／再按一次就收；從沒看過的人鈕上有個小點，看過一次就不再有。
+  // 記不住（私密模式）也只是多一個小點，不擋樹。
   const HINT_STORE = 'mdw-kepan-hint-done';
+  function hintSeen() {
+    try { return localStorage.getItem(HINT_STORE) === '1'; } catch (_) { return false; }
+  }
+  function helpHtml(touch) {
+    const rows = [
+      ['點科名', '跳到那一科閱讀'],
+      [touch ? '點 ＋／−，或連點兩下' : '點 ＋／−，或雙擊', '展開、收合子科'],
+      ['搜尋框', '打科名或科判字（如 丙一）'],
+      ['範圍選單', '只看其中一段，或全文'],
+    ];
+    if (!touch) rows.push(['鍵盤 [ ／ ]', '前一科／後一科']);
+    return '<div class="kepan-help-head"><span>科判樹怎麼用</span>'
+      + '<button type="button" class="kepan-help-close" data-help-close aria-label="關閉說明">✕</button></div>'
+      + '<dl class="kepan-help-list">' + rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('') + '</dl>';
+  }
   function renderHint() {
-    const box = $('kepanHint');
-    if (!box) return;
-    let done = false;
-    try { done = localStorage.getItem(HINT_STORE) === '1'; } catch (_) { done = false; }
-    box.hidden = done;
-    if (done) return;
-    const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
-    box.innerHTML = `<span>點科名閱讀；點 <b>＋</b>${touch ? '或連點兩下' : '或雙擊'}展開、收合。</span>`
-      + `<button type="button" class="kepan-hint-ok" data-hint-ok>知道了</button>`;
+    const btn = $('kepanHelpBtn');
+    if (btn) btn.classList.toggle('is-new', !hintSeen());
+  }
+  function setHelp(open) {
+    const btn = $('kepanHelpBtn'), box = $('kepanHelp');
+    if (!btn || !box) return;
+    if (open) {
+      const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+      box.innerHTML = helpHtml(touch);
+      try { localStorage.setItem(HINT_STORE, '1'); } catch (_) { /* 記不住也無妨 */ }
+      btn.classList.remove('is-new');
+    }
+    box.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function initHelp() {
+    const btn = $('kepanHelpBtn'), box = $('kepanHelp');
+    if (!btn || !box) return;
+    renderHint();
+    btn.addEventListener('click', e => { e.stopPropagation(); setHelp(box.hidden); });
+    box.addEventListener('click', e => { if (e.target.closest('[data-help-close]')) { setHelp(false); btn.focus(); } });
+    document.addEventListener('click', e => {
+      if (!box.hidden && !box.contains(e.target) && e.target !== btn) setHelp(false);
+    }, true);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !box.hidden) { setHelp(false); btn.focus(); }
+    });
   }
 
   /** 本篇沒有科判：說明，並列出本經有科判的講次（點了開那一講的第一篇） */
@@ -734,7 +771,9 @@
     }
     const id = hereFromLine(S.payload, S.fileIndex, line);
     // 剛點選的上層科與子科共用同一行標題時，保留點選的那一層
-    if (S.pendingHere && (id === S.pendingHere || ancestors(S.N, id).includes(S.pendingHere))) {
+    // 同一行並列的多個終端科（共用一段文）也算：點了「辛一」不要被改回同行最後的「辛二」
+    const sameLine = S.pendingHere && S.N[id] && S.N[S.pendingHere] && S.N[id].f === S.N[S.pendingHere].f && S.N[id].l === S.N[S.pendingHere].l;
+    if (S.pendingHere && (id === S.pendingHere || sameLine || ancestors(S.N, id).includes(S.pendingHere))) {
       if (S.N[S.pendingHere].l === line || !line) return setHere(S.pendingHere, true);
     }
     S.pendingHere = 0;
@@ -1020,13 +1059,7 @@
       if ($('kepanSearch') && $('kepanSearch').value.trim()) runSearch();   // 換地後「本地」排序跟著變
     });
     initSearch();
-    if ($('kepanHint')) {
-      $('kepanHint').addEventListener('click', e => {
-        if (!e.target.closest('[data-hint-ok]')) return;
-        try { localStorage.setItem(HINT_STORE, '1'); } catch (_) { /* 只關這次 */ }
-        $('kepanHint').hidden = true;
-      });
-    }
+    initHelp();
     // 鍵盤 [ ／ ]：前一科／後一科（v4.27.9；不在輸入框、不帶修飾鍵時）
     document.addEventListener('keydown', e => {
       if (e.key !== '[' && e.key !== ']') return;

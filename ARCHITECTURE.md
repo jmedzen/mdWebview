@@ -1,8 +1,8 @@
 # 🏗️ mdWebview — Architecture Reference
 
-> **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
+> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（`app.js` 18,349、`server.js` 6,539、`style.css` 12,001、`index.html` 2,918，加上 `lib/` 31 個模組、根目錄 5 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.27.12 | 最後更新：2026-11
+> 版本：v4.27.15 | 最後更新：2026-11（全面對照程式碼重測行號、模組清單、常數與設定欄位）
 
 ---
 
@@ -40,7 +40,11 @@
     - [16.4 首頁垂直溢出防護](#164-首頁垂直溢出防護v3102)
 17. [PWA 安裝引導](#17-pwa-安裝引導v3101)
 18. [為何 app.js / server.js 不做模組化重構](#18-為何-appjs-serverjs-不做模組化重構)
-19. [使用者帳號](#19-使用者帳號v3122)
+19. [使用者帳號](#19-使用者帳號v3126)
+    - [19.1 資料與 session](#191-資料與-session)
+    - [19.2 防濫用](#192-防濫用)
+    - [19.3 條款頁面](#193-條款頁面)
+    - [19.4 尚未包含（下一階段）](#194-尚未包含下一階段)
 20. [科判側欄](#20-科判側欄v4200)
 
 ---
@@ -518,20 +522,25 @@ flowchart TD
 為消除散落硬編碼（Magic Strings）並防止無痕瀏覽模式、Storage Quota 爆滿或損毀 JSON 導致程式崩潰，前端全面採用集中化儲存機制：
 
 #### 1. STORAGE_KEYS 常數池
+
+共 **26 組**鍵值（下表全部列出）：
+
 | 鍵值常數 | 實際 localStorage 鍵值 | 說明 |
 |---------|------------------------|------|
 | `THEME` | `mdWebview-user-theme` | 外觀主題 ID（obsidian-dark, obsidian-light 等） |
 | `FONT_SIZE` | `mdWebview-user-fontsize` | 使用者設定字體大小（數值 px） |
 | `TEXT_ALIGN` | `mdWebview-user-textalign` | 文字對齊（`justify` 或 `left`） |
 | `LINE_HEIGHT` | `mdWebview-user-lineheight` | 行高倍率（`1.6`, `1.8`, `2.0`） |
-| `MAX_WIDTH` | `mdWebview-user-maxwidth` | 閱讀容器最大寬度（`800px`, `1000px`, `100%`） |
+| `MAX_WIDTH` | `mdWebview-user-maxwidth` | **手機**閱讀容器寬度（預設 `95%`，百分比值） |
+| `MAX_WIDTH_DESKTOP` | `mdWebview-user-maxwidth-desktop` | **桌面**閱讀寬度（每行字數段位 `cpl32`／`cpl40`／`cpl50`／`cpl64`／`full`，與手機分開存；舊 px 值自動轉段位） |
 | `AUTO_S2T` | `mdWebview-auto-s2t` | 簡繁字形一併比對開關（`'true'` 或 `'false'`；鍵名沿用舊稱，備份檔向下相容） |
 | `DISPLAY_SCRIPT` | `mdWebview-display-script` | 繁簡顯示（`'hant'` 或 `'hans'`；`i18n/boot.js` 也直接讀取此鍵） |
 | `READ_PROGRESS_ENABLED` | `mdWebview-user-readprogress` | 是否啟用自動記錄/恢復閱讀進度 |
 | `LAST_READ_PROGRESS` | `mdWebview-last-read-progress` | 最近閱讀經文路徑與行號錨點 |
 | `RECENT_FILES` | `mdWebview-user-recentfiles` | 最近開啟經文清單（上限 20 筆 JSON） |
 | `BOOKMARKS` | `mdWebview-user-bookmarks` | 書籤清單（JSON 陣列 `{path, title, line, ts}`） |
-| `ADMIN_TOKEN` | `mdWebview-admin-token` | 後台管理員 Session Bearer Token |
+| `LIBRARY_PREFS` | `mdWebview-user-library` | 書籤與歷程抽屜的介面偏好：目前分頁、排序、收合的資料夾（v3.12.12） |
+| `ADMIN_TOKEN` | `mdWebview-admin-token` | **已停用**：session 改存 HttpOnly cookie 後前端不再保存 token，此鍵只在登出時被 `remove()` 清掉舊資料 |
 | `ADMIN_TZ` | `mdWebview-admin-tz` | 管理員後台報表指定顯示時區 |
 | `DICT_FILE_ORDER` | `mdWebview-dict-file-order` | 辭典顯示順序偏好清單 |
 | `DICT_FILE_SELECT` | `mdWebview-dict-selected` | 當前選中辭典索引標籤 |
@@ -541,6 +550,9 @@ flowchart TD
 | `HOME_NOTICE_DISMISSED` | `mdWebview-home-notice-dismissed` | 首頁公告已收起的那一則 |
 | `INSTALL_DISMISSED` | `mdWebview-install-dismissed` | 婉拒安裝引導的時間戳（3 天內不再提示，見 §17） |
 | `INSTALL_INSTALLED` | `mdWebview-install-done` | 已安裝至桌面的旗標，一旦寫入即永久停用所有安裝提示 |
+| `SYNC_META` | `mdWebview-sync-meta` | 書籤／歷程／劃重點跨裝置同步的中繼資料：`uid`、`cursor`、墓碑、待送出清單（§14b） |
+| `HIGHLIGHTS` | `mdWebview-user-highlights` | 劃重點清單（每處一筆，隨書籤同步；§17b） |
+| `HIGHLIGHTS_LOST` | `mdWebview-highlights-lost` | 「找不到原處」的劃線標記（**只存本機**，不同步） |
 
 #### 2. storage 防例外包裝工具
 - `storage.get(key, fallback)`：內建 try-catch，無拋錯讀取字串。
@@ -667,9 +679,11 @@ if (existing === 'true' || existing === 'false') return false;
 
 ### 8.1 lib/ 原生模組職責劃分
 
+`lib/` 目前共 **31 個原生模組**（下表逐一列出）。下圖只畫出最常被引用的核心，其餘（帳號／科判／早安圖／首頁／整合金鑰等）見表格：
+
 ```mermaid
 flowchart TD
-    ServerEntry["server.js (主服務入口 5,600 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
+    ServerEntry["server.js (主服務入口 6,539 行、121 個頂層函式)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
 
     ServerEntry --> ConstMod["lib/constants.js\n全域常數 / MIME / 安全標頭"]
     ServerEntry --> UtilMod["lib/utils.js\n時區 / PRNG / 爬蟲辨識 / 路徑安全"]
@@ -680,13 +694,17 @@ flowchart TD
     ServerEntry --> LogMod["lib/logger.js\n600筆環狀記憶體日誌緩衝"]
     ServerEntry --> AnaMod["lib/analytics.js\n90天持久日誌 / 7天修剪 / 報表導出"]
     ServerEntry --> TextMod["lib/markdown.js & lib/text.js\nFrontmatter 剝離 / Bigram 透明文本處理"]
+    ServerEntry --> KepanMod["lib/kepan.js\n科判樹抽取 / 講輪分組 / 另講對照"]
+    ServerEntry --> ShareMod["lib/share-card-server.js\n早安圖繪製 / 背景圖庫 / Worker 管理"]
 ```
+
+> `lib/kepan.js` 產出的科判樹只含科名與位置（不含內文），由 `/api/kepan` 以精簡陣列格式回傳；前端側欄由根目錄的 `kepan-sidebar.js` 呈現（見 §20）。
 
 | 模組檔案 | 核心職責 | 主要導出方法與物件 |
 |---------|---------|-------------------|
 | `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `INDEX_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
 | `lib/index-dir.js` | 索引快取檔名清單與舊位置遷移：啟動時把 `LOG_DIR` 裡的 `*-index-cache.*` 搬到 `INDEX_DIR`（同檔案系統 rename；跨掛載點 EXDEV 改為複製→改名→刪舊檔；目的地已有檔以新為準；失敗只記警告，索引照常重建） | `INDEX_CACHE_FILES`, `migrateLegacyIndexFiles` |
-| `lib/kepan.js` | 從講記標題抽取科判樹：依「甲乙…子丑…天地玄黃…」字序判層級（不看 # 數）、一行多層拆段、跨卷重述同一科不重建、「辰」等重複用字與「巳／己」誤植依編號接續；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；依資料夾（檔案數＋最新修改時間）快取 | `buildKepanTree`, `buildChapterTree`, `buildFolder`, `linkRounds`, `parseHeadingSegments`, `getKepanForFile`, `toClientPayload` |
+| `lib/kepan.js` | 從講記標題抽取科判樹：依「甲乙…子丑…天地玄黃…」字序判層級（不看 # 數）、一行多層拆段、跨卷重述同一科不重建、「辰」等重複用字與「巳／己」誤植依編號接續；frontmatter `round`／`kepan` 分講輪與合輯、單篇 `kepan: true` 免科數門檻（v4.27.15）、各輪另講對照、章節式標題（v4.25.0）；依資料夾（檔案數＋最新修改時間）快取 | `buildKepanTree`, `buildChapterTree`, `buildFolder`, `linkRounds`, `parseHeadingSegments`, `getKepanForFile`, `toClientPayload` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
 | `lib/auth.js` | 管理員權限閘門（讀 `lib/session.js` 的 session 並檢查 role=admin）、時序安全比對、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`（僅舊格式）, `verifySameOrigin`, `getAdminUser`, `isAuthenticated`, `isAuthorizedAdmin`, `requireAdmin`, `readJSONBody` |
@@ -705,30 +723,42 @@ flowchart TD
 | `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入、**I/O 失敗記錄** | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
 | `lib/markdown.js` | Markdown 與 Frontmatter 文本處理：YAML 標頭剝離、metadata 解析與行號偏移 (lineOffset) 計算 | `stripFrontmatter` |
 | `lib/text.js` | 索引與搜尋共用的文本正規化層：CJK 判定、標點/換行透明集合判定、Bigram 抽取、寬鬆模式比對與文本掃描（Index/Render Worker 皆引用，確保索引抽取透明集 ⊇ 掃描透明集） | `isCJKIdeograph`, `isTransparent`, `extractBigramsFromText`, `normalizeLooseTerm`, `SNIPPET_RADIUS`, `localLineAt`, `findLoose`, `matchLooseSequence`, `scanText` |
+| `lib/home.js` | 首頁內容的伺服器端純函式：每日經文預設清單與解析、時段輪換（同一時段所有讀者看到同一句）、經句代號 `verseId`、辭典釋義摘要 | `DEFAULT_DAILY_VERSES`, `MAX_VERSES`, `parseVerses`, `versesToText`, `resolveVerses`, `verseKey`, `verseId`, `parseQuoteMarkdown`, `mergeVerses`, `DEFAULT_VERSE_ROTATE_HOURS`, `normalizeRotateHours`, `timezoneOffsetMs`, `verseSlot`, `verseIndexForSlot`, `pickRotatingVerse`, `excerptFromMarkdown` |
+| `lib/sutra-quotes.js` | 每日經文的**資料夾來源**：讀 `sutra-quote/` 下所有 `.md`（一行一句「經句｜出處｜經文路徑」，只認全形「｜」），10 秒節流重掃、mtime/size 沒變就不重新解析 | `quoteDir`, `getFolderVerses`, `resetCache` |
+| `lib/integrations.js` | 寄信與 Turnstile／第三方登入金鑰的**兩層來源**（環境變數優先，否則用後台存進 `app_settings`）；金鑰以 AES-256-GCM 加密（金鑰檔 `secrets.key`，權限 600）；金鑰只寫不讀，API 只回末四碼 | `FIELDS`, `get`, `source`, `describe`, `set`, `mask`, `isProviderEnabled`, `setProviderEnabled` |
+| `lib/library-store.js` | 書籤與閱讀歷程的伺服器端同步（`POST /api/me/sync`）：以使用者遞增 `seq` 當游標（不受裝置時鐘影響）、墓碑、配額與列數上限 | `syncLibrary` |
+| `lib/share-quotes.js` | 選字製作的早安圖（選句）純函式：到原檔核對選取的字（只比 `\p{L}\p{N}`、簡繁 fold）、卡片文字一律取自原檔、代號產生 | `MAX_CHARS`, `MIN_CHARS`, `MAX_INPUT_CHARS`, `QUOTA_PER_HOUR`, `QUOTA_PER_DAY`, `ID_RE`, `cleanMarkdownLine`, `buildKey`, `cardLength`, `tidyCardText`, `locate`, `extractQuote`, `textKey` |
+| `lib/share-qr.js` | 早安圖 QR 碼的短網址：`/V<7碼><版型>`（每日經句）、`/Q<7碼><版型>`（經文選句），全大寫英數以縮小 QR 密度；掃描後 302 轉到原文那一行並記 `qrScan` | `CODE_LEN`, `shortCode`, `qrUrl`, `parseQrPath`, `findLine`, `candidateFiles`, `locateVerse`, `fileUrl` |
+| `lib/share-card-draw.js` | 早安圖真正畫圖的那一段（v4.24.0）：背景圖解碼快取、`bg` 變體縮圖（第一次用到就縮成剛好蓋滿 1620×2025 存到 `bgDir`，重開機後沿用）、畫圖＋JPEG 編碼。給 Worker 與主執行緒備援共用 | `createDrawer`, `bgVariantSize`, `bgVariantName`, `writeAtomic`, `lruGet`, `lruSet` |
+| `lib/share-card-render-worker.js` | 早安圖的畫圖工作執行緒（v4.24.0）：`ShareCard.draw` 是同步的，8 張壓在主執行緒會讓全站卡 0.4–1.6 秒，搬到這裡後主執行緒只收發訊息 | （Worker 入口，無具名導出） |
+| `lib/share-card-server.js` | 早安圖伺服器端：`pic-card/` 背景圖庫遞迴掃描（每分鐘最多重掃一次）、依「經句＋日期」雜湊挑圖、`@napi-rs/canvas` 延遲載入（失敗＝不能畫，回 503）、字型註冊、成品磁碟快取與 Worker 管理 | `picDir`, `fontDirs`, `listPics`, `pickPic`, `resolvePic`, `isRealPicPath`, `available`, `status`, `render`, `cacheDir`, `cacheStatus`, `shutdown`, `decodeCount` |
+| `lib/share-stats.js` | 早安圖事件定義與統計彙整：事件寫成 `tag = 'ShareCard'` 的結構化日誌、聚合成趨勢列；不記帳號與問候語 | `TREND_FIELDS`, `SHARE_TAG`, `SHARE_EVENTS`, `CLIENT_EVENTS`, `SEND_EVENTS`, `ERROR_STAGES`, `sanitizeShareFields`, `shareFieldsOf`, `isShareServerEntry`, `shareKeysOf`, `summarizeShareMap`, `emptyShareSummary`, `withVerseTexts`, `emptyTrendRow`, `addEventToTrendRow`, `addShareMapToTrendRow`, `emptyHourBins` |
+| `lib/kepan.js` | 從講記標題抽取科判樹（v4.20.0）：依「甲乙…→子丑…→天地玄黃…」字序判層級（**不看 `#` 數**）、一行多層拆段、跨卷重述同一科不重建、字序重複用字與「巳／己」誤植以「編號能否接續」判定；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；依資料夾（檔案數＋最新 mtime）快取 | `LEVELS`, `MIN_NODES`, `MIN_NODES_FORCED`, `MIN_NODES_SINGLE`, `parseChapterHeading`, `usesChapters`, `buildChapterTree`, `pickScopeDepth`, `kepanFlag`, `groupFiles`, `linkRounds`, `topicOfTitle`, `bookOfTitle`, `roundTopic`, `describeRounds`, `buildFolder`, `cnNum`, `parseHeadingSegments`, `orderFiles`, `buildKepanTree`, `toClientPayload`, `getKepanForFile`, `clearKepanCache` |
+
 
 ### 8.2 server.js 段落分區表（Section Map）
 
-`server.js` 約 5,640 行、86 個頂層函式。下表行號為 v3.10.4 實測值，改動後會位移——**請以區段標題或函式名搜尋**。
+`server.js` 約 **6,539 行、121 個頂層函式**。下表行號為 **v4.27.15 實測值**，改動後會位移——**請以區段標題或函式名搜尋**。
 
 | 段落 | 起始行 | 行數 | 職責 |
 | :--- | ---: | ---: | :--- |
-| `§2–§5` | 165 | 237 | Worker Pool、Config、Static Cache、SSR 的**組裝層**（實作已移至 `lib/`） |
-| `§6` | 402 | 24 | `handleTree`（`/api/tree`）與 `fs.watch` 快取失效 |
-| `§7` | 426 | 241 | SEO：`robots.txt`、`manifest.json`、`sitemap.xml` |
-| `§8` | 667 | 263 | `handleCrawlerSsr()` 爬蟲預渲染 |
-| `§9` | 930 | 305 | `handleFile`（`/api/file`）、`handleMedia`（`/api/media`） |
-| `§10` | 1235 | 239 | 大檔分塊 API：`handleSectionIndex`、`handleRenderChunk` |
-| `§14` | 1474 | 48 | 搜尋處理器（掛載點，實作見 §12） |
-| `§12` | 1522 | 18 | **僅狀態與常數**：`searchIndex` 物件、快取路徑 |
-| `§11` | 1540 | 471 | 章節索引引擎：`getSectionIndex`、二進位磁碟快取、去抖寫入 |
-| `§12 (續)` | 2011 | 591 | 全文 Bigram 索引本體：`buildSearchIndexAsync`、載入／儲存 |
-| `§13` | 2602 | 1,189 | 辭典索引與 API：`buildDictIndexAsync`、`handleDictHeadwords`、`handleDictSearch` |
-| `§15–§17` | 3791 | 186 | Static Cache、Auth、Rate Limiting、Analytics 的**組裝層**（實作已移至 `lib/`） |
-| `§18` | 3977 | 212 | 每日單詞與推薦：Mulberry32 決定性 PRNG、`handleSuggestList` |
-| `§19` | 4189 | 82 | 硬體工具函式：`getDockerMemoryLimit`、`getDirSizeAsync`、`getCpuUsagePct`、`isDockerContainer` |
-| `§19 (續)` | 4271 | 209 | `getSystemHardwareStats` 聚合器、`handleHardwareStats` |
-| `§19.5` | 4480 | 358 | 後台維護：重建索引／辭典、改密碼、路徑診斷、重建 sitemap、清快取 |
-| `§20` | 4838 | 803 | HTTP Server 建立與主路由分派（40+ 條 `pathname` 比對） |
+| `§2-§5` | 171 | 237 | Worker Pool、Config、Static Cache、SSR 的**組裝層**（實作已移至 `lib/`） |
+| `§6` | 408 | 24 | `handleTree`（`/api/tree`）與 `fs.watch` 快取失效 |
+| `§7` | 432 | 241 | SEO：`robots.txt`、`manifest.json`、`sitemap.xml` |
+| `§8` | 673 | 266 | `handleCrawlerSsr()` 爬蟲預渲染 |
+| `§9` | 939 | 322 | `handleFile`（`/api/file`）、`handleMedia`（`/api/media`） |
+| `§10` | 1,261 | 325 | 大檔分塊 API：`handleSectionIndex`、`handleRenderChunk` |
+| `§14` | 1,586 | 48 | 搜尋處理器（掛載點，實作見 §12） |
+| `§12` | 1,634 | 18 | **僅狀態與常數**：`searchIndex` 物件、快取路徑 |
+| `§11` | 1,652 | 473 | 章節索引引擎：`getSectionIndex`、二進位磁碟快取、去抖寫入 |
+| `§12 (續)` | 2,125 | 673 | 全文 Bigram 索引本體：`buildSearchIndexAsync`、載入／儲存 |
+| `§13` | 2,798 | 1,172 | 辭典索引與 API：`buildDictIndexAsync`、`handleDictHeadwords`、`handleDictSearch` |
+| `§15-§17` | 3,970 | 221 | Static Cache、Auth、Rate Limiting、Analytics 的**組裝層**（實作已移至 `lib/`） |
+| `§18` | 4,191 | 760 | 每日單詞與推薦、每日經文、科判與早安圖 API：Mulberry32 決定性 PRNG、`handleSuggestList`、`handleDailyVerseApi`、`handleKepan`、`handleShareCardImage` |
+| `§19` | 4,951 | 82 | 硬體工具函式：`getDockerMemoryLimit`、`getDirSizeAsync`、`getCpuUsagePct`、`isDockerContainer` |
+| `§19 (續)` | 5,033 | 207 | `getSystemHardwareStats` 聚合器、`handleHardwareStats` |
+| `§19.5` | 5,240 | 396 | 後台維護：重建索引／辭典、改密碼、路徑診斷、重建 sitemap、清快取 |
+| `§20` | 5,636 | 905 | HTTP Server 建立與主路由分派（46 條 `pathname` 比對） |
 
 > **編號非遞增**：實際排列為 §6 → §7 → §8 → §9 → §10 → §14 → §12 → §11 → §13 → §15 → §18 → §19 → §19.5 → §20。
 > 原因為 §11／§12／§13 是後來插入的大型引擎（章節索引、全文索引、辭典索引），為避免搬動既有程式碼而就地插入。`§12` 的標記位置只放狀態常數，函式本體在 `§12 (續)`。
@@ -750,7 +780,7 @@ flowchart TD
 | `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型經論與辭典章節分塊 Metadata (.bin 磁碟快取) |
 | `/api/kepan` | GET | `handleKepan()` | ❌ | 講記所在資料夾的科判樹（精簡格式、gzip、ETag）；非科判資料夾回 `{ kepan: null }` |
 | `/api/render-chunk` | GET | `handleRenderChunk()` | ❌ | 大型經論特定分塊動態渲染（Worker 調度） |
-| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 variants 字組比對、mode=strict|loose 寬鬆模式與鄰近過濾） |
+| `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 variants 字組比對、mode=strict\|loose 寬鬆模式與鄰近過濾） |
 | `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索（虛擬化模式的頁內搜尋） |
 | `/api/dict-headwords` | GET | `handleDictHeadwords()` | ❌ | 辭典詞條倒排索引資料（支援 `If-None-Match` 304） |
 | `/api/dict-search` | GET | `handleDictSearch()` | ❌ | 佛學辭典多模式搜尋（前綴 / 全文）；全文模式自 v3.7.6 起採**游標分頁**（`after` / `done` 進、`nextAfter` / `hasMore` / `exhausted` 出，每頁每檔 1500 筆） |
@@ -805,44 +835,47 @@ flowchart TD
 
 #### 1. 邏輯段落分區表（Section Map）
 
-`app.js` 為單一 IIFE（約 11,300 行、246 個函式），所有函式共用同一閉包。下表行號為 v3.10.4 的實測值，改動後會位移——**請以區塊標題搜尋，勿依賴行號**。
+`app.js` 為單一 IIFE（約 **18,349 行、605 個函式**），所有函式共用同一閉包。下表行號為 **v4.27.15 的實測值**，改動後會位移——**請以區塊標題搜尋，勿依賴行號**。
 
 | 段落 | 起始行 | 行數 | 核心模組 | 職責與功能概述 |
 | :--- | ---: | ---: | :--- | :--- |
-| `§0` | 61 | 454 | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
-| `§1` | 515 | 204 | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
-| `§16.5` | 719 | 956 | PWA Install Prompt | 首頁安裝卡片、iOS 三步驟教學 Modal、設定常駐入口（見 §17） |
-| `§2` | 1675 | 158 | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
-| `§3` | 1833 | 136 | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
-| `§4` | 1969 | 263 | Home | 首頁：問候與節氣、每日經文、繼續閱讀、公告、每日一詞與今日推薦 |
-| `§5` | 2232 | 262 | File Tree | 經論目錄樹建置、過濾、排序與非同步渲染 |
-| `§6` | 2494 | 1,748 | Markdown Viewer | 小型經論渲染、標題錨點、雙向註腳跳轉、大檔虛擬化 |
-| `§7` | 4242 | 221 | Wikilink Resolver | 內部經文雙鏈快速跳轉與索引比對 |
-| `§8` | 4463 | 341 | Table of Contents | 大綱目錄生成、ScrollSpy 滾動追蹤高亮 |
-| `§9` | 4804 | 337 | Global Search | Bigram 全文搜尋、分批渲染（300 筆/批）防介面凍結 |
-| `§10` | 5141 | 755 | Dictionary Sidebar | 佛學辭典抽屜、前綴與全文檢索、分詞查閱 |
-| `§11` | 5896 | 223 | In-Page Search | 頁內即時高亮搜尋與跳轉（Ctrl+F） |
-| `§12` | 6119 | 67 | Theme | 主題切換與即時 CSS 變數套用 |
-| `§13` | 6186 | 33 | Font Size | 字體大小即時縮放與持久化 |
-| `§14` | 6219 | 115 | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁字形一併比對開關 |
-| `§15` | 6334 | 62 | Recent Files | 最近閱讀經文紀錄（最多 20 筆） |
-| `§16` | 6396 | 97 | Toast Notifications | 全域浮動提示通知（`showToast`） |
-| `§17` | 6493 | 100 | Bookmarks | 經本書籤收藏管理 |
-| `§18` | 6593 | 103 | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
-| `§18.5` | 6696 | 154 | Preferences Backup | 使用者偏好匯出／匯入 JSON |
-| `§19` | 6850 | 96 | Sidebar Resize | 側邊欄拖曳調整寬度 |
-| `§6.5` | 6946 | 354 | Media Lightbox | 圖片全螢幕放大、拖曳、雙擊與雙指捏合縮放 |
-| `§20` | 7300 | 1,327 | Event Listeners | `setupEventListeners()`：全站事件綁定（全檔最大單一函式） |
-| `§21` | 8627 | 2,419 | Admin Panel | 後台管理面板（內含 6 個子群，見下） |
-| `§22` | 11046 | 246 | Utilities | 通用轉義、時區格式化、通用 Helper |
-| `§23` | 11292 | 5 | Boot Entry | DOMContentLoaded 初始化啟動入口 |
+| `§0` | 62 | 566 | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
+| `§1` | 628 | 216 | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
+| `§16.5` | 844 | 1,008 | PWA Install Prompt | 首頁安裝卡片、iOS 三步驟教學 Modal、設定常駐入口（見 §17） |
+| `§2` | 1,852 | 125 | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
+| `§3` | 1,977 | 120 | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
+| `§4` | 2,097 | 1,417 | Home | 首頁：問候與節氣、每日經文、繼續閱讀、公告、每日一詞與今日推薦 |
+| `§5` | 3,514 | 475 | File Tree | 經論目錄樹建置、過濾、排序與非同步渲染 |
+| `§6` | 3,989 | 2,145 | Markdown Viewer | 小型經論渲染、標題錨點、雙向註腳跳轉、大檔虛擬化 |
+| `§7` | 6,134 | 228 | Wikilink Resolver | 內部經文雙鏈快速跳轉與索引比對 |
+| `§8` | 6,362 | 442 | Table of Contents | 大綱目錄生成、ScrollSpy 滾動追蹤高亮 |
+| `§9` | 6,804 | 373 | Global Search | Bigram 全文搜尋、分批渲染（300 筆/批）防介面凍結 |
+| `§10` | 7,177 | 796 | Dictionary Sidebar | 佛學辭典抽屜、前綴與全文檢索、分詞查閱 |
+| `§11` | 7,973 | 218 | In-Page Search | 頁內即時高亮搜尋與跳轉（Ctrl+F） |
+| `§12` | 8,191 | 120 | Theme | 主題切換與即時 CSS 變數套用 |
+| `§13` | 8,311 | 35 | Font Size | 字體大小即時縮放與持久化 |
+| `§14` | 8,346 | 380 | Text/Layout Preferences | 對齊、行高、閱讀版寬、簡繁字形一併比對開關 |
+| `§14b` | 8,726 | 355 | Library Sync | 書籤／閱讀歷程／劃重點跨裝置同步（`persistLibrary`、待送出佇列、`sendBeacon`；見 §19「書籤與歷程同步」） |
+| `§15` | 9,081 | 56 | Recent Files | 最近閱讀經文紀錄（最多 20 筆） |
+| `§16` | 9,137 | 97 | Toast Notifications | 全域浮動提示通知（`showToast`） |
+| `§17` | 9,234 | 66 | Bookmarks | 經本書籤收藏管理 |
+| `§17b` | 9,300 | 531 | Highlights | 劃重點（朱筆底線）：CSS Custom Highlight API 著色、錨定與隨書籤同步（見 §19「劃重點」） |
+| `§18` | 9,831 | 119 | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
+| `§18.5` | 9,950 | 263 | Preferences Backup | 使用者偏好匯出／匯入 JSON |
+| `§19` | 10,213 | 98 | Sidebar Resize | 側邊欄拖曳調整寬度 |
+| `§6.5` | 10,311 | 361 | Media Lightbox | 圖片全螢幕放大、拖曳、雙擊與雙指捏合縮放 |
+| `§20` | 10,672 | 1,330 | Event Listeners | `setupEventListeners()`：全站事件綁定（全檔最大單一函式） |
+| `§21` | 12,002 | 5,808 | Admin & Accounts Panel | 後台管理面板與使用者帳號介面（§21.1-§21.7，見下） |
+| `§22` | 17,810 | 536 | Utilities | 通用轉義、時區格式化、通用 Helper |
+| `§23` | 18,346 | 5 | Boot Entry | DOMContentLoaded 初始化啟動入口 |
 
 > **編號非遞增**：實際排列為 §0 → §1 → §16.5 → §2 … → §19 → §6.5 → §20 → §21。
-> §6.5 與 §16.5 是後續功能插入時就地放置，未重排既有程式碼。搜尋時請用標題關鍵字。
+> §6.5、§14b、§16.5、§17b、§21.7 都是後續功能插入時就地放置，未重排既有程式碼。搜尋時請用標題關鍵字。
+> **§14b 與 §17b 是獨立大區塊**（355 行與 531 行），不是 §14／§17 的附屬小節——跨裝置同步與劃重點都是完整子系統。
 
 #### 1.1 §21 後台面板子群索引
 
-§21 佔 2,419 行、44 個函式，是全檔最大區塊。內部依功能可分為六群：
+§21 佔 **5,808 行**（含 §21.7 使用者帳號介面），是全檔最大區塊。內部依功能可分為七群：
 
 | 子群 | 內容 | 代表函式 |
 | :--- | :--- | :--- |
@@ -852,6 +885,7 @@ flowchart TD
 | §21.4 | 硬體監控儀表板 | `formatBytes`、`formatUptime`、`loadHardwareStats`、`renderHardwareDashboard`、`setupHardwareIndexRebuild` |
 | §21.5 | 日誌與流量報表 | `openSettingsOverlay`、`filterLogEntries`、`fetchAdminLogs`、`loadAdminAnalytics`、`renderAdminAnalytics` |
 | §21.6 | 設定表單與 SEO | `setupAdminTabEvents`、`setupArticlePicker`、`setupSuggestFormEvents`、`loadSeoSettings`、`setupAdminSeoEvents` |
+| §21.7 | 使用者帳號（獨立大區塊，2,512 行） | `initAccounts`、登入／註冊／我的帳號、後台「使用者」與「帳號系統」分頁（見 §19） |
 
 #### 1.2 後台外框與頁面導覽（v4.4.0）
 
@@ -880,60 +914,68 @@ flowchart TD
 
 | 欄位 | 型別 | 說明 |
 |------|------|------|
-| `currentFile` | `string|null` | 當前開啟的檔案路徑（`null` = 首頁歡迎畫面） |
-| `currentTheme` | `string` | 主題 ID：`obsidian-dark`（夜藍 Night）|`obsidian-light`（霧灰 Mist）|`solarized`（苔夜 Moss）|`zen`|`gruvbox`|`paper`|`moon`|`bamboo` |
+| `currentFile` | `string\|null` | 當前開啟的檔案路徑（`null` = 首頁歡迎畫面） |
+| `currentTheme` | `string` | 主題 ID：`obsidian-dark`（夜藍 Night）\|`obsidian-light`（霧灰 Mist）\|`solarized`（苔夜 Moss）\|`zen`\|`gruvbox`\|`paper`\|`moon`\|`bamboo` |
 | `defaultFontSize` | `number` | 伺服器設定的預設字體大小（px），作為重置基準 |
 | `fontSize` | `number` | 當前閱讀字體大小（px），使用者可調整 |
-| `textAlign` | `string` | 文字對齊：`justify`|`left` |
-| `lineHeight` | `string` | 行高倍數字串：`'1.6'`|`'1.8'`|`'2.0'` |
+| `textAlign` | `string` | 文字對齊：`justify`\|`left` |
+| `lineHeight` | `string` | 行高倍數字串：`'1.6'`\|`'1.8'`\|`'2.0'` |
 | `maxWidth` | `string` | 閱讀區最大寬度：行動版為 CSS 百分比（預設 `95%`，存 `mdWebview-user-maxwidth`）；桌面版為每行字數段位 `cpl32`／`cpl40`（預設）／`cpl50`／`cpl64`／`full`，寬度 = 字數 × 字級 + 96px，存 `mdWebview-user-maxwidth-desktop`，舊 px 值自動轉段位 |
 | `autoReadProgress` | `boolean` | 是否自動儲存/恢復閱讀進度 |
 | `autoS2T` | `boolean` | 搜尋時是否簡繁字形一併比對（字組比對，§5.3；簡體顯示時不論此值一律開啟）。全站預設 `false`；若使用者從未設定過，且瀏覽器主要語言為簡體中文，首次造訪時自動設為 `true` 並寫入 localStorage（見 §7.3） |
 | `displayScript` | `string` | 繁簡顯示，`'hant'`（預設）或 `'hans'`。規則同 `autoS2T`：從未設定且瀏覽器為簡體中文時，首次造訪自動設為 `'hans'` 並顯示一次提示（見 §7.4） |
 | `isMobile` | `boolean` | 是否為行動裝置（UA 或視窗寬度 ≤ 768px） |
 | `siteName` | `string` | 站台名稱，來自 `config.settings.siteName`，預設 `'mdWebview'` |
-| `treeData` | `Array|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
-| `fileSort` | `string` | 檔案排序：`name-asc`|`name-desc`|`modified-asc`|`modified-desc` |
+| `treeData` | `Array\|null` | 檔案樹 JSON（`null` = 尚未從 `/api/tree` 載入） |
+| `fileSort` | `string` | 檔案排序：`name-asc`\|`name-desc`\|`modified-asc`\|`modified-desc` |
 | `fileTreeFilter` | `string` | 檔案瀏覽器頂部即時篩選字串（支援空白多詞與簡繁字組比對；篩選時自動展開命中支線） |
 | `tocFilter` | `string` | 本頁大綱頂部即時過濾字串（同時支援一般 DOM 大綱與大檔虛擬大綱；切換經文或回首頁時自動清空） |
 | `fileSizes` | `Map` | `filePath → bytes`，用於判斷是否需要虛擬化渲染 |
 | `dictFileSizePaths` | `Set` | 目前辭典清單中已知的 `dict:` 路徑集合；每次詞頭刷新時用以回收已移除辭典在 `fileSizes` 的殘留項 |
 | `recentFiles` | `string[]` | 最近開啟的檔案路徑（最多 20 筆，持久化於 localStorage） |
 | `bookmarks` | `Object[]` | 書籤列表 `{path, title, line, ts}`，持久化於 localStorage |
-| `sidebarTab` | `string` | 側邊欄分頁：`'files'`|`'search'`|`'toc'` |
+| `sidebarTab` | `string` | 側邊欄分頁：`'files'`\|`'search'`\|`'toc'` |
 | `sidebarCollapsed` | `boolean` | 側邊欄是否已收合 |
 | `pageSearchMatches` | `Object[]` | 頁內搜尋（Ctrl+F）的命中節點列表 |
 | `pageSearchIndex` | `number` | 當前高亮命中索引（`-1` = 無） |
-| `pageSearchQuery` | `string|null` | 最後一次頁內搜尋關鍵詞 |
-| `searchSort` | `string` | 搜尋結果排序：`relevance`|`file-asc`|`file-desc`|`count-desc` |
+| `pageSearchQuery` | `string\|null` | 最後一次頁內搜尋關鍵詞 |
+| `searchSort` | `string` | 搜尋結果排序：`relevance`\|`file-asc`\|`file-desc`\|`count-desc` |
 | `searchMode` | `'loose'|'strict'` | 當前全文搜尋模式（優先讀取 localStorage 偏好，fallback 至 `appConfig.defaultSearchMode`，預設 `'loose'`） |
-| `lastSearchData` | `Object|null` | 最後搜尋回傳資料（換頁排序時不重新請求） |
+| `lastSearchData` | `Object\|null` | 最後搜尋回傳資料（換頁排序時不重新請求） |
 | `searchRenderLimit` | `number` | 已渲染的搜尋結果筆數（分批渲染計數） |
-| `scrollSpyObserver` | `IntersectionObserver|null` | TOC 高亮用的 IntersectionObserver |
-| `scrollSpyHandler` | `Function|null` | scroll 事件 handler 參考（用於移除） |
-| `scrollSpyResizeHandler` | `Function|null` | resize 事件 handler 參考 |
-| `scrollSpyRaf` | `number|null` | requestAnimationFrame ID |
-| `refreshScrollSpy` | `Function|null` | 重新初始化 ScrollSpy 的函數參考 |
-| `virtual` | `Object|null` | 大型檔案虛擬化狀態（`null` = 非虛擬化模式）。結構：`{filePath, abortController, entries, groups, totalLines, totalEntries, chunkRanges, chunks, inflight, errorChunks, chunkHeights, avgPxPerLine, spacerTop, spacerBottom, _tocItems, _tocWindow, ...}` |
+| `scrollSpyObserver` | `IntersectionObserver\|null` | TOC 高亮用的 IntersectionObserver |
+| `scrollSpyHandler` | `Function\|null` | scroll 事件 handler 參考（用於移除） |
+| `scrollSpyResizeHandler` | `Function\|null` | resize 事件 handler 參考 |
+| `scrollSpyRaf` | `number\|null` | requestAnimationFrame ID |
+| `refreshScrollSpy` | `Function\|null` | 重新初始化 ScrollSpy 的函數參考 |
+| `virtual` | `Object\|null` | 大型檔案虛擬化狀態（`null` = 非虛擬化模式）。結構：`{filePath, abortController, entries, groups, totalLines, totalEntries, chunkRanges, chunks, inflight, errorChunks, chunkHeights, avgPxPerLine, spacerTop, spacerBottom, _tocItems, _tocWindow, ...}` |
 | `_openToken` | `number` | 開檔世代計數器；`goHome()` 與每次 `openFile()` 皆自增，用以判定非同步回應是否已過期 |
-| `_openFileAbort` | `AbortController|null` | 當前開檔請求的取消控制器；切換檔案或返回首頁時呼叫 `abort()` 並清空 |
+| `_openFileAbort` | `AbortController\|null` | 當前開檔請求的取消控制器；切換檔案或返回首頁時呼叫 `abort()` 並清空 |
 | `sectionIndexCache` | `Map` | `filePath → {etag, si}` 的 section index 快取 |
 | `dictionaryEnabled` | `boolean` | 後台是否啟用辭典功能 |
-| `dictHeadwords` | `Object|null` | 辭典詞條索引（由 `/api/dict/headwords` 載入） |
-| `dictIndex` | `Object|null` | 當前辭典條目詳情 |
-| `dictSelected` | `string|null` | 當前查詢的辭典詞條 |
-| `dictFileOrder` | `string[]|null` | 辭典檔案顯示順序 |
+| `dictHeadwords` | `Object\|null` | 辭典詞條索引（由 `/api/dict/headwords` 載入） |
+| `dictIndex` | `Object\|null` | 當前辭典條目詳情 |
+| `dictSelected` | `string\|null` | 當前查詢的辭典詞條 |
+| `dictFileOrder` | `string[]\|null` | 辭典檔案顯示順序 |
 | `dictSidebarOpen` | `boolean` | 辭典側邊欄是否開啟 |
-| `dictMode` | `string` | 查詢模式：`'prefix'`（前綴）|`'fulltext'`（全文） |
-| `dictAbortController` | `AbortController|null` | 取消進行中辭典請求 |
-| `dictFulltextCache` | `Object|null` | 辭典全文搜尋的**分頁快取**。結構：`{query, files, pageIndex, pages:[{after, results, total, capped, hasMore, nextAfter, scrollTop, done, exhausted}]}`。`after` 為產生該頁的游標、`nextAfter` 為下一頁游標、`done` 為該頁帶入的已窮盡清單。已抓取的分頁直接重繪不重發請求；於 5 處與 `dictFulltextScrollTop` 一起重置：空查詢（`runDictSearch` ~L4898）、查詢詞變更（~L4914）、模式切換（~L7087）、單檔核取方塊變更（~L7109）、全選切換（~L7121）（`null` = 尚無分頁走訪） |
+| `dictMode` | `string` | 查詢模式：`'prefix'`（前綴）\|`'fulltext'`（全文） |
+| `dictAbortController` | `AbortController\|null` | 取消進行中辭典請求 |
+| `dictFulltextCache` | `Object\|null` | 辭典全文搜尋的**分頁快取**。結構：`{query, files, pageIndex, pages:[{after, results, total, capped, hasMore, nextAfter, scrollTop, done, exhausted}]}`。`after` 為產生該頁的游標、`nextAfter` 為下一頁游標、`done` 為該頁帶入的已窮盡清單。已抓取的分頁直接重繪不重發請求；於 5 處與 `dictFulltextScrollTop` 一起重置：空查詢（`runDictSearch` ~L4898）、查詢詞變更（~L4914）、模式切換（~L7087）、單檔核取方塊變更（~L7109）、全選切換（~L7121）（`null` = 尚無分頁走訪） |
 | `dictFulltextScrollTop` | `number` | 辭典全文搜尋結果的滾動位置；切頁前保存當前頁、還原時寫回對應 `pages[i].scrollTop`，並隨頁面快取於上述 5 處一併歸零 |
-| `dictSidebarWidth` | `number|null` | 辭典側邊欄寬度（px），使用者可拖拉調整 |
-| `dictHeadwordsETag` | `string|null` | 辭典 headwords 的 ETag（用於 304 Not Modified） |
-| `dictPollTimer` | `number|null` | 辭典輪詢 timer ID（檢查辭典更新） |
-| `adminToken` | `string|null` | 管理員 session token（持久化於 localStorage） |
-| `_homeData` | `Object|null` | 最後一次 `/api/suggest-list` 的首頁資料（推薦、經文） |
-| `_cachedSuggestItems` | `Object[]|null` | 最後一次 `/api/suggest-list` 的推薦項目快取 |
+| `dictSidebarWidth` | `number\|null` | 辭典側邊欄寬度（px），使用者可拖拉調整 |
+| `dictHeadwordsETag` | `string\|null` | 辭典 headwords 的 ETag（用於 304 Not Modified） |
+| `dictPollTimer` | `number\|null` | 辭典輪詢 timer ID（檢查辭典更新） |
+| `isAdmin` | `boolean` | 目前登入者是否為管理員（session 在 HttpOnly cookie，前端**不保存 token**） |
+| `account` | `Object` | 帳號狀態：`{config, user}`——`config` 來自 `/api/auth/config`、`user` 來自 `/api/me` |
+| `authMode` | `string` | 認證模式：`'admin'`（線上網站）或 `'single-user'`（單機版免登入） |
+| `isSingleUser` | `boolean` | 是否為單機模式；由注入的 `appConfig` 先給初值，再由 `/api/admin/status` 確認 |
+| `deployTarget` | `string` | 部署型態：`web`／`mac-app`／`win-app`／`linux-app`／`ios-app`／`android-app`（見 §11） |
+| `highlights` | `Object[]` | 劃重點清單（隨書籤同步，§17b） |
+| `_adminDirty` | `boolean` | 後台設定是否有未儲存的變更（離開頁面前提示，§21.1） |
+| `_homeData` | `Object\|null` | 最後一次 `/api/suggest-list` 的首頁資料（推薦、經文） |
+| `_cachedSuggestItems` | `Object[]\|null` | 最後一次 `/api/suggest-list` 的推薦項目快取 |
+
+> `adminToken` **已移除**：session 改存 HttpOnly cookie 後，前端不再持有 token（`app.js` 只在登出時 `remove()` 舊鍵，見 §7.1）。
 
 ### 9.3 URL 路由參數與全庫搜尋深層連結（v3.9.1）
 
@@ -1011,6 +1053,17 @@ flowchart TD
 | `settings.suggestList.dailyVerseRotateHours` | number | `6` | 1–168 | 每日經文每幾小時換一句（從網站時區午夜起算） |
 | `settings.seoEnableSearchBox` | `boolean` | `false` | `SEO_ENABLE_SEARCH_BOX` | 是否於**首頁**注入 `WebSite` + `SearchAction` JSON-LD（詳見 §9.4）。單機模式一律不輸出 |
 | `settings.seoHomepageSummary` | `string` | `''` | `SEO_HOMEPAGE_SUMMARY` | 首頁爬蟲導言（爬蟲 SSR 用；空 = 退回 `seoSiteDescription`） |
+| `settings.seoSiteDescription` | `string` | `''` | `SEO_SITE_DESCRIPTION` | 全站 meta description／OG 描述；首頁導言留空時也退回這裡 |
+| `settings.seoKeywords` | `string` | `''` | `SEO_KEYWORDS` | meta keywords |
+| `settings.seoOgImage` | `string` | `'/og-preview.png'` | `SEO_OG_IMAGE` | 預設 OG 分享圖路徑（早安圖分享連結會另外覆蓋成動態卡片） |
+| `settings.seoRobotsIndex` | `boolean` | `false` | `SEO_ROBOTS_INDEX` | 是否允許搜尋引擎索引全站 |
+| `settings.seoBlockAiBots` | `boolean` | `true` | `SEO_BLOCK_AI_BOTS` | robots.txt 是否封鎖 AI 爬蟲（預設**封鎖**） |
+| `settings.seoDisallowPaths` | `string` | `'/api/\n/vendor/'` | `SEO_DISALLOW_PATHS` | robots.txt 的 `Disallow` 清單（換行分隔） |
+| `settings.googleSiteVerification` | `string` | `''` | `GOOGLE_SITE_VERIFICATION` | Google Search Console 驗證碼（輸出成 meta 標籤） |
+| `settings.bingSiteVerification` | `string` | `''` | `BING_SITE_VERIFICATION` | Bing Webmaster 驗證碼 |
+| `settings.baiduSiteVerification` | `string` | `''` | `BAIDU_SITE_VERIFICATION` | 百度站長平台驗證碼 |
+| `settings.announcementCollapsedCount` | `number` | `3` | — | 首頁公告預設先列幾則（`0` = 全部顯示） |
+| `settings.suggestListUpdatedAt` | `number` | `0` | — | 推薦清單最後更新時間戳（ms，用於快取失效） |
 | `admin.username` | `string` | — | — | 管理員帳號 |
 | `admin.passwordHash` | `string` | — | — | PBKDF2 密碼雜湊 |
 | `admin.salt` | `string` | — | — | PBKDF2 salt（hex） |
@@ -1031,7 +1084,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.27.12'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.27.15'` | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
@@ -1040,14 +1093,14 @@ flowchart TD
 | `POOL_SIZE` | `lib/worker-pool.js` | `max(2, CPU-1)` | Markdown SSR 渲染 Worker Thread 池大小 |
 | `INDEX_POOL_SIZE` | `lib/worker-pool.js` | `max(2, min(4, CPU-1))` | Bigram 索引 Worker Thread 池大小 |
 | `RENDER_QUEUE_MAX` | `lib/worker-pool.js` | `POOL_SIZE * 8` | Markdown 渲染工作佇列上限（超限即時回 503 防 OOM） |
-| `INDEX_QUEUE_MAX` | `lib/worker-pool.js` | `INDEX_POOL_SIZE * 8` | 索引工作佇列上限（超限即時回 503 防 OOM） |
+| `INDEX_QUEUE_MAX` | `lib/worker-pool.js` | `INDEX_POOL_SIZE * 16` | 索引工作佇列上限（超限即時回 503 防 OOM）。比 Render 的 ×8 寬，因為索引任務耗時長、允許更長的排隊深度 |
 | `WORKER_TIMEOUT_MS` | `lib/worker-pool.js` | `30,000`（30s） | Worker 單工逾時（入列即計時，逾時抽離並重啟 Worker） |
 | `LARGE_FILE_MIN_BYTES` | `server.js` | `1,048,576`（1MB） | 觸發虛擬化章節分塊渲染的檔案大小門檻 |
 | `SECTION_INDEX_MAX_CACHE` | `server.js` | `20` | 章節索引**記憶體讀取 LRU** 上限（維持熱資料快速命中） |
 | `SECTION_INDEX_DISK_MAX` | `server.js` | `5,000` | 章節索引**磁碟鏡像**上限；須遠大於 vault 大檔數（目前 ~321），否則全量掃描無法持久化 |
 | `SECTION_INDEX_SAVE_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | 章節索引寫盤去抖時間；把連續建置合併為單次寫入 |
 | `SECTION_INDEX_TRACE` | 環境變數 | 未設定（關閉） | 設為 `1` 時逐檔輸出 `DEBUG` 快取命中追蹤；預設關閉以免 289 筆逐檔訊息灌滿 600 筆環狀緩衝 |
-| `MAX_ANALYTICS_KEYS` | `lib/analytics.js` | `10,000` | Analytics 記憶體 Map 最大 key 數（防記憶體爆炸） |
+| `MAX_ANALYTICS_KEYS` | `lib/analytics.js` | `5,000` | Analytics 記憶體 Map 最大 key 數（防記憶體爆炸） |
 | `SESSION_DURATION` | `lib/auth.js` | `21,600,000`（6h） | 管理員 session 有效存活時間 |
 | `MAX_ATTEMPTS` | `lib/auth.js` | `5` | 管理員密碼錯誤次數上限（超限觸發鎖定） |
 | `LOCK_DURATION` | `lib/auth.js` | `900,000`（15m） | 登入失敗鎖定時間（15 分鐘） |
@@ -1067,7 +1120,7 @@ flowchart TD
 | `LARGE_FILE_MIN_BYTES` | `1,048,576`（1MB） | 同後端；決定是否進入虛擬化切片模式 |
 | `SEARCH_RENDER_BATCH` | `300` | 搜尋結果分批渲染每批筆數（防 DOM 凍結） |
 | `CACHE_MAX` | `10` | 經文渲染 LRU 快取最大筆數 |
-| `STORAGE_KEYS` | 物件（17 組常數） | 全站統一 LocalStorage 鍵值常數池，消除散落字串 |
+| `STORAGE_KEYS` | 物件（26 組常數） | 全站統一 LocalStorage 鍵值常數池，消除散落字串（完整列表見 §7.1） |
 
 ---
 
@@ -1393,6 +1446,9 @@ iPadOS 的判定需特別處理：其 UA 與 macOS Safari 相同，因此額外�
 
 ## 18. 為何 app.js / server.js 不做模組化重構
 
+> **本章是 v3.10.4 的決策記錄，保留原量測數字作為當初判斷的依據**（當時 `app.js` 11,296 行、`server.js` 5,640 行、246／86 個函式）。
+> 現況已不同：`app.js` **18,349 行、605 個函式**，`server.js` **6,539 行、121 個頂層函式**，`lib/` 也從 10 個長到 **31 個模組**——但模組化的做法是「把**新功能**寫進 `lib/`」，不去拆舊的兩個大檔，所以本章結論仍然成立。
+
 v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`（5,600 行）分段抽成 `lib/` 模組」。結論是**不建議**，原因如下，記錄於此以免日後重複評估。
 
 ### 18.1 量測結果
@@ -1493,8 +1549,9 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 
 ### 19.4 尚未包含（下一階段）
 
-- 書籤、閱讀進度與偏好的跨裝置同步（資料表已建立，API 尚未開放），以及登出時清除本機資料。
-- Apple 刪除帳號時的 token 撤銷。
+- **偏好設定的跨裝置同步**：書籤、閱讀歷程與劃重點已可同步（`/api/me/sync`，見 §14b／§17b），但主題、字級、版寬等偏好仍只存在本機 `localStorage`。
+- **Apple 刪除帳號時的 token 撤銷**：Google／Facebook 已實作 revoke，Apple 的 `revoke` 端點未接。
+- **劃重點的瀏覽器限制**：§17b 用 CSS Custom Highlight API，Safari 17.2 以前與部分舊版瀏覽器不支援，該情況下改以底線樣式退化顯示。
 
 
 ### 後台區塊狀態燈與收合（v3.12.7）
@@ -1620,7 +1677,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **讓開地標列**（v4.21.1）：地標列是 `position: sticky` 且會換行、隨所在的科變高，跳轉一律扣掉它的實際高度。側欄點科、前後科用 `jumpScrollTop()`（先 `setHere()` 重繪列再量高）；`app.js` 的 `safeScrollToElement()`、`scrollToLine()`、`scrollToLineVirtual()` 用 `stickyTopInset()`，搜尋跳行後列才換高度時由 `ResizeObserver` 再對齊一次（1.5 秒內、使用者未動手）。捲動定位判定線 `spyLine()` 取本篇最高列高 + 28px，不隨列高來回跳。測試：`tests/test-kepan-jump-offset.test.js`。
 - **地標列外觀**（v4.21.2）：底色 `--bg-secondary`、下緣 `--border` 實線加柔影（`--shadow-color`），和正文分開；陰影不佔版面高度，跳轉偏移照舊讀實際高度。
 - **前一科／後一科**（v4.22.0）：`#kepanNav` 沿用辭典前一條／後一條的浮動膠囊（`.entry-nav` / `.entry-nav-btn`，置中固定於底部），中間不寫目前科名，兩顆按鈕直接寫前後科的「科判字 科名」，長名以刪節號截斷，完整科名在 `title`；首科、末科按鈕停用並寫「已是第一科／已是最後一科」。正文底部留 88px 免遮住。純函式 `navTargets()`、`navLabel()`。
-- **多講輪與合輯**（v4.25.0）：同一部經論講過多次時，各輪各自一棵樹（`groupFiles()`、`buildFolder()`）。講記 frontmatter `round: "1996 法雲寺"` 決定分組（同一輪寫同一值；沒寫 round 的各自一組）；總目錄 frontmatter `kepan:` 為 `true`（一定是科判系列，每棵樹只要 `MIN_NODES_FORCED` 5 科）、`false`（不顯示科判）、`per-file`（多場講學的合輯，每篇一棵樹，彼此不連結），沒寫就自動判定（≥ 30 科）；單篇 `kepan: false` 不算（例：講義原文）。都沒寫 round 時整個資料夾一棵樹（舊行為），總目錄頁顯示第一輪的樹。單篇講記常從中間某層講起（如丙一），上面幾層以虛擬根補齊，不記成誤植。`/api/kepan` 回傳該檔所屬那棵樹，另加 `key`（資料夾＃講輪）、`round`、`rounds`（[{label, file, n}]，兩輪以上才有）、`roundIndex`、`alt`、`scopeDepth`、`chapters`。
+- **多講輪與合輯**（v4.25.0）：同一部經論講過多次時，各輪各自一棵樹（`groupFiles()`、`buildFolder()`）。講記 frontmatter `round: "1996 法雲寺"` 決定分組（同一輪寫同一值；沒寫 round 的各自一組）；總目錄 frontmatter `kepan:` 為 `true`（一定是科判系列，每棵樹只要 `MIN_NODES_FORCED` 5 科）、`false`（不顯示科判）、`per-file`（多場講學的合輯，每篇一棵樹，彼此不連結），沒寫就自動判定（≥ 30 科）；單篇 `kepan: false` 不算（例：講義原文）。單篇 `kepan: true`（v4.27.15）則相反：**這一篇一定要有科判**，門檻降到 `MIN_NODES_SINGLE` 1 科（有標題就成立），不受科數限制；判定在 `buildFolder()` 逐棵樹做（`g.names.some(...)`），所以同 `round` 的講記任一篇宣告就整棵承認（對讀者而言那是同一部講記），但不會波及其他輪、也不會突破總目錄的 `kepan: false`（那條在更前面就 `return` 了）。都沒寫 round 時整個資料夾一棵樹（舊行為），總目錄頁顯示第一輪的樹。單篇講記常從中間某層講起（如丙一），上面幾層以虛擬根補齊，不記成誤植。`/api/kepan` 回傳該檔所屬那棵樹，另加 `key`（資料夾＃講輪）、`round`、`rounds`（[{label, file, n}]，兩輪以上才有）、`roundIndex`、`alt`、`scopeDepth`、`chapters`。
 - **另講對照**（`linkRounds()`）：兩輪「從根到該科的科名」相同就是同一科；各輪開頭分法常不同，所以另用「上一科＋本科」短鍵，在兩輪都只出現一次時也算。比對前去掉括號補充、「分N科」與句尾科數（「序分(分二科)」＝「序分二」）。`alt[本輪科] = [[輪次, 檔名, 行號, 該輪科], …]`。前端（`altFor()`、`roundTarget()`）在地標列顯示「另講」（本科沒有就用最近有對照的上層科），側欄上方有講輪切換鈕（`#kepanRounds`），切換時有對照就到那一科、否則到該輪開頭；前後科、搜尋、範圍選單都只在本輪。
 - **章節式標題**（`parseChapterHeading()`、`buildChapterTree()`）：「第一章／第一節／第一項／甲、／一、」依位階建樹（攝論 1996 年講記），一組講記裡章節標題 ≥ 5 且多於甲乙科判時採用；範圍層級 `pickScopeDepth()` 取最淺而至少 4 科的一層（本地分仍是丙層、攝論 1996 是章），章節標題不改繪階梯。
 - **講次選單**（v4.27.0；v4.27.1 介面改稱「講次」、拿掉自動摘要，`describeRounds()`）：講次不再是一排「年份＋地點」膠囊，而是以「講的內容」分組的下拉選單（`#kepanRoundPick` → `#kepanRoundMenu`）。每次的 `topic` 取自篇名（`topicOfTitle()` 去書名前綴、句尾括號、Tape 編號；一到三篇列篇名，四篇以上整部連講用書名，v4.27.4；「．問答」附篇不另列）。兩次對得上的科占小的一次一半以上且大小相差不到四倍，或篇名範圍相同（v4.27.3 起不論各次是否全同，如金剛經三次科判分法不同仍併為一組），併為「同一內容 N 講」一組（`payload.roundGroups` [{topic, rounds}]），同組才以年份地點區分，各列科數與篇數。使用者不要自動內容摘要；frontmatter `round_note` 可手寫一行說明。
