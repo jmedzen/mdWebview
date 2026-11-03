@@ -9,7 +9,7 @@
  *   - 可展開的科是帶框的 ＋／− 按鈕；末端科是書頁圖示，點了就讀。
  *   - 下拉選單下方有快速搜尋（v4.21.0）：輸入科判字或科名，結果暫時取代樹，點選即前往。
  *   - 閱讀框頂端有地標列（卷、地、層數、全論位置）與從根到末端科的完整路徑；
- *     底部有前一科／後一科，跨卷時自動換檔。
+ *     底部有前一科／後一科（沿用辭典前一條／後一條的浮動膠囊，按鈕上寫前後科科名），跨卷時自動換檔。
  *
  * 上半部是純函式（Node 測試直接 require），下半部是瀏覽器接線，由 app.js 在文件渲染後呼叫
  * window.MdwKepan.onDocumentRendered(filePath)。
@@ -162,10 +162,20 @@
     return { ids: ids.slice(0, limit), total: ids.length, inScope: near.length };
   }
 
+  // 前後科（文件順序）：首科沒有前一科、末科沒有後一科，回傳 0
+  function navTargets(N, id) {
+    return { prev: id > 1 && N[id - 1] ? id - 1 : 0, next: N[id + 1] ? id + 1 : 0 };
+  }
+  // 前後科按鈕上的字：寫該科的科判字與科名；沒有（首末科）時寫 edge
+  function navLabel(n, edge) {
+    return n ? `${n.m || ''} ${n.t || ''}`.trim() : edge;
+  }
+
   const api = {
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
     expandNodes, ancestors, scopeOf, indentFor, computeExpanded, visibleRows,
     hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
+    navTargets, navLabel,
   };
   if (typeof document === 'undefined') return api;
 
@@ -336,11 +346,20 @@
       const pos = sib.length > 1 ? `<small>${sib.indexOf(x) + 1}/${sib.length}</small>` : '';
       return `<a href="#" data-go="${x}" title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(n.t)}${pos}</a>`;
     }).join('<span class="kepan-sep">›</span>');
-    const nx = N[id + 1], pv = id > 1 ? N[id - 1] : null;
-    $('kepanPrev').disabled = !pv;
-    $('kepanNext').disabled = !nx;
-    $('kepanPrev').textContent = pv ? `← 前一科　${pv.m} ${pv.t}` : '已到最前';
-    $('kepanNext').textContent = nx ? `後一科　${nx.m} ${nx.t} →` : '已到最後';
+    const t = navTargets(N, id), nx = t.next ? N[t.next] : null, pv = t.prev ? N[t.prev] : null;
+    setNavBtn($('kepanPrev'), pv, '前一科', '已是第一科');
+    setNavBtn($('kepanNext'), nx, '後一科', '已是最後一科');
+  }
+
+  // 前後科按鈕：按鈕上寫該科科名（不寫目前科名）；首末科停用
+  function setNavBtn(btn, n, kind, edge) {
+    if (!btn) return;
+    const name = navLabel(n, edge);
+    btn.disabled = !n;
+    const span = btn.querySelector('.kepan-nav-name');
+    if (span) span.textContent = name; else btn.textContent = name;
+    btn.title = n ? `${kind}：${n.m}、${n.t}` : edge;
+    btn.setAttribute('aria-label', n ? `${kind}：${n.m} ${n.t}` : edge);
   }
 
   // 點側欄或路徑上的科：打開所在講記並捲到該科標題
@@ -635,8 +654,9 @@
       e.preventDefault();
       goTo(+a.dataset.go);
     });
-    $('kepanPrev').addEventListener('click', () => { if (S.hereId > 1) goTo(S.hereId - 1); });
-    $('kepanNext').addEventListener('click', () => { if (S.N && S.N[S.hereId + 1]) goTo(S.hereId + 1); });
+    const step = key => { if (!S.N || !S.hereId) return; const id = navTargets(S.N, S.hereId)[key]; if (id) goTo(id); };
+    $('kepanPrev').addEventListener('click', () => step('prev'));
+    $('kepanNext').addEventListener('click', () => step('next'));
     const content = $('content');
     if (content) {
       let raf = 0;

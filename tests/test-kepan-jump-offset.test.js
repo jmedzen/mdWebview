@@ -203,6 +203,40 @@ describe('科判跳轉讓開黏性地標列：瀏覽器實測', () => {
       } finally { await h.ctx.close(); }
     });
 
+    test(`${name}：前一科／後一科是辭典式浮動膠囊，按鈕寫前後科名、長名截斷不溢出`, { skip }, async (t) => {
+      const h = await open(t, viewport); if (!h) return;
+      try {
+        await h.page.click('#kepanNext'); await h.page.waitForTimeout(500);
+        const r = await h.page.evaluate(() => {
+          const S = window.MdwKepan._state, N = S.N, id = S.hereId;
+          const nav = document.getElementById('kepanNav'), cs = getComputedStyle(nav);
+          const box = nav.getBoundingClientRect();
+          const name = b => b.querySelector('.kepan-nav-name');
+          const prev = document.getElementById('kepanPrev'), next = document.getElementById('kepanNext');
+          return {
+            position: cs.position, radius: parseFloat(cs.borderTopLeftRadius),
+            inView: box.left >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
+            prevText: name(prev).textContent, nextText: name(next).textContent,
+            wantPrev: `${N[id - 1].m} ${N[id - 1].t}`, wantNext: `${N[id + 1].m} ${N[id + 1].t}`,
+            here: `${N[id].m} ${N[id].t}`, navText: nav.textContent,
+            truncated: name(next).scrollWidth > name(next).clientWidth,
+          };
+        });
+        assert.equal(r.position, 'fixed', '浮動膠囊');
+        assert.ok(r.radius >= 20, '圓角膠囊同辭典');
+        assert.ok(r.inView, '膠囊整個在視窗內');
+        assert.equal(r.prevText, r.wantPrev);
+        assert.equal(r.nextText, r.wantNext);
+        assert.ok(!r.navText.includes(r.here), '不寫目前科名');
+        assert.ok(r.truncated, '長科名以刪節號截斷');
+        // 回到第一科：前一科停用
+        await h.page.evaluate(() => { const a = document.createElement('a'); a.href = '#'; a.dataset.go = '1'; document.getElementById('kepanPath').appendChild(a); a.click(); });
+        await h.page.waitForFunction(() => window.MdwKepan._state.hereId === 1, null, { timeout: 10000 });
+        await h.page.waitForTimeout(300);
+        assert.ok(await h.page.$eval('#kepanPrev', b => b.disabled && b.textContent.includes('已是第一科')));
+      } finally { await h.ctx.close(); }
+    });
+
     test(`${name}：從搜尋（?line=）跳進科判講記，標題不被地標列遮住`, { skip }, async (t) => {
       if (!browser) { t.skip('無法啟動 Chromium'); return; }
       // 找講記T2 後段某個戊科標題的行號
