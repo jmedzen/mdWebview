@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.27.10
+ * @version 4.27.11
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -1316,7 +1316,7 @@ async function handleKepan(req, res, query) {
     const rel = path.relative(r.root, r.resolved).split(path.sep).join('/');
     const payload = await kepan.getKepanForFile(r.root, rel);
     if (!payload) return sendJSON(res, 200, { kepan: null });
-    // 本篇沒有科判標題，但同一部經有：回傳其他講次，側欄提示可以去看（v4.27.10）
+    // 本篇沒有科判標題，但同一部經有：回傳其他講次，側欄提示可以去看（v4.27.11）
     const body = JSON.stringify(payload.none ? { kepan: null, nearby: payload } : { kepan: payload });
     const etag = `W/"kepan-${body.length}-${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"`;
     if (req.headers['if-none-match'] === etag) {
@@ -1362,7 +1362,7 @@ async function handleSectionIndex(req, res, query) {
       return sendJSON(res, 200, { large: false });
     }
 
-    const etag = `W/"${stat.size}-${stat.mtimeMs}"`;
+    const etag = `W/"${stat.size}-${stat.mtimeMs}-fm"`;
     if (req.headers['if-none-match'] === etag) {
       Logger.info('Render', `Loaded document (virtualized 304): "${r.relPath}"`, req, { path: r.relPath });
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
@@ -1393,9 +1393,14 @@ async function handleSectionIndex(req, res, query) {
     // views by the number of scrolled chunks.
     Logger.info('Render', `Loaded document (virtualized): "${r.relPath}"`, req, { path: r.relPath });
 
+    // Frontmatter (title/author/…) for the content header; the virtual path
+    // never reads the whole file, so read just its head.
+    const frontmatter = await readFrontmatterHead(r.resolved);
+
     res.setHeader('ETag', etag);
     sendJSON(res, 200, {
       large: true,
+      frontmatter,
       file: idx.relPath,
       entryLevel: idx.entryLevel,
       preambleLineCount: idx.preambleLineCount,
@@ -1406,6 +1411,22 @@ async function handleSectionIndex(req, res, query) {
     });
   } catch (err) {
     sendJSON(res, 404, { error: 'File not found: ' + query.path });
+  }
+}
+
+// Reads only the head of a file and parses its YAML frontmatter (if any).
+const FRONTMATTER_HEAD_BYTES = 64 * 1024;
+async function readFrontmatterHead(fullPath) {
+  let fh;
+  try {
+    fh = await fs.promises.open(fullPath, 'r');
+    const buf = Buffer.alloc(FRONTMATTER_HEAD_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, FRONTMATTER_HEAD_BYTES, 0);
+    return stripFrontmatter(buf.subarray(0, bytesRead).toString('utf-8')).frontmatter || {};
+  } catch (_) {
+    return {};
+  } finally {
+    if (fh) await fh.close().catch(() => {});
   }
 }
 
@@ -1474,12 +1495,12 @@ async function handleRenderChunk(req, res, query) {
       end = idx.entries[to].offset + idx.entries[to].len;
     }
 
-    const lineOffset = (from === 0) ? 0 : (idx.entries[from].lineStart - 1);
+    let lineOffset = (from === 0) ? 0 : (idx.entries[from].lineStart - 1);
     const byteLen = end - start;
 
     // Answer conditional requests BEFORE reading and rendering: the ETag only
     // depends on the file version and the clamped range, so a 304 needs neither.
-    const etag = `W/"${stat.size}-${stat.mtimeMs}-${from}-${to}"`;
+    const etag = `W/"${stat.size}-${stat.mtimeMs}-${from}-${to}-fm"`;
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
       res.end();
@@ -1501,6 +1522,14 @@ async function handleRenderChunk(req, res, query) {
       body = buf.toString('utf-8');
     } finally {
       await fh.close();
+    }
+    // The first chunk starts at byte 0, so it carries the YAML frontmatter.
+    // Strip it like handleRender does; otherwise marked shows it as an <hr>
+    // plus a setext <h2> of the raw key/value lines.
+    if (from === 0) {
+      const fm = stripFrontmatter(body);
+      body = fm.body;
+      lineOffset = fm.lineOffset;
     }
 
     const abortCtrl = new AbortController();
