@@ -54,6 +54,12 @@ describe('其餘項目：接線', () => {
     assert.match(JS, /雙擊/);
   });
 
+  test('B6：按「知道了」真的會隱藏（.kepan-hint 有 display:flex，[hidden] 要用 !important 蓋過；v4.27.10）', () => {
+    const rule = CSS.split('\n').find(l => l.includes('.kepan-hint[hidden]'));
+    assert.ok(rule && /display: none !important/.test(rule));
+    assert.ok(CSS.split('\n').some(l => l.includes('.kepan-none[hidden]') && /display: none !important/.test(l)));
+  });
+
   test('B7：「另講」改「其他講次」，樹上有對照的科加小點', () => {
     assert.doesNotMatch(JS, />另講`/);
     assert.match(JS, /其他講次：/);
