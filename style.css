@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.19.1
+   mdWebview — Style System (style.css) v4.20.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11794,3 +11794,76 @@ a.small-btn {
   font-family: var(--cjk-serif), serif; font-size: 0.95rem; letter-spacing: 0.1em;
 }
 .share-card-greeting.is-selected { border-color: var(--accent); color: var(--text-primary); background: var(--bg-secondary); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* ── 科判側欄（v4.20.0，kepan-sidebar.js）────────────────────
+   科判系列的講記：側欄「科判」分頁取代「大綱」，閱讀框頂端有地標與完整路徑，
+   底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
+.sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
+.kepan-scope { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+.kepan-scope select {
+  width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input-bg, var(--bg-secondary)); color: var(--text-primary);
+  font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size);
+}
+.kepan-toast { margin: 6px 10px 0; padding: 6px 10px; border-radius: 6px; background: var(--active-bg); color: var(--text-primary); font-size: calc(var(--sidebar-font-size) * 12 / 13); }
+.kepan-tree { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; }
+.kepan-spacer { position: relative; }
+.kepan-row {
+  position: absolute; left: 0; right: 0; height: 28px; display: flex; align-items: center; gap: 6px;
+  padding-right: 10px; cursor: pointer; white-space: nowrap; border-radius: 4px;
+  font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size); color: var(--text-secondary);
+}
+.kepan-row:hover { background: var(--hover-bg); }
+.kepan-row.is-here { background: var(--active-bg); box-shadow: inset 3px 0 var(--accent); color: var(--text-primary); }
+.kepan-row.is-onpath .kepan-title { color: var(--text-primary); font-weight: 600; }
+.kepan-row.is-leaf .kepan-title { color: var(--text-primary); }
+.kepan-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border-subtle); }
+.kepan-toggle {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--bg-secondary);
+  color: var(--accent); font: 700 12px/1 -apple-system, sans-serif; cursor: pointer;
+}
+.kepan-toggle:hover { border-color: var(--accent); }
+.kepan-leaf { flex: none; width: 18px; height: 18px; display: grid; place-items: center; color: var(--accent); opacity: .8; }
+.kepan-leaf svg { width: 13px; height: 13px; }
+.kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
+.kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kepan-count { flex: none; font-size: 10.5px; color: var(--text-muted); font-family: -apple-system, sans-serif; }
+
+.kepan-bar {
+  position: sticky; top: 0; z-index: 5; margin: -8px -12px 16px; padding: 6px 12px 8px;
+  background: var(--bg-primary); border-bottom: 1px solid var(--border-subtle);
+  font-size: calc(var(--ui-font-scale, 1) * 12.5px); color: var(--text-muted);
+}
+.kepan-landmark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.kepan-landmark b { color: var(--text-primary); font-weight: 600; }
+.kepan-progress { width: 120px; height: 4px; border-radius: 2px; background: var(--bg-tertiary, var(--border-subtle)); overflow: hidden; }
+.kepan-progress i { display: block; height: 100%; background: var(--accent); }
+.kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }
+.kepan-path a { color: var(--text-muted); text-decoration: none; white-space: nowrap; }
+.kepan-path a:last-child { color: var(--text-primary); font-weight: 600; }
+.kepan-path a:hover { color: var(--accent); }
+.kepan-path small { font-size: 10px; margin-left: 2px; opacity: .7; font-weight: 400; }
+.kepan-sep { color: var(--text-muted); opacity: .6; }
+.kepan-nav {
+  position: sticky; bottom: 0; z-index: 5; display: flex; justify-content: space-between; gap: 10px;
+  margin: 24px -12px 0; padding: 8px 12px; background: var(--bg-primary); border-top: 1px solid var(--border-subtle);
+}
+.kepan-nav-btn {
+  max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);
+  color: var(--text-secondary); font-family: var(--cjk-serif), serif; font-size: 13px;
+}
+.kepan-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+.kepan-nav-btn:disabled { opacity: .5; cursor: default; }
+/* 一行多層的科判標題改繪成由淺到深的階梯 */
+.markdown-body .kepan-heading { padding: 8px 12px; border-radius: 8px; background: var(--bg-secondary); border: 0; }
+.markdown-body .kepan-heading .kepan-seg { display: block; font-size: 0.72em; font-weight: 400; color: var(--text-muted); line-height: 1.7; }
+.markdown-body .kepan-heading .kepan-seg:last-child { font-size: 1em; font-weight: 700; color: var(--text-primary); }
+.markdown-body .kepan-heading .kepan-mark { margin-right: 4px; }
+.markdown-body .kepan-heading small { margin-left: 6px; font-size: 0.7em; font-weight: 400; color: var(--text-muted); }
+@media (max-width: 768px) {
+  /* 手機上路徑最多露出三行，其餘在列內捲動，不擋住正文 */
+  .kepan-path { max-height: 5.2em; }
+  .kepan-progress { width: 72px; }
+}

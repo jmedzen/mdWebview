@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.19.1
+   mdWebview — Application Logic (app.js) v4.20.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1868,6 +1868,7 @@
     // returning home doesn't pin a large file's index, TOC rows, or headings.
     teardownVirtual();
     disconnectScrollSpy();
+    if (window.MdwKepan && typeof window.MdwKepan.onDocumentClosed === 'function') window.MdwKepan.onDocumentClosed();
     headingTextMap.clear();
     cachedLineAnchors = [];
     resetTocFilterUI();
@@ -2743,7 +2744,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.19.1';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.20.0';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -6278,6 +6279,10 @@
   // ═══════════════════════════════════════════════════════════
 
   function generateTOC(headings) {
+    // 科判系列：側欄以「科判」取代「大綱」（kepan-sidebar.js）
+    if (window.MdwKepan && typeof window.MdwKepan.onDocumentRendered === 'function') {
+      window.MdwKepan.onDocumentRendered(state.currentFile);
+    }
     const tocList = $('tocList');
     headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
 
@@ -9877,7 +9882,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.20.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10571,6 +10576,9 @@
   window.zoomMediaLightbox = zoomLightboxAt;
   window.resetMediaLightbox = resetLightboxZoom;
   window.mediaLightboxState = mediaLightboxState;
+  // 科判側欄（kepan-sidebar.js）用：開檔並捲到某行、手機關閉側欄
+  window.mdwOpenFile = (filePath, line) => openFile(filePath, line);
+  window.mdwCloseMobileSidebars = () => closeMobileSidebars();
 
   // ═══════════════════════════════════════════════════════════
   // §20 EVENT LISTENERS (全站事件綁定：鍵盤、側邊欄、搜尋、排序、捲動…)
@@ -11844,7 +11852,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.20.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12212,7 +12220,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.20.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13199,7 +13207,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.20.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
