@@ -389,6 +389,27 @@ describe('kepan-sidebar.js：快速搜尋科名（v4.21.0）', () => {
   });
 });
 
+describe('kepan-sidebar.js：前一科／後一科', () => {
+  const nodes = [
+    [0, '甲一', '序分', 0, 0, 1],
+    [0, '甲二', '正說非常長非常長非常長非常長的科名', 0, 1, 1],
+    [0, '甲三', '流通分', 0, 1, 9],
+  ];
+  const N = UI.expandNodes({ title: '論', files: ['T1', 'T2'], heads: {}, nodes });
+
+  test('首科沒有前一科、末科沒有後一科；中間兩邊都有（跨卷照文件順序）', () => {
+    assert.deepEqual(UI.navTargets(N, 1), { prev: 0, next: 2 });
+    assert.deepEqual(UI.navTargets(N, 2), { prev: 1, next: 3 });
+    assert.deepEqual(UI.navTargets(N, 3), { prev: 2, next: 0 });
+  });
+
+  test('按鈕字寫前後科的科判字與科名；首末科寫提示', () => {
+    assert.equal(UI.navLabel(N[1], '已是第一科'), '甲一 序分');
+    assert.equal(UI.navLabel(null, '已是第一科'), '已是第一科');
+    assert.equal(UI.navLabel(N[2], 'x'), '甲二 正說非常長非常長非常長非常長的科名', '全名交給 CSS 截斷');
+  });
+});
+
 describe('接線（靜態檢查）', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
@@ -430,5 +451,17 @@ describe('接線（靜態檢查）', () => {
     const docker = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8');
     assert.match(docker, /^COPY .*\bkepan-sidebar\.js\b/m);
     assert.match(docker, /^COPY lib\/ \.\/lib\//m);
+  });
+
+  test('前一科／後一科沿用辭典前一條／後一條的浮動膠囊：不寫目前科名，按鈕上寫前後科名', () => {
+    const nav = html.slice(html.indexOf('id="kepanNav"') - 60, html.indexOf('</nav>', html.indexOf('id="kepanNav"')));
+    assert.match(nav, /class="entry-nav kepan-nav"/, '共用 .entry-nav 外觀');
+    assert.equal((nav.match(/class="entry-nav-btn kepan-nav-btn"/g) || []).length, 2, '兩顆按鈕共用 .entry-nav-btn');
+    assert.ok(!nav.includes('entry-nav-label') && !nav.includes('entryNavLabel'), '中間不顯示目前科名');
+    assert.equal((nav.match(/class="kepan-nav-name"/g) || []).length, 2);
+    const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+    assert.match(css, /\.kepan-nav-name \{[^}]*text-overflow: ellipsis/, '長科名截斷');
+    assert.match(css, /body\.has-kepan #markdownBody \{ padding-bottom/, '正文底部留白，不被浮動膠囊遮住');
+    assert.ok(!/\.kepan-nav \{[^}]*position: sticky/.test(css), '不再是黏在正文底部的長條');
   });
 });

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.21.2
+   mdWebview — Style System (style.css) v4.22.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11866,17 +11866,34 @@ a.small-btn {
 .kepan-path a:hover { color: var(--accent); }
 .kepan-path small { font-size: 10px; margin-left: 2px; opacity: .7; font-weight: 400; }
 .kepan-sep { color: var(--text-muted); opacity: .6; }
+/* 前一科／後一科：外觀與互動沿用 .entry-nav（辭典前一條／後一條的浮動膠囊），
+   中間不寫目前科名，改在兩顆按鈕上寫前後科的科名；長名以刪節號截斷。
+   兩側各留出回到頂部鈕的位置（28px + 40px），避免重疊。 */
 .kepan-nav {
-  position: sticky; bottom: 0; z-index: 5; display: flex; justify-content: space-between; gap: 10px;
-  margin: 24px -12px 0; padding: 8px 12px; background: var(--bg-primary); border-top: 1px solid var(--border-subtle);
+  gap: 4px;
+  max-width: min(680px, calc(100vw - 160px));
 }
 .kepan-nav-btn {
-  max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
-  padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);
-  color: var(--text-secondary); font-family: var(--cjk-serif), serif; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 300px;
+  font-family: var(--cjk-serif), serif; font-weight: 500;
 }
-.kepan-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
-.kepan-nav-btn:disabled { opacity: .5; cursor: default; }
+.kepan-nav-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kepan-nav-arrow { flex: none; font-family: 'Inter', sans-serif; font-weight: 600; }
+@media (hover: none) {
+  /* 觸控點完不殘留 hover 底色 */
+  .kepan-nav-btn:hover:not(:disabled) { background: transparent; color: var(--text-secondary); }
+}
+.kepan-nav-sep { flex: none; width: 1px; height: 18px; background: var(--border-subtle); }
+/* 浮動膠囊不佔版面，正文底部留白，最後幾行不被遮住 */
+body.has-kepan #markdownBody { padding-bottom: 88px; }
+@media (max-width: 768px) {
+  .kepan-nav { width: calc(100vw - 32px); max-width: calc(100vw - 32px); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .kepan-nav-btn { max-width: none; flex: 1 1 0; padding: 6px 10px; }
+  .kepan-nav-btn:last-child { justify-content: flex-end; }
+  .kepan-nav-btn { -webkit-tap-highlight-color: transparent; }
+  /* 手機膠囊幾乎滿寬，回到頂部鈕移到膠囊上方 */
+  body.has-kepan .back-to-top { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+}
 /* 一行多層的科判標題改繪成由淺到深的階梯 */
 .markdown-body .kepan-heading { padding: 8px 12px; border-radius: 8px; background: var(--bg-secondary); border: 0; }
 .markdown-body .kepan-heading .kepan-seg { display: block; font-size: 0.72em; font-weight: 400; color: var(--text-muted); line-height: 1.7; }
