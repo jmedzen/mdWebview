@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.22.0
+ * @version 4.23.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -4405,6 +4405,8 @@ function shareCardParams(query) {
     greeting: ShareCard.GREETINGS.includes(query.g) ? query.g : '吉祥',
     layout: ShareCard.normalizeLayout(query.layout || query.l),
     size: ShareCard.normalizeSize(query.size),
+    // size=preview：分享面板裡的小預覽（直式版面、較小的畫布），傳出去的仍是 size=portrait
+    preview: query.size === 'preview',
     qr: query.qr === '1'
   };
 }
@@ -4463,7 +4465,7 @@ async function handleShareCardMeta(req, res, query) {
   }
 }
 
-/** GET /api/share-card.jpg?id=&layout=A|B|C&size=portrait|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
+/** GET /api/share-card.jpg?id=&layout=A|B|C&size=portrait|preview|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
 async function handleShareCardImage(req, res, query) {
   if (!shareCardServer.available()) {
     return sendJSON(res, 503, { error: 'Share card renderer unavailable', renderer: false });
@@ -4476,13 +4478,16 @@ async function handleShareCardImage(req, res, query) {
     const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
     let picAbs = rel ? shareCardServer.resolvePic(rel) : null;
     if (picAbs && !(await shareCardServer.isRealPicPath(picAbs))) picAbs = null;
-    const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, qr: shareCardQrUrl(req, v, p), ...shareCardSite(req) });
+    const timing = {};
+    const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, qr: shareCardQrUrl(req, v, p), ...shareCardSite(req) }, timing);
     const etag = `"sc-${crypto.createHash('md5').update(buf).digest('hex').slice(0, 16)}"`;
     const headers = Object.assign({
       'Content-Type': 'image/jpeg',
       'Content-Length': buf.length,
       'Cache-Control': 'public, max-age=3600',
-      'ETag': etag
+      'ETag': etag,
+      // 瀏覽器開發工具「Timing」看得到：解碼背景圖／畫圖／JPEG 編碼各花幾毫秒（快取命中則只有 cache）
+      'Server-Timing': shareCardServerTiming(timing)
     }, SECURITY_HEADERS);
     // og 尺寸 = 分享連結的預覽圖（LINE／FB 預覽機器人來抓）；面板內的直式預覽不記，
     // 它們是每次打開面板自動畫的，真正的分享動作由前端回報。
@@ -4501,6 +4506,13 @@ async function handleShareCardImage(req, res, query) {
     Logger.error('ShareCard', 'Failed to render share card', err, req, { share: { ev: 'error', stage: 'render', verse: query.id, quote: query.q, layout: query.layout || query.l } });
     if (!res.headersSent) sendJSON(res, 500, { error: 'Failed to render share card' });
   }
+}
+
+/** render() 填回的耗時 → Server-Timing 標頭。 */
+function shareCardServerTiming(t) {
+  const parts = [`cache;desc="${t.cache || 'miss'}"`];
+  for (const k of ['decode', 'draw', 'encode']) if (Number.isFinite(t[k])) parts.push(`${k};dur=${t[k]}`);
+  return parts.join(', ');
 }
 
 /** GET /api/pic-card?p=<相對路徑> — 圖庫裡的背景圖（給瀏覽器備援繪圖用）。 */
