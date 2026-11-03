@@ -2,7 +2,7 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀 26,500 行程式碼** 的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.19.1 | 最後更新：2026-11
+> 版本：v4.22.0 | 最後更新：2026-11
 
 ---
 
@@ -41,6 +41,7 @@
 17. [PWA 安裝引導](#17-pwa-安裝引導v3101)
 18. [為何 app.js / server.js 不做模組化重構](#18-為何-appjs-serverjs-不做模組化重構)
 19. [使用者帳號](#19-使用者帳號v3122)
+20. [科判側欄](#20-科判側欄v4200)
 
 ---
 
@@ -685,6 +686,7 @@ flowchart TD
 |---------|---------|-------------------|
 | `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `INDEX_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
 | `lib/index-dir.js` | 索引快取檔名清單與舊位置遷移：啟動時把 `LOG_DIR` 裡的 `*-index-cache.*` 搬到 `INDEX_DIR`（同檔案系統 rename；跨掛載點 EXDEV 改為複製→改名→刪舊檔；目的地已有檔以新為準；失敗只記警告，索引照常重建） | `INDEX_CACHE_FILES`, `migrateLegacyIndexFiles` |
+| `lib/kepan.js` | 從講記標題抽取科判樹：依「甲乙…子丑…天地玄黃…」字序判層級（不看 # 數）、一行多層拆段、跨卷重述同一科不重建、「辰」等重複用字與「巳／己」誤植依編號接續；依資料夾（檔案數＋最新修改時間）快取 | `buildKepanTree`, `parseHeadingSegments`, `getKepanForFile`, `toClientPayload` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
 | `lib/auth.js` | 管理員權限閘門（讀 `lib/session.js` 的 session 並檢查 role=admin）、時序安全比對、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`（僅舊格式）, `verifySameOrigin`, `getAdminUser`, `isAuthenticated`, `isAuthorizedAdmin`, `requireAdmin`, `readJSONBody` |
@@ -746,6 +748,7 @@ flowchart TD
 | `/api/media` | GET | `handleMedia()` | ❌ | 靜態媒體服務（圖片、PDF、音訊，支援 Range） |
 | `/api/render` | GET | `handleRender()` | ❌ | 經文渲染 API（小型檔案完整渲染並提取 Meta） |
 | `/api/section-index` | GET | `handleSectionIndex()` | ❌ | 大型經論與辭典章節分塊 Metadata (.bin 磁碟快取) |
+| `/api/kepan` | GET | `handleKepan()` | ❌ | 講記所在資料夾的科判樹（精簡格式、gzip、ETag）；非科判資料夾回 `{ kepan: null }` |
 | `/api/render-chunk` | GET | `handleRenderChunk()` | ❌ | 大型經論特定分塊動態渲染（Worker 調度） |
 | `/api/search` | GET | `handleSearch()` | ❌ | Bigram 全文倒排檢索（支援 variants 字組比對、mode=strict|loose 寬鬆模式與鄰近過濾） |
 | `/api/search-file` | GET | `handleSearchFile()` | ❌ | 單一經論檔案內文檢索（虛擬化模式的頁內搜尋） |
@@ -1028,7 +1031,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.19.1'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | `'4.22.0'` | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |
@@ -1601,3 +1604,20 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **圖表**：`lib/report-chart.js` 產生場景（矩形、折線、多邊形、圓點、數字文字），`toSvg()` 給後台預覽，`toPng()` 自己點陣化（3×3 超取樣反鋸齒、內建筆畫數字字型、`zlib` 壓縮）給信件以 `cid:` 內嵌（Resend `attachments[].content_id`），因為 Gmail、Outlook 不顯示 SVG。中文標題與圖例都放在信件 HTML，不進圖片；排行榜是 HTML 表格長條，所有信箱都看得到。
 - **排程**：`reports.start()`（`accounts.init()` 內呼叫，測試環境不啟動）每 5 分鐘檢查 `dueReports()`。寄出前先把期別寫進 `app_settings` 的 `reports.lastSent.<kind>`，重啟不重寄、失敗也不自動重試（避免每 5 分鐘寄一次），可在後台手動補寄。第一次啟動時把當期記為已寄，不會一上線就補寄舊報表。最近 30 筆寄送紀錄存在 `reports.history`。
 - **API**（管理員）：`GET /api/admin/reports`（設定、收件人、下次寄送、紀錄）、`POST /api/admin/reports/settings`、`GET /api/admin/reports/preview?kind=daily|weekly`（回傳 `{subject, html}`，圖用 SVG data URI，後台以 sandbox iframe 的 `srcdoc` 顯示）、`POST /api/admin/reports/send`（`{kind, to?}`；`to` 有值時只寄這個地址當測試）。
+
+---
+
+## 20. 科判側欄（v4.20.0）
+
+長老講記把科判寫在標題裡（`## 甲一、本地分（分二科）  乙一、略辨地名（分二科）  丙一、徵`），《瑜伽師地論》本地分深達四十層，Markdown 的 h1～h6 與「本頁大綱」都表達不了。講記所在資料夾若是科判系列，側欄的「大綱」分頁換成「科判」。
+
+- **判定與抽取**（`lib/kepan.js`）：只看同一層的 `.md`（子資料夾如「卷分QA」不算），有「總目錄」就依其中連結排序，否則自然排序。抽出的科數少於 `MIN_NODES`（30）就不算科判系列，避免一般文章的「甲、乙」被誤判。層級依字序判斷；字序有重複用字（「辰」在地支與千字文都有），原文也有誤植（「巳」寫成「己」、「已」），所以以「編號能否接續上一科」決定層級，接不上時就近接續並記入 `problems`。本地分 504 篇講記抽出約 23,400 科，約 0.1 秒。
+- **傳輸**（`/api/kepan`）：每科一個陣列 `[父, 層級字號, 科名, 披尋記頁, 檔案索引, 原檔行號]`，`heads[檔案索引] = [[行號, 該行最深的科], …]`。行號與 `/api/render` 的 `data-line` 錨點相同（含 frontmatter），前端依此對應捲動位置。
+- **側欄規則**（`kepan-sidebar.js`，「錨定版」）：樹不在閱讀時換根；一次只看一「地」（丙層），跨地才換並短暫提示「已進入…」，選單選「全論」則不自動換。只沿目前閱讀位置那條主幹展開，其餘自動收起（使用者手動打開或收起的會保留）。前 5 層每層縮 14px，更深每層 3px，四十層仍留得下科名。可展開的科是帶框的 ＋／− 按鈕，末端科是書頁圖示。
+- **快速搜尋**（v4.21.0）：下拉選單下方的搜尋框，在整個科判系列裡找科判字（「丙一」）或科名（去空白與標點後比對，空白分隔的多個關鍵字須全部符合）。結果暫時取代樹，每筆附所屬的地、上一層科與層數；目前所在那一地的結果排前，科判字完全相同的排最前，最多列 200 筆。↑↓ 選、Enter 前往（預設第一筆）、Esc 清除；注音等輸入法選字中（`compositionstart`～`compositionend`、`keyCode 229`）不搜尋也不跳轉。點選後清除搜尋、回到樹並把該科所在主幹展開（解除使用者收起的上層），同時打開講記捲到該科。純函式 `normalizeQuery()`、`searchNodes()`。
+- **閱讀框**：頂端固定地標列（卷、地、《披尋記》頁、層數、全論位置）與從根到末端科的完整路徑（每層附「第幾／共幾科」）；底部前一科／後一科依科判順序跨卷換檔。講記中一行多層的科判標題改繪成由淺到深的階梯，行號錨點節點原封保留。
+- **接線**：`generateTOC()` 開頭呼叫 `MdwKepan.onDocumentRendered(state.currentFile)`；`goHome()` 呼叫 `onDocumentClosed()`；跨卷跳轉用 `window.mdwOpenFile(path, line)`。換檔期間舊文件的捲動事件不算數，載入後由側欄自己再捲到目標行一次（標題改繪會改變高度）。
+- **讓開地標列**（v4.21.1）：地標列是 `position: sticky` 且會換行、隨所在的科變高，跳轉一律扣掉它的實際高度。側欄點科、前後科用 `jumpScrollTop()`（先 `setHere()` 重繪列再量高）；`app.js` 的 `safeScrollToElement()`、`scrollToLine()`、`scrollToLineVirtual()` 用 `stickyTopInset()`，搜尋跳行後列才換高度時由 `ResizeObserver` 再對齊一次（1.5 秒內、使用者未動手）。捲動定位判定線 `spyLine()` 取本篇最高列高 + 28px，不隨列高來回跳。測試：`tests/test-kepan-jump-offset.test.js`。
+- **地標列外觀**（v4.21.2）：底色 `--bg-secondary`、下緣 `--border` 實線加柔影（`--shadow-color`），和正文分開；陰影不佔版面高度，跳轉偏移照舊讀實際高度。
+- **前一科／後一科**（v4.22.0）：`#kepanNav` 沿用辭典前一條／後一條的浮動膠囊（`.entry-nav` / `.entry-nav-btn`，置中固定於底部），中間不寫目前科名，兩顆按鈕直接寫前後科的「科判字 科名」，長名以刪節號截斷，完整科名在 `title`；首科、末科按鈕停用並寫「已是第一科／已是最後一科」。正文底部留 88px 免遮住。純函式 `navTargets()`、`navLabel()`。
+- **測試**：`tests/test-kepan.test.js`（抽取規則、資料夾快取、`/api/kepan` 端對端、側欄純函式、接線靜態檢查）。

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.19.1
+   mdWebview — Application Logic (app.js) v4.22.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -1253,6 +1253,21 @@
    * Safely scroll an element into view inside an overflow container without
    * causing the outer window/body to scroll up on iOS Safari / Mobile browsers.
    */
+  /**
+   * 閱讀框頂端黏性列（目前是科判地標列 #kepanBar）的實際高度。它會換行、在手機上
+   * 變高，又隨所在的科改變，所以每次跳轉都現量；捲到頂端的目標要讓開這段高度，
+   * 否則標題會被它蓋住。
+   */
+  function stickyTopInset(containerEl) {
+    const bar = document.getElementById('kepanBar');
+    if (!bar || bar.hidden || !containerEl || !containerEl.contains(bar)) return 0;
+    return bar.getBoundingClientRect().height || 0;
+  }
+
+  // 最近一次「跳到某行」的目標。跳轉後黏性列才換內容（例如從搜尋跳進科判系列，
+  // 科判列稍後才知道所在的科）而改變高度時，再對齊一次；使用者一動手就作廢。
+  let lastLineJump = null;
+
   function safeScrollToElement(targetEl, containerEl, blockPos = 'start') {
     if (!targetEl) return;
     if (!containerEl) containerEl = $('content');
@@ -1262,11 +1277,13 @@
     const containerRect = containerEl.getBoundingClientRect();
     
     let targetScrollTop = containerEl.scrollTop + (targetRect.top - containerRect.top);
-    
+    const inset = stickyTopInset(containerEl);
+
     if (blockPos === 'start') {
-      targetScrollTop -= 12;
+      targetScrollTop -= 12 + inset;
     } else if (blockPos === 'center') {
-      targetScrollTop -= (containerRect.height / 2) - (targetRect.height / 2);
+      // 置中於黏性列下方的可見區
+      targetScrollTop -= inset + ((containerRect.height - inset) / 2) - (targetRect.height / 2);
     }
 
     containerEl.scrollTo({
@@ -1654,6 +1671,7 @@
       }
 
       safeScrollToElement(scrollTarget, $('content'), 'start');
+      lastLineJump = { el: scrollTarget, at: Date.now() };
 
       // 佈局未定時量測與重流修正（Requirement [D]）
       requestAnimationFrame(() => {
@@ -1661,7 +1679,7 @@
         if (!c || !scrollTarget || !scrollTarget.isConnected) return;
         const tr = scrollTarget.getBoundingClientRect();
         const cr = c.getBoundingClientRect();
-        const expectedTop = cr.top + 12;
+        const expectedTop = cr.top + 12 + stickyTopInset(c);
         if (Math.abs(tr.top - expectedTop) > 16) {
           safeScrollToElement(scrollTarget, c, 'start');
         }
@@ -1868,6 +1886,7 @@
     // returning home doesn't pin a large file's index, TOC rows, or headings.
     teardownVirtual();
     disconnectScrollSpy();
+    if (window.MdwKepan && typeof window.MdwKepan.onDocumentClosed === 'function') window.MdwKepan.onDocumentClosed();
     headingTextMap.clear();
     cachedLineAnchors = [];
     resetTocFilterUI();
@@ -2743,7 +2762,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.19.1';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.22.0';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -4404,7 +4423,7 @@
     const content = $('content');
     const targetRect = scrollTarget.getBoundingClientRect();
     const containerRect = content.getBoundingClientRect();
-    content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - 12);
+    content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - 12 - stickyTopInset(content));
 
     // 有界的事後修正：字體大小／行高／最大寬度都會改變實際行高，且 spacer 高度是以單一
     // avgPxPerLine 估算（離已掛載窗越遠誤差越大），因此第一次定位可能失準。以 anchor 的
@@ -4421,7 +4440,7 @@
       if (state.virtual !== v || state._openToken !== jumpToken) { v._jumpLock = null; return; }
       const c = $('content');
       if (!target.isConnected || !c) return release();
-      const d = (target.getBoundingClientRect().top - c.getBoundingClientRect().top) - 12;
+      const d = (target.getBoundingClientRect().top - c.getBoundingClientRect().top) - 12 - stickyTopInset(c);
       const abs = Math.abs(d);
       if (abs <= 2 || abs >= lastAbs || attempt >= 3) return releaseAfterScroll();
       lastAbs = abs;
@@ -6278,6 +6297,10 @@
   // ═══════════════════════════════════════════════════════════
 
   function generateTOC(headings) {
+    // 科判系列：側欄以「科判」取代「大綱」（kepan-sidebar.js）
+    if (window.MdwKepan && typeof window.MdwKepan.onDocumentRendered === 'function') {
+      window.MdwKepan.onDocumentRendered(state.currentFile);
+    }
     const tocList = $('tocList');
     headings = headings || $$('h1, h2, h3, h4, h5, h6', $('markdownBody'));
 
@@ -9877,7 +9900,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -10571,6 +10594,9 @@
   window.zoomMediaLightbox = zoomLightboxAt;
   window.resetMediaLightbox = resetLightboxZoom;
   window.mediaLightboxState = mediaLightboxState;
+  // 科判側欄（kepan-sidebar.js）用：開檔並捲到某行、手機關閉側欄
+  window.mdwOpenFile = (filePath, line) => openFile(filePath, line);
+  window.mdwCloseMobileSidebars = () => closeMobileSidebars();
 
   // ═══════════════════════════════════════════════════════════
   // §20 EVENT LISTENERS (全站事件綁定：鍵盤、側邊欄、搜尋、排序、捲動…)
@@ -10587,6 +10613,23 @@
 
   function setupEventListeners() {
     initMediaLightboxEvents();
+
+    // ── 黏性科判列換高度時，剛跳到的那一行重新讓開它 ──
+    const stickyBar = $('kepanBar');
+    const contentEl0 = $('content');
+    if (stickyBar && contentEl0 && typeof ResizeObserver === 'function') {
+      let lastInset = -1;
+      new ResizeObserver(() => {
+        const inset = stickyTopInset(contentEl0);
+        if (inset === lastInset) return;
+        lastInset = inset;
+        const j = lastLineJump;
+        if (!j || Date.now() - j.at > 1500 || !j.el.isConnected || isVirtualMode()) return;
+        safeScrollToElement(j.el, contentEl0, 'start');
+      }).observe(stickyBar);
+      const cancelJump = () => { lastLineJump = null; };
+      ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(ev => contentEl0.addEventListener(ev, cancelJump, { passive: true }));
+    }
 
     // ── Social share preview image fallback ──
     const ogImg = $('ogPreviewImg') || document.getElementById('ogPreviewImg');
@@ -11844,7 +11887,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12212,7 +12255,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13199,7 +13242,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.19.1';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.22.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 

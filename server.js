@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.19.1
+ * @version 4.22.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -61,6 +61,7 @@ const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
 const searchVariants = require('./i18n/search-variants');
 const { migrateLegacyIndexFiles } = require('./lib/index-dir');
+const kepan = require('./lib/kepan');
 
 // ── Core Native Modules (Refactored to lib/) ───────────────────────────────
 const {
@@ -1291,6 +1292,45 @@ function resolveMdPath(filePath) {
                  !hasHiddenSegment(relative) && isMarkdownPath(resolved);
   if (!isSafe) return null;
   return { resolved, relPath: outRelPath, root };
+}
+
+/**
+ * 傳回講記所在資料夾的科判樹（GET /api/kepan?path=...，v4.21.0）。
+ * 資料夾不是科判系列（科判標題太少）時回傳 `{ kepan: null }`，前端照常顯示「大綱」。
+ * 樹依資料夾內檔案數與最新修改時間快取；ETag 也用同一組資訊，未變時回 304。
+ *
+ * @param {http.IncomingMessage} req   - HTTP 請求物件
+ * @param {http.ServerResponse}  res   - HTTP 回應物件
+ * @param {Object}               query - 查詢參數，必須包含 `path`（某一篇講記）
+ */
+async function handleKepan(req, res, query) {
+  const r = resolveMdPath(query.path);
+  if (!r) return sendJSON(res, 404, { error: 'File not found' });
+  // 只處理主經庫；辭典等其他根目錄沒有科判
+  if (path.resolve(r.root) !== path.resolve(getMdRoot())) return sendJSON(res, 200, { kepan: null });
+  try {
+    if (!fs.existsSync(r.resolved)) return sendJSON(res, 404, { error: 'File not found' });
+    if (!(await isRealPathWithinRoot(r.root, r.resolved))) {
+      return sendJSON(res, 403, { error: 'Access denied' });
+    }
+    const rel = path.relative(r.root, r.resolved).split(path.sep).join('/');
+    const payload = await kepan.getKepanForFile(r.root, rel);
+    if (!payload) return sendJSON(res, 200, { kepan: null });
+    const body = JSON.stringify({ kepan: payload });
+    const etag = `W/"kepan-${body.length}-${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, Object.assign({ 'ETag': etag, 'Cache-Control': 'no-cache' }, SECURITY_HEADERS));
+      return res.end();
+    }
+    return sendCompressed(req, res, 200, Object.assign({
+      'Content-Type': 'application/json; charset=utf-8',
+      'ETag': etag,
+      'Cache-Control': 'no-cache',
+    }, SECURITY_HEADERS), Buffer.from(body, 'utf-8'));
+  } catch (err) {
+    Logger.warn('Kepan', `科判樹建立失敗：${r.relPath}：${err.message}`, req);
+    return sendJSON(res, 500, { error: 'Failed to build kepan tree' });
+  }
 }
 
 /**
@@ -5677,6 +5717,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/section-index' && req.method === 'GET') {
     return handleSectionIndex(req, res, query);
+  }
+  if (pathname === '/api/kepan' && req.method === 'GET') {
+    return handleKepan(req, res, query);
   }
   if (pathname === '/api/render-chunk' && req.method === 'GET') {
     return handleRenderChunk(req, res, query);
