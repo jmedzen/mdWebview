@@ -134,7 +134,8 @@
   function headingSegments(text) {
     const NUM = '[一二三四五六七八九十]+';
     return String(text).replace(/ /g, ' ').trim()
-      .split(new RegExp(`[\\s\\u3000]+(?=\\S${NUM}、?)|(?<=科）)(?=\\S${NUM}、)`))
+      .split(new RegExp(`[\\s\\u3000]+(?=\\S${NUM}、?)|(?<=科）)(?=\\S${NUM}、)|(?<=[；;])(?=[甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥天地玄黃宇宙洪荒日月盈昃宿列張寒來暑往秋收冬藏已]${NUM}、?)`))
+      .map(s => s.replace(/[；;]+$/, ''))
       .map(s => {
         const m = s.match(new RegExp(`^(\\S)(${NUM})、?(.*?)(?:（(分${NUM}科)）)?$`));
         return m ? { mark: m[1] + m[2], title: m[3], split: m[4] || '' } : { mark: '', title: s, split: '' };
@@ -770,7 +771,9 @@
     }
     const id = hereFromLine(S.payload, S.fileIndex, line);
     // 剛點選的上層科與子科共用同一行標題時，保留點選的那一層
-    if (S.pendingHere && (id === S.pendingHere || ancestors(S.N, id).includes(S.pendingHere))) {
+    // 同一行並列的多個終端科（共用一段文）也算：點了「辛一」不要被改回同行最後的「辛二」
+    const sameLine = S.pendingHere && S.N[id] && S.N[S.pendingHere] && S.N[id].f === S.N[S.pendingHere].f && S.N[id].l === S.N[S.pendingHere].l;
+    if (S.pendingHere && (id === S.pendingHere || sameLine || ancestors(S.N, id).includes(S.pendingHere))) {
       if (S.N[S.pendingHere].l === line || !line) return setHere(S.pendingHere, true);
     }
     S.pendingHere = 0;
