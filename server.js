@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.20.1
+ * @version 4.21.1
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -1295,7 +1295,7 @@ function resolveMdPath(filePath) {
 }
 
 /**
- * 傳回講記所在資料夾的科判樹（GET /api/kepan?path=...，v4.20.0）。
+ * 傳回講記所在資料夾的科判樹（GET /api/kepan?path=...，v4.21.0）。
  * 資料夾不是科判系列（科判標題太少）時回傳 `{ kepan: null }`，前端照常顯示「大綱」。
  * 樹依資料夾內檔案數與最新修改時間快取；ETag 也用同一組資訊，未變時回 304。
  *
