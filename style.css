@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.25.0
+   mdWebview — Style System (style.css) v4.25.1
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -8966,7 +8966,8 @@ details.callout[open] > summary .callout-fold-icon {
 .entry-nav {
   position: fixed;
   bottom: 28px;
-  left: 50%;
+  /* 對齊閱讀區（#content）正中，而非整個視窗；變數由 app.js syncFloatingNavCenter 寫入 */
+  left: var(--reading-center, 50%);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -11887,7 +11888,7 @@ a.small-btn {
    兩側各留出回到頂部鈕的位置（28px + 40px），避免重疊。 */
 .kepan-nav {
   gap: 4px;
-  max-width: min(680px, calc(100vw - 160px));
+  max-width: min(680px, calc(var(--reading-width, 100vw) - 160px));
 }
 .kepan-nav-btn {
   display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 300px;
