@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.20.0
+   mdWebview — Style System (style.css) v4.21.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11795,7 +11795,7 @@ a.small-btn {
 }
 .share-card-greeting.is-selected { border-color: var(--accent); color: var(--text-primary); background: var(--bg-secondary); box-shadow: inset 0 0 0 1px var(--accent); }
 
-/* ── 科判側欄（v4.20.0，kepan-sidebar.js）────────────────────
+/* ── 科判側欄（v4.21.0，kepan-sidebar.js）────────────────────
    科判系列的講記：側欄「科判」分頁取代「大綱」，閱讀框頂端有地標與完整路徑，
    底部有前一科／後一科。可展開的科是帶框按鈕，末端科是書頁圖示。 */
 .sidebar-tab[hidden], .kepan-bar[hidden], .kepan-nav[hidden], .kepan-toast[hidden] { display: none !important; }
@@ -11805,6 +11805,25 @@ a.small-btn {
   background: var(--input-bg, var(--bg-secondary)); color: var(--text-primary);
   font-family: var(--cjk-serif), serif; font-size: var(--sidebar-font-size);
 }
+/* 快速搜尋科名（v4.21.0）：結果暫時取代樹 */
+.kepan-search { position: relative; display: flex; align-items: center; margin-top: 6px; }
+.kepan-search .sidebar-filter-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.kepan-search .sidebar-filter-clear { right: 4px; }
+.kepan-results[hidden], .kepan-tree[hidden] { display: none !important; }
+.kepan-results { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 0 8px; }
+.kepan-results-head {
+  display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px 4px;
+  font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted);
+}
+.kepan-results-keys { white-space: nowrap; opacity: .8; }
+.kepan-hit { padding: 5px 12px; margin: 0 4px; border-radius: 6px; cursor: pointer; font-family: var(--cjk-serif), serif; }
+.kepan-hit:hover { background: var(--hover-bg); }
+.kepan-hit.is-active { background: var(--active-bg); box-shadow: inset 3px 0 var(--accent); }
+.kepan-hit-title { font-size: var(--sidebar-font-size); color: var(--text-primary); line-height: 1.5; overflow-wrap: anywhere; }
+.kepan-hit-title .kepan-mark { margin-right: 4px; }
+.kepan-hit-where { font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kepan-hit mark { background: transparent; color: var(--accent); font-weight: 700; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+@media (hover: none) { .kepan-results-keys { display: none; } .kepan-hit { padding: 8px 12px; } }
 .kepan-toast { margin: 6px 10px 0; padding: 6px 10px; border-radius: 6px; background: var(--active-bg); color: var(--text-primary); font-size: calc(var(--sidebar-font-size) * 12 / 13); }
 .kepan-tree { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; }
 .kepan-spacer { position: relative; }

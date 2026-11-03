@@ -7,6 +7,7 @@
  *   - 只沿著目前閱讀位置那一條主幹展開；離開的分支自動收起（使用者自己打開的不收）。
  *   - 前 5 層正常縮排，更深的每層只縮 3px，四十層也放得進側欄寬度。
  *   - 可展開的科是帶框的 ＋／− 按鈕；末端科是書頁圖示，點了就讀。
+ *   - 下拉選單下方有快速搜尋（v4.21.0）：輸入科判字或科名，結果暫時取代樹，點選即前往。
  *   - 閱讀框頂端有地標列（卷、地、層數、全論位置）與從根到末端科的完整路徑；
  *     底部有前一科／後一科，跨卷時自動換檔。
  *
@@ -116,10 +117,44 @@
     return m ? m[1] : '';
   }
 
+  /** 搜尋用的正規化：去空白與標點、英文小寫，「五識 身」「五識身」都找得到。 */
+  function normalizeQuery(s) {
+    return String(s || '').toLowerCase()
+      .replace(/[\s\u3000、，。；：！？「」『』（）()《》〈〉【】．·・,.;:!?'"\-—…／/]+/g, '');
+  }
+
+  /**
+   * 快速搜尋科名（v4.21.0）：在整個科判系列裡找科判字（丙一）或科名含有關鍵字的科。
+   * 以空白分開的多個關鍵字須全部符合。目前範圍（rootId 那一地）裡的結果排前面，
+   * 其餘依閱讀順序。
+   * @param {Array} N expandNodes 的結果
+   * @param {string} query
+   * @param {{ rootId?: number, limit?: number, hay?: string[] }} [opts] hay 為快取的正規化字串
+   * @returns {{ ids: number[], total: number, inScope: number }}
+   */
+  function searchNodes(N, query, opts) {
+    const o = opts || {};
+    const terms = String(query || '').split(/[\s\u3000]+/).map(normalizeQuery).filter(Boolean);
+    if (!terms.length) return { ids: [], total: 0, inScope: 0 };
+    const limit = o.limit || 200, rootId = o.rootId || 0, hay = o.hay || [];
+    const near = [], far = [];
+    for (let id = 1; id < N.length; id++) {
+      const h = hay[id] !== undefined ? hay[id] : (hay[id] = normalizeQuery(N[id].m + N[id].t));
+      if (!terms.every(t => h.includes(t))) continue;
+      (rootId && scopeOf(N, id) === rootId ? near : far).push(id);
+    }
+    // 科判字完全相同（輸入「丙一」）的科排在最前
+    const exact = normalizeQuery(query);
+    const all = near.concat(far);
+    const head = all.filter(id => normalizeQuery(N[id].m) === exact);
+    const ids = head.length ? head.concat(all.filter(id => normalizeQuery(N[id].m) !== exact)) : all;
+    return { ids: ids.slice(0, limit), total: ids.length, inScope: near.length };
+  }
+
   const api = {
     SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT,
     expandNodes, ancestors, scopeOf, indentFor, computeExpanded, visibleRows,
-    hereFromLine, headingSegments, juanOf,
+    hereFromLine, headingSegments, juanOf, normalizeQuery, searchNodes,
   };
   if (typeof document === 'undefined') return api;
 
@@ -137,6 +172,7 @@
     rows: [], rowIndex: new Map(),
     anchors: [], anchorsDirty: true,
     loadToken: 0, busyInTree: false, busyTimer: null,
+    hay: [], found: [], active: -1, composing: false,
   };
   const payloadCache = new Map();   // 資料夾 → payload|null
 
@@ -376,6 +412,126 @@
     }
   }
 
+  // ── 快速搜尋科名（v4.21.0）：下拉選單下方的搜尋框，結果暫時取代樹 ──
+  const RESULT_LIMIT = 200;
+
+  function markHit(text, query) {
+    const lower = text.toLowerCase(), on = new Array(text.length).fill(false);
+    for (const t of String(query).toLowerCase().split(/[\s\u3000]+/).filter(Boolean)) {
+      const i = lower.indexOf(t);
+      if (i >= 0) for (let j = i; j < i + t.length; j++) on[j] = true;
+    }
+    let html = '', open = false;
+    for (let j = 0; j < text.length; j++) {
+      if (on[j] !== open) { html += on[j] ? '<mark>' : '</mark>'; open = on[j]; }
+      html += esc(text[j]);
+    }
+    return html + (open ? '</mark>' : '');
+  }
+
+  function runSearch() {
+    const input = $('kepanSearch'), box = $('kepanResults');
+    if (!input || !S.N) return;
+    const q = input.value.trim();
+    $('kepanSearchClear').hidden = !input.value;
+    if (!q) { showResults(false); return; }
+    const { ids, total, inScope } = searchNodes(S.N, q, { rootId: S.rootId, limit: RESULT_LIMIT, hay: S.hay });
+    S.found = ids;
+    S.active = ids.length ? 0 : -1;
+    const { N } = S;
+    let html = `<div class="kepan-results-head" role="presentation">`
+      + (total ? `找到 ${total} 科${S.rootId && inScope && inScope < total ? `（本地 ${inScope}）` : ''}${total > ids.length ? `，先列 ${ids.length} 科` : ''}` : '沒有符合的科名')
+      + `<span class="kepan-results-keys">Enter 前往・Esc 清除</span></div>`;
+    ids.forEach((id, i) => {
+      const n = N[id], sc = scopeOf(N, id), par = n.p > 0 ? N[n.p] : null;
+      const where = [sc && sc !== id ? N[sc].m + ' ' + N[sc].t : '', par && par.id !== sc ? par.m + ' ' + par.t : '', `第 ${n.d + 1} 層`]
+        .filter(Boolean).join(' › ');
+      html += `<div class="kepan-hit${i === S.active ? ' is-active' : ''}" id="kepanHit${i}" role="option" aria-selected="${i === S.active}" data-hit="${id}" title="${esc(n.m + '、' + n.t)}">`
+        + `<div class="kepan-hit-title"><span class="kepan-mark">${markHit(n.m, q)}</span>${markHit(n.t, q)}</div>`
+        + `<div class="kepan-hit-where">${esc(where)}</div></div>`;
+    });
+    box.innerHTML = html;
+    box.scrollTop = 0;
+    showResults(true);
+  }
+
+  function showResults(on) {
+    const input = $('kepanSearch'), box = $('kepanResults');
+    if (!box) return;
+    box.hidden = !on;
+    $('kepanTree').hidden = on;
+    input.setAttribute('aria-expanded', String(on));
+    if (on && S.active >= 0) input.setAttribute('aria-activedescendant', 'kepanHit' + S.active);
+    else input.removeAttribute('aria-activedescendant');
+    if (!on) { S.found = []; S.active = -1; box.innerHTML = ''; requestAnimationFrame(renderRows); }
+  }
+
+  function clearSearch() {
+    const input = $('kepanSearch');
+    if (!input) return;
+    input.value = '';
+    $('kepanSearchClear').hidden = true;
+    showResults(false);
+  }
+
+  function setActive(i) {
+    if (!S.found.length) return;
+    const n = S.found.length;
+    S.active = (i + n) % n;
+    const box = $('kepanResults');
+    box.querySelectorAll('.kepan-hit.is-active').forEach(el => { el.classList.remove('is-active'); el.setAttribute('aria-selected', 'false'); });
+    const el = $('kepanHit' + S.active);
+    if (el) {
+      el.classList.add('is-active');
+      el.setAttribute('aria-selected', 'true');
+      el.scrollIntoView({ block: 'nearest' });
+    }
+    $('kepanSearch').setAttribute('aria-activedescendant', 'kepanHit' + S.active);
+  }
+
+  // 選了一個結果：清掉搜尋、回到樹並把該科攤開在畫面上，同時打開所在講記捲到那裡
+  function chooseHit(id) {
+    if (!id || !S.N[id]) return;
+    clearSearch();
+    for (const a of ancestors(S.N, id)) S.userClosed.delete(a);
+    S.busyInTree = false;
+    if (!S.scopeAll) setScope(scopeOf(S.N, id), false);
+    if (id === S.hereId) { rebuild(); keepVisible(id); }
+    goTo(id);
+    requestAnimationFrame(() => { renderRows(); keepVisible(id); });
+  }
+
+  function initSearch() {
+    const input = $('kepanSearch');
+    if (!input) return;
+    input.addEventListener('compositionstart', () => { S.composing = true; });
+    input.addEventListener('compositionend', () => { S.composing = false; runSearch(); });
+    input.addEventListener('input', e => {
+      // 注音、倉頡等輸入法選字時不搜尋，選定後（compositionend）再搜
+      if (S.composing || e.isComposing) return;
+      runSearch();
+    });
+    input.addEventListener('keydown', e => {
+      if (e.isComposing || S.composing || e.keyCode === 229) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActive(S.active + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(S.active - 1); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!S.found.length && input.value.trim()) runSearch();
+        if (S.found.length) chooseHit(S.found[Math.max(0, S.active)]);
+      } else if (e.key === 'Escape') {
+        if (input.value) { e.preventDefault(); e.stopPropagation(); clearSearch(); }
+        else input.blur();
+      }
+    });
+    $('kepanSearchClear').addEventListener('click', () => { clearSearch(); input.focus(); });
+    $('kepanResults').addEventListener('mousedown', e => { if (e.target.closest('[data-hit]')) e.preventDefault(); });
+    $('kepanResults').addEventListener('click', e => {
+      const hit = e.target.closest('[data-hit]');
+      if (hit) chooseHit(+hit.dataset.hit);
+    });
+  }
+
   // ── 對外：由 app.js 呼叫 ──
   async function onDocumentRendered(filePath) {
     const token = ++S.loadToken;
@@ -394,6 +550,8 @@
       S.userClosed = new Set();
       S.scopeAll = !!prefs.all;
       S.rootId = -1;
+      S.hay = [];
+      clearSearch();
       renderScopeSelect();
     }
     S.file = filePath;
@@ -401,7 +559,7 @@
     setTabMode(true);
     restyleHeadings();
     S.anchorsDirty = true;
-    if (S.rootId === -1) S.rootId = 0;
+    if (S.rootId === -1) { S.rootId = 0; $('kepanScope').value = '0'; }   // 選單初始在「全論」，不留空白
     const want = S.pendingHere;
     if (want && S.N[want]) {
       // 從側欄或前後科換檔過來：openFile 稍後才捲到該行，等它捲完再恢復依捲動定位
@@ -447,7 +605,9 @@
       rebuild();
       keepVisible(S.hereId);
       savePrefs();
+      if ($('kepanSearch') && $('kepanSearch').value.trim()) runSearch();   // 換地後「本地」排序跟著變
     });
+    initSearch();
     $('kepanPath').addEventListener('click', e => {
       const a = e.target.closest('[data-go]');
       if (!a) return;
