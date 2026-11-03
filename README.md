@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.23.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.24.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 ### ✨ 可以做什麼
 
@@ -157,6 +157,8 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 卡片由伺服器畫（套件 `@napi-rs/canvas`，宋體 Noto Serif TC 在建置 Docker 映像時下載；也可以自己把 .ttf／.otf 放到 `./data/fonts/`）。伺服器不能畫時改由讀者的瀏覽器畫，但 LINE 連結預覽就只能用網站預設的分享圖。後台「每日經文」區塊會顯示圖庫張數與畫圖狀態。
 
+畫好的卡片和縮小過的背景圖會存在索引資料夾的 `share-card/`（容器內 `/data/index/share-card`），重開機後同一張不必重畫；背景圖可以放大圖，伺服器第一次用到時會自動縮一份剛好夠用的。成品快取上限預設 200 MB（環境變數 `SHARE_CARD_CACHE_MB`），超過時刪最久沒用的；`SHARE_CARD_CACHE_DIR` 可改位置（設 `off` 關掉）。
+
 **讀者帳號（線上網站）**
 
 讀者可以用 Email 註冊，或用 Google、Facebook、Apple 登入（金鑰填好、後台打開開關的才會出現）。帳號資料存在 `./data/users.db`，每天自動備份到 `./data/backups/`，請把整個 `./data` 資料夾一起備份。
@@ -224,7 +226,7 @@ mdWebview/
 ├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v4.23.0）
+├── package.json        # 專案資訊（v4.24.0）
 ├── Dockerfile          # 打包成 Docker 的設定
 ├── docker-compose.yml  # Docker 啟動設定
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -270,7 +272,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.23.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.24.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -457,7 +459,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.23.0)
+├── package.json        # Project information (v4.24.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

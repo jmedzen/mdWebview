@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Application Logic (app.js) v4.23.0
+   mdWebview — Application Logic (app.js) v4.24.0
    Tree · Viewer · Search · Theme · Dict · Admin
 
    ── 段落索引（Section Map）─────────────────────────────────────
@@ -2764,7 +2764,7 @@
     if (!qrLibLoading) {
       qrLibLoading = new Promise(resolve => {
         const s = document.createElement('script');
-        s.src = '/vendor/qrcode/qrcode.js?v=4.23.0';
+        s.src = '/vendor/qrcode/qrcode.js?v=4.24.0';
         s.onload = () => resolve(!!window.qrcode);
         s.onerror = () => { qrLibLoading = null; resolve(false); };
         document.head.appendChild(s);
@@ -9936,7 +9936,7 @@
    */
   function exportUserPreferences() {
     try {
-      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
+      const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
       const cleanVer = appVer.replace(/^v/, '');
 
       const backupData = {
@@ -11923,7 +11923,7 @@
     const autoProgressChk = $('settingAutoReadProgressCheck');
     if (autoProgressChk) autoProgressChk.checked = !!state.autoReadProgress;
 
-    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
+    const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
     const cleanVer = appVer.startsWith('v') ? appVer : ('v' + appVer);
     const footerVer = $('userSettingsFooterVersion');
     const systemVer = $('systemTabVersion');
@@ -12291,7 +12291,7 @@
           });
           if (!res.ok) throw new Error('讀取設定失敗');
           const data = await res.json();
-          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
+          const appVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
           const exportData = {
             exportDate: new Date().toISOString(),
             app: 'mdWebview',
@@ -13278,7 +13278,7 @@
     // 後台標題版本徽章：與偏好設定面板一致，一律顯示目前執行中的核心版本。
     const adminHeaderVer = $('adminSettingsHeaderVersion');
     if (adminHeaderVer) {
-      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.23.0';
+      const rawVer = (window.__APP_CONFIG__ && window.__APP_CONFIG__.appVersion) ? String(window.__APP_CONFIG__.appVersion).trim() : '4.24.0';
       adminHeaderVer.textContent = rawVer.startsWith('v') ? rawVer : ('v' + rawVer);
     }
 
@@ -14895,7 +14895,13 @@
       dir.title = '位置可用環境變數 PIC_CARD_DIR 更改';
       if (!d.renderer) engineEl.textContent = '伺服器不能畫圖，改由讀者的瀏覽器畫；LINE 連結預覽會用網站預設圖';
       else if (!d.serifFont) engineEl.textContent = `伺服器可畫圖，但找不到宋體字型（請放 Noto Serif TC 到 ${(d.fontDirs || [])[1] || 'fonts/'}）`;
-      else engineEl.textContent = `伺服器畫圖正常（字型 ${d.fonts.length} 個）`;
+      else {
+        // v4.24.0：畫好的圖存磁碟（INDEX_DIR/share-card），重開機後也不用重畫
+        const cache = !d.cacheDir ? '磁碟快取關閉'
+          : `磁碟快取 ${d.cacheBytes == null ? '—' : (d.cacheBytes / 1048576).toFixed(1)} / ${d.cacheLimitMB} MB`;
+        engineEl.textContent = `伺服器畫圖正常（字型 ${d.fonts.length} 個；${cache}）`;
+        engineEl.title = d.cacheDir ? `快取位置 ${d.cacheDir}（環境變數 SHARE_CARD_CACHE_DIR、SHARE_CARD_CACHE_MB）` : '';
+      }
     } catch (_) {
       countEl.textContent = '無法讀取';
       engineEl.textContent = '無法讀取';
