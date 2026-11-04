@@ -420,6 +420,55 @@
               <kbd class="home-search-kbd" aria-hidden="true">/</kbd>
               <ul class="home-search-results" id="homeSearchResults" role="listbox" hidden></ul>
             </form>
+
+            <!--
+              第一次來的人：三條路，各一句話說清楚「讀了會怎樣」。
+
+              原本只有「隨手翻一卷」與「瀏覽全部經目」。對已經熟悉藏經的人是夠的，
+              對一般人或剛接觸佛法的人卻是一堵牆：七千多個檔案擺在面前，不知道
+              從哪裡下手，於是就離開了。
+
+              這裡給三本長度差距很大的經（字數為實際內文漢字數，不含標點與卷首資訊）：
+                心經   約 576 字，兩分鐘讀完，最短的完整經典
+                阿彌陀經 約 2,108 字，七分鐘，淨土宗核心
+                金剛經 約 5,193 字，十七分鐘，般若部最常被讀誦的一部
+              三個入口都指向 md/ 裡真的存在的檔案（見 app.js HOME_START_PATHS），
+              讀完任一本之後這塊就自動收起，不佔老讀者的版面。
+            -->
+            <section class="home-start" id="homeStart" aria-labelledby="homeStartLabel">
+              <h2 class="home-start-title" id="homeStartLabel">
+                第一次來？從這裡開始
+                <small>挑一本，讀完再看要不要往下走</small>
+              </h2>
+              <ul class="home-start-list">
+                <li>
+                  <button type="button" class="home-start-card" data-start="heart">
+                    <span class="home-start-name">心經</span>
+                    <span class="home-start-meta">約 576 字 · 2 分鐘</span>
+                    <span class="home-start-why">最短的完整經典，講「空」與「無所得」</span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" class="home-start-card" data-start="amitabha">
+                    <span class="home-start-name">阿彌陀經</span>
+                    <span class="home-start-meta">約 2,108 字 · 7 分鐘</span>
+                    <span class="home-start-why">淨土宗核心，說極樂世界與念佛</span>
+                  </button>
+                </li>
+                <li>
+                  <button type="button" class="home-start-card" data-start="diamond">
+                    <span class="home-start-name">金剛經</span>
+                    <span class="home-start-meta">約 5,193 字 · 17 分鐘</span>
+                    <span class="home-start-why">般若部最常被讀誦的一部，講「應無所住」</span>
+                  </button>
+                </li>
+              </ul>
+              <p class="home-start-foot">
+                讀不慣經文？<button type="button" class="home-link" id="homeStartBrowse">直接看經目</button>，
+                或按 <kbd>/</kbd> 搜尋你聽過的名相。
+              </p>
+            </section>
+
             <div class="home-quick">
               <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
               <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>

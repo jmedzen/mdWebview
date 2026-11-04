@@ -79,6 +79,8 @@
     LAST_READ_PROGRESS: 'mdWebview-last-read-progress',
     RECENT_FILES: 'mdWebview-user-recentfiles',
     BOOKMARKS: 'mdWebview-user-bookmarks',
+    // 「第一次來」三本書：讀完任一本之後就不再顯示（存該本的 key）。
+    HOME_START_DONE: 'mdWebview-home-start-done',
     LIBRARY_PREFS: 'mdWebview-user-library',
     ADMIN_TOKEN: 'mdWebview-admin-token',
     ADMIN_TZ: 'mdWebview-admin-tz',
@@ -2403,6 +2405,7 @@
     renderHomeGreeting();
     renderHomeVerse();
     renderHomeContinue();
+    renderHomeStart();
     renderHomeNotice();
     renderHomeSuggest();
     renderHomeCue();
@@ -2599,10 +2602,107 @@
     return String(s || '').toLowerCase().replace(/[《》〈〉「」『』（）()\[\]\s，。、；：·‧_\-]/g, '');
   }
 
+  // ── 「第一次來」三本書 ─────────────────────────────────────────
+  //
+  // 不寫死完整路徑：語料換版時資料夾名稱會變（md/01-大正藏/03般若部類/…）。
+  // 這裡只認「經號 + 經名」，再從 /api/tree 的實際檔案裡挑一個最短的
+  // （同一部經常有疏文斷句版、對照版等多個檔案，短的通常最接近原文）。
+  //
+  // 注意 T0251《般若波羅蜜多心經》在語料裡是一份「合成測試語料」佔位檔
+  // （只有 75 個漢字），所以心經改用 T0253，那是 CBETA 的真實譯本。
+  const HOME_START_PATHS = [
+    {
+      key: 'heart',
+      tx: 'T0253',
+      title: '般若波羅蜜多心經',
+      // 排除註解／疏钞：檔名裡有這些詞的都算他人著作，不是經文本身
+      exclude: /疏|註|注|鈔|抄|記|講|釋|贊|讚|談|解|直說|正眼|易解|幽贊|挾註|六譯|對照/
+    },
+    {
+      key: 'amitabha',
+      tx: 'T0366',
+      title: '佛說阿彌陀經',
+      exclude: /疏|註|注|鈔|抄|記|講|釋|贊|讚|談|解|義|對照/
+    },
+    {
+      key: 'diamond',
+      tx: 'T0235',
+      title: '金剛般若波羅蜜經',
+      exclude: /疏|註|注|鈔|抄|記|講|釋|贊|讚|談|解|義|對照|心印|義疏/
+    }
+  ];
+
+  /** 從檔案清單裡挑出某一本經「最像原文」的那個檔案。 */
+  function resolveStartPath(spec) {
+    const files = homeAllFiles();
+    if (!files.length) return null;
+    const wantName = homeSearchKey(spec.title);
+    const cands = [];
+    for (const f of files) {
+      const base = String(f.name || '');
+      const key = homeSearchKey(base);
+      // 必須同時命中經號與經名，避免抓到別部經的註釋
+      if (!key.includes(homeSearchKey(spec.tx))) continue;
+      if (!key.includes(wantName)) continue;
+      if (spec.exclude && spec.exclude.test(base)) continue;
+      cands.push(f);
+    }
+    if (!cands.length) {
+      // 退一步：只認經名（有些語料把經號寫在資料夾而不是檔名）
+      for (const f of files) {
+        const base = String(f.name || '');
+        if (!homeSearchKey(base).includes(wantName)) continue;
+        if (spec.exclude && spec.exclude.test(base)) continue;
+        cands.push(f);
+      }
+    }
+    if (!cands.length) return null;
+    // 短的優先：同一部經的疏文動輒數十萬字，原文通常最短
+    cands.sort((a, b) => String(a.path).length - String(b.path).length);
+    return cands[0].path;
+  }
+
+  /**
+   * 顯示或收起「第一次來」那三張卡片。
+   *
+   * 收起條件：使用者已經讀過（有 recent files 或任何閱讀進度），或已經點過
+   * 其中一本。老讀者不該每次回首頁都看到新手引導。
+   */
+  function renderHomeStart() {
+    const box = $('homeStart');
+    if (!box) return;
+    let done = false;
+    try { done = !!storage.get(STORAGE_KEYS.HOME_START_DONE); } catch (_) {}
+    if (!done) {
+      // 讀過任何東西就算上手了
+      const recent = (() => { try { return storage.getJson(STORAGE_KEYS.RECENT_FILES) || []; } catch (_) { return []; } })();
+      if (Array.isArray(recent) && recent.length > 0) done = true;
+    }
+    box.hidden = done;
+  }
+
+  /** 點三本書之一：記下「已上手」，再開檔。找不到檔案時給明確交代。 */
+  function openHomeStart(which) {
+    const spec = HOME_START_PATHS.find(s => s.key === which);
+    if (!spec) return;
+    const path = resolveStartPath(spec);
+    if (!path) {
+      showToast(`找不到《${spec.title}》，可能這份語料沒有收錄`, 'error', 3200);
+      return;
+    }
+    try { storage.set(STORAGE_KEYS.HOME_START_DONE, which); } catch (_) {}
+    const box = $('homeStart');
+    if (box) box.hidden = true;
+    openFile(path);
+  }
+
   /** 經名比對：每個詞都要出現；經名開頭相符、名稱較短的排前面。 */
   function homeTitleMatches(files, query, limit = 6) {
     const terms = String(query || '').trim().split(/\s+/).map(homeSearchKey).filter(Boolean);
     if (!terms.length) return [];
+    // 目錄／索引檔不是可讀內容：搜「心經」時 0心經_總目錄 會排在最前面，
+    // 點進去只有一串標題，不是經文。這裡把它們往後推。
+    const INDEX_FILE = /(總目錄|目錄|索引|對堪表|對照表)/;
     const scored = [];
     for (const f of files) {
       if (!terms.every(t => f.key.includes(t))) continue;
@@ -2611,10 +2711,23 @@
       let score = nameKey.length;
       if (titleKey.startsWith(terms[0])) score -= 1000;
       else if (nameKey.includes(terms[0])) score -= 500;
+      if (INDEX_FILE.test(f.name)) score += 3000;
       scored.push([score, f]);
     }
     scored.sort((a, b) => a[0] - b[0]);
-    return scored.slice(0, limit).map(x => x[1]);
+    // 同一個書名只留一筆：一部經常有原文、異本、疏註等多個檔案，
+    // 不去重的話五個名額會被同一部經佔滿（例如兩筆《般若心經疏》、兩筆
+    // 《般若心經註》），其他經就看不到了。
+    const out = [];
+    const seen = Object.create(null);
+    for (const [, f] of scored) {
+      const base = homeSearchKey(bookSlipTitle(f.name));
+      if (seen[base]) continue;
+      seen[base] = 1;
+      out.push(f);
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   function renderHomeSearchResults() {
@@ -2623,16 +2736,102 @@
     if (!input || !ul) return;
     const q = input.value.trim();
     if (!q) { closeHomeSearchResults(); return; }
-    const hits = homeTitleMatches(homeAllFiles(), q);
-    ul.innerHTML = hits.map((f, i) =>
-      `<li role="option" id="homeSearchOpt${i}" class="home-search-opt" data-path="${escHtml(f.path)}">`
-      + `<span class="home-search-name">${escHtml(f.name)}</span>`
-      + `<span class="home-search-folder">${escHtml(f.folder)}</span></li>`).join('')
-      + `<li role="option" id="homeSearchOpt${hits.length}" class="home-search-opt is-fulltext" data-query="${escHtml(q)}">`
-      + `<span class="home-search-name">在全文中搜尋「${escHtml(q)}」</span><span class="home-search-folder">Enter</span></li>`;
+
+    // ── 三段式：經名 → 經文 → 辭典（alpha 批次 2b）──────────────────
+    //
+    // 原本只有「檔名比對」加一條「在全文中搜尋」。對一般使用者來說，「經名」
+    // 與「經文」是兩件事：想找一部經，跟想找某句話出現在哪裡。混在一起排，
+    // 常常前六筆全是同一部經的註疏，真正的原文反而看不到。
+    //
+    // 分三段之後，每段有自己的標題，前三名各自獨立；辭典只在後端回報
+    // 有結果時才出現（dictionaryEnabled 關掉時完全不出現）。
+    const hits = homeTitleMatches(homeAllFiles(), q, 5);
+    let idx = 0;
+    const opt = (cls, attrs, name, folder) =>
+      `<li role="option" id="homeSearchOpt${idx++}" class="home-search-opt ${cls}" ${attrs}>`
+      + `<span class="home-search-name">${name}</span>`
+      + `<span class="home-search-folder">${folder}</span></li>`;
+    const head = (label) =>
+      `<li class="home-search-group" role="presentation">${escHtml(label)}</li>`;
+
+    let html = '';
+    if (hits.length) {
+      html += head('經名');
+      for (const f of hits) {
+        html += opt('', `data-path="${escHtml(f.path)}"`,
+          escHtml(f.name), escHtml(f.folder));
+      }
+    }
+    // 經文：一律提供（即使經名沒命中，使用者也可能是在找句子）
+    html += head('經文');
+    html += opt('is-fulltext', `data-query="${escHtml(q)}"`,
+      `在全部經文中搜尋「${escHtml(q)}」`, 'Enter');
+
+    ul.innerHTML = html;
     ul.hidden = false;
     input.setAttribute('aria-expanded', 'true');
     setHomeSearchActive(-1);
+
+    // 辭典是唯一需要等後端的一段：先放著，回來再補進去（不擋住前兩段）
+    renderHomeSearchDictSection(ul, q);
+  }
+
+  /**
+   * 辭典那一段：非同步補上。
+   *
+   * 不放在主渲染裡是因為 /api/dict-search 要掃 35 萬行，慢的時候會讓前面
+   * 兩段（本機就有資料）一起卡住。先給前兩段，辭典到了再插入。
+   * 使用者已經改字就放棄這次結果，避免舊查詢蓋掉新查詢。
+   */
+  let _homeDictSeq = 0;
+  async function renderHomeSearchDictSection(ul, q) {
+    if (!state.dictionaryEnabled) return;
+    const seq = ++_homeDictSeq;
+    let data = null;
+    try {
+      // 後端沒有 limit 參數（一次回一整批，每檔上限 1500 筆），所以在這裡取前幾筆。
+      // variants 一定要帶：簡體顯示時查詢是簡體、辭典詞頭多為繁體，
+      // 少了它會一個字都對不上（見 variantsParam）。
+      const res = await fetch(`/api/dict-search?q=${encodeURIComponent(q)}&variants=${variantsParam()}`);
+      if (!res.ok) return;
+      data = await res.json();
+    } catch (_) { return; }
+    if (seq !== _homeDictSeq) return;                    // 已經換字了
+    if (!ul.isConnected || ul.hidden) return;
+    const input = $('homeSearchInput');
+    if (!input || input.value.trim() !== q) return;       // 使用者已改字
+    // 常見詞（例如「般若」）會有上千筆；首頁清單只放前三筆，其餘留給辭典面板。
+    const results = ((data && Array.isArray(data.results)) ? data.results : []).slice(0, 3);
+    if (!results.length) return;
+
+    const head = document.createElement('li');
+    head.className = 'home-search-group';
+    head.setAttribute('role', 'presentation');
+    head.textContent = '辭典';
+
+    const frag = document.createDocumentFragment();
+    frag.appendChild(head);
+    let n = ul.children.length;
+    for (const r of results) {
+      const kw = cleanDictHeadword(r.headword) || q;
+      const li = document.createElement('li');
+      li.setAttribute('role', 'option');
+      li.id = 'homeSearchOpt' + (n++);
+      li.className = 'home-search-opt is-dict';
+      li.dataset.dict = r.file;
+      li.dataset.dictLine = String(r.line || '');
+      li.dataset.dictWord = kw;
+      const name = document.createElement('span');
+      name.className = 'home-search-name';
+      name.textContent = kw;
+      const folder = document.createElement('span');
+      folder.className = 'home-search-folder';
+      folder.textContent = r.fileName || '';
+      li.appendChild(name);
+      li.appendChild(folder);
+      frag.appendChild(li);
+    }
+    ul.appendChild(frag);
   }
 
   function closeHomeSearchResults() {
@@ -2646,8 +2845,10 @@
     const ul = $('homeSearchResults');
     const input = $('homeSearchInput');
     if (!ul || !input) return;
-    const opts = Array.from(ul.children);
-    opts.forEach((li, i) => li.classList.toggle('active', i === idx));
+    // 分段標題（.home-search-group）不可選，方向鍵要跳過它們。
+    // 這裡用「可選項」陣列當作索引基準，而不是 children 的原始順序。
+    const opts = Array.from(ul.querySelectorAll('.home-search-opt'));
+    ul.querySelectorAll('.home-search-opt').forEach((li, i) => li.classList.toggle('active', i === idx));
     ul.dataset.active = String(idx);
     if (idx >= 0 && opts[idx]) input.setAttribute('aria-activedescendant', opts[idx].id);
     else input.removeAttribute('aria-activedescendant');
@@ -2658,6 +2859,10 @@
     if (!li) return;
     if (li.dataset.path) openFile(li.dataset.path);
     else if (li.dataset.query) activateSearchPanel(li.dataset.query);
+    else if (li.dataset.dict) {
+      // 辭典條目：openFile 認得 dict: 前綴，行號帶進去會直接捲到那一條
+      openFile(li.dataset.dict, Number(li.dataset.dictLine) || null);
+    }
     closeHomeSearchResults();
     if (input) { input.value = ''; input.blur(); }
   }
@@ -3578,8 +3783,10 @@
     if (form && input && results) {
       input.addEventListener('input', renderHomeSearchResults);
       input.addEventListener('focus', () => { if (input.value.trim()) renderHomeSearchResults(); });
+      // 方向鍵與 Enter 只在「可選項」之間移動（略過分段標題）
+      const homeOpts = () => Array.from(results.querySelectorAll('.home-search-opt'));
       input.addEventListener('keydown', (e) => {
-        const n = results.children.length;
+        const n = homeOpts().length;
         const cur = Number(results.dataset.active || -1);
         if (e.key === 'ArrowDown' && n) { e.preventDefault(); setHomeSearchActive((cur + 1) % n); }
         else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setHomeSearchActive(cur <= 0 ? n - 1 : cur - 1); }
@@ -3590,7 +3797,8 @@
         const q = input.value.trim();
         if (!q) return;
         const cur = Number(results.dataset.active || -1);
-        const li = !results.hidden && cur >= 0 ? results.children[cur] : null;
+        const opts = homeOpts();
+        const li = !results.hidden && cur >= 0 ? opts[cur] : null;
         if (li) chooseHomeSearchOption(li);
         else { closeHomeSearchResults(); input.value = ''; input.blur(); activateSearchPanel(q); }
       });
@@ -3622,6 +3830,18 @@
     if (randomBtn) randomBtn.addEventListener('click', openRandomScripture);
     const browseBtn = $('homeBrowse');
     if (browseBtn) browseBtn.addEventListener('click', openHomeBrowse);
+
+    // 「第一次來」三本書（alpha 批次 2a）
+    const startBox = $('homeStart');
+    if (startBox) {
+      startBox.addEventListener('click', (e) => {
+        const card = e.target.closest('[data-start]');
+        if (!card) return;
+        openHomeStart(card.dataset.start);
+      });
+    }
+    const startBrowse = $('homeStartBrowse');
+    if (startBrowse) startBrowse.addEventListener('click', openHomeBrowse);
 
     const noticeMore = $('homeNoticeMore');
     if (noticeMore) noticeMore.addEventListener('click', () => {

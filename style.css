@@ -2220,12 +2220,141 @@ section.chunk.chunk-error {
   color: var(--accent);
 }
 
+/* ── 分段標題（經名 / 經文 / 辭典）────────────────────────────
+   三段各自獨立，不是把所有結果混在一起排。標題本身不可點、不能被鍵盤
+   選到（role="presentation"），所以方向鍵仍然只在真正的選項之間移動。 */
+.home-search-group {
+  padding: 8px 12px 3px;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  cursor: default;
+  user-select: none;
+}
+.home-search-group:first-child {
+  padding-top: 4px;
+}
+
+/* 辭典結果：條目名用襯線體，跟經名區隔（一個是「書」，一個是「詞」） */
+.home-search-opt.is-dict .home-search-name {
+  font-family: var(--cjk-serif), serif;
+  font-weight: 600;
+}
+html[data-display-script="hans"] .home-search-opt.is-dict .home-search-name {
+  font-family: var(--cjk-sans), sans-serif;
+}
+
 .home-quick {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
   margin-top: 14px;
+}
+
+/* ── 第一次來的三本書（alpha 批次 2a）────────────────────────────
+   新人進站第一眼除了搜尋框，還需要「從哪裡開始」的具體答案。
+   三張卡片橫排，各自說清楚：書名、要花多久、讀了會得到什麼。
+   手機上改成單欄整列可點（高度 ≥56px），拇指好按。 */
+.home-start {
+  width: 100%;
+  max-width: 660px;
+  margin: 26px auto 0;
+  padding: 0;
+}
+.home-start-title {
+  margin: 0 0 12px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.home-start-title small {
+  display: block;
+  margin-top: 4px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.72;
+}
+.home-start-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.home-start-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  height: 100%;
+  padding: 14px 14px 15px;
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+.home-start-card:hover,
+.home-start-card:focus-visible {
+  border-color: var(--accent);
+  background: var(--hover-bg);
+  transform: translateY(-2px);
+}
+.home-start-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(16px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+.home-start-meta {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.home-start-why {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.home-start-foot {
+  margin: 12px 0 0;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.7;
+  color: var(--text-tertiary, var(--text-secondary));
+  text-align: center;
+}
+.home-start-foot kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 0.94em;
+}
+/* 簡體顯示時用簡體字型，避免 TC 字形畫簡體字 */
+html[data-display-script="hans"] .home-start-name {
+  font-family: var(--cjk-sans), sans-serif;
+}
+@media (max-width: 640px) {
+  .home-start-list {
+    grid-template-columns: 1fr;
+  }
+  .home-start-card {
+    min-height: 56px;   /* 拇指好按的最小高度 */
+    padding: 12px 14px;
+  }
+}
+/* 收起狀態：讀完任一本之後 JS 會加上 .is-dismissed（見 app.js renderHomeStart） */
+.home-start[hidden] {
+  display: none;
 }
 
 .home-chip {
