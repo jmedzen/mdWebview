@@ -12434,3 +12434,149 @@ html[data-display-script="hans"] .next-reading-name {
     align-items: flex-start;
   }
 }
+
+/* ================================================================
+   §47 學習路徑「一條路走到底」（alpha 批次 4b）
+
+   首頁三本書解決「不知道要讀什麼」；這塊解決「讀完之後呢」。
+   四條有先後順序的路，每條都說明為什麼是這個順序。
+
+   樣式上刻意像目錄頁而不像課程卡片：沒有進度條、沒有勾選、沒有分數。
+   這個站台不把修行變成待辦清單。
+   ================================================================ */
+.learning-paths-card {
+  max-width: 720px;
+  width: calc(100vw - 40px);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+.learning-paths-body {
+  overflow-y: auto;
+  padding: 4px 4px 8px;
+}
+.learning-paths-intro {
+  margin: 0 0 20px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+.learning-paths-foot {
+  margin: 22px 0 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+/* 一條路徑 */
+.learning-path {
+  margin-bottom: 26px;
+}
+.learning-path:last-child {
+  margin-bottom: 0;
+}
+.learning-path-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 6px;
+}
+.learning-path-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(16px * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--heading-color);
+}
+.learning-path-meta {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.learning-path-why {
+  margin: 0 0 12px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+/* 步驟：像目錄一樣的直排清單，序號在左 */
+.learning-path-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: lps;
+}
+.learning-path-step {
+  counter-increment: lps;
+}
+.learning-path-step-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px 9px 4px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+.learning-path-step-btn::before {
+  content: counter(lps);
+  flex: 0 0 auto;
+  width: 18px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.learning-path-step-btn:hover,
+.learning-path-step-btn:focus-visible {
+  background: var(--hover-bg);
+}
+.learning-path-step-name {
+  flex: 1 1 auto;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.learning-path-step-note {
+  flex: 0 1 auto;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+/* 已讀過的步驟做個淡淡的記號（只是提示，不是進度條） */
+.learning-path-step-btn.is-read .learning-path-step-name {
+  color: var(--text-muted);
+}
+.learning-path-step-btn.is-read::before {
+  content: "✓";
+  color: var(--accent);
+}
+html[data-display-script="hans"] .learning-path-step-name,
+html[data-display-script="hans"] .learning-path-name {
+  font-family: var(--cjk-sans), sans-serif;
+}
+
+@media (max-width: 640px) {
+  .learning-paths-card {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 88vh;
+    border-radius: 16px 16px 0 0;
+  }
+  .learning-path-step-btn {
+    min-height: 48px;
+    flex-wrap: wrap;
+  }
+  .learning-path-step-note {
+    flex-basis: 100%;
+    padding-left: 28px;
+    white-space: normal;
+  }
+}

@@ -491,6 +491,7 @@
             <div class="home-quick">
               <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
               <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>
+              <button type="button" class="home-chip" id="homePathsOpen">一條路走到底</button>
             </div>
             <button type="button" class="home-scroll-cue" id="homeScrollCue" hidden>向下 · 我的書架與今日</button>
           </div>
@@ -1091,6 +1092,44 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="modal-btn submit-btn" id="installGuideDoneBtn">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    學習路徑：「一條路走到底」。
+
+    首頁的三本書是「不知道要讀什麼」的解方；但讀完三本之後呢？多數人卡在
+    第二步——知道佛教有內容，但不知道下一步該讀哪一部、為什麼是那一部。
+
+    這裡給四條有先後順序的路。每一條都說明「為什麼是這個順序」，而不是
+    只列書單；每部經都標實測字數與時間，讓人心裡有底。路徑本身是固定的
+    （不是演算法推薦），因為這是編輯判斷，不是個人化——這個站台不做
+    行為追蹤。
+
+    資料在 app.js 的 LEARNING_PATHS（只認經號＋經名，從 /api/tree 解析
+    實際檔案，語料換版不會斷）。
+  -->
+  <div class="modal-overlay" id="learningPathsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="learningPathsTitle">
+    <div class="modal-card learning-paths-card">
+      <div class="modal-header">
+        <span class="modal-icon">🧭</span>
+        <h2 id="learningPathsTitle">一條路走到底</h2>
+        <button type="button" class="modal-close-btn" id="learningPathsCloseBtn" title="關閉" aria-label="關閉">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="learning-paths-body">
+        <p class="learning-paths-intro">
+          不知道下一步讀什麼的時候，挑一條走。每條都排了先後——順序有意義，
+          不是隨便列的書單。
+        </p>
+        <div class="learning-paths-list" id="learningPathsList"></div>
+        <p class="learning-paths-foot">
+          讀到一半離開也沒關係，首頁的「繼續閱讀」會記住你在哪一行。
+        </p>
       </div>
     </div>
   </div>

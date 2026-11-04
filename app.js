@@ -2704,6 +2704,145 @@
     openFile(path);
   }
 
+  // ── 學習路徑「一條路走到底」（alpha 批次 4b）──────────────────
+  //
+  // 首頁三本書解決「不知道要讀什麼」；讀完之後的「下一步呢」是另一道牆。
+  // 這裡給四條有先後順序的路，每條都說明「為什麼是這個順序」。
+  //
+  // 路徑是固定的編輯判斷，不是演算法推薦——這個站台不做行為追蹤。
+  // 每部經只認經號＋經名，實際檔案由 resolveStartPath 從 /api/tree 解析，
+  // 語料換版不會斷。hanzi 是實測內文漢字數（不含標點與卷首資訊），
+  // 寫在這裡讓「約 X 字」有依據而不是憑感覺。
+  const LEARNING_PATHS = [
+    {
+      key: 'begin',
+      name: '第一次讀佛經',
+      why: '先讀最短的《心經》建立「經文長什麼樣」的語感，再讀同樣不長的淨土核心，最後進到篇幅稍長、般若部最常被誦的《金剛經》。順序是「短 → 中 → 長」，不是重要性。',
+      steps: [
+        { tx: 'T0253', title: '般若波羅蜜多心經', hanzi: 576, note: '2 分鐘 · 最短的完整經典' },
+        { tx: 'T0366', title: '佛說阿彌陀經', hanzi: 2108, note: '7 分鐘 · 淨土宗核心' },
+        { tx: 'T0235', title: '金剛般若波羅蜜經', hanzi: 5193, note: '17 分鐘 · 般若部最常被讀誦' }
+      ]
+    },
+    {
+      key: 'agama',
+      name: '從佛陀怎麼說開始',
+      why: '阿含部是現存最接近早期佛教面貌的經典，講的是具體的修行與生活。先讀《雜阿含》建立整體輪廓，再讀《長阿含》看較長的敘事。份量很重，讀不完是正常的。',
+      steps: [
+        { tx: 'T0099', title: '雜阿含經', hanzi: 470352, note: '約 26 小時 · 篇幅最鉅，可挑相應部讀' },
+        { tx: 'T0001', title: '長阿含經', hanzi: 198527, note: '約 11 小時 · 敘事完整' }
+      ]
+    },
+    {
+      key: 'mahayana',
+      name: '大乘的兩條主線',
+      why: '般若講「空」，法華與淨土講「怎麼成佛」。先讀《金剛經》抓到般若的語氣，再用《維摩詰經》看它如何在生活裡展開，最後讀《法華經》的完整教相。',
+      steps: [
+        { tx: 'T0235', title: '金剛般若波羅蜜經', hanzi: 5193, note: '17 分鐘 · 般若入門' },
+        { tx: 'T0475', title: '維摩詰所說經', hanzi: 27292, note: '約 1.5 小時 · 在家人說法' },
+        { tx: 'T0262', title: '妙法蓮華經', hanzi: 72216, note: '約 4 小時 · 一乘教相' }
+      ]
+    },
+    {
+      key: 'practice',
+      name: '想弄懂道理的人',
+      why: '論不是經，是後人把經裡的話整理成可以推理的系統。先讀《中論》學空性的論證方式，再讀《成唯識論》看意識如何被分析。《大智度論》是《大般若經》的註解，把它當工具書查，不要一次讀完。',
+      steps: [
+        { tx: 'T1564', title: '中論', hanzi: 43726, note: '約 2.5 小時 · 空性論證' },
+        { tx: 'T1585', title: '成唯識論', hanzi: 80666, note: '約 4.5 小時 · 唯識系統' },
+        { tx: 'T1509', title: '大智度論', hanzi: 955688, note: '約 53 小時 · 當工具書查' }
+      ]
+    }
+  ];
+
+  /** 累計字數 → 大約時數（以每分鐘 300 字估，與首頁卡片的換算一致）。 */
+  function pathReadingTime(steps) {
+    const total = steps.reduce((sum, s) => sum + (s.hanzi || 0), 0);
+    const minutes = Math.round(total / 300);
+    if (minutes < 60) return `約 ${minutes} 分鐘`;
+    return `約 ${Math.round(minutes / 60)} 小時`;
+  }
+
+  /** 那個檔案讀過了嗎（用最近的閱讀紀錄判斷，不做額外追蹤）。 */
+  function pathStepIsRead(path) {
+    if (!path) return false;
+    const recent = Array.isArray(state.recentFiles) ? state.recentFiles : [];
+    const key = normTreePath(path);
+    return recent.some(r => {
+      const rp = typeof r === 'string' ? r : (r && r.path);
+      return rp && normTreePath(rp) === key;
+    });
+  }
+
+  /** 把四條路徑畫進 overlay。 */
+  function renderLearningPaths() {
+    const list = $('learningPathsList');
+    if (!list) return;
+    const html = LEARNING_PATHS.map(p => {
+      const steps = p.steps.map(s => {
+        const path = resolveStartPath(s);
+        const read = pathStepIsRead(path);
+        const label = `《${s.title}》`;
+        return `<li class="learning-path-step">
+          <button type="button" class="learning-path-step-btn${read ? ' is-read' : ''}"
+                  ${path ? `data-path="${escHtml(path)}"` : 'disabled'}
+                  title="${path ? '開啟' : '這份語料沒有收錄'}${escHtml(label)}">
+            <span class="learning-path-step-name">${escHtml(label)}</span>
+            <span class="learning-path-step-note">${escHtml(s.note || '')}</span>
+          </button>
+        </li>`;
+      }).join('');
+      return `<section class="learning-path" data-path-key="${escHtml(p.key)}">
+        <div class="learning-path-head">
+          <span class="learning-path-name">${escHtml(p.name)}</span>
+          <span class="learning-path-meta">${escHtml(pathReadingTime(p.steps))}</span>
+        </div>
+        <p class="learning-path-why">${escHtml(p.why)}</p>
+        <ol class="learning-path-steps">${steps}</ol>
+      </section>`;
+    }).join('');
+    list.innerHTML = html;
+  }
+
+  function openLearningPaths() {
+    const overlay = $('learningPathsOverlay');
+    if (!overlay) return;
+    renderLearningPaths();
+    overlay.style.display = 'flex';
+    activateModalFocus(overlay, overlay.querySelector('.learning-path-step-btn'));
+  }
+
+  function closeLearningPaths() {
+    const overlay = $('learningPathsOverlay');
+    if (!overlay) return;
+    deactivateModalFocus(overlay);
+    overlay.style.display = 'none';
+  }
+
+  function setupLearningPaths() {
+    const overlay = $('learningPathsOverlay');
+    if (!overlay) return;
+    // 注意 id 是 homePathsOpen（放在首頁的快捷列裡），不是 learningPathsOpen。
+    // 名字不一致時 ?. 會安靜地什麼都不做，按鈕看起來正常、按了卻沒反應。
+    $('homePathsOpen')?.addEventListener('click', openLearningPaths);
+    $('learningPathsCloseBtn')?.addEventListener('click', closeLearningPaths);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeLearningPaths();
+    });
+    overlay.addEventListener('click', (e) => {
+      const btn = e.target.closest('.learning-path-step-btn');
+      if (!btn || !btn.dataset.path) return;
+      closeLearningPaths();
+      openFile(btn.dataset.path);
+      const content = $('content');
+      if (content) content.scrollTop = 0;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (overlay.style.display === 'flex') closeLearningPaths();
+    });
+  }
+
   /** 經名比對：每個詞都要出現；經名開頭相符、名稱較短的排前面。 */
   function homeTitleMatches(files, query, limit = 6) {
     const terms = String(query || '').trim().split(/\s+/).map(homeSearchKey).filter(Boolean);
@@ -11221,6 +11360,7 @@
     // 只在「正在讀一篇」時才有效——首頁沒有周邊可收，切了也沒意義。
     setupFocusMode();
     setupNextReading();
+    setupLearningPaths();
 
     // ── Sidebar toggle ──
     $('sidebarToggle').addEventListener('click', () => {
