@@ -12580,3 +12580,204 @@ html[data-display-script="hans"] .learning-path-name {
     white-space: normal;
   }
 }
+
+/* ================================================================
+   §48 直書模式（alpha 批次 5）
+
+   漢傳佛教的典籍一千年來都是直排的。大正藏、卍續藏、CBETA 的原始排版，
+   沒有一部是橫排。這個站已經在「我的書架」用直排書脊（§home-spine），
+   卻讓經文本身從左到右橫著走——這是整個閱讀體驗裡最明顯的一處不協調。
+
+   直書不只是「把字轉 90 度」。真正的差別在於：
+     - 視線由右而左掃，換行是往左邊下一行
+     - 標點位置不同（句號在字右下、引號佔整格）
+     - 行與行之間是垂直的界線，不是基線
+   這些瀏覽器都交給 writing-mode: vertical-rl 處理，而 CJK 字型的
+   vertical metrics（vhea/vmtx）Noto Serif TC 本來就有。
+
+   預設關閉。開啟位置：偏好設定 → 排版 → 直書。
+   對象是「讀慣紙本藏經的人」，不是所有人——橫排對螢幕閱讀仍有優勢
+   （長行、表格、程式碼），所以這是一個選擇，不是預設。
+   ================================================================ */
+
+/* 直書容器：把整篇文章轉成由右往左的垂直書寫 */
+html[data-vertical-writing="1"] .markdown-body {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;      /* 拉丁字母與數字保持正立，漢字自然直排 */
+  height: var(--vertical-height, 72vh);
+  max-width: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  /* 直書時行距就是「行與行的間距」，1.8 會太散；由變數控制 */
+  line-height: var(--vertical-line-height, 2.1);
+  /* 直書的「置中」是垂直方向 */
+  margin: 0 auto;
+}
+
+/* 直書時每一段的段落間距要縮小：直排裡太大的間隙會切斷文氣 */
+html[data-vertical-writing="1"] .markdown-body p {
+  margin: 0 1.1em 0 0;
+}
+
+/* 標題：直書時底線要改成左側的線 */
+html[data-vertical-writing="1"] .markdown-body h1,
+html[data-vertical-writing="1"] .markdown-body h2,
+html[data-vertical-writing="1"] .markdown-body h3 {
+  border-bottom: none;
+  border-right: 1px solid var(--border-subtle);
+  padding-bottom: 0;
+  padding-right: 0.4em;
+  margin: 0 1.4em 0 0;
+}
+
+/* ── 直書時必須橫排的內容 ────────────────────────────────────
+   表格、程式碼、數學式、圖片說明在直排裡會壞掉或難以閱讀。
+   這些一律保持橫排，並且在直排流裡「橫躺」——這是紙本藏經處理
+   插圖與表格的傳統做法。 */
+/* 表格：欄位多、有框線，直排會徹底崩掉，一律橫躺。 */
+html[data-vertical-writing="1"] .markdown-body table {
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  /* 在垂直流裡橫躺：順時針轉 90 度，讀者把頭側一下就能看 */
+  transform: rotate(90deg);
+  transform-origin: center;
+  max-width: none;
+  max-height: none;
+  margin: 1.4em 0;
+}
+
+/* 程式碼區塊與其他「有固定版面」的嵌入內容，同樣橫躺。
+   與表格分開寫，是因為兩者的內容特性不同（表格怕寬、程式碼怕高），
+   將來要各自調整時不必拆規則。 */
+html[data-vertical-writing="1"] .markdown-body pre {
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  transform: rotate(90deg);
+  transform-origin: center;
+  max-width: none;
+  max-height: none;
+  margin: 1.4em 0;
+}
+
+html[data-vertical-writing="1"] .markdown-body .katex-display,
+html[data-vertical-writing="1"] .markdown-body .mermaid,
+html[data-vertical-writing="1"] .markdown-body .mdw-chart,
+html[data-vertical-writing="1"] .markdown-body img {
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  transform: rotate(90deg);
+  transform-origin: center;
+  max-width: none;
+  max-height: none;
+  margin: 1.4em 0;
+}
+
+/* 行內程式碼與數學式不要旋轉（只有整塊的才轉） */
+html[data-vertical-writing="1"] .markdown-body code:not(pre code) {
+  writing-mode: horizontal-tb;
+  display: inline-block;
+}
+
+/* 表格橫躺時會很寬，給它一個可捲動的容器 */
+html[data-vertical-writing="1"] .markdown-body .table-wrap {
+  writing-mode: horizontal-tb;
+  overflow-x: auto;
+}
+
+/* ── 直書時的選取與標註 ──────────────────────────────────── */
+/* 直排裡的 <mark>（搜尋高亮）不需要特別處理，但底線會跑到左邊 */
+html[data-vertical-writing="1"] .markdown-body mark {
+  text-decoration: none;
+  background: var(--search-highlight-bg, rgba(255, 214, 102, 0.35));
+  border-radius: 2px;
+}
+
+/* ── 直書的捲動：由右而左 ────────────────────────────────── */
+/* .content 是垂直捲動容器；直書時經文本身往左延伸，需要水平捲動 */
+html[data-vertical-writing="1"] #content {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+html[data-vertical-writing="1"] .content-wrapper {
+  max-width: none;
+  width: -moz-max-content;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* 直書時隱藏「回到頂部」——方向不對，容易誤解 */
+html[data-vertical-writing="1"] .back-to-top {
+  display: none;
+}
+
+/* ── 控制列 ──────────────────────────────────────────────────
+   直書時右上角放一支小的「直／橫」切換，隨時可以切回橫排。
+   這是整個功能唯一需要的 UI。 */
+.vertical-toggle {
+  display: none;
+}
+html[data-vertical-writing="1"] .vertical-toggle,
+body.has-vertical-toggle .vertical-toggle {
+  display: inline-flex;
+}
+
+/* 直書的提示條：第一次開啟時說明怎麼捲動 */
+.vertical-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 15px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px var(--shadow-color);
+}
+body.show-vertical-hint .vertical-hint {
+  display: inline-flex;
+}
+.vertical-hint button {
+  padding: 3px 9px;
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+/* ── 手機：直書在窄螢幕上更好讀（一行字數少，視線移動短）── */
+@media (max-width: 768px) {
+  html[data-vertical-writing="1"] .markdown-body {
+    height: calc(100vh - 150px);
+    font-size: calc(var(--content-font-size, 16px) * 1.06);
+  }
+  html[data-vertical-writing="1"] .markdown-body table,
+  html[data-vertical-writing="1"] .markdown-body pre {
+    /* 手機上旋轉的表格更容易超出畫面，改成不旋轉、允許水平捲動 */
+    transform: none;
+    max-width: 86vw;
+    overflow-x: auto;
+  }
+}
+
+/* ── 列印：直書直接沿用紙本樣式 ──────────────────────────── */
+@media print {
+  html[data-vertical-writing="1"] .markdown-body {
+    writing-mode: vertical-rl;
+    height: auto;
+    overflow: visible;
+  }
+  .vertical-toggle,
+  .vertical-hint {
+    display: none !important;
+  }
+}

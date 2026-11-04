@@ -83,6 +83,10 @@
     HOME_START_DONE: 'mdWebview-home-start-done',
     // 專注模式偏好：記住上次離開時是不是專注模式，換頁時沿用
     FOCUS_MODE: 'mdWebview-focus-mode',
+    // 直書偏好：'1' = 經文直排（由右往左），其他 = 橫排（預設）
+    VERTICAL_WRITING: 'mdWebview-vertical-writing',
+    // 直書說明條是否看過了（看過就不再彈）
+    VERTICAL_HINT_SEEN: 'mdWebview-vertical-hint-seen',
     LIBRARY_PREFS: 'mdWebview-user-library',
     ADMIN_TOKEN: 'mdWebview-admin-token',
     ADMIN_TZ: 'mdWebview-admin-tz',
@@ -11361,6 +11365,8 @@
     setupFocusMode();
     setupNextReading();
     setupLearningPaths();
+    // 直書：排版偏好，啟動時還原、換頁時沿用（不是閱讀狀態，不隨導覽重設）
+    setupVerticalWriting();
 
     // ── Sidebar toggle ──
     $('sidebarToggle').addEventListener('click', () => {
@@ -12228,6 +12234,19 @@
       $$('.segment-btn', maxWidthGroup).forEach(btn => {
         btn.addEventListener('click', () => applyMaxWidth(btn.getAttribute('data-value')));
       });
+    }
+
+    // 書寫方向：直書／橫排。切換後同步按鈕的 active 狀態與 aria-pressed。
+    const writingModeGroup = $('settingWritingModeGroup');
+    if (writingModeGroup) {
+      $$('.segment-btn', writingModeGroup).forEach(btn => {
+        btn.addEventListener('click', () => {
+          const on = btn.getAttribute('data-value') === 'vertical';
+          applyVerticalWriting(on);
+          syncWritingModeButtons();
+        });
+      });
+      syncWritingModeButtons();
     }
 
     const autoProgressCheck = $('settingAutoReadProgressCheck');
@@ -16210,6 +16229,171 @@
         e.preventDefault();
         setFocusMode(false);
       }
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     §48 直書模式（alpha 批次 5）
+
+     漢傳佛教的典籍一千年來都是直排的——大正藏、卍續藏、CBETA 的原始
+     排版沒有一部是橫排。這個站已經在「我的書架」用直排書脊，卻讓經文
+     本身由左往右橫著走。對讀慣紙本藏經的人，這是最明顯的一處不協調。
+
+     設計上的三個決定：
+
+     1. **預設關閉。** 直書不是「更好」，是「另一種」。橫排在螢幕上有
+        真實優勢（長行、表格、程式碼、可複製性），所以這是使用者的選擇，
+        不是我們的品味。
+
+     2. **只轉經文。** 選單、側欄、按鈕一律不轉——轉了會讓整個介面
+        變成迷宮。只有 `.markdown-body` 裡的內容轉向。
+
+     3. **表格與程式碼橫躺。** 這些內容在直排流裡會壞掉。紙本藏經遇到
+        插圖與表格也是這樣處理：轉 90 度印，讀者把書側一下。
+
+     與虛擬滾動的關係：虛擬模式（大檔分塊）下 `.markdown-body` 由分塊
+     渲染器管理，直書只是 CSS 的 writing-mode，不影響分塊邏輯，但
+     水平捲動的位置必須自己記——分塊重繪會重設 scrollLeft。這一點在
+     `applyVerticalWriting()` 裡有處理。
+     ══════════════════════════════════════════════════════════════════ */
+
+  /** 直書是否開啟（純讀取偏好，不看目前有沒有開檔案）。 */
+  function isVerticalWriting() {
+    return storage.get(STORAGE_KEYS.VERTICAL_WRITING) === '1';
+  }
+
+  /**
+   * 套用／移除直書樣式。
+   *
+   * @param {boolean} on   - true = 直書
+   * @param {Object}  opts - `{ silent }`：靜默模式（初始化時用，不彈說明、
+   *                         不寫入偏好）
+   */
+  function applyVerticalWriting(on, opts) {
+    const options = opts || {};
+    const root = document.documentElement;
+    const wasOn = root.getAttribute('data-vertical-writing') === '1';
+
+    if (on) {
+      root.setAttribute('data-vertical-writing', '1');
+      document.body.classList.add('has-vertical-toggle');
+    } else {
+      root.removeAttribute('data-vertical-writing');
+      document.body.classList.remove('has-vertical-toggle');
+      document.body.classList.remove('show-vertical-hint');
+    }
+
+    // 切換鈕的無障礙狀態：aria-pressed 表示「直書是否開著」
+    const btn = $('verticalToggle');
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = on ? '切回橫排' : '切換直書';
+      const label = btn.querySelector('[aria-hidden="true"]');
+      if (label) label.textContent = on ? '橫' : '直';
+    }
+
+    if (!options.silent) {
+      storage.set(STORAGE_KEYS.VERTICAL_WRITING, on ? '1' : '0');
+    }
+
+    // 偏好設定裡的分段控制也要跟著換（用快速鍵切換時尤其重要，
+    // 否則設定頁會顯示跟實際相反的狀態）
+    if (!options.silent) syncWritingModeButtons();
+
+    // 第一次開啟：顯示一次說明（捲動方向跟橫排相反，不講會誤解）
+    if (on && !wasOn && !options.silent) {
+      const seen = storage.get(STORAGE_KEYS.VERTICAL_HINT_SEEN) === '1';
+      if (!seen) {
+        document.body.classList.add('show-vertical-hint');
+        storage.set(STORAGE_KEYS.VERTICAL_HINT_SEEN, '1');
+      }
+    }
+
+    // 直書時「回到頂部」方向不對，收起來（CSS 已處理，這裡同步 aria）
+    const backTop = $('backToTop');
+    if (backTop) {
+      if (on) {
+        backTop.setAttribute('aria-hidden', 'true');
+        backTop.setAttribute('tabindex', '-1');
+      } else {
+        backTop.removeAttribute('aria-hidden');
+        backTop.removeAttribute('tabindex');
+      }
+    }
+
+    // 切換後把焦點還給切換鈕，鍵盤使用者才知道自己按到了什麼
+    if (btn && document.activeElement === btn) btn.focus();
+  }
+
+  /**
+   * 把偏好設定裡「書寫方向」的分段控制同步到目前的實際狀態。
+   *
+   * 快速鍵（Shift+V）與右上角切換鈕都會改狀態，設定頁若沒跟著更新，
+   * 使用者會看到按鈕顯示「橫排」但經文是直書——這種不一致比沒有這個
+   * 設定還糟。
+   */
+  function syncWritingModeButtons() {
+    const group = $('settingWritingModeGroup');
+    if (!group) return;
+    const vertical = isVerticalWriting();
+    $$('.segment-btn', group).forEach(btn => {
+      const val = btn.getAttribute('data-value');
+      const on = (val === 'vertical') === vertical;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  /** 切換直書／橫排。 */
+  function toggleVerticalWriting() {
+    const next = !isVerticalWriting();
+    applyVerticalWriting(next);
+    // 切換後回到文首：直書的捲動軸跟橫排不同，留在原位置只會讓人迷路
+    const content = $('content');
+    if (content) {
+      content.scrollTop = 0;
+      content.scrollLeft = 0;
+    }
+  }
+
+  /**
+   * 初始化直書模式。
+   *
+   * 與專注模式不同，直書會在換檔案時保留（它是排版偏好，不是閱讀狀態），
+   * 所以只需要在啟動時套用一次，以及接上切換鈕。
+   */
+  function setupVerticalWriting() {
+    const btn = $('verticalToggle');
+    if (btn) btn.addEventListener('click', toggleVerticalWriting);
+
+    const hintOk = $('verticalHintOk');
+    if (hintOk) {
+      hintOk.addEventListener('click', () => {
+        document.body.classList.remove('show-vertical-hint');
+      });
+    }
+
+    // 啟動時還原偏好（靜默：不彈說明、不寫回偏好）
+    if (isVerticalWriting()) applyVerticalWriting(true, { silent: true });
+
+    // 全局快速鍵：Shift + V（只用 V 會跟打字衝突）
+    document.addEventListener('keydown', (e) => {
+      if (!(e.shiftKey && (e.key === 'V' || e.key === 'v'))) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      // 在輸入框裡打字時不要攔
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      // 有對話框開著時不要攔
+      const anyModal = ['settingsOverlay', 'searchOverlay', 'accountAuthOverlay',
+        'learningPathsOverlay', 'shortcutsOverlay'].some((id) => {
+          const el = $(id);
+          return el && el.style.display && el.style.display !== 'none';
+        });
+      if (anyModal) return;
+      // 沒開檔案時不需要直書
+      if (!state.currentFile) return;
+      e.preventDefault();
+      toggleVerticalWriting();
     });
   }
 
