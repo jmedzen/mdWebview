@@ -31,3 +31,25 @@ test('orderFiles 容許表格內 [[檔名\\|別名]] 的反斜線', () => {
   const toc = '| [[b\\|乙]] | [[a\\|甲]] |';
   assert.deepStrictEqual(K.orderFiles(['a', 'b'], toc), ['b', 'a']);
 });
+
+test('26 本書只有 1 本有科判：其餘篇沒有任何科判提示；連結指向有標題的那一篇', () => {
+  const texts = new Map();
+  texts.set('a-無標題', '大意\n');
+  texts.set('b-有科判', doc(['甲一、總說', '乙一、細說', '乙二、結', '乙三、尾', '丙一、甲', '丙二、乙']));
+  for (const x of ['c', 'd', 'e', 'f']) texts.set(x, '別的書\n');
+  texts.set('總目錄', '---\nkepan: true\n---\n');
+  const by = K.buildFolder('d', texts);
+  assert.ok(by.get('b-有科判').nodes);
+  for (const x of ['a-無標題', 'c', 'f']) assert.strictEqual(by.get(x), undefined, x);
+});
+
+test('none 提示的連結指向第一篇有標題的檔，不是 files[0]', () => {
+  const texts = new Map();
+  texts.set('a-大意', '大意\n');
+  texts.set('b-講記', doc(['甲一、總說', '乙一、細說', '乙二、結', '乙三、尾', '丙一、甲', '丙二、乙']));
+  texts.set('c-講記', doc(['甲一、總說', '乙一、細說', '乙二、結', '乙三、尾', '丙一、甲', '丙二、乙']));
+  texts.set('總目錄', '---\nkepan: true\n---\n');
+  const by = K.buildFolder('d', texts);
+  assert.strictEqual(by.get('a-大意').none, true);
+  assert.strictEqual(by.get('a-大意').others[0].file, 'b-講記');
+});
