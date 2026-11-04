@@ -133,11 +133,13 @@
   /** 一行科判標題拆成段落，供閱讀框改繪成由淺到深的階梯。 */
   function headingSegments(text) {
     const NUM = '[一二三四五六七八九十]+';
+    // 層級字與伺服器（lib/kepan.js 的 LV）一致：以前用 \S，科名裡「說 法一 事」的空白＋字＋數字會被誤切（v4.27.17）
+    const LV = '[甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥天地玄黃宇宙洪荒日月盈昃宿列張寒來暑往秋收冬藏已]';
     return String(text).replace(/ /g, ' ').trim()
-      .split(new RegExp(`[\\s\\u3000]+(?=\\S${NUM}、?)|(?<=科）)(?=\\S${NUM}、)|(?<=[；;])(?=[甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥天地玄黃宇宙洪荒日月盈昃宿列張寒來暑往秋收冬藏已]${NUM}、?)`))
+      .split(new RegExp(`[\\s\\u3000]+(?=${LV}${NUM}、?)|(?<=科）)(?=${LV}${NUM}、)|(?<=[；;])(?=${LV}${NUM}、?)`))
       .map(s => s.replace(/[；;]+$/, ''))
       .map(s => {
-        const m = s.match(new RegExp(`^(\\S)(${NUM})、?(.*?)(?:（(分${NUM}科)）)?$`));
+        const m = s.match(new RegExp(`^(${LV})(${NUM})、?(.*?)(?:（(分${NUM}科)）)?$`));
         return m ? { mark: m[1] + m[2], title: m[3], split: m[4] || '' } : { mark: '', title: s, split: '' };
       })
       .filter(seg => seg.mark || seg.title);
@@ -367,13 +369,16 @@
     if (known) return known;
     if (c.none.has(name)) return null;
     if (c.wait.has(name)) return c.wait.get(name);
+    // 網路斷線、伺服器 5xx／429 是暫時的：只這一次當作沒有科判，不記進 none，下次開篇會再問
+    // （以前一次失敗就整個工作階段都沒有科判，v4.27.17）
     const p = fetch('/api/kepan?path=' + encodeURIComponent(filePath))
-      .then(r => (r.ok ? r.json() : { kepan: null }))
-      .then(j => { if (j.nearby) c.near.set(name, j.nearby); return j.kepan || null; })
-      .catch(() => null)
-      .then(v => {
+      .then(r => (r.ok ? r.json() : { kepan: null, failed: true }))
+      .then(j => { if (j.nearby) c.near.set(name, j.nearby); return j; })
+      .catch(() => ({ kepan: null, failed: true }))
+      .then(j => {
+        const v = j.kepan || null;
         c.wait.delete(name);
-        if (!v) { c.none.add(name); return null; }
+        if (!v) { if (!j.failed) c.none.add(name); return null; }
         // 同一棵樹已經有了（例：從總目錄進來）就沿用同一份，避免側欄重設
         const same = c.list.find(x => (x.key || x.dir) === (v.key || v.dir));
         if (same) { if (!same.files.includes(name)) same.toc = name; return same; }
@@ -650,7 +655,19 @@
   // ── 閱讀框：地標列、完整路徑、前後科 ──
   function renderBar() {
     const { N } = S, id = S.hereId;
-    if (!id) return;
+    if (!id) {
+      // 還沒進入任何一科（總目錄、第一個科判標題之前的篇）：不留上一篇的地標列與路徑；
+      // 前後科按鈕仍可用，「後一科」帶讀者進到第一科（v4.27.17）
+      const bar = $('kepanBar');
+      if (bar) bar.hidden = true;
+      S.barMax = 0;
+      const t0 = N ? navTargets(N, 0) : { prev: 0, next: 0 };
+      setNavBtn($('kepanPrev'), null, '前一科', '尚未進入科判');
+      setNavBtn($('kepanNext'), t0.next ? N[t0.next] : null, '後一科', '本篇沒有科判');
+      return;
+    }
+    const kb = $('kepanBar');
+    if (kb && kb.hidden && document.body.classList.contains('has-kepan')) kb.hidden = false;
     const juan = juanOf(document.title);
     const pct = Math.round(id / (N.length - 1) * 100);
     const P = S.payload;
@@ -770,6 +787,12 @@
       for (const [top, l] of S.anchors) { if (top <= y) line = l; else break; }
     }
     const id = hereFromLine(S.payload, S.fileIndex, line);
+    if (!id) {
+      // 本篇與它之前的篇都沒有科判標題：清掉上一篇留下的目前科（否則地標列、前後科會指著別篇）
+      S.pendingHere = 0;
+      if (S.hereId) { S.hereId = 0; rebuild(); renderBar(); }
+      return;
+    }
     // 剛點選的上層科與子科共用同一行標題時，保留點選的那一層
     // 同一行並列的多個終端科（共用一段文）也算：點了「辛一」不要被改回同行最後的「辛二」
     const sameLine = S.pendingHere && S.N[id] && S.N[S.pendingHere] && S.N[id].f === S.N[S.pendingHere].f && S.N[id].l === S.N[S.pendingHere].l;
@@ -1010,7 +1033,7 @@
       S.lockSpyUntil = 0;
       spy();
     }
-    if (!S.hereId) rebuild();
+    if (!S.hereId) { rebuild(); renderBar(); }
   }
 
   /** 大檔虛擬捲動新掛上一段（app.js 呼叫）：改繪其中的科判標題 */
@@ -1121,7 +1144,7 @@
       e.preventDefault();
       goTo(+a.dataset.go);
     });
-    const step = key => { if (!S.N || !S.hereId) return; const id = navTargets(S.N, S.hereId)[key]; if (id) goTo(id); };
+    const step = key => { if (!S.N) return; const id = navTargets(S.N, S.hereId || 0)[key]; if (id) goTo(id); };
     $('kepanPrev').addEventListener('click', () => step('prev'));
     $('kepanNext').addEventListener('click', () => step('next'));
     const content = $('content');
