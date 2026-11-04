@@ -39,6 +39,12 @@ const SHELL_ASSETS = [
   '/icon-maskable-512.png',
   '/apple-touch-icon.png',
   '/og-preview.png',
+  // 自架字型：只預快取兩個 @font-face 表（各數 KB）。
+  // 各段 woff2 切片不預快取——216 個檔約 6 MB，會拖慢安裝；
+  // 它們由 fetch 的 stale-while-revalidate 在實際用到時逐段進快取，
+  // 所以「讀過的字，離線時也還在」。
+  '/vendor/fonts/inter/inter.css',
+  '/vendor/fonts/noto-serif-tc.css',
   '/vendor/katex/katex.min.css',
   '/vendor/katex/katex.min.js',
   '/vendor/katex/fonts/KaTeX_Main-Regular.woff2',

@@ -1,0 +1,28 @@
+/* Inter — 子集化後自架（SIL Open Font License 1.1）
+ * 只保留拉丁與常用符號（U+0000–00FF、0100–024F、2000–22FF、25A0–26FF 等）；
+ * 中文由 Noto Serif TC 提供，因此不需要 Inter 的其他語言片段。
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(inter-400.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0100-024F, U+2000-206F, U+2070-209F, U+20A0-20CF, U+2100-214F, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-26FF, U+FEFF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(inter-600.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0100-024F, U+2000-206F, U+2070-209F, U+20A0-20CF, U+2100-214F, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-26FF, U+FEFF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(inter-700.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0100-024F, U+2000-206F, U+2070-209F, U+20A0-20CF, U+2100-214F, U+2190-21FF, U+2200-22FF, U+25A0-25FF, U+2600-26FF, U+FEFF;
+}

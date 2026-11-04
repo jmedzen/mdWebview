@@ -73,9 +73,18 @@
   <meta name="twitter:title" content="mdWebview — 佛典經論閱讀器">
   <meta name="twitter:description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
   <meta name="twitter:image" content="/og-preview.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+  <!--
+    字型自架：原本向 Google Fonts 取 Inter 與 Noto Serif TC，那是全站唯一的外部
+    請求，與 README「不依賴外部服務」的承諾矛盾，離線時也會掉回系統字。
+    現在改成 vendor/fonts/ 裡的子集化 woff2：
+      - Noto Serif TC 只保留本藏 7,444 篇經論與介面實際用到的 14,097 個字，
+        再依原 unicode-range 切成 114 段／每個字重，另補 6 段 Google 沒涵蓋的
+        罕用字；瀏覽器只下載當前頁面文字真正命中的段。
+      - Inter 只保留拉丁與常用符號，中文交給 Noto Serif TC。
+    細節與重建方式見 vendor/fonts/README.txt。
+  -->
+  <link rel="stylesheet" href="vendor/fonts/inter/inter.css?v=4.27.15">
+  <link rel="stylesheet" href="vendor/fonts/noto-serif-tc.css?v=4.27.15">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
   <link rel="stylesheet" href="style.css?v=4.27.15">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
