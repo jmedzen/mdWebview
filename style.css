@@ -12254,3 +12254,99 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
     animation: none !important;
   }
 }
+
+/* ================================================================
+   §45 專注模式（alpha 批次 2c）
+
+   讀長經的時候，左邊的檔案樹、上面的工具列、右邊的辭典都在搶注意力。
+   這個模式把它們全部收起來，只留經文本身，並把閱讀寬度放寬一點
+   （讀者已經主動選擇「只要經文」，不需要再被 40 字的行寬綁住）。
+
+   進出方式：F 鍵、右上角的專注按鈕、或 Esc 離開。
+   刻意不吃掉使用者的偏好設定——只是暫時加上 body 的 class，
+   離開後側欄寬度、主題、字級全部原樣回來。
+   ================================================================ */
+body.focus-mode .app-header,
+body.focus-mode .sidebar,
+body.focus-mode .resize-handle,
+body.focus-mode .dict-sidebar,
+body.focus-mode .sidebar-backdrop,
+body.focus-mode .back-to-top,
+body.focus-mode .entry-nav,
+/* 整個 content-header 一起收：只收 .file-path-row 會留下 .file-title 與
+   它的下框線，變成經文上方一條沒有意義的橫線，還白佔一段高度。 */
+body.focus-mode .content-header,
+body.focus-mode .page-search-bar {
+  display: none !important;
+}
+
+/* 頁首收起來之後，app-body 要吃掉整個高度 */
+body.focus-mode .app {
+  height: 100vh;
+}
+body.focus-mode .app-body {
+  height: 100vh;
+}
+
+/* 刻意不改 --content-max-width。
+   那是使用者自己在「偏好設定 → 閱讀寬度」選的段位（JS 以行內樣式寫在
+   :root），專注模式不該擅自蓋掉它——側欄收起來之後，同樣的寬度本來就會
+   置中在更空曠的版面裡，這已經足夠。尊重使用者設定比「我覺得這樣更好讀」
+   重要。 */
+
+/* 內容置中：不改成 flex。
+   一來 .content 是捲動容器，二來裡面有 fixed 定位的「離開專注」提示，
+   一旦 .content 變成 flex 容器，fixed 子元素會被當成 flex item 參與排版，
+   位置跑到畫面外（實測 x=-18）。維持區塊排版，靠 wrapper 自己的 margin 置中。 */
+
+/* 離開專注：只在該模式下出現，平時完全不佔位 */
+.focus-exit {
+  display: none;
+}
+body.focus-mode .focus-exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 60;
+  padding: 7px 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+body.focus-mode .focus-exit:hover,
+body.focus-mode .focus-exit:focus-visible {
+  opacity: 1;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.focus-exit kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.92em;
+  opacity: 0.8;
+}
+
+/* 手機上沒有側欄與頁首的差別那麼大，但仍值得留著：把工具列收掉就是多兩行經文 */
+@media (max-width: 768px) {
+  body.focus-mode .content-wrapper {
+    /* 只調內距；寬度仍由使用者選的段位決定（手機是 95%，見 §24） */
+    padding: 16px 18px 60px;
+  }
+  body.focus-mode .focus-exit {
+    top: 10px;
+    right: 12px;
+    opacity: 0.75;
+  }
+}
+
+/* 專注模式切換時不要有版面跳動的過場（尊重 reduced-motion 已由 §44 統一處理） */

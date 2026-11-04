@@ -81,6 +81,8 @@
     BOOKMARKS: 'mdWebview-user-bookmarks',
     // 「第一次來」三本書：讀完任一本之後就不再顯示（存該本的 key）。
     HOME_START_DONE: 'mdWebview-home-start-done',
+    // 專注模式偏好：記住上次離開時是不是專注模式，換頁時沿用
+    FOCUS_MODE: 'mdWebview-focus-mode',
     LIBRARY_PREFS: 'mdWebview-user-library',
     ADMIN_TOKEN: 'mdWebview-admin-token',
     ADMIN_TZ: 'mdWebview-admin-tz',
@@ -2081,6 +2083,9 @@
     if (welcome) welcome.style.display = 'flex';
     if (wrapper) wrapper.style.display = 'none';
     if (loading) loading.style.display = 'none';
+
+    // 回首頁就離開專注模式：首頁沒有周邊可收，留著只會讓版面變窄
+    if (isFocusMode()) setFocusMode(false, { silent: true });
 
     // 「繼續閱讀」與問候語要反映剛剛讀到哪裡、現在幾點
     renderHome();
@@ -11088,6 +11093,16 @@
     const ogImg = $('ogPreviewImg') || document.getElementById('ogPreviewImg');
     if (ogImg) ogImg.addEventListener('error', () => { ogImg.src = '/icon-512.png'; }, { once: true });
 
+    // ── 專注模式（alpha 批次 2c）──────────────────────────────────
+    //
+    // 讀長經時左邊的檔案樹、上面的工具列、右邊的辭典都在搶注意力。
+    // 這個模式只加一個 body class，用 CSS 收起周邊；不動任何使用者的
+    // 偏好（側欄寬度、主題、字級），離開就原樣回來。
+    //
+    // 進出：F 鍵、右上角按鈕、Esc 離開。
+    // 只在「正在讀一篇」時才有效——首頁沒有周邊可收，切了也沒意義。
+    setupFocusMode();
+
     // ── Sidebar toggle ──
     $('sidebarToggle').addEventListener('click', () => {
       const sidebar = $('sidebar');
@@ -15849,6 +15864,94 @@
       closeUserMenu();
       fn();
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 專注模式（alpha 批次 2c）
+  // ═══════════════════════════════════════════════════════════
+  //
+  // 只做一件事：切換 body 的 .focus-mode class，其餘交給 CSS（§45）。
+  // 這樣「哪些東西要收起來」是一個地方說了算，不會散在 JS 各處。
+  //
+  // 幾件刻意做的事：
+  //   - 記在 localStorage：換章節時沿用，不會讀一讀又跳回有側欄的版面。
+  //   - 首頁不啟用：那裡沒有周邊可收，切了只有反效果。
+  //   - 焦點移到經文區：鍵盤使用者切換後應該能直接往下讀。
+
+  function isFocusMode() {
+    return document.body.classList.contains('focus-mode');
+  }
+
+  /** 現在有沒有「正在讀的內容」——首頁不算。 */
+  function canUseFocusMode() {
+    return !!state.currentFile;
+  }
+
+  function setFocusMode(on, opts = {}) {
+    const next = !!on && canUseFocusMode();
+    const was = isFocusMode();
+    if (next === was) return;
+    document.body.classList.toggle('focus-mode', next);
+    try { storage.set(STORAGE_KEYS.FOCUS_MODE, next ? '1' : '0'); } catch (_) {}
+    const btn = $('focusModeBtn');
+    if (btn) btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    // 進入時把焦點移到經文，離開時回到那顆按鈕
+    if (next) {
+      if (!opts.silent) {
+        const main = $('content');
+        if (main) { try { main.focus({ preventScroll: true }); } catch (_) {} }
+      }
+      // 收起側欄的同時，先把可能開著的手機側欄 backdrop 收乾淨
+      updateSidebarBackdrop();
+    } else {
+      const back = $('focusModeBtn');
+      if (back && back.getClientRects().length > 0) {
+        try { back.focus({ preventScroll: true }); } catch (_) {}
+      }
+    }
+  }
+
+  function toggleFocusMode() {
+    if (!canUseFocusMode()) {
+      // 首頁按 F 沒有東西可專注，給一句話而不是靜默無反應
+      showToast('打開一篇文章後才能使用專注模式', 'info', 2200);
+      return;
+    }
+    setFocusMode(!isFocusMode());
+  }
+
+  function setupFocusMode() {
+    const btn = $('focusModeBtn');
+    if (btn) btn.addEventListener('click', toggleFocusMode);
+    const exit = $('focusModeExit');
+    if (exit) exit.addEventListener('click', () => setFocusMode(false));
+
+    // 上次離開時是專注模式，且這次開的也是文章，就沿用
+    try {
+      if (storage.get(STORAGE_KEYS.FOCUS_MODE) === '1' && canUseFocusMode()) {
+        setFocusMode(true, { silent: true });
+      }
+    } catch (_) {}
+
+    document.addEventListener('keydown', (e) => {
+      // 在輸入框裡打字不該觸發快捷鍵
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'f' || e.key === 'F') {
+        if (!canUseFocusMode()) return;
+        e.preventDefault();
+        toggleFocusMode();
+      } else if (e.key === 'Escape' && isFocusMode()) {
+        // Esc 離開專注。其他 Modal 的 Esc 處理會先跑；它們各自有 overlay 檢查，
+        // 這裡只負責「沒有對話框開著」的情況。
+        const anyModal = Array.from(document.querySelectorAll('.modal-overlay'))
+          .some(o => o.style.display === 'flex');
+        if (anyModal) return;
+        e.preventDefault();
+        setFocusMode(false);
+      }
+    });
   }
 
   function setupUserMenu() {

@@ -120,6 +120,11 @@
         <span class="active-file-title">首頁</span>
       </div>
       <div class="header-right">
+        <button id="focusModeBtn" class="control-btn" title="專注模式（F）：收起身邊的面板，只留經文" aria-label="專注模式" aria-pressed="false">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <path d="M2 6V3.2c0-.66.54-1.2 1.2-1.2H6M10 2h2.8c.66 0 1.2.54 1.2 1.2V6M14 10v2.8c0 .66-.54 1.2-1.2 1.2H10M6 14H3.2c-.66 0-1.2-.54-1.2-1.2V10"/>
+          </svg>
+        </button>
         <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
@@ -378,6 +383,20 @@
 
       <!-- Resize Handle -->
       <div class="resize-handle" id="resizeHandle"></div>
+
+      <!--
+        專注模式的退出提示。
+
+        專注模式把頁首、側欄、頁內工具都收起來，只留經文。問題是收起之後
+        就沒有任何按鈕可以退出——鍵盤使用者或許記得 F，用滑鼠的人卻會被困住。
+        所以在右上角留一顆小小的「離開專注」，只在該模式下出現。
+
+        放在 <main> 外面（它是捲動容器）：fixed 定位若落在捲動容器裡，
+        定位基準會變成那個容器而不是視窗，按鈕會跟著內容跑掉。
+      -->
+      <button type="button" class="focus-exit" id="focusModeExit" title="離開專注模式（Esc 或 F）">
+        離開專注 <kbd>Esc</kbd>
+      </button>
 
       <!-- ── §CONTENT ───────────────────────────────────────── -->
       <main class="content" id="content" tabindex="-1">
