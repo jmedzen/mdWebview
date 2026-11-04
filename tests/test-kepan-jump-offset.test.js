@@ -213,15 +213,11 @@ describe('科判跳轉讓開黏性地標列：瀏覽器實測', () => {
           const box = nav.getBoundingClientRect();
           const name = b => b.querySelector('.kepan-nav-name');
           const prev = document.getElementById('kepanPrev'), next = document.getElementById('kepanNext');
-          const t = window.MdwKepan.navTargets(N, id, window.MdwKepan.leafIds(N));
           return {
             position: cs.position, radius: parseFloat(cs.borderTopLeftRadius),
             inView: box.left >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
             prevText: name(prev).textContent, nextText: name(next).textContent,
-            // v4.27.16 起前後科只走末端科，不再假設 id±1
-            wantPrev: t.prev ? `${N[t.prev].m} ${N[t.prev].t}` : '已是第一科',
-            wantNext: t.next ? `${N[t.next].m} ${N[t.next].t}` : '已是最後一科',
-            wantLeafNext: t.next ? !N[t.next].k.length : true,
+            wantPrev: `${N[id - 1].m} ${N[id - 1].t}`, wantNext: `${N[id + 1].m} ${N[id + 1].t}`,
             here: `${N[id].m} ${N[id].t}`, navText: nav.textContent,
             truncated: name(next).scrollWidth > name(next).clientWidth,
           };
@@ -231,7 +227,6 @@ describe('科判跳轉讓開黏性地標列：瀏覽器實測', () => {
         assert.ok(r.inView, '膠囊整個在視窗內');
         assert.equal(r.prevText, r.wantPrev);
         assert.equal(r.nextText, r.wantNext);
-        assert.ok(r.wantLeafNext, '後一科應是末端科（v4.27.16）');
         assert.ok(!r.navText.includes(r.here), '不寫目前科名');
         assert.ok(r.truncated, '長科名以刪節號截斷');
         // 回到第一科：前一科停用

@@ -1,7 +1,7 @@
 /**
  * @file tests/test-kepan-single-flag.test.js
  *
- * 單篇講記 kepan: true（v4.27.16）。
+ * 單篇講記 kepan: true（v4.27.14）。
  *
  * 新增條件有兩面，兩面都要顧：
  *   1. 新行為：單篇自己寫 kepan: true，科數再少（1 科也成）都當科判系列。
