@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.15
+   mdWebview — Style System (style.css) v4.27.16
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -11924,6 +11924,39 @@ a.small-btn {
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
 /* 操作說明（v4.27.15）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+
+/* 層級存疑（v4.27.16）：樹頂一行小標記，點開列出前幾筆可跳去核對 */
+.kepan-problems[hidden] { display: none !important; }
+.kepan-problems { padding: 6px 10px 0; }
+.kepan-problem-toggle {
+  width: 100%; padding: 4px 8px; text-align: left; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: 6px; background: transparent;
+  color: var(--text-muted); font: inherit; font-size: calc(var(--sidebar-font-size) * 11.5 / 13);
+}
+.kepan-problem-toggle:hover, .kepan-problem-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.kepan-problem-list {
+  margin-top: 4px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary);
+}
+.kepan-problem-head { margin: 0 0 6px; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); line-height: 1.55; }
+.kepan-problem-list ul { margin: 0; padding: 0; list-style: none; }
+.kepan-problem-item { margin: 0 0 3px; }
+.kepan-problem-go {
+  display: block; width: 100%; padding: 3px 4px; text-align: left; cursor: pointer;
+  border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary, var(--text-primary));
+  font: inherit; font-size: calc(var(--sidebar-font-size) * 11.5 / 13); line-height: 1.5;
+}
+.kepan-problem-go:hover { background: var(--hover-bg); }
+.kp-at { display: block; color: var(--accent); font-variant-numeric: tabular-nums; }
+.kp-msg { display: block; color: var(--text-muted); overflow-wrap: anywhere; }
+.kepan-problem-more { margin: 6px 0 0; font-size: calc(var(--sidebar-font-size) * 11 / 13); color: var(--text-muted); }
+
+/* 縮排到底的深層科：用 L18 補回層級資訊（v4.27.16） */
+.kepan-depth {
+  flex: none; margin-left: 2px; padding: 0 5px; border-radius: 999px;
+  border: 1px solid var(--border-subtle); color: var(--text-muted);
+  font-size: calc(var(--sidebar-font-size) * 10.5 / 13); line-height: 1.5; font-variant-numeric: tabular-nums;
+}
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -11969,6 +12002,11 @@ a.small-btn {
   font-size: calc(var(--ui-font-scale, 1) * 12.5px); color: var(--text-muted);
 }
 .kepan-landmark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+/* 本篇沒有科判標題：地標列標「承前」，不假裝讀者在這一科（v4.27.16） */
+.kepan-inherit {
+  padding: 0 6px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-muted); font-size: 0.92em; line-height: 1.6;
+}
 .kepan-progress { width: 120px; height: 4px; border-radius: 2px; background: var(--bg-tertiary, var(--border-subtle)); overflow: hidden; }
 .kepan-progress i { display: block; height: 100%; background: var(--accent); }
 .kepan-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin-top: 4px; line-height: 1.7; max-height: 30vh; overflow-y: auto; }

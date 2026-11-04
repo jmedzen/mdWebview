@@ -28,10 +28,13 @@
   const ALL_LABEL = '全文（不分組）';   // 範圍選單第一項：整棵樹
   const SCOPE_DEPTH = 2;       // 以「丙」層（十七地）為一個範圍
   const FULL_LEVELS = 5;       // 前 5 層正常縮排
-  const INDENT = 14;
-  const DEEP_INDENT = 3;
+  const INDENT = 14;          // 前 FULL_LEVELS 層每層縮排
+  const MID_LEVELS = 12;      // 到這一層為止用 MID_INDENT
+  const MID_INDENT = 6;       // 6–12 層每層縮排
+  const INDENT_CAP = 112;     // 13 層以後不再增加（FULL_LEVELS*INDENT + 7*MID_INDENT）
   const ROW_HEIGHT = 28;
   const JUMP_GAP = 12;         // 跳到某科時，標題頂端與黏性地標列底緣的間距（同 app.js 跳行）
+  const MIN_ROWS = 6;          // 沒有目前位置時，樹至少展開到這麼多列（頂層只有一科的樹不至於只看到一列）
 
   // ───────────── 純函式 ─────────────
 
@@ -88,15 +91,38 @@
     return { file: r.file, line: 0, id: 0 };
   }
 
-  /** 第 level 層（範圍內相對層級）的縮排像素。 */
+  /**
+   * 第 level 層（範圍內相對層級）的縮排像素。三段式，確保深層還留得下科名（v4.27.16）：
+   *   0–5 層每層 14px，6–12 層每層 6px，13 層以後不再增加（上限 INDENT_CAP）。
+   * 實測瑜伽師地論本地分最深 40 層：舊版縮排 175px、300px 側欄只剩 95px 給科名；
+   * 新版上限 112px，手機 280px 時也還有 150px 以上。
+   */
   function indentFor(level) {
-    return level <= FULL_LEVELS ? level * INDENT : FULL_LEVELS * INDENT + (level - FULL_LEVELS) * DEEP_INDENT;
+    if (level <= FULL_LEVELS) return level * INDENT;
+    if (level <= MID_LEVELS) return FULL_LEVELS * INDENT + (level - FULL_LEVELS) * MID_INDENT;
+    return INDENT_CAP;
   }
 
-  /** 展開的科 = 使用者打開的 ＋ 目前閱讀路徑上的（使用者手動收起的除外）。 */
-  function computeExpanded(N, userOpen, userClosed, hereId) {
+  /**
+   * 展開的科 = 使用者打開的 ＋ 目前閱讀路徑上的（使用者手動收起的除外）。
+   * 另外（v4.27.16）：看得到幾列少於 minRows 時，從頂端往下逐層展開，直到有足夠的列。
+   * 有些樹的頂層只有一科（瑜伽師地論本地分整個資料夾只有「甲一 本地分」），
+   * 第一次打開只看到一列，像壞了；這裡只補到看得見為止，不動 userOpen。
+   */
+  function computeExpanded(N, userOpen, userClosed, hereId, minRows) {
     const out = new Set(userOpen);
     if (hereId) for (const a of ancestors(N, hereId)) if (!userClosed.has(a)) out.add(a);
+    if (!minRows) return out;
+    let rows = visibleRows(N, 0, out).length, guard = 0;
+    while (rows < minRows && guard++ < 8) {
+      // 目前看得見、還沒展開的分科，優先展最前面那個（閱讀順序）
+      let opened = false;
+      for (const id of visibleRows(N, 0, out)) {
+        if (N[id].k.length && !out.has(id) && !userClosed.has(id)) { out.add(id); opened = true; break; }
+      }
+      if (!opened) break;
+      rows = visibleRows(N, 0, out).length;
+    }
     return out;
   }
 
@@ -116,18 +142,33 @@
    * 在第一個科判標題之前，仍屬上一卷最後的科。
    */
   function hereFromLine(payload, fileIndex, line) {
-    const hs = payload.heads[fileIndex] || [];
+    return hereInfo(payload, fileIndex, line).id;
+  }
+
+  /**
+   * 同 hereFromLine，另說明這個「目前科」是自己找出來的還是承前借來的（v4.27.16）。
+   *   own       = true：本檔自己有科判標題，位置確定。
+   *   inherited = true：本檔沒有科判標題，位置沿用前一篇最後一科（卷末續講、QA 附錄等）。
+   * none=true 表示前面也沒有任何科判可借（例：全書第一篇就沒有標題）。
+   * 借來的科不能當成「讀者在這一科」，介面要寫明「承前」，不能默默顯示成目前位置。
+   * @returns {{ id: number, own: boolean, inherited: boolean, none: boolean }}
+   */
+  function hereInfo(payload, fileIndex, line) {
+    const hs = (payload && payload.heads[fileIndex]) || [];
     let lo = 0, hi = hs.length - 1, best = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (hs[mid][0] <= line) { best = mid; lo = mid + 1; } else hi = mid - 1;
     }
-    if (best >= 0) return hs[best][1];
+    if (best >= 0) return { id: hs[best][1], own: true, inherited: false, none: false };
+    // 在第一個科判標題之前：本卷卷首仍屬上一卷最後一科（跨卷延續），先往前借
     for (let f = fileIndex - 1; f >= 0; f--) {
-      const prev = payload.heads[f];
-      if (prev && prev.length) return prev[prev.length - 1][1];
+      const prev = payload && payload.heads[f];
+      if (prev && prev.length) return { id: prev[prev.length - 1][1], own: false, inherited: !hs.length, none: false };
     }
-    return hs.length ? hs[0][1] : 0;
+    // 前面沒有任何科判可借：本檔自己有標題就取第一個，否則真的沒有位置
+    if (hs.length) return { id: hs[0][1], own: true, inherited: false, none: false };
+    return { id: 0, own: false, inherited: false, none: true };
   }
 
   /** 一行科判標題拆成段落，供閱讀框改繪成由淺到深的階梯。 */
@@ -193,9 +234,44 @@
     return { ids: ids.slice(0, limit), total: ids.length, inScope: near.length };
   }
 
-  // 前後科（文件順序）：首科沒有前一科、末科沒有後一科，回傳 0
-  function navTargets(N, id) {
-    return { prev: id > 1 && N[id - 1] ? id - 1 : 0, next: N[id + 1] ? id + 1 : 0 };
+  /**
+   * 末端科的 id 清單（沒有子科的科），依文件順序。前後科只在這些科之間走（v4.27.16）。
+   * @param {Array} N expandNodes 的結果
+   * @returns {number[]}
+   */
+  function leafIds(N) {
+    const out = [];
+    for (let id = 1; id < N.length; id++) if (!N[id].k.length) out.push(id);
+    return out;
+  }
+
+  /** 在排序好的 leafs 裡找第一個 > id（dir=1）或 < id（dir=-1）的；沒有回 0。二分搜尋。 */
+  function seekLeaf(leafs, id, dir) {
+    let lo = 0, hi = leafs.length - 1, best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (dir > 0 ? leafs[mid] > id : leafs[mid] < id) { best = mid; if (dir > 0) hi = mid - 1; else lo = mid + 1; }
+      else if (dir > 0) lo = mid + 1; else hi = mid - 1;
+    }
+    return best < 0 ? 0 : leafs[best];
+  }
+
+  /**
+   * 前後科（v4.27.16 起只走末端科）：首末科沒有前後科，回傳 0。
+   *   - 停在末端科：就是前一個／後一個末端科。
+   *   - 停在分科：後一科是它子樹的第一個末端科（往下讀不漏內容），
+   *     前一科是它之前最後一個末端科（不含自己子樹）。
+   * 全樹實測：8,623 個分科的「後一科」都等於子樹第一個末端科，零例外；
+   * 末端科 next→prev 雙向可逆，也零例外，所以沿用單調的 id 序即可。
+   * @param {Array} N expandNodes 的結果
+   * @param {number} id
+   * @param {number[]} [leafs] 先算好的 leafIds(N)，重複呼叫時省一次走訪
+   * @returns {{ prev: number, next: number }}
+   */
+  function navTargets(N, id, leafs) {
+    if (!id || !N[id]) return { prev: 0, next: 0 };
+    const L = leafs || leafIds(N);
+    return { prev: seekLeaf(L, id, -1), next: seekLeaf(L, id, 1) };
   }
   // 前後科按鈕上的字：寫該科的科判字與科名；沒有（首末科）時寫 edge
   function navLabel(n, edge) {
@@ -285,6 +361,29 @@
     return groups;
   }
 
+  /** 「第一章」「第二節」「第三項」這種章節式科判字。 */
+  const CHAPTER_MARK = /^第[〇零一二三四五六七八九十百]+(章|節|項)$/;
+
+  /**
+   * 範圍選單的選項（v4.27.16 起另附章節資訊）：同一層的科依閱讀順序，
+   * 章節式標題（第一章／第X章）的樹另把「章」與「序／節」分開，
+   * 免得 43 章中間夾著 6 節，選單看起來沒有結構。
+   * @returns {{ parent: number, label: string, items: object[] }[]}
+   *   label 為空字串表示不加分組標題
+   */
+  function scopeSections(N, depth) {
+    const base = scopeOptions(N, depth);
+    const all = base.flatMap(g => g.items);
+    const chapterish = all.filter(n => CHAPTER_MARK.test(n.m));
+    if (chapterish.length < all.length * 0.5) return base.map(g => ({ parent: g.parent, label: '', items: g.items }));
+    const chapters = all.filter(n => /章$/.test(n.m) && CHAPTER_MARK.test(n.m));
+    const others = all.filter(n => !chapters.includes(n));
+    const out = [];
+    if (others.length) out.push({ parent: 0, label: others.length > 1 ? '序與附說' : '', items: others });
+    if (chapters.length) out.push({ parent: 0, label: chapters.length > 1 ? '章' : '', items: chapters });
+    return out;
+  }
+
   /** 地標列路徑收合時保留幾層（含目前科）：手機 2 層、桌機 3 層。 */
   function pathKeep(width) {
     return width <= 768 ? 2 : 3;
@@ -315,10 +414,10 @@
 
   const api = {
     DOUBLE_TAP_MS, makeTapGate,
-    SCOPE_DEPTH, FULL_LEVELS, INDENT, DEEP_INDENT, JUMP_GAP,
+    SCOPE_DEPTH, FULL_LEVELS, INDENT, MID_LEVELS, MID_INDENT, INDENT_CAP, JUMP_GAP, MIN_ROWS,
     expandNodes, ancestors, scopeOf, altFor, roundTarget, indentFor, computeExpanded, visibleRows,
-    hereFromLine, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
-    navTargets, navLabel, roundDetail, roundGroups, scopeOptions, pathKeep, roundPickerLabel, shortTitle,
+    hereFromLine, hereInfo, headingSegments, juanOf, jumpScrollTop, spyLine, normalizeQuery, searchNodes,
+    navTargets, navLabel, leafIds, seekLeaf, roundDetail, roundGroups, scopeOptions, scopeSections, CHAPTER_MARK, pathKeep, roundPickerLabel, shortTitle,
   };
   if (typeof document === 'undefined') return api;
 
@@ -338,6 +437,9 @@
     anchors: [], anchorsDirty: true, barMax: 0,
     loadToken: 0, busyInTree: false, busyTimer: null,
     hay: [], found: [], active: -1, composing: false,
+    leafs: null,          // 末端科 id 清單（navTargets 用，換樹時重建）
+    inherited: false,     // 本篇沒有科判標題，目前科是承前借來的（地標列要寫明）
+    noKepan: false,       // 本篇與前面都沒有科判可借
     scopeDepth: SCOPE_DEPTH, pendingAlt: null, virtual: false,
     pathOpen: (() => { try { return localStorage.getItem('mdw-kepan-path-open') === '1'; } catch (_) { return false; } })(),
   };
@@ -472,6 +574,41 @@
   }
 
   /** 本篇沒有科判：說明，並列出本經有科判的講次（點了開那一講的第一篇） */
+  /**
+   * 這棵樹有幾處層級存疑（v4.27.16）：只在地標列末尾放一顆小標記，
+   * 點開才列出前幾筆（檔案:行 + 說明），可跳到那一行核對原文。
+   * 不改抽取結果，只是把伺服器已經算好的 problems 說明出來。
+   */
+  function renderProblems() {
+    const box = $('kepanProblems'), P = S.payload;
+    if (!box) return;
+    const n = (P && P.problems) || 0;
+    box.hidden = !n;
+    if (!n) { box.innerHTML = ''; return; }
+    const sample = (P.problemSample || []).map(text => {
+      // 「檔名:行：說明」→ 可點的按鈕
+      const m = String(text).match(/^(.*?):(\d+)：(.+)$/);
+      if (!m) return `<li class="kepan-problem-item">${esc(String(text))}</li>`;
+      return `<li class="kepan-problem-item"><button type="button" class="kepan-problem-go" data-problem-file="${esc(m[1])}" data-problem-line="${m[2]}" title="跳到原文那一行核對">`
+        + `<span class="kp-at">${esc(m[1])}:${esc(m[2])}</span>`
+        + `<span class="kp-msg">${esc(m[3])}</span></button></li>`;
+    }).join('');
+    box.innerHTML = `<button type="button" class="kepan-problem-toggle" id="kepanProblemBtn" aria-expanded="false" title="這棵科判樹有 ${n} 處層級存疑（多為原文誤植或標題格式特殊），點開看前幾筆">`
+      + `層級存疑 ${n}</button>`
+      + `<div class="kepan-problem-list" id="kepanProblemList" hidden>`
+      + `<p class="kepan-problem-head">抽取時層級接不上，已就近接續。多為原文誤植或標題格式特殊，可點擊核對：</p>`
+      + `<ul>${sample}</ul>`
+      + (n > (P.problemSample || []).length ? `<p class="kepan-problem-more">另有 ${n - P.problemSample.length} 筆未列出</p>` : '')
+      + '</div>';
+  }
+
+  function setProblemList(open) {
+    const btn = $('kepanProblemBtn'), list = $('kepanProblemList');
+    if (!btn || !list) return;
+    list.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  }
+
   function renderNone(near) {
     const box = $('kepanNone');
     if (!box) return;
@@ -480,9 +617,14 @@
       + `<span class="kni-label">${esc(o.label)}</span>`
       + (o.topic && o.topic !== o.label ? `<span class="kni-topic">${esc(o.topic)}</span>` : '')
       + `<span class="kni-n">${o.n} 科</span></button>`).join('');
+    // 合輯（per-file）時說明「這一部只有幾篇有科判」，免得讀者以為壞了（v4.27.16）
+    const others = near.others || [];
+    const sub = others.length
+      ? `《${esc(near.title)}》以下講次有科判，可以切過去看：`
+      : `《${esc(near.title)}》這部講記沒有科判標題。`;
     box.innerHTML = `<p class="kepan-none-msg">本篇沒有科判標題。</p>`
-      + `<p class="kepan-none-sub">《${esc(near.title)}》以下講次有科判，可以切過去看：</p>`
-      + `<div class="kepan-none-list">${list}</div>`
+      + `<p class="kepan-none-sub">${sub}</p>`
+      + (list ? `<div class="kepan-none-list">${list}</div>` : '')
       + `<p class="kepan-none-tip">本篇的段落請看「大綱」分頁。</p>`;
     box.dataset.dir = near.dir || '';
   }
@@ -490,7 +632,8 @@
   // ── 側欄樹 ──
   function rebuild() {
     const { N } = S;
-    S.expanded = computeExpanded(N, S.userOpen, S.userClosed, S.hereId);
+    // 沒有任何「目前位置」時（剛開檔、還沒定位），至少展開到看得見幾列（v4.27.16）
+    S.expanded = computeExpanded(N, S.userOpen, S.userClosed, S.hereId, S.hereId ? 0 : MIN_ROWS);
     S.rows = visibleRows(N, S.rootId, S.expanded);
     S.rowIndex = new Map(S.rows.map((id, i) => [id, i]));
     $('kepanSpacer').style.height = S.rows.length * ROW_HEIGHT + 'px';
@@ -519,6 +662,8 @@
         : `<span class="kepan-leaf" title="末端科，點選閱讀">${LEAF_ICON}</span>`;
       html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層${kids ? `；雙擊${open ? '收合' : '展開'}` : ''}）">`
         + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(shortTitle(n.t))}</span>`
+        // 縮排到底（超過 MID_LEVELS 層）時，用 L18 這種小徽章補回「在第幾層」的資訊（v4.27.16）
+        + (n.d > MID_LEVELS - 1 ? `<span class="kepan-depth">L${n.d + 1}</span>` : '')
         + (alt && alt[id] && alt[id].length ? `<span class="kepan-alt-dot" title="其他講次也講到這一科：${esc(alt[id].map(h => (S.payload.rounds[h[0]] || {}).label).join('、'))}"></span>` : '')
         + (kids && !open ? `<span class="kepan-count">分${kids}</span>` : '') + '</div>';
     }
@@ -591,9 +736,11 @@
     // 第一項是整棵樹、不分組（v4.27.5 起固定寫「全文（不分組）」；書名已在側欄標題與地標列）
     // 範圍分屬不同上層時依上層分組（v4.27.7）：否則會出現兩個「乙一」分不出來
     let html = `<option value="0">${ALL_LABEL}</option>`;
-    for (const g of scopeOptions(N, S.scopeDepth)) {
+    // 章節式標題的樹：把「序與附說」與「章」分成兩組，43 章中間不再夾著 6 節（v4.27.16）
+    for (const g of scopeSections(N, S.scopeDepth)) {
       const items = g.items.map(n => `<option value="${n.id}">${esc(n.m + ' ' + shortTitle(n.t))}</option>`).join('');
-      html += g.parent ? `<optgroup label="${esc(N[g.parent].m + ' ' + shortTitle(N[g.parent].t))}">${items}</optgroup>` : items;
+      const label = g.label || (g.parent ? N[g.parent].m + ' ' + shortTitle(N[g.parent].t) : '');
+      html += label ? `<optgroup label="${esc(label)}">${items}</optgroup>` : items;
     }
     sel.innerHTML = html;
     sel.value = String(S.rootId);
@@ -658,10 +805,13 @@
     const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講次也講過，點講次名稱過去' : `上層「${N[a.id].m} ${shortTitle(N[a.id].t)}」在其他講次也講過`)}">其他講次：`
       + a.hits.map(h => `<a href="#" data-alt-round="${h[0]}" data-alt-id="${h[3]}" data-alt-file="${esc(h[1])}" data-alt-line="${h[2]}">${esc(P.rounds[h[0]].label)}</a>`).join('')
       + '</span>' : '';
+    // 本篇沒有科判標題時，寫明這個位置是「承前」來的，不假裝讀者在這一科（v4.27.16）
+    const inheritNote = S.inherited
+      ? `<span class="kepan-inherit" title="這篇沒有科判標題，位置沿用前一篇最後一科；點路徑可前往那一科">承前</span>` : '';
     $('kepanLandmark').innerHTML =
       (juan ? `<span>卷${esc(juan)}</span>` : '')
       + (N[id].pg ? `<span>《披尋記》p.${N[id].pg}</span>` : '')
-      + `<span>第 ${N[id].d + 1} 層</span>`
+      + (S.inherited ? inheritNote : `<span>第 ${N[id].d + 1} 層</span>`)
       + `<span class="kepan-progress" title="目前這一科在「${esc(P.title)}」全部 ${N.length - 1} 科中的位置"><i style="width:${pct}%"></i></span><span>${pct}%</span>`
       + alt;
     // 路徑預設只留最後幾層（目前科一定看得到），前面收成「⋯ 上 N 層」，點了展開完整路徑（v4.27.7）
@@ -671,7 +821,8 @@
     const links = chain.slice(hidden).map(x => {
       const n = N[x], sib = N[n.p].k;
       const pos = sib.length > 1 ? `<small>${sib.indexOf(x) + 1}/${sib.length}</small>` : '';
-      return `<a href="#" data-go="${x}"${x === id ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(shortTitle(n.t))}${pos}</a>`;
+      const cur = x === id && !S.inherited;
+      return `<a href="#" data-go="${x}"${cur ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(shortTitle(n.t))}${pos}</a>`;
     }).join('<span class="kepan-sep">›</span>');
     const more = hidden
       ? `<button type="button" class="kepan-path-more" data-path-toggle aria-expanded="false" title="顯示完整路徑：${esc(chain.slice(0, hidden).map(x => N[x].m + ' ' + shortTitle(N[x].t)).join(' › '))}">⋯ 上 ${hidden} 層</button><span class="kepan-sep">›</span>`
@@ -681,7 +832,8 @@
     const path = $('kepanPath');
     path.innerHTML = more + links + less;
     if (S.pathOpen) path.scrollTop = path.scrollHeight;   // 展開後若仍在列內捲動，停在目前科
-    const t = navTargets(N, id), nx = t.next ? N[t.next] : null, pv = t.prev ? N[t.prev] : null;
+    const t = navTargets(N, id, S.leafs || (S.leafs = leafIds(N)));
+    const nx = t.next ? N[t.next] : null, pv = t.prev ? N[t.prev] : null;
     setNavBtn($('kepanPrev'), pv, '前一科', '已是第一科');
     setNavBtn($('kepanNext'), nx, '後一科', '已是最後一科');
   }
@@ -769,11 +921,16 @@
       const y = spyLine($('content').scrollTop, S.barMax);
       for (const [top, l] of S.anchors) { if (top <= y) line = l; else break; }
     }
-    const id = hereFromLine(S.payload, S.fileIndex, line);
+    const info = hereInfo(S.payload, S.fileIndex, line);
+    const id = info.id;
+    // 這篇自己沒有科判標題時，記下來：地標列要寫「承前」，不能假裝讀者在這一科（v4.27.16）
+    S.inherited = !!info.inherited;
+    S.noKepan = !!info.none;
     // 剛點選的上層科與子科共用同一行標題時，保留點選的那一層
     // 同一行並列的多個終端科（共用一段文）也算：點了「辛一」不要被改回同行最後的「辛二」
     const sameLine = S.pendingHere && S.N[id] && S.N[S.pendingHere] && S.N[id].f === S.N[S.pendingHere].f && S.N[id].l === S.N[S.pendingHere].l;
     if (S.pendingHere && (id === S.pendingHere || sameLine || ancestors(S.N, id).includes(S.pendingHere))) {
+      S.inherited = false;   // 使用者剛點過，位置是明確的，不是承前
       if (S.N[S.pendingHere].l === line || !line) return setHere(S.pendingHere, true);
     }
     S.pendingHere = 0;
@@ -957,6 +1114,7 @@
     if (S.payload !== payload) {
       S.payload = payload;
       S.N = expandNodes(payload);
+      S.leafs = null;
       S.dir = payload.key || payload.dir;
       S.scopeDepth = payload.scopeDepth === undefined ? SCOPE_DEPTH : payload.scopeDepth;
       S.hereId = 0;
@@ -978,6 +1136,7 @@
       renderScopeSelect();
       renderRounds();
       renderHint();
+      renderProblems();
     }
     // 開檔後第一次定位不提示「已進入…」（讀者沒有跨範圍，只是剛打開）
     if (S.file !== filePath) S.quietUntil = Date.now() + 2500;
@@ -1103,6 +1262,16 @@
         if (!e.target.closest('#kepanRounds')) setRoundMenu(false);
       });
     }
+    if ($('kepanProblems')) {
+      $('kepanProblems').addEventListener('click', e => {
+        if (e.target.closest('#kepanProblemBtn')) { setProblemList($('kepanProblemList').hidden); return; }
+        const go = e.target.closest('[data-problem-file]');
+        if (!go || typeof window.mdwOpenFile !== 'function') return;
+        const dir = S.payload && S.payload.dir;
+        window.mdwOpenFile((dir ? dir + '/' : '') + go.dataset.problemFile + '.md', +go.dataset.problemLine);
+        if (window.innerWidth <= 768 && typeof window.mdwCloseMobileSidebars === 'function') window.mdwCloseMobileSidebars();
+      });
+    }
     $('kepanLandmark').addEventListener('click', e => {
       const a = e.target.closest('[data-alt-round]');
       if (!a) return;
@@ -1121,7 +1290,12 @@
       e.preventDefault();
       goTo(+a.dataset.go);
     });
-    const step = key => { if (!S.N || !S.hereId) return; const id = navTargets(S.N, S.hereId)[key]; if (id) goTo(id); };
+    // 前後科只走末端科（v4.27.16）：停在分科時，後一科是它子樹的第一個末端科
+    const step = key => {
+      if (!S.N || !S.hereId) return;
+      const id = navTargets(S.N, S.hereId, S.leafs || (S.leafs = leafIds(S.N)))[key];
+      if (id) goTo(id);
+    };
     $('kepanPrev').addEventListener('click', () => step('prev'));
     $('kepanNext').addEventListener('click', () => step('next'));
     const content = $('content');

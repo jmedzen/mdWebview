@@ -294,11 +294,23 @@ describe('kepan-sidebar.js：側欄規則', () => {
     assert.equal(UI.scopeOf(N, 2), 0);
   });
 
-  test('縮排：前 5 層正常，之後每層只縮 3px；四十層仍在 300px 側欄內留得下字', () => {
+  test('縮排三段式（v4.27.16）：前 5 層 14px、6–12 層 6px、13 層以後封頂', () => {
     assert.equal(UI.indentFor(0), 0);
     assert.equal(UI.indentFor(5), 5 * UI.INDENT);
-    assert.equal(UI.indentFor(6), 5 * UI.INDENT + UI.DEEP_INDENT);
-    assert.ok(UI.indentFor(40) <= 300 - 120, `第 40 層縮排 ${UI.indentFor(40)}px，應留 120px（約 7 個字）以上給科名`);
+    assert.equal(UI.indentFor(6), 5 * UI.INDENT + UI.MID_INDENT);
+    assert.equal(UI.indentFor(12), UI.INDENT_CAP, '第 12 層剛好到上限');
+    assert.equal(UI.indentFor(40), UI.INDENT_CAP, '第 40 層不再增加');
+    assert.ok(UI.indentFor(40) <= 120, `第 40 層縮排 ${UI.indentFor(40)}px 應 ≤ 120px`);
+    // 手機側欄 280px：封頂後仍留得下 150px 以上給科名
+    assert.ok(280 - UI.indentFor(40) - 30 >= 130, '手機寬度仍留得下科名');
+    // 單調不減，且不超過上限
+    let prev = -1;
+    for (let l = 0; l <= 60; l++) {
+      const v = UI.indentFor(l);
+      assert.ok(v >= prev, '縮排不應變小');
+      assert.ok(v <= UI.INDENT_CAP, '不應超過上限');
+      prev = v;
+    }
   });
 
   test('只沿閱讀路徑展開；使用者手動收起的主幹科不自動打開', () => {
@@ -407,6 +419,78 @@ describe('kepan-sidebar.js：前一科／後一科', () => {
     assert.equal(UI.navLabel(N[1], '已是第一科'), '甲一 序分');
     assert.equal(UI.navLabel(null, '已是第一科'), '已是第一科');
     assert.equal(UI.navLabel(N[2], 'x'), '甲二 正說非常長非常長非常長非常長的科名', '全名交給 CSS 截斷');
+  });
+
+  test('「只走末端科」：三科都是末端科時，與文件順序一致（v4.27.16）', () => {
+    assert.deepEqual(UI.leafIds(N), [1, 2, 3]);
+    assert.deepEqual(UI.navTargets(N, 2, UI.leafIds(N)), { prev: 1, next: 3 });
+  });
+});
+
+describe('kepan-sidebar.js：前後科只走末端科（v4.27.16）', () => {
+  // 甲一(分二科) ├ 乙一 ├ 丙一 / 丙二 └ 乙二(分二科) ├ 丙一 / 丙二
+  //               甲二
+  const spec = [
+    [0, '甲一', '總標'],
+    [1, '乙一', '第一段'],
+    [2, '丙一', '之一'],
+    [2, '丙二', '之二'],
+    [1, '乙二', '第二段'],
+    [5, '丙一', '之一'],
+    [5, '丙二', '之二'],
+    [0, '甲二', '別釋'],
+  ];
+  const payload = {
+    title: '論', files: ['T1', 'T2'], heads: {},
+    nodes: spec.map(([p, m, t], i) => [p, m, t, 0, i >= 7 ? 1 : 0, i + 1]),
+  };
+  const N = UI.expandNodes(payload);
+  const L = UI.leafIds(N);
+
+  test('leafIds 只含沒有子科的科', () => {
+    assert.deepEqual(L.map(id => N[id].m + N[id].t), ['丙一之一', '丙二之二', '丙一之一', '丙二之二', '甲二別釋']);
+  });
+
+  test('停在分科：後一科是它子樹的第一個末端科（不是自己的下一個子科）', () => {
+    const a1 = N.findIndex(n => n.id && n.m === '甲一' && n.t === '總標');
+    assert.equal(N[a1].k.length, 2, '甲一 是分科');
+    // 舊行為的「下一科」會停在乙一（分科），新版要走進末端科
+    const nx = UI.navTargets(N, a1, L).next;
+    assert.equal(N[nx].m + N[nx].t, '丙一之一');
+  });
+
+  test('停在分科的後一科必為末端科；前一科也必為末端科', () => {
+    const set = new Set(L);
+    for (let id = 1; id < N.length; id++) {
+      const t = UI.navTargets(N, id, L);
+      if (t.next) assert.ok(set.has(t.next), `${N[id].m} 的後一科要是末端科`);
+      if (t.prev) assert.ok(set.has(t.prev), `${N[id].m} 的前一科要是末端科`);
+    }
+  });
+
+  test('末端科之間雙向可逆：next 再 prev 回到原科', () => {
+    for (const id of L) {
+      const nx = UI.navTargets(N, id, L).next;
+      if (!nx) continue;
+      assert.equal(UI.navTargets(N, nx, L).prev, id, 'next→prev 應回到原科');
+    }
+  });
+
+  test('首末端：第一個末端科沒有前一科，最後一個末端科沒有後一科', () => {
+    assert.equal(UI.navTargets(N, L[0], L).prev, 0);
+    assert.equal(UI.navTargets(N, L[L.length - 1], L).next, 0);
+  });
+
+  test('單科樹、空樹不炸', () => {
+    const one = UI.expandNodes({ title: 'x', files: ['a'], heads: {}, nodes: [[0, '甲一', '序分', 0, 0, 1]] });
+    assert.deepEqual(UI.navTargets(one, 1, UI.leafIds(one)), { prev: 0, next: 0 });
+    const bare = UI.expandNodes({ title: 'x', files: [], heads: {}, nodes: [] });
+    assert.deepEqual(UI.leafIds(bare), []);
+    assert.deepEqual(UI.navTargets(bare, 0), { prev: 0, next: 0 });
+  });
+
+  test('不傳 leafIds 時自己算，結果與傳入相同', () => {
+    for (let id = 1; id < N.length; id++) assert.deepEqual(UI.navTargets(N, id), UI.navTargets(N, id, L));
   });
 });
 
