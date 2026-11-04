@@ -398,32 +398,6 @@
         離開專注 <kbd>Esc</kbd>
       </button>
 
-      <!--
-        直書／橫排切換（alpha 批次 5）。
-
-        只在「直書」被開啟時出現——平時完全不存在，不佔版面。
-        掛在右上角，跟「離開專注」同一個角落，兩者不會同時出現
-        （專注模式收起頁首，直書切換跟著收起來；用偏好設定仍可切回）。
-
-        圖示用「直」與「橫」兩個字，比任何箭頭圖示都清楚。
-      -->
-      <button type="button" class="vertical-toggle" id="verticalToggle"
-              title="切回橫排" aria-pressed="true">
-        <span aria-hidden="true">橫</span>
-        <span class="sr-only">切換直書／橫排</span>
-      </button>
-
-      <!--
-        第一次開啟直書時的說明條。
-
-        直書的捲動方向跟橫排相反（往左、往上），不講的話很多人會以為
-        內容只有這樣。出現一次，按「知道了」就不再出現。
-      -->
-      <div class="vertical-hint" id="verticalHint" role="status">
-        <span>直書：由右往左讀，往左捲動看下一行</span>
-        <button type="button" id="verticalHintOk">知道了</button>
-      </div>
-
       <!-- ── §CONTENT ───────────────────────────────────────── -->
       <main class="content" id="content" tabindex="-1">
         <!--
@@ -855,26 +829,6 @@
               <button type="button" class="segment-btn" data-value="cpl50">寬</button>
               <button type="button" class="segment-btn" data-value="cpl64">特寬</button>
               <button type="button" class="segment-btn" data-value="full">全寬</button>
-            </div>
-          </div>
-
-          <!--
-            書寫方向（直書／橫排）。
-
-            紙本藏經都是直排的，大正藏與 CBETA 的原始版面也是。這個選項
-            讓讀慣紙本的人可以回到熟悉的版面；喜歡橫排的人完全不受影響。
-
-            說明文字刻意寫清楚「不是所有內容都會轉」，因為表格與程式碼
-            在直排裡會壞掉，我們讓它們橫躺——不講的話看起來像 bug。
-          -->
-          <div class="setting-item-row">
-            <div class="setting-item-label">
-              <span class="setting-title">書寫方向</span>
-              <span class="setting-desc">經文改為直書，由右往左讀。表格、程式碼與圖片維持橫排（在直書版面中側轉）。快速鍵 <kbd>Shift</kbd> + <kbd>V</kbd></span>
-            </div>
-            <div class="segmented-control" id="settingWritingModeGroup">
-              <button type="button" class="segment-btn active" data-value="horizontal">橫排</button>
-              <button type="button" class="segment-btn" data-value="vertical">直書</button>
             </div>
           </div>
 
