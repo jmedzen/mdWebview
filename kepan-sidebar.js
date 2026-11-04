@@ -201,15 +201,26 @@
   }
   // 前後科按鈕上的字：寫該科的科判字與科名；沒有（首末科）時寫 edge
   function navLabel(n, edge) {
-    return n ? `${n.m || ''} ${shortTitle(n.t)}`.trim() : edge;
+    return n ? `${n.m || ''} ${shortTitle(n.t, (n.k || []).length)}`.trim() : edge;
   }
 
   /**
    * 顯示用的科名：拿掉「(分四科)」「（分二科）」這類科數註記（v4.27.9）。
    * 樹上已有「分N」小字，路徑、膠囊、選單只需要科名；完整原文仍在滑過提示裡。
    */
-  function shortTitle(t) {
-    const s = String(t || '').replace(/[（(]分[〇零一二三四五六七八九十百\d]+科[）)]/g, '').trim();
+  const CNUM = { '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+  function cnNum(x) {
+    let total = 0, cur = 0;
+    for (const c of x) {
+      if (c === '百') { total += (cur || 1) * 100; cur = 0; } else if (c === '十') { total += (cur || 1) * 10; cur = 0; } else cur = CNUM[c] ?? 0;
+    }
+    return /[十百]/.test(x) ? total + cur : Number([...x].map(c => CNUM[c] ?? '').join(''));
+  }
+  function shortTitle(t, kids) {
+    let s = String(t || '').replace(/[（(]分[〇零一二三四五六七八九十百\d]+科[）)]/g, '').trim();
+    // 原文常把子科數直接接在科名後（「總標綱要二」「略辨地名2」）：數字剛好等於實際子科數才去掉（v4.27.19）
+    const m = kids > 0 && s.match(/^(.*?[^〇零一二三四五六七八九十百\d])([〇零一二三四五六七八九十百]+|\d+)$/);
+    if (m && m[1].trim() && (/^\d+$/.test(m[2]) ? Number(m[2]) : cnNum(m[2])) === kids) s = m[1].trim();
     return s || String(t || '');
   }
 
@@ -523,7 +534,7 @@
         ? `<button type="button" class="kepan-toggle" data-toggle title="${open ? '收合' : '展開'}（分${kids}科）" aria-expanded="${open}">${open ? '−' : '+'}</button>`
         : `<span class="kepan-leaf" title="末端科，點選閱讀">${LEAF_ICON}</span>`;
       html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層${kids ? `；雙擊${open ? '收合' : '展開'}` : ''}）">`
-        + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(shortTitle(n.t))}</span>`
+        + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(shortTitle(n.t, (n.k || []).length))}</span>`
         + (alt && alt[id] && alt[id].length ? `<span class="kepan-alt-dot" title="其他講次也講到這一科：${esc(alt[id].map(h => (S.payload.rounds[h[0]] || {}).label).join('、'))}"></span>` : '')
         + (kids && !open ? `<span class="kepan-count">分${kids}</span>` : '') + '</div>';
     }
@@ -597,8 +608,8 @@
     // 範圍分屬不同上層時依上層分組（v4.27.7）：否則會出現兩個「乙一」分不出來
     let html = `<option value="0">${ALL_LABEL}</option>`;
     for (const g of scopeOptions(N, S.scopeDepth)) {
-      const items = g.items.map(n => `<option value="${n.id}">${esc(n.m + ' ' + shortTitle(n.t))}</option>`).join('');
-      html += g.parent ? `<optgroup label="${esc(N[g.parent].m + ' ' + shortTitle(N[g.parent].t))}">${items}</optgroup>` : items;
+      const items = g.items.map(n => `<option value="${n.id}">${esc(n.m + ' ' + shortTitle(n.t, (n.k || []).length))}</option>`).join('');
+      html += g.parent ? `<optgroup label="${esc(N[g.parent].m + ' ' + shortTitle(N[g.parent].t, (N[g.parent].k || []).length))}">${items}</optgroup>` : items;
     }
     sel.innerHTML = html;
     sel.value = String(S.rootId);
@@ -672,7 +683,7 @@
     const pct = Math.round(id / (N.length - 1) * 100);
     const P = S.payload;
     const a = altFor(P, N, id);
-    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講次也講過，點講次名稱過去' : `上層「${N[a.id].m} ${shortTitle(N[a.id].t)}」在其他講次也講過`)}">其他講次：`
+    const alt = a ? `<span class="kepan-alt" title="${esc(a.id === id ? '同一科在其他講次也講過，點講次名稱過去' : `上層「${N[a.id].m} ${shortTitle(N[a.id].t, (N[a.id].k || []).length)}」在其他講次也講過`)}">其他講次：`
       + a.hits.map(h => `<a href="#" data-alt-round="${h[0]}" data-alt-id="${h[3]}" data-alt-file="${esc(h[1])}" data-alt-line="${h[2]}">${esc(P.rounds[h[0]].label)}</a>`).join('')
       + '</span>' : '';
     $('kepanLandmark').innerHTML =
@@ -688,10 +699,10 @@
     const links = chain.slice(hidden).map(x => {
       const n = N[x], sib = N[n.p].k;
       const pos = sib.length > 1 ? `<small>${sib.indexOf(x) + 1}/${sib.length}</small>` : '';
-      return `<a href="#" data-go="${x}"${x === id ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(shortTitle(n.t))}${pos}</a>`;
+      return `<a href="#" data-go="${x}"${x === id ? ' class="is-current" aria-current="location"' : ''} title="${esc(n.m + '、' + n.t)}">${esc(n.m)} ${esc(shortTitle(n.t, (n.k || []).length))}${pos}</a>`;
     }).join('<span class="kepan-sep">›</span>');
     const more = hidden
-      ? `<button type="button" class="kepan-path-more" data-path-toggle aria-expanded="false" title="顯示完整路徑：${esc(chain.slice(0, hidden).map(x => N[x].m + ' ' + shortTitle(N[x].t)).join(' › '))}">⋯ 上 ${hidden} 層</button><span class="kepan-sep">›</span>`
+      ? `<button type="button" class="kepan-path-more" data-path-toggle aria-expanded="false" title="顯示完整路徑：${esc(chain.slice(0, hidden).map(x => N[x].m + ' ' + shortTitle(N[x].t, (N[x].k || []).length)).join(' › '))}">⋯ 上 ${hidden} 層</button><span class="kepan-sep">›</span>`
       : '';
     const less = S.pathOpen && chain.length > keep
       ? `<button type="button" class="kepan-path-more is-open" data-path-toggle aria-expanded="true" title="只顯示最後幾層">收起</button>` : '';
@@ -874,7 +885,7 @@
       + `<span class="kepan-results-keys">Enter 前往・Esc 清除</span></div>`;
     ids.forEach((id, i) => {
       const n = N[id], sc = scopeOf(N, id, S.scopeDepth), par = n.p > 0 ? N[n.p] : null;
-      const where = [sc && sc !== id ? N[sc].m + ' ' + shortTitle(N[sc].t) : '', par && par.id !== sc ? par.m + ' ' + shortTitle(par.t) : '']
+      const where = [sc && sc !== id ? N[sc].m + ' ' + shortTitle(N[sc].t, (N[sc].k || []).length) : '', par && par.id !== sc ? par.m + ' ' + shortTitle(par.t, (par.k || []).length) : '']
         .filter(Boolean).join(' › ');
       html += `<div class="kepan-hit${i === S.active ? ' is-active' : ''}" id="kepanHit${i}" role="option" aria-selected="${i === S.active}" data-hit="${id}" title="${esc(n.m + '、' + n.t)}">`
         + `<div class="kepan-hit-title"><span class="kepan-mark">${markHit(n.m, q)}</span>${markHit(n.t, q)}</div>`

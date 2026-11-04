@@ -32,8 +32,8 @@ describe('B8：顯示用科名', () => {
   });
 
   test('樹、路徑、選單、搜尋都用 shortTitle；滑過提示保留原文', () => {
-    assert.match(JS, /<span class="kepan-title">\$\{esc\(shortTitle\(n\.t\)\)\}/);
-    assert.match(JS, /\$\{esc\(n\.m\)\} \$\{esc\(shortTitle\(n\.t\)\)\}\$\{pos\}/);
+    assert.match(JS, /<span class="kepan-title">\$\{esc\(shortTitle\(n\.t, \(n\.k \|\| \[\]\)\.length\)\)\}/);
+    assert.match(JS, /\$\{esc\(n\.m\)\} \$\{esc\(shortTitle\(n\.t, \(n\.k \|\| \[\]\)\.length\)\)\}\$\{pos\}/);
     assert.match(JS, /title="\$\{esc\(n\.m \+ '、' \+ n\.t\)\}"/);
   });
 });
