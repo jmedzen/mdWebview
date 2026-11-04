@@ -2086,6 +2086,9 @@
 
     // 回首頁就離開專注模式：首頁沒有周邊可收，留著只會讓版面變窄
     if (isFocusMode()) setFocusMode(false, { silent: true });
+    // 文末導覽只在讀文章時有意義
+    const nextReadingBox = $('nextReading');
+    if (nextReadingBox) nextReadingBox.hidden = true;
 
     // 「繼續閱讀」與問候語要反映剛剛讀到哪裡、現在幾點
     renderHome();
@@ -5579,6 +5582,8 @@
     addRecentFile(filePath);
     updateBookmarkButtonUI(filePath);
     updateEntryNav();
+    // 文末「接下來讀什麼」：依同層兄弟檔算出前後篇（見 §3b）
+    renderNextReading();
 
     // If search selector is set to __CURRENT_FILE__, automatically update search results for newly opened file
     const searchFolderSelect = $('searchFolderSelect');
@@ -8317,9 +8322,122 @@
       `</div>`;
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // 讀到卷末：「接下來讀什麼」（alpha 批次 3b）
+  // ═══════════════════════════════════════════════════════════
+  //
+  // 《大般若經》這種大部頭，單一檔案就有兩千多頁；讀到底之後畫面就只是
+  // 結束了。左邊的檔案樹不會告訴你「同一個資料夾裡的下一篇是哪一檔」，
+  // 讀者得自己回頭翻目錄。這裡在文末直接給同層的上一篇／下一篇。
+  //
+  // 幾個判斷：
+  //   - 只認同一個資料夾的「檔案」兄弟，不跨資料夾（跨部類跳躍沒有意義）。
+  //   - 辭典不適用（它們有自己的「前一條／後一條」）。
+  //   - 只有一檔時整塊不顯示，不留空殼。
+  //   - 目錄／索引檔跳過：把「0心經_總目錄」當成下一篇沒人想讀。
+
+  /**
+   * /api/tree 的 path 是相對 md/ 的路徑（`01-大正藏/…`），但 openFile 也可能
+   * 收到帶 `md/` 前綴的路徑（例如從網址列還原、或辭典跳轉）。
+   * 兩邊要能對上，否則永遠找不到兄弟檔。統一把 `md/` 去掉再比。
+   */
+  function normTreePath(p) {
+    return String(p || '').replace(/^\.\//, '').replace(/^md\//, '');
+  }
+
+  /** 從 /api/tree 找出某個檔案路徑的同層兄弟（只回檔案）。 */
+  function siblingFilesOf(filePath) {
+    const target = normTreePath(filePath);
+    if (!target || !Array.isArray(state.treeData)) return null;
+    const dirPart = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : '';
+    // 廣度優先找那個資料夾節點
+    const queue = state.treeData.slice();
+    while (queue.length) {
+      const node = queue.shift();
+      if (!node) continue;
+      if (node.type === 'directory' && normTreePath(node.path) === dirPart) {
+        return (node.children || []).filter(c => c.type === 'file');
+      }
+      if (Array.isArray(node.children)) queue.push(...node.children);
+    }
+    return null;
+  }
+
+  /** 是不是「不該被當成下一篇」的檔案（目錄、索引之類）。 */
+  function isSkipAsNextReading(file) {
+    const name = String(file && file.name || '');
+    if (!name) return true;
+    return /(總目錄|目錄|索引|對堪表|對照表)/.test(name);
+  }
+
+  /** 依目前檔案算出上一篇／下一篇（找不到就 null）。 */
+  function nextReadingFor(filePath) {
+    const target = normTreePath(filePath);
+    const siblings = siblingFilesOf(target);
+    if (!siblings || !siblings.length) return null;
+    const idx = siblings.findIndex(f => normTreePath(f.path) === target);
+    if (idx < 0) return null;
+    const find = (from, step) => {
+      for (let i = from; i >= 0 && i < siblings.length; i += step) {
+        if (!isSkipAsNextReading(siblings[i])) return siblings[i];
+      }
+      return null;
+    };
+    return { prev: find(idx - 1, -1), next: find(idx + 1, 1) };
+  }
+
+  /** 畫出文末的導覽。開啟檔案後呼叫；沒有可去的地方就整塊隱藏。 */
+  function renderNextReading() {
+    const box = $('nextReading');
+    if (!box) return;
+    const file = state.currentFile;
+    // 辭典、首頁都不適用
+    if (!file || file.startsWith('dict:')) {
+      box.hidden = true;
+      return;
+    }
+    const nav = nextReadingFor(file);
+    const prevBtn = $('nextReadingPrev');
+    const nextBtn = $('nextReadingNext');
+    if (!nav || (!nav.prev && !nav.next)) {
+      box.hidden = true;
+      return;
+    }
+    const label = f => String(f.name || '').replace(/\.md$/i, '').replace(/_/g, ' ');
+    if (nav.prev) {
+      $('nextReadingPrevName').textContent = label(nav.prev);
+      prevBtn.hidden = false;
+      prevBtn.dataset.path = nav.prev.path;
+    } else {
+      prevBtn.hidden = true;
+      delete prevBtn.dataset.path;
+    }
+    if (nav.next) {
+      $('nextReadingNextName').textContent = label(nav.next);
+      nextBtn.hidden = false;
+      nextBtn.dataset.path = nav.next.path;
+    } else {
+      nextBtn.hidden = true;
+      delete nextBtn.dataset.path;
+    }
+    box.hidden = false;
+  }
+
+  function setupNextReading() {
+    const box = $('nextReading');
+    if (!box) return;
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest('.next-reading-btn');
+      if (!btn || btn.hidden || !btn.dataset.path) return;
+      // 開新的一篇時從頭讀起
+      openFile(btn.dataset.path, null, null, null);
+      const content = $('content');
+      if (content) content.scrollTop = 0;
+    });
+  }
+
   // ── Dictionary entry prev/next navigation (main reader) ──
-  let _entryNavEi = -1;
-  function updateEntryNav() {
+  let _entryNavEi = -1;  function updateEntryNav() {
     const nav = $('entryNav');
     if (!nav) return;
     if (!state.currentFile || !state.currentFile.startsWith('dict:') || !isVirtualMode()) {
@@ -11102,6 +11220,7 @@
     // 進出：F 鍵、右上角按鈕、Esc 離開。
     // 只在「正在讀一篇」時才有效——首頁沒有周邊可收，切了也沒意義。
     setupFocusMode();
+    setupNextReading();
 
     // ── Sidebar toggle ──
     $('sidebarToggle').addEventListener('click', () => {

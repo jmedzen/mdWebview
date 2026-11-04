@@ -566,6 +566,31 @@
             <nav class="kepan-path" id="kepanPath" aria-label="科判路徑"></nav>
           </div>
           <article class="markdown-body" id="markdownBody"></article>
+
+          <!--
+            讀到卷末：「接下來讀什麼」。
+
+            大部頭的經論（《大般若經》單一檔案就兩千多頁）讀到底之後，畫面
+            就只是結束了——左邊的檔案樹不會告訴你「這一系列的下一篇是哪一檔」，
+            讀者得自己回頭翻目錄找。這裡在文末直接給同一個資料夾裡的下一篇／
+            上一篇，按鈕上寫出經名，不用點進去才知道是什麼。
+
+            只在「同層真的有下一檔」時才出現；單一檔案、或是最後一篇就整塊
+            不顯示，不會留下一塊空的導覽。（見 app.js renderNextReading）
+          -->
+          <nav class="next-reading" id="nextReading" hidden aria-label="接下來讀什麼">
+            <div class="next-reading-head">讀到這裡</div>
+            <div class="next-reading-row">
+              <button type="button" class="next-reading-btn" id="nextReadingPrev" hidden>
+                <span class="next-reading-dir">← 上一篇</span>
+                <span class="next-reading-name" id="nextReadingPrevName"></span>
+              </button>
+              <button type="button" class="next-reading-btn next-reading-btn-next" id="nextReadingNext" hidden>
+                <span class="next-reading-dir">下一篇 →</span>
+                <span class="next-reading-name" id="nextReadingNextName"></span>
+              </button>
+            </div>
+          </nav>
           <!-- 前一科／後一科：沿用辭典「前一條／後一條」的浮動膠囊，按鈕上直接寫前後科的科名 -->
           <nav class="entry-nav kepan-nav" id="kepanNav" aria-label="前後科" hidden>
             <button type="button" class="entry-nav-btn kepan-nav-btn" id="kepanPrev" title="前一科"><span class="kepan-nav-arrow" aria-hidden="true">←</span><span class="kepan-nav-name">前一科</span></button>

@@ -12350,3 +12350,87 @@ body.focus-mode .focus-exit:focus-visible {
 }
 
 /* 專注模式切換時不要有版面跳動的過場（尊重 reduced-motion 已由 §44 統一處理） */
+
+/* ================================================================
+   §46 讀到卷末：「接下來讀什麼」（alpha 批次 3b）
+
+   大部頭的經論讀到底之後，畫面就只是結束了。左邊的檔案樹不會告訴你
+   「這個資料夾裡的下一篇是哪一檔」，讀者得自己回頭翻目錄。
+   這塊在文末直接給同層的上一篇／下一篇，按鈕上寫出經名。
+
+   刻意做得安靜：一條細線、兩個文字按鈕，像書頁下緣的「下回分解」，
+   不是行動呼籲（這個站台不做黏著度設計）。
+   ================================================================ */
+.next-reading {
+  margin: 56px 0 32px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border-subtle);
+}
+.next-reading-head {
+  margin-bottom: 12px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.next-reading-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.next-reading-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 220px;
+  max-width: 320px;
+  padding: 12px 15px;
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+.next-reading-btn:hover,
+.next-reading-btn:focus-visible {
+  border-color: var(--accent);
+  background: var(--hover-bg);
+}
+/* 下一篇通常在右邊，文字靠右收齊，跟閱讀方向一致 */
+.next-reading-btn-next {
+  margin-left: auto;
+  text-align: right;
+  align-items: flex-end;
+}
+.next-reading-dir {
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.next-reading-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+html[data-display-script="hans"] .next-reading-name {
+  font-family: var(--cjk-sans), sans-serif;
+}
+@media (max-width: 640px) {
+  .next-reading {
+    margin-top: 40px;
+  }
+  .next-reading-row {
+    flex-direction: column;
+  }
+  .next-reading-btn {
+    max-width: 100%;
+    min-height: 56px;
+  }
+  .next-reading-btn-next {
+    margin-left: 0;
+    text-align: left;
+    align-items: flex-start;
+  }
+}
