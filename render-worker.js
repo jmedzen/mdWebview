@@ -133,14 +133,14 @@ function preprocessObsidianFormatting(text) {
   }
   // 2. Fix Obsidian bolding with inner spaces/NBSP: ** text ** -> <strong>text</strong>
   if (text.includes('**')) {
-    text = text.replace(/\*\*([\s\u00A0]*[^\*\n]+?[\s\u00A0]*)\*\*/g, (m, p1) => {
+    text = text.replace(/\*\*([ \t\u00A0]*[^\*\n]+?[ \t\u00A0]*)\*\*/g, (m, p1) => {
       const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
       return '<strong>' + escapeHtml(trimmed) + '</strong>';
     });
   }
   // 3. Fix Obsidian double underscore bolding: __ text __ -> <strong>text</strong>
   if (text.includes('__')) {
-    text = text.replace(/__([\s\u00A0]*[^_\n]+?[\s\u00A0]*)__/g, (m, p1) => {
+    text = text.replace(/__([ \t\u00A0]*[^_\n]+?[ \t\u00A0]*)__/g, (m, p1) => {
       const trimmed = p1.trim().replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
       return '<strong>' + escapeHtml(trimmed) + '</strong>';
     });
