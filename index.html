@@ -92,6 +92,13 @@
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
+  <!--
+    跳至主要內容：鍵盤與螢幕閱讀器使用者的第一道門。
+    這個站台的頁首有十幾個按鈕、左側還有整棵檔案樹，用 Tab 前進的人每次換頁
+    都得再走過一次。這條連結平時隱藏，按 Tab 第一次聚焦時才出現在左上角。
+    目標是 #content（<main>），並加上 tabindex="-1" 讓焦點真的移得過去。
+  -->
+  <a class="skip-link" href="#content">跳至經文內容</a>
   <div class="app">
     <!-- ── §HEADER ──────────────────────────────────────── -->
     <header class="app-header" id="appHeader">
@@ -373,7 +380,7 @@
       <div class="resize-handle" id="resizeHandle"></div>
 
       <!-- ── §CONTENT ───────────────────────────────────────── -->
-      <main class="content" id="content">
+      <main class="content" id="content" tabindex="-1">
         <!--
           Welcome Screen（首頁）
 
@@ -567,11 +574,11 @@
   <!-- ── §MODALS ───────────────────────────────────────── -->
   
   <!-- 1. Admin Setup Overlay (Full screen) -->
-  <div class="modal-overlay" id="adminSetupOverlay" style="display: none;">
+  <div class="modal-overlay" id="adminSetupOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="adminSetupTitle">
     <div class="modal-card">
       <div class="modal-header">
         <span class="modal-icon">🪷</span>
-        <h2>設定管理員帳戶</h2>
+        <h2 id="adminSetupTitle">設定管理員帳戶</h2>
       </div>
       <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與首頁權威 URL。Email 與帳號名稱至少填一個。</p>
       <form id="adminSetupForm" class="modal-form">
@@ -638,11 +645,11 @@
   </aside>
 
   <!-- User Settings & Preferences Menu Modal -->
-  <div class="modal-overlay" id="userSettingsOverlay" style="display: none;">
+  <div class="modal-overlay" id="userSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="userSettingsTitle">
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理</h2>
+        <h2 id="userSettingsTitle">偏好設定與閱讀管理</h2>
         <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
@@ -1178,7 +1185,7 @@
   </div>
 
   <!-- 3. Admin Settings Overlay：全頁後台（左側分組導覽、右側一頁一件事；手機先看清單再進頁面） -->
-  <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;">
+  <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="adminPageTitle">
     <div class="admin-shell" id="adminShell" data-view="page">
       <aside class="admin-side" aria-label="後台導覽">
         <div class="admin-side-top">

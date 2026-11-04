@@ -624,6 +624,157 @@
   const $ = (id) => document.getElementById(id);
   const $$ = (sel, root) => (root || document).querySelectorAll(sel);
 
+  // ── Modal 焦點管理（alpha 批次 1b）──────────────────────────
+  //
+  // 原本只有「書籤與歷程」抽屜做了焦點循環。設定、後台、分享卡、帳號等
+  // 9 個 .modal-overlay 都沒有：打開之後按 Tab 會一路跑到背景的頁首與檔案樹，
+  // 鍵盤使用者等於被丟出對話框外。
+  //
+  // 這裡集中在一個地方做兩件事，避免每個 modal 各自實作：
+  //   1. trapFocusWithin(el) — Tab／Shift+Tab 只在 el 內循環
+  //   2. 開啟時記住觸發元素，關閉時把焦點還回去
+  //
+  // 只攔 Tab，不攔其他鍵：Escape 由各 modal 自己處理（有些要先確認未儲存變更）。
+
+  /** 可聚焦元素的選擇器。排除 disabled、hidden、tabindex="-1"。 */
+  const FOCUSABLE_SELECTOR = [
+    'a[href]',
+    'area[href]',
+    'button:not([disabled])',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    'iframe',
+    'object',
+    'embed',
+    '[contenteditable="true"]',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',');
+
+  /** 容器內「真的可以聚焦」的元素（排除隱藏與沒有尺寸的）。 */
+  function focusableWithin(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter(el => {
+      if (el.hidden) return false;
+      if (el.getAttribute('aria-hidden') === 'true') return false;
+      // offsetParent 為 null 代表祖先 display:none；fixed 定位者不會有 offsetParent，故放行
+      if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+      return el.getClientRects().length > 0 || el === document.activeElement;
+    });
+  }
+
+  /**
+   * 讓 Tab 鍵在 container 內循環。回傳解除函式。
+   * 同一容器重複呼叫時先解掉舊的，避免疊出多個 listener。
+   */
+  function trapFocusWithin(container) {
+    if (!container) return () => {};
+    if (container._mdwTrap) container._mdwTrap();
+    const onKeydown = (e) => {
+      if (e.key !== 'Tab') return;
+      const list = focusableWithin(container);
+      if (!list.length) {
+        // 沒有可聚焦的東西時，至少不要把焦點交給背景
+        e.preventDefault();
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !container.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !container.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    container.addEventListener('keydown', onKeydown);
+    const release = () => {
+      container.removeEventListener('keydown', onKeydown);
+      if (container._mdwTrap === release) container._mdwTrap = null;
+    };
+    container._mdwTrap = release;
+    return release;
+  }
+
+  /**
+   * 打開／關閉 modal 時統一處理焦點：
+   *   open  — 記下目前的焦點，把焦點移進對話框
+   *   close — 把焦點還給當初觸發的元素（若它還在畫面上）
+   * 「按了齒輪 → 關掉 → 焦點回到齒輪」對鍵盤使用者才是連續的。
+   */
+  const _modalReturnFocus = new WeakMap();
+  // 由 userMenuAction 設定：選單關閉後仍記得「是哪一列開的對話框」
+  let _pendingReturnFocus = null;
+
+  function rememberFocusFor(overlay, explicit) {
+    if (!overlay) return;
+    // explicit：呼叫端知道「實際上是哪個按鈕開的」。有些入口會先把觸發它的
+    // 選單關掉（例如右上角頭像選單），那時 document.activeElement 已經是 body，
+    // 自動偵測會把焦點還給 body，鍵盤使用者等於被丟回頁面開頭。
+    if (explicit && document.contains(explicit)) {
+      _modalReturnFocus.set(overlay, explicit);
+      return;
+    }
+    // userMenuAction 在關閉選單前會把被點的項目記在 _pendingReturnFocus，
+    // 讓「頭像選單 → 偏好設定 → 關閉」的焦點回到那一列，而不是 body。
+    if (_pendingReturnFocus && document.contains(_pendingReturnFocus)) {
+      _modalReturnFocus.set(overlay, _pendingReturnFocus);
+      _pendingReturnFocus = null;
+      return;
+    }
+    const active = document.activeElement;
+    if (active && active !== document.body) _modalReturnFocus.set(overlay, active);
+  }
+
+  function restoreFocusFor(overlay) {
+    if (!overlay) return;
+    let target = _modalReturnFocus.get(overlay);
+    _modalReturnFocus.delete(overlay);
+    // 目標必須「真的看得見」。頭像選單的那一列在選單關掉後仍留在 DOM 裡，
+    // 但尺寸為 0，focus() 會無聲失敗，焦點就掉回 body。此時改還給開啟選單
+    // 的那顆按鈕（#userMenuBtn），那才是使用者實際按得到的位置。
+    const visible = (el) => el && document.contains(el) &&
+      typeof el.focus === 'function' && el.getClientRects().length > 0;
+    if (!visible(target)) {
+      const fallback = document.getElementById('userMenuBtn');
+      target = visible(fallback) ? fallback : null;
+    }
+    if (target) {
+      try { target.focus({ preventScroll: true }); } catch (_) { try { target.focus(); } catch (__) {} }
+    }
+  }
+
+  /**
+   * 打開 modal：上焦點鎖、記住來源、把焦點送進去。
+   * @param {Element} overlay
+   * @param {Element|null} preferred  進去之後先聚焦的元素
+   * @param {Element|null} returnTo   關閉後要把焦點還給誰（預設自動偵測）
+   */
+  function activateModalFocus(overlay, preferred, returnTo) {
+    if (!overlay) return;
+    rememberFocusFor(overlay, returnTo);
+    trapFocusWithin(overlay);
+    const target = preferred || focusableWithin(overlay)[0];
+    // 等版面完成（display 由 none 改掉後才有尺寸）再聚焦
+    setTimeout(() => {
+      if (!overlay.isConnected || overlay.style.display === 'none') return;
+      if (target && typeof target.focus === 'function') {
+        try { target.focus({ preventScroll: true }); } catch (_) {}
+      }
+    }, 30);
+  }
+
+  /** 關閉 modal：解鎖焦點、把焦點還回去。 */
+  function deactivateModalFocus(overlay) {
+    if (!overlay) return;
+    if (overlay._mdwTrap) overlay._mdwTrap();
+    restoreFocusFor(overlay);
+  }
+
   // ═══════════════════════════════════════════════════════════
   // §1 INIT & BOOT HOOKS (loadSettings, initUI, URL params)
   // ═══════════════════════════════════════════════════════════
@@ -1015,9 +1166,8 @@
     overlay.style.display = 'flex';
     overlay.setAttribute('aria-hidden', 'false');
     const done = $('installGuideDoneBtn');
-    if (done) {
-      try { done.focus(); } catch (_) {}
-    }
+    // 焦點鎖在教學 Modal 內；done 按鈕取得焦點
+    activateModalFocus(overlay, done || null);
     return true;
   }
 
@@ -1027,6 +1177,7 @@
     if (!overlay) return;
     overlay.style.display = 'none';
     overlay.setAttribute('aria-hidden', 'true');
+    deactivateModalFocus(overlay);
     // 看完教學即視為「已處理」，進入靜默期，避免每次回首頁都再問一次。
     storage.set(STORAGE_KEYS.INSTALL_DISMISSED, String(Date.now()));
     hideInstallCard();
@@ -1767,6 +1918,8 @@
       if (!state.isSingleUser) {
         if (!data.isSetup) {
           $('adminSetupOverlay').style.display = 'flex';
+          // 首次設定管理員：這是必經的對話框，焦點鎖住避免誤觸背景
+          activateModalFocus($('adminSetupOverlay'), $('setupSiteUrl'));
           const setupSiteUrlEl = $('setupSiteUrl');
           if (setupSiteUrlEl && !setupSiteUrlEl.value) {
             setupSiteUrlEl.value = (data.settings && data.settings.siteUrl) ? data.settings.siteUrl : (window.location.origin || '');
@@ -3084,7 +3237,11 @@
     renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
     sendShareEvent('open');
     const card = ov.querySelector('.share-card-card');
-    if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
+    if (card) {
+      card.tabIndex = -1;
+      // 焦點鎖在面板內；卡片本身先取得焦點（它是捲動容器）
+      activateModalFocus(ov, card);
+    }
   }
 
   /** 「附 QR 碼」開關：記在本機，換了就重畫面板上的預覽。 */
@@ -3100,10 +3257,13 @@
   function closeShareCard() {
     if (!shareRt.open) return;
     shareRt.open = false;
-    $('shareCardOverlay').style.display = 'none';
+    const ov = $('shareCardOverlay');
+    ov.style.display = 'none';
     document.body.classList.remove('modal-open');
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
     shareRt.urls = [];
+    // 解焦點鎖，並把焦點還給「分享早安圖」（原本就是它開的）
+    if (ov._mdwTrap) ov._mdwTrap();
     const btn = $('homeVerseShare');
     if (btn) btn.focus({ preventScroll: true });
   }
@@ -10416,6 +10576,8 @@
     overlay.style.display = 'flex';
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
+    // 燈箱也是對話框：焦點鎖在裡面（工具列／關閉鈕），關閉時回到原圖
+    activateModalFocus(overlay, $('mediaLightboxCloseBtn'));
   }
 
   function closeMediaLightbox() {
@@ -10436,8 +10598,9 @@
     const img = $('mediaLightboxImg');
     if (img) img.src = '';
 
-    // 恢復背景滾動
+    // 恢復背景滾動，並把焦點還給點開圖片的那個元素
     document.body.style.overflow = mediaLightboxState.previousBodyOverflow || '';
+    deactivateModalFocus(overlay);
   }
 
   function initMediaLightboxEvents() {
@@ -11996,6 +12159,8 @@
 
     $('userSettingsOverlay').style.display = 'flex';
     document.body.classList.add('modal-open');
+    // 焦點鎖在對話框內，關閉時還給觸發的齒輪按鈕
+    activateModalFocus($('userSettingsOverlay'));
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -12041,6 +12206,7 @@
     const overlay = $('userSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
     document.body.classList.remove('modal-open');
+    deactivateModalFocus(overlay);
   }
 
   function closeAdminModal(force = false) {
@@ -12052,10 +12218,14 @@
 
     const overlay = $('adminSettingsOverlay');
     if (overlay) overlay.style.display = 'none';
+    deactivateModalFocus(overlay);
     setAdminHash(null);
     closeAdminSearch(false);
     const setupOverlay = $('adminSetupOverlay');
-    if (setupOverlay) setupOverlay.style.display = 'none';
+    if (setupOverlay) {
+      setupOverlay.style.display = 'none';
+      deactivateModalFocus(setupOverlay);
+    }
     document.body.classList.remove('modal-open');
     if (hwAutoRefreshTimer) {
       clearInterval(hwAutoRefreshTimer);
@@ -13368,6 +13538,8 @@
       if (typeof syncFooterToggleInputs === 'function') syncFooterToggleInputs();
       $('adminSettingsOverlay').style.display = 'flex';
       document.body.classList.add('modal-open');
+      // 焦點鎖在後台內，關閉時還給觸發它的選單項目
+      activateModalFocus($('adminSettingsOverlay'));
       setAdminDirty(false);
       renderAdminSideUser();
       showInitialAdminPage();
@@ -15451,6 +15623,9 @@
   function userMenuAction(fn) {
     return (e) => {
       e.preventDefault();
+      // 先記下被點的這一列；關掉選單後它仍是「使用者按下動作的地方」，
+      // 對話框關閉時焦點要回到這裡（見 rememberFocusFor）。
+      _pendingReturnFocus = e.currentTarget || null;
       closeUserMenu();
       fn();
     };
@@ -15859,16 +16034,10 @@
         openFile(file, line);
       }
     });
-    // 抽屜開著時，Tab 鍵只在抽屜裡循環
-    drawer.addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab') return;
-      const f = Array.from(drawer.querySelectorAll('button, input')).filter(el => !el.hidden && el.offsetParent !== null && el.tabIndex !== -1);
-      if (!f.length) return;
-      const first = f[0];
-      const last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    });
+    // 抽屜開著時，Tab 鍵只在抽屜裡循環（與其他對話框共用同一個工具）。
+    // 原本這裡自己寫了一份只找 button/input 的迴圈，連連結與 tabindex 元素都漏掉；
+    // 換成 trapFocusWithin 之後選擇器與判斷和其他 modal 一致。
+    drawer._mdwDrawerTrap = trapFocusWithin(drawer);
     updateLibraryCount();
   }
 
@@ -15933,12 +16102,16 @@
     if (!el) return;
     el.style.display = 'flex';
     document.body.classList.add('modal-open');
+    // 帳號相關的四個對話框（登入、帳號設定、重新驗證、同意條款）都走這裡，
+    // 所以焦點鎖與「關閉後還原焦點」只要在這裡做一次。
+    activateModalFocus(el);
   }
 
   function closeOverlay(id) {
     const el = $(id);
     if (!el) return;
     el.style.display = 'none';
+    deactivateModalFocus(el);
     const anyOpen = Array.from(document.querySelectorAll('.modal-overlay')).some(o => o.style.display === 'flex');
     if (!anyOpen) document.body.classList.remove('modal-open');
   }

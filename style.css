@@ -102,6 +102,74 @@ body {
   color: var(--accent-hover, var(--accent));
 }
 
+/* ── §1a Accessibility Utilities ────────────────────────────── */
+/*
+   跳至主要內容（skip-link）
+
+   頁首有十幾個按鈕、左側還有整棵檔案樹；用鍵盤 Tab 前進的人，每次換頁都得
+   再走過一輪才到得了經文。這條連結平時完全看不到（用 clip 裁成 1×1），
+   按 Tab 第一次聚焦時才出現在左上角。
+
+   刻意不用 display:none / visibility:hidden：那會讓它無法被聚焦，機制就失效。
+*/
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 10000;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  /* accent 在深色主題是淡紫／淡黃，配白色看不清；用主題底色當前景 */
+  color: var(--bg-primary);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  /* 收成一條零寬的細線：clip 只裁畫面，元素本身的盒子（含 padding）仍會被
+     getBoundingClientRect 量到，只寫 width:1px 在畫面上會露出一角。
+     這裡同時把 padding 歸零、寬高歸零，聚焦時再全部還原。 */
+  padding: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  padding: 10px 16px;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+/*
+   只給螢幕閱讀器的文字。用 clip 而非 display:none，否則讀屏也讀不到。
+*/
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* <main> 加了 tabindex="-1" 之後，滑鼠點擊不該出現焦點外框；鍵盤仍看得到 */
+#content:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ── §2 Theme Definitions ───────────────────────────────────── */
 /* ── Theme 1: 夜藍 Night（預設；沿用 obsidian-dark 的 ID，舊設定不受影響） ── */
 [data-theme="obsidian-dark"] {
@@ -12022,4 +12090,38 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
   /* 手機上路徑最多露出三行，其餘在列內捲動，不擋住正文 */
   .kepan-path { max-height: 5.2em; }
   .kepan-progress { width: 72px; }
+}
+
+/* ================================================================
+   §44 動態效果降級（prefers-reduced-motion）
+
+   全站有 17 個 @keyframes（蓮花浮動、經句換句、分享卡 shimmer、未存檔脈動、
+   選字彈窗淡入、劃線閃示、spinner…），但原本只有 6 處零星的 reduce 區塊，
+   覆蓋不到一半。對前庭功能敏感、或單純不想被動畫分心的讀者，這是很實際的
+   不適來源；經文閱讀尤其不該有東西在旁邊動。
+
+   這裡集中成一個總表，蓋掉其餘的動畫與過場。上面的個別區塊保留（它們寫得
+   更精確，例如 .welcome-lotus 只關動畫、不動 transition），不重複也不衝突。
+
+   注意：spinner 也一併停掉——載入中改由文字說明
+   （#contentLoading 已有「載入中」字樣），不會變成什麼都看不出來。
+   ================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 少數「靠動畫才有意義」的元素直接不畫，避免 0.01ms 之後停在奇怪的影格 */
+  .welcome-lotus,
+  .home-verse-line,
+  .share-card-shimmer,
+  .spinner,
+  .user-menu-pulse {
+    animation: none !important;
+  }
 }
