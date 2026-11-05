@@ -4,233 +4,58 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+const read = (rel) => fs.readFileSync(path.join(ROOT_DIR, rel), 'utf8');
 
-describe('全站版本號一致性測試 (Version Consistency)', () => {
-  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
-  const version = pkg.version;
+/**
+ * 版本號的唯一來源是 package.json（升版只改它與 package-lock.json，例如
+ * `npm version patch --no-git-tag-version`）。其餘地方：
+ *   - index.html / sw.js 只放 __APP_VERSION__ 佔位符，由 server 送出時換成實際版本
+ *     （資源網址 ?v= 用來破瀏覽器快取，sw.js 的 CACHE_VERSION 讓舊快取失效）。
+ *   - lib/constants.js 的 APP_VERSION 讀自 package.json。
+ *   - app.js 執行時讀 __APP_CONFIG__.appVersion，原始檔不寫死版本。
+ * 這個測試守住「不要把現行版本號又寫死回原始檔」。
+ */
+describe('版本號單一來源 (package.json)', () => {
+  const version = JSON.parse(read('package.json')).version;
+  const escaped = version.replace(/\./g, '\\.');
+  const literal = new RegExp(`(?<![0-9.])v?${escaped}(?![0-9])`);
 
-  test('README.md 應包含當前版本號 (v + version + )', () => {
-    const readmeContent = fs.readFileSync(path.join(ROOT_DIR, 'README.md'), 'utf8');
-    assert.ok(
-      readmeContent.includes(`(v${version})`),
-      `README.md 應包含 "(v${version})"`
-    );
+  test('package.json 與 package-lock.json 版本一致', () => {
+    const lock = JSON.parse(read('package-lock.json'));
+    assert.equal(lock.version, version);
+    assert.equal(lock.packages[''].version, version);
   });
 
-  test('ARCHITECTURE.md 應包含版本標頭與 APP_VERSION 表格列', () => {
-    const archContent = fs.readFileSync(path.join(ROOT_DIR, 'ARCHITECTURE.md'), 'utf8');
-    assert.ok(
-      archContent.includes(`版本：v${version}`),
-      `ARCHITECTURE.md 應包含 "版本：v${version}"`
-    );
-
-    const appVerRow = archContent.split('\n').find(line => line.includes('| `APP_VERSION` |'));
-    assert.ok(appVerRow, 'ARCHITECTURE.md 應包含 `APP_VERSION` 定義列');
-    assert.ok(
-      appVerRow.includes(`'${version}'`),
-      `ARCHITECTURE.md 內的 APP_VERSION 表格列應包含 '${version}'`
-    );
+  test('index.html 與 sw.js 使用 __APP_VERSION__ 佔位符，不寫死版本', () => {
+    const html = read('index.html');
+    assert.ok(/\?v=__APP_VERSION__/.test(html), 'index.html 資源網址應使用 ?v=__APP_VERSION__');
+    assert.ok(!/\?v=\d/.test(html), 'index.html 不應有寫死版本的 ?v=');
+    assert.match(read('sw.js'), /CACHE_VERSION = 'v__APP_VERSION__'/);
   });
 
-  /**
-   * server.js / style.css 的 @version 標頭。
-   *
-   * 這兩個檔案的版本標頭**不在** version 反向斷言（第 111 行）的掃描清單內，
-   * 歷來只能靠人工升版時記得改。v3.9.0 升版時就漏掉了 server.js，讓它停在
-   * '3.8.2'（一個從未發行過的版本號）長達一整個版本。改用精確斷言守住，
-   * 避免再次無聲漂移。
-   */
-  test('server.js 與 style.css 的 @version 標頭應等於當前版本', () => {
-    const files = [
-      ['server.js', /@version\s+([0-9]+\.[0-9]+\.[0-9]+)/],
-      ['style.css', /\(style\.css\)\s+v?([0-9]+\.[0-9]+\.[0-9]+)/]
-    ];
-    for (const [relPath, pattern] of files) {
-      const content = fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf8');
-      const m = content.match(pattern);
-      assert.ok(m, `${relPath} 應包含可辨識的版本標頭`);
-      assert.equal(
-        m[1],
-        version,
-        `${relPath} 的版本標頭為 '${m[1]}'，應為當前版本 '${version}'`
-      );
-    }
-  });
-
-  test('app.js 應包含頂部版本標頭且 appVer fallback 出現至少 2 次', () => {
-    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
-    assert.ok(
-      appContent.includes(`(app.js) v${version}`),
-      `app.js 頂部標頭應包含 "(app.js) v${version}"`
-    );
-
-    const appVerFallbackLines = appContent
-      .split('\n')
-      .filter(line => line.includes('appVer') && line.includes(`'${version}'`));
-    assert.ok(
-      appVerFallbackLines.length >= 2,
-      `app.js 內 appVer fallback 字面值 '${version}' 應至少出現 2 次，實際出現 ${appVerFallbackLines.length} 次`
-    );
-  });
-
-  test('index.html 應包含兩個版本徽章 (v + version)', () => {
-    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
-    const targetVer = `v${version}`;
-
-    assert.ok(
-      indexHtml.includes(`id="systemTabVersion">${targetVer}<`),
-      `index.html 應包含 systemTabVersion 徽章 (${targetVer})`
-    );
-    assert.ok(
-      indexHtml.includes(`id="userSettingsFooterVersion">版本 ${targetVer}<`),
-      `index.html 應包含 userSettingsFooterVersion 徽章 (版本 ${targetVer})`
-    );
-  });
-
-  /**
-   * 偏好設定面板的**標題列**不再掛版本徽章（改由面板底部 footer 顯示，避免同一個
-   * 面板重複出現版本號兩次）。守衛保留，防止日後又被加回去。
-   */
-  test('偏好設定面板標題列不應再顯示版本徽章（版本只在 footer）', () => {
-    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
-    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
-
-    assert.ok(
-      !indexHtml.includes('userSettingsHeaderVersion'),
-      'index.html 不應保留 userSettingsHeaderVersion 徽章元素'
-    );
-    assert.ok(
-      !appContent.includes('userSettingsHeaderVersion'),
-      'app.js 不應再引用 userSettingsHeaderVersion'
-    );
-  });
-
-  /**
-   * 後台「系統設定」面板標題同樣要有版本徽章：管理員常需要回報目前站上跑的
-   * 是哪一版，而後台面板是最常被打開的地方。此徽章與偏好設定面板共用
-   * .user-settings-version-badge 樣式，並由 openSettingsOverlay() 於開啟時
-   * 以 __APP_CONFIG__.appVersion 覆寫（避免 SSG 快取或舊 HTML 造成版本漂移）。
-   */
-  test('後台系統設定標題列應包含版本徽章，且 app.js 開啟時會同步覆寫', () => {
-    const indexHtml = fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8');
-    const targetVer = `v${version}`;
-
-    assert.ok(
-      indexHtml.includes(`id="adminSettingsHeaderVersion">${targetVer}<`),
-      `index.html 後台系統設定標題列應包含 adminSettingsHeaderVersion 徽章 (${targetVer})`
-    );
-
-    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
-    assert.match(
-      appContent,
-      /\$\('adminSettingsHeaderVersion'\)/,
-      'app.js 應在開啟後台面板時取得 adminSettingsHeaderVersion 元素'
-    );
-    assert.match(
-      appContent,
-      /adminHeaderVer\.textContent\s*=/,
-      'app.js 應以執行中的 appVersion 覆寫後台版本徽章文字'
-    );
-  });
-
-  /**
-   * 反向斷言：不得殘留「上一版的現行版本標記」。
-   *
-   * 注意 ARCHITECTURE.md 會刻意累積**歷史註記**（例如「深度跳轉定位對齊（v3.7.6）」
-   * 記錄該版做了什麼），這些是準確的歷史敘述，不應被後續升版改寫。因此這裡只針對
-   * 「現行版本標記」（標頭版本列與 APP_VERSION 表格列）斷言，並另外守住歷史註記
-   * 不被誤刪（避免誤用全域 sed 取代把歷史一併改寫）。
-   *
-   * 版本資訊優先由 git 最近的 release commit 推導「上一版」，升版後不需手動修改本測試。
-   *
-   * 注意：不可只用 patch 減一推算。升到 X.Y.0 時 patch 為 0，減一會得到 X.(Y-1).-1
-   * 這種無效版本，導致本反向斷言被 skip 而完全失去守衛作用（v3.8.0 升版時實際發生）。
-   * 因此改為讀取 git 歷史中最近一個「與現行版本不同」的 release 版本；git 不可用時
-   * 才退回 patch 減一，且此時若無法推導則明確失敗而非靜默略過。
-   */
-  const prevVersion = (() => {
-    try {
-      const { execSync } = require('node:child_process');
-      const log = execSync('git log --format=%s -n 200', {
-        cwd: ROOT_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+  test('現行版本號不得寫死在原始檔（只存在 package.json）', () => {
+    for (const rel of ['index.html', 'sw.js', 'app.js', 'style.css', 'server.js', 'README.md', 'lib/constants.js']) {
+      const lines = read(rel).split('\n');
+      lines.forEach((line, i) => {
+        assert.ok(!literal.test(line), `${rel}:${i + 1} 不應寫死現行版本 ${version}`);
       });
-      const found = [...log.matchAll(/chore\(release\):\s*v(\d+\.\d+\.\d+)/g)]
-        .map(m => m[1])
-        .find(v => v !== version);
-      if (found) return found;
-    } catch (_) { /* git 不可用時退回算術推算 */ }
-
-    const [maj, min, pat] = version.split('.').map(Number);
-    return pat > 0 ? `${maj}.${min}.${pat - 1}` : null;
-  })();
-
-  test('反向斷言：不得殘留舊版本的現行版本標記', () => {
-    // 無法推導上一版時必須明確失敗，不可 skip ——
-    // 靜默略過會讓整個守衛形同不存在（v3.8.0 升版時曾因此失去保護）。
-    assert.ok(
-      prevVersion,
-      '無法從 git 歷史或 package.json 推導上一版版本號，反向斷言無法執行'
-    );
-    const oldVersion = prevVersion;
-    const oldTag = `v${oldVersion}`;
-
-    // 這三個檔案中的版本引用全部都是「現行標記」，可直接全面禁止。
-    for (const relPath of ['app.js', 'index.html', 'README.md']) {
-      const content = fs.readFileSync(path.join(ROOT_DIR, relPath), 'utf8');
-      assert.ok(
-        !content.includes(oldTag),
-        `${relPath} 內不得再出現舊版本字串 "${oldTag}"`
-      );
     }
-
-    // ARCHITECTURE.md 允許歷史註記，但現行標記必須已更新。
-    const arch = fs.readFileSync(path.join(ROOT_DIR, 'ARCHITECTURE.md'), 'utf8');
-    assert.ok(
-      !arch.includes(`版本：${oldTag}`),
-      `ARCHITECTURE.md 版本標頭不得仍為 "${oldTag}"`
-    );
-
-    const appVerRow = arch.split('\n').find(line => line.includes('| `APP_VERSION` |'));
-    assert.ok(appVerRow, 'ARCHITECTURE.md 應包含 `APP_VERSION` 定義列');
-    assert.ok(
-      !appVerRow.includes(`'${oldVersion}'`),
-      `ARCHITECTURE.md 的 APP_VERSION 表格列不得仍為 '${oldVersion}'`
-    );
   });
 
-  test('ARCHITECTURE.md 應保留歷史功能註記（避免升版全域取代誤刪）', () => {
-    const arch = fs.readFileSync(path.join(ROOT_DIR, 'ARCHITECTURE.md'), 'utf8');
-    assert.ok(
-      arch.includes('（v3.7.6）'),
-      'ARCHITECTURE.md 應保留 v3.7.6 的歷史功能註記（不得被升版的全域取代改寫）'
-    );
+  test('lib/constants.js 的 APP_VERSION 讀自 package.json', () => {
+    const { APP_VERSION } = require('../lib/constants');
+    assert.equal(APP_VERSION, version);
   });
 
-  /**
-   * 版本 fallback 守衛：app.js 內所有「取不到 __APP_CONFIG__ 時的字面值版本」
-   * 必須等於當前版本。歷史上此處曾殘留 '3.7.0' 長達數個版本，導致匯出的
-   * 設定備份標記為錯誤的版本號（見 app.js 設定匯出）。
-   */
-  test('app.js 內所有版本 fallback 字面值皆應等於當前版本', () => {
-    const appContent = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
-    const fallbackLines = appContent
-      .split('\n')
-      .map((line, i) => ({ line, no: i + 1 }))
-      .filter(({ line }) => line.includes('__APP_CONFIG__') && line.includes('.appVersion'));
+  test('server 會把 __APP_VERSION__ 換成實際版本（index.html 與 sw.js）', () => {
+    const src = read('lib/static-cache.js');
+    assert.ok(/replace\(\/__APP_VERSION__\/g, APP_VERSION\)/.test(src));
+    assert.ok((src.match(/__APP_VERSION__/g) || []).length >= 2, 'index.html 與 sw.js 兩處都要替換');
+  });
 
-    assert.ok(
-      fallbackLines.length >= 3,
-      `app.js 內應至少 3 處 appVersion fallback，實際 ${fallbackLines.length} 處`
-    );
-
-    for (const { line, no } of fallbackLines) {
-      const m = line.match(/:\s*'([0-9]+\.[0-9]+\.[0-9]+)'/);
-      assert.ok(m, `app.js:${no} 的 appVersion fallback 應為純版本字面值`);
-      assert.equal(
-        m[1],
-        version,
-        `app.js:${no} 的 appVersion fallback 為 '${m[1]}'，應為當前版本 '${version}'`
-      );
-    }
+  test('app.js 的 appVersion fallback 不寫死版本', () => {
+    const lines = read('app.js').split('\n').filter(l => l.includes('__APP_CONFIG__') && l.includes('.appVersion'));
+    assert.ok(lines.length >= 3);
+    for (const l of lines) assert.ok(!/'\d+\.\d+\.\d+'/.test(l), `不應有寫死的版本字面值: ${l.trim()}`);
   });
 });
