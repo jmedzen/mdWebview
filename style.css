@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.30.0
+   mdWebview — Style System (style.css) v4.31.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.30.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.31.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -13429,6 +13429,260 @@ html[data-display-script="hans"] .learning-path-name {
 
 @media print {
   #commentaryBrowserOverlay {
+    display: none !important;
+  }
+}
+
+/* ================================================================
+   §53 逐句註疏（alpha 批次 9）
+
+   讀到有註解的段落，旁邊有一個小數字；點開就看到那一段有誰講過。
+
+   浮標刻意做得很小、半透明。它要在「需要的時候看得到、不需要的時候
+   不擋路」之間取得平衡——讀經是為了讀經，不是為了看註疏。
+   ================================================================ */
+
+/* 經文段落旁的浮標 */
+#markdownBody p {
+  position: relative;
+}
+
+/* 給浮標留一點右側空間（只在有註疏的段落需要，但統一套用最省事） */
+#markdownBody {
+  padding-right: 30px;
+}
+
+/*
+ * 浮標的定位方式：絕對定位到段落的右上角。
+ *
+ * 原本用 inline + vertical-align:super，結果它被塞進最後一行的行內，
+ * 位置隨最後一行的長度浮動，還會跟標點重疊（實測：①正好壓在「坐。」上）。
+ * 絕對定位把它固定在同一條垂直線上，整篇看起來才整齊。
+ */
+.sidecar-marker {
+  position: absolute;
+  top: 0;
+  right: -26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 0;
+  padding: 0 4px;
+  font-family: var(--ui-sans), sans-serif;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  cursor: pointer;
+  opacity: 0.32;
+  transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.sidecar-marker:hover,
+.sidecar-marker:focus-visible {
+  opacity: 1;
+  color: var(--accent);
+  background: var(--bg-primary);
+  border-color: var(--accent);
+  transform: scale(1.12);
+  outline: none;
+}
+
+/* 段落被選中時閃一下，讓讀者知道註解對應到哪裡 */
+.sidecar-flash {
+  animation: sidecarFlash 1.4s ease;
+}
+
+@keyframes sidecarFlash {
+  0%, 100% { background: transparent; }
+  18% { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+}
+
+/* ── 對話框 ── */
+.sidecar-card {
+  width: calc(100vw - 48px);
+  max-width: 900px;
+  height: calc(100vh - 80px);
+  max-height: 720px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidecar-meta {
+  margin: 0;
+  padding: 0 20px 12px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.sidecar-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* 左欄原本 190px，中文引文加編號會擠成「金剛般若經贊述、胡吉…」。
+     240px 放得下四到六個字，剛好是一句引文的長度。 */
+  grid-template-columns: 240px 1fr;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* 左：位置清單 */
+.sidecar-loci {
+  overflow-y: auto;
+  border-right: 1px solid var(--border-subtle);
+  padding: 6px;
+}
+
+.sidecar-locus-btn {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 7px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sidecar-locus-btn:hover {
+  background: var(--hover-bg);
+}
+
+.sidecar-locus-btn.is-active {
+  background: var(--bg-tertiary, var(--hover-bg));
+  color: var(--text-primary);
+}
+
+/* 多家共註的位置在左側就先看得出來 */
+.sidecar-locus-btn.is-active .sidecar-locus-num {
+  color: var(--accent);
+}
+
+.sidecar-locus-num {
+  font-family: var(--ui-sans), sans-serif;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidecar-locus-dot {
+  font-size: 6px;
+  letter-spacing: -1px;
+  color: var(--accent);
+  opacity: 0.55;
+}
+
+.sidecar-locus-who {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右：這一處的註解 */
+.sidecar-detail {
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+}
+
+.sidecar-context {
+  margin: 0 0 16px;
+  padding: 9px 12px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  line-height: 1.8;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+}
+
+.sidecar-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidecar-note-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.sidecar-note-era {
+  font-size: calc(9.5px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+  padding: 1px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+}
+
+.sidecar-note-who {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 註疏原文：不加工、不摘要、不裁切 */
+.sidecar-note-text {
+  margin: 0;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  line-height: 2;
+  color: var(--text-secondary);
+  text-align: justify;
+}
+
+@media (max-width: 760px) {
+  .sidecar-card {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    max-height: none;
+    border-radius: 0;
+  }
+  /* 手機上左側位置清單改成橫向條，不然經文區太窄 */
+  .sidecar-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .sidecar-loci {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 6px 8px;
+  }
+  .sidecar-locus-btn {
+    width: auto;
+    flex: none;
+    padding: 4px 8px;
+  }
+  .sidecar-locus-who {
+    display: none;
+  }
+}
+
+@media print {
+  .sidecar-marker,
+  #sidecarOverlay {
     display: none !important;
   }
 }

@@ -194,7 +194,16 @@ for (const baseNum of Object.keys(pairs)) {
       const meta = readAuthor(c.path);
       return {
         id: id[1],
-        path: c.path,
+        /*
+         * 路徑去掉 `md/` 前綴。
+         *
+         * 語料掃描時的路徑帶 md/（那是檔案系統的實際位置），但前端
+         * openFile() 用的是「檔案樹節點的路徑」，不含 md/——這是 /api/render
+         * 的慣例。留著前綴會讓註疏卡片點下去回 404。
+         *
+         * base.path 來自檔案樹，本來就沒有前綴；這裡要對齊它。
+         */
+        path: String(c.path).replace(/^md\//, ''),
         name: c.name.replace(/\.md$/, ''),
         by: meta.by,
         era: meta.era,
