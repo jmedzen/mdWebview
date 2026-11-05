@@ -11160,11 +11160,6 @@
       focusModeBtn.addEventListener('click', () => {
         document.body.classList.add('focus-mode');
         focusModeBtn.blur();
-        const hint = document.createElement('div');
-        hint.className = 'focus-mode-hint';
-        hint.textContent = '專注模式 · 按 Esc 離開';
-        document.body.appendChild(hint);
-        setTimeout(() => hint.remove(), 2600);
       });
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
