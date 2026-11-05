@@ -36,7 +36,7 @@
 
   ── PWA 相關 ─────────────────────────────────────────────────────────
   - /manifest.json 由 server.js handleManifestJson() 動態回傳（含 siteName）
-  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v4.27.20'
+  - /sw.js 為 Service Worker，版本 CACHE_VERSION='v__APP_VERSION__'
   - SHELL_ASSETS 含 /app.js、/style.css、/marked.min.js 等核心資源
 -->
 <html lang="zh-TW" data-theme="obsidian-dark">
@@ -51,11 +51,11 @@
   <meta name="theme-color" id="metaThemeColor" content="#0f1522">
   <title>mdWebview — 佛典經論閱讀器</title>
   <meta name="description" content="Web-based Obsidian-like reader for Buddhist sutra commentaries. 線上閱讀佛典經論釋記。">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4.27.20">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=4.27.20">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=4.27.20">
-  <link rel="shortcut icon" href="/favicon.ico?v=4.27.20">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4.27.20">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=__APP_VERSION__">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=__APP_VERSION__">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=__APP_VERSION__">
+  <link rel="shortcut icon" href="/favicon.ico?v=__APP_VERSION__">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=__APP_VERSION__">
   <link rel="manifest" href="/manifest.json">
   <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
   <link rel="canonical" href="/">
@@ -77,12 +77,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css?v=4.27.20">
+  <link rel="stylesheet" href="style.css?v=__APP_VERSION__">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
-  <script src="i18n/boot.js?v=4.27.20"></script>
+  <script src="i18n/boot.js?v=__APP_VERSION__"></script>
 </head>
 <!-- ── §BODY ────────────────────────────────────────── -->
 <body>
+  <div class="focus-mode-pill" aria-hidden="true">Esc 離開專注模式</div>
   <div class="app">
     <!-- ── §HEADER ──────────────────────────────────────── -->
     <header class="app-header" id="appHeader">
@@ -104,6 +105,11 @@
         <span class="active-file-title">首頁</span>
       </div>
       <div class="header-right">
+        <button id="focusModeBtn" class="control-btn focus-mode-btn" type="button" title="專注模式（按 Esc 離開）" aria-label="專注模式">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/>
+          </svg>
+        </button>
         <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
@@ -819,7 +825,7 @@
           <div class="admin-status-box" id="adminStatusBox">
             <div class="status-info-row">
               <span class="status-icon">🏷️</span>
-              <span>目前系統版本：<strong id="systemTabVersion">v4.27.20</strong></span>
+              <span>目前系統版本：<strong id="systemTabVersion">v__APP_VERSION__</strong></span>
             </div>
             <div class="status-info-row">
               <span class="status-icon">🔐</span>
@@ -856,7 +862,7 @@
 
       <div class="modal-actions user-settings-actions">
         <button type="button" id="userSettingsDoneBtn" class="modal-btn submit-btn">完成</button>
-        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v4.27.20</span>
+        <span class="user-settings-version-footer" id="userSettingsFooterVersion">版本 v__APP_VERSION__</span>
       </div>
     </div>
   </div>
@@ -1174,7 +1180,7 @@
       <aside class="admin-side" aria-label="後台導覽">
         <div class="admin-side-top">
           <span class="admin-side-brand"><span aria-hidden="true">⚙️</span> 後台</span>
-          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v4.27.20</span>
+          <span class="user-settings-version-badge" id="adminSettingsHeaderVersion">v__APP_VERSION__</span>
           <button type="button" class="admin-side-close" id="settingsCloseBtn" title="關閉後台，回到閱讀" aria-label="關閉後台"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg></button>
         </div>
         <button type="button" class="admin-search-btn" id="adminSearchBtn" aria-haspopup="dialog" aria-controls="adminPalette">
@@ -2904,17 +2910,17 @@
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->
   <script src="vendor/katex/katex.min.js" defer></script>
   <script src="vendor/pele/pele.global.js" defer></script>
-  <script src="marked.min.js?v=4.27.20" defer></script>
-  <script src="i18n/zh-TW.js?v=4.27.20" defer></script>
-  <script src="i18n/zh-CN.js?v=4.27.20" defer></script>
-  <script src="i18n/i18n.js?v=4.27.20" defer></script>
-  <script src="i18n/content-terms.js?v=4.27.20" defer></script>
-  <script src="i18n/display-script.js?v=4.27.20" defer></script>
-  <script src="i18n/search-variants.js?v=4.27.20" defer></script>
-  <script src="library-sync.js?v=4.27.20" defer></script>
-  <script src="share-card.js?v=4.27.20" defer></script>
-  <script src="highlights.js?v=4.27.20" defer></script>
-  <script src="kepan-sidebar.js?v=4.27.20" defer></script>
-  <script src="app.js?v=4.27.20" defer></script>
+  <script src="marked.min.js?v=__APP_VERSION__" defer></script>
+  <script src="i18n/zh-TW.js?v=__APP_VERSION__" defer></script>
+  <script src="i18n/zh-CN.js?v=__APP_VERSION__" defer></script>
+  <script src="i18n/i18n.js?v=__APP_VERSION__" defer></script>
+  <script src="i18n/content-terms.js?v=__APP_VERSION__" defer></script>
+  <script src="i18n/display-script.js?v=__APP_VERSION__" defer></script>
+  <script src="i18n/search-variants.js?v=__APP_VERSION__" defer></script>
+  <script src="library-sync.js?v=__APP_VERSION__" defer></script>
+  <script src="share-card.js?v=__APP_VERSION__" defer></script>
+  <script src="highlights.js?v=__APP_VERSION__" defer></script>
+  <script src="kepan-sidebar.js?v=__APP_VERSION__" defer></script>
+  <script src="app.js?v=__APP_VERSION__" defer></script>
 </body>
 </html>

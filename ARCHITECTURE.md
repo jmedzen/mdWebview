@@ -2,7 +2,6 @@
 
 > **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（`app.js` 18,349、`server.js` 6,539、`style.css` 12,001、`index.html` 2,918，加上 `lib/` 31 個模組、根目錄 5 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 版本：v4.27.20 | 最後更新：2026-11（全面對照程式碼重測行號、模組清單、常數與設定欄位）
 
 ---
 
@@ -1084,7 +1083,7 @@ flowchart TD
 | `PORT_SCAN_RANGE` | `lib/constants.js` | `10` | 埠掃描往上嘗試的範圍 |
 | `MDW_ALLOW_LAN` | `lib/constants.js` | `false` | 單機模式下允許區網連入閱讀。**不放寬**維護端點（後者永遠限迴環） |
 | `IS_LOOPBACK_ONLY` | `lib/constants.js` | `false` | 單機模式為 `true`：維護端點僅接受迴環來源，且不受 `MDW_ALLOW_LAN` 影響 |
-| `APP_VERSION` | `lib/constants.js` | `'4.27.20'` | 應用程式當前核心版本號 |
+| `APP_VERSION` | `lib/constants.js` | 讀自 `package.json` 的 `version`（唯一來源） | 應用程式當前核心版本號 |
 | `LOG_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/logs`（Docker `/data/logs`） | 存取日誌 `access-*.jsonl` 與 `analytics-aggregates.json` |
 | `INDEX_DIR` | `lib/constants.js` | `<MDW_USER_DATA>/index`（Docker `/data/index`） | 索引快取：`search-index-cache.bin`（+ 舊 `.json`）、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`。v4.19.0 以前放在 `LOG_DIR`，升級時自動搬移；設成與 `LOG_DIR` 相同即維持舊行為 |
 | `MAX_LOG_BUFFER` | `lib/constants.js` | `600` | 記憶體系統日誌環狀緩衝上限筆數 |

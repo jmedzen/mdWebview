@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.20
+   mdWebview — Style System (style.css)
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -2848,12 +2848,53 @@ section.chunk.chunk-error {
 }
 
 .home-shelf-row {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 56px;
   padding: 0;
   background: none;
   border: 0;
   box-shadow: none;
+}
+
+/* 說明文字在左、書架在右（手機版維持單欄，見下方 media query） */
+.home-shelf-info {
+  order: -1;
+}
+
+/* ── 專注模式：只留內文，Esc 離開 ── */
+body.focus-mode .app-header,
+body.focus-mode .sidebar,
+body.focus-mode .resize-handle,
+body.focus-mode .page-search-bar,
+body.focus-mode .back-to-top {
+  display: none !important;
+}
+
+body.focus-mode .app {
+  padding-top: 0;
+}
+
+/* 右上角常駐的小 pill：不搶眼，只提醒怎麼離開 */
+.focus-mode-pill {
+  display: none;
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.6;
+  z-index: 10000;
+  pointer-events: none;
+  user-select: none;
+}
+
+body.focus-mode .focus-mode-pill {
+  display: block;
 }
 
 .home-notice {

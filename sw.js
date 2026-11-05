@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v4.27.20';
+const CACHE_VERSION = 'v__APP_VERSION__'; // 由 server 在送出時換成 package.json 的版本
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
