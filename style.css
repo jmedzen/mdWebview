@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.28.0
+   mdWebview — Style System (style.css) v4.29.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.28.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.29.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -13127,4 +13127,158 @@ html[data-display-script="hans"] .learning-path-name {
   font-family: var(--ui-sans), sans-serif;
   color: var(--text-muted);
   opacity: 0.85;
+}
+
+/* ================================================================
+   §51 歷代註疏（alpha 批次 8）
+
+   經文讀到底，接一批「歷代怎麼解這部經」。
+
+   版面刻意做成「書架」而不是「清單」：每部註疏一張卡，卡上寫經名、
+   朝代、作者。作者是重點——讀者認的是「天台智者大師」這個名字，不是
+   T1698 這個編號。
+
+   不做評分、不做「推薦先讀哪本」。哪本適合你，取決於你在哪個階段，
+   這件事不該由一個排序演算法替讀者決定。
+   ================================================================ */
+.commentary-family {
+  margin: 56px 0 8px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.commentary-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.commentary-title {
+  margin: 0;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(16px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.commentary-count {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+}
+
+.commentary-intro {
+  margin: 0 0 18px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  line-height: 1.85;
+  color: var(--text-secondary);
+}
+
+.commentary-list {
+  display: grid;
+  /* 卡片內容其實很短（署名 + 經名），240px 太寬會留下大片空白。
+     190px 讓一列放得下三到四張，密度接近書架而不是表格。 */
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.commentary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
+}
+
+.commentary-card:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.commentary-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 作者是卡片的主角：讀者認名字，不認經號 */
+.commentary-author {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.commentary-era {
+  font-weight: 400;
+  font-size: 0.86em;
+  color: var(--text-muted);
+}
+
+.commentary-name {
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.commentary-id {
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* 沒有作者資料時，退回顯示經名（不要留一個空的主角位） */
+.commentary-card.is-anonymous .commentary-author {
+  font-weight: 500;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .commentary-list {
+    grid-template-columns: 1fr;
+  }
+  .commentary-family {
+    margin-top: 40px;
+  }
+}
+
+@media print {
+  /* 列印經文時，註疏清單是給螢幕點擊用的，不印 */
+  .commentary-family {
+    display: none !important;
+  }
+}
+
+/* 正在讀的那一部註疏：標出來，但不要讓它看起來像壞掉 */
+.commentary-card.is-current {
+  border-color: var(--accent);
+  background: var(--bg-tertiary, var(--bg-secondary));
+  cursor: default;
+}
+.commentary-card.is-current:hover {
+  transform: none;
+}
+.commentary-card.is-current .commentary-author::after {
+  content: '（正在讀）';
+  font-weight: 400;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+/* 只有經名、沒有署名的卡：讓經名讀起來像標題而不是失誤 */
+.commentary-card.is-title-only .commentary-author {
+  font-weight: 500;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
 }
