@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.29.0
+   mdWebview — Style System (style.css) v4.30.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.29.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.30.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -13281,4 +13281,154 @@ html[data-display-script="hans"] .learning-path-name {
   font-weight: 500;
   font-size: calc(12.5px * var(--ui-font-scale, 1));
   color: var(--text-secondary);
+}
+
+/* ================================================================
+   §52 註疏譜系瀏覽器（alpha 批次 8b）
+
+   批次 8 的註疏清單只在「讀到某部經卷末」時出現，等於沒有入口——
+   沒有人會剛好讀到那部經。這個對話框把 33 組一次列出來。
+
+   版面像目錄而不是儀表板：一組一列，左邊經名、右邊註疏數，下面用
+   小字列出幾個代表作者。不要卡片牆——33 張卡會變成一堆方塊。
+   ================================================================ */
+.commentary-browser-card {
+  width: calc(100vw - 48px);
+  max-width: 860px;
+  height: calc(100vh - 72px);
+  max-height: 760px;
+  display: flex;
+  flex-direction: column;
+}
+
+.commentary-browser-intro {
+  margin: 0;
+  padding: 0 20px 14px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  line-height: 1.85;
+  color: var(--text-secondary);
+}
+
+.commentary-browser-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 8px;
+}
+
+.commentary-browser-list {
+  /* 32 組一欄要捲三屏。雙欄、一屏看得到 20 組，掃視成本差很多。
+     列本身很短（經名 + 部數 + 作者），兩欄不會擠。 */
+  display: grid;
+  /* 三欄：32 組在一屏內掃完。列本身很短（經名 + 部數 + 一行作者），
+     三欄不會擠——雙欄時一屏只看得到 20 組，還是得捲。 */
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px 8px;
+}
+
+@media (max-width: 980px) {
+  .commentary-browser-list {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .commentary-browser-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 一組一列 */
+.commentary-group {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 14px;
+  width: 100%;
+  /* 33 組要在一兩屏內掃完，列高必須緊。11px 的上下留白會讓可視範圍
+     只剩八組，捲動變成苦差事。 */
+  padding: 7px 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.13s ease;
+}
+
+.commentary-group:hover {
+  background: var(--hover-bg);
+}
+
+.commentary-group:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.commentary-group-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.commentary-group-count {
+  justify-self: end;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 代表作者：讓「這組有什麼」一眼看得出來 */
+.commentary-group-authors {
+  grid-column: 1 / -1;
+  min-width: 0;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  line-height: 1.55;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commentary-group-authors .is-era {
+  opacity: 0.7;
+}
+
+.commentary-browser-foot {
+  flex: none;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.commentary-browser-foot strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .commentary-browser-card {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    max-height: none;
+    border-radius: 0;
+  }
+  .commentary-group-authors {
+    white-space: normal;
+  }
+}
+
+@media print {
+  #commentaryBrowserOverlay {
+    display: none !important;
+  }
 }

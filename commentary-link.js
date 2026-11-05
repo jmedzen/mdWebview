@@ -275,10 +275,163 @@
     }
   }
 
+  /* ── 譜系瀏覽器（批次 8b） ─────────────────────────────── */
+
+  var browserOpen = false;
+
+  /**
+   * 畫「代表作者」那一行。
+   *
+   * 33 組全部列出來，光看經名很難判斷「這組值不值得看」。挑前三個有
+   * 署名的作者放在下面，一眼就知道這組的份量——「天台智者大師、宗密、
+   * 窈基」比「14 部」有說服力。
+   */
+  function renderAuthors(entry) {
+    var el = document.createElement('span');
+    el.className = 'commentary-group-authors';
+
+    var named = entry.commentaries.filter(function (c) { return c.by; });
+    if (!named.length) {
+      el.textContent = entry.commentaries.map(function (c) {
+        return String(c.name).replace(/^T\d+《?/, '').replace(/》$/, '');
+      }).slice(0, 3).join('、');
+      return el;
+    }
+
+    /*
+     * 同一位作者可能寫了好幾部（吉藏就寫了兩部法華經註）。列兩次
+     * 「胡吉藏、胡吉藏」看起來像 bug，去重之後才是「有幾個人註過」。
+     */
+    var seen = {};
+    var uniq = named.filter(function (c) {
+      if (seen[c.by]) return false;
+      seen[c.by] = true;
+      return true;
+    });
+
+    uniq.slice(0, 3).forEach(function (c, i) {
+      if (i) el.appendChild(document.createTextNode('、'));
+      el.appendChild(document.createTextNode(c.by));
+      if (c.era) {
+        var era = document.createElement('span');
+        era.className = 'is-era';
+        era.textContent = '（' + c.era + '）';
+        el.appendChild(era);
+      }
+    });
+    if (uniq.length > 3) {
+      el.appendChild(document.createTextNode(' 等 ' + uniq.length + ' 位'));
+    }
+    return el;
+  }
+
+  /** 畫一組（一列）。 */
+  function renderGroup(entry) {
+    var row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'commentary-group';
+
+    var name = document.createElement('span');
+    name.className = 'commentary-group-name';
+    name.textContent = String(entry.base.name).replace(/^T\d+《?/, '').replace(/》$/, '');
+    row.appendChild(name);
+
+    var count = document.createElement('span');
+    count.className = 'commentary-group-count';
+    count.textContent = entry.commentaries.length + ' 部';
+    row.appendChild(count);
+
+    row.appendChild(renderAuthors(entry));
+
+    row.title = '打開《' + String(entry.base.name).replace(/^T\d+《?/, '').replace(/》$/, '') + '》';
+    row.addEventListener('click', function () {
+      closeBrowser();
+      openFile(entry.base.path);
+    });
+
+    return row;
+  }
+
+  /** 打開譜系瀏覽器。 */
+  function openBrowser() {
+    var overlay = $('commentaryBrowserOverlay');
+    if (!overlay) return;
+
+    var data = global.CommentaryData;
+    var families = (data && data.families) || [];
+
+    var intro = $('commentaryBrowserIntro');
+    if (intro) {
+      var totalComms = families.reduce(function (s, f) { return s + f.commentaries.length; }, 0);
+      intro.textContent = '這 ' + families.length + ' 部經留下 ' + totalComms +
+        ' 部註解。點一組進去看完整清單，再點任一部就開始讀。' +
+        '資料取自 CBETA 的交叉參照，不是編輯挑選。';
+    }
+
+    var list = $('commentaryBrowserList');
+    if (list) {
+      list.textContent = '';
+      families.forEach(function (f) { list.appendChild(renderGroup(f)); });
+    }
+
+    var foot = $('commentaryBrowserFoot');
+    if (foot) {
+      foot.textContent = '';
+      var s1 = document.createElement('span');
+      var k1 = document.createElement('strong');
+      k1.textContent = families.length + ' 部經';
+      s1.appendChild(k1);
+      foot.appendChild(s1);
+
+      var s2 = document.createElement('span');
+      var k2 = document.createElement('strong');
+      k2.textContent = families.reduce(function (s, f) { return s + f.commentaries.length; }, 0) + ' 部註疏';
+      s2.appendChild(k2);
+      foot.appendChild(s2);
+    }
+
+    overlay.style.display = 'flex';
+    browserOpen = true;
+
+    var closeBtn = $('commentaryBrowserCloseBtn');
+    if (closeBtn && closeBtn.focus) closeBtn.focus();
+  }
+
+  function closeBrowser() {
+    var overlay = $('commentaryBrowserOverlay');
+    if (overlay) overlay.style.display = 'none';
+    browserOpen = false;
+  }
+
   function init() {
     if (isReady) return;
     isReady = true;
     startWatching();
+
+    /* 譜系瀏覽器的開關 */
+    var closeBtn = $('commentaryBrowserCloseBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeBrowser);
+
+    var overlay = $('commentaryBrowserOverlay');
+    if (overlay) {
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) closeBrowser();
+      });
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && browserOpen) {
+        e.stopPropagation();
+        closeBrowser();
+      }
+    });
+
+    /* 首頁入口用事件委派：chip 可能被 app.js 重建 */
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest('#homeCommentaryOpen')) openBrowser();
+    });
   }
 
   if (hasDom) {
@@ -293,7 +446,9 @@
     update: hasDom ? update : function () {},
     extractBaseId: extractBaseId,
     lookup: function (id) { return lookup(id); },
-    current: function () { return currentBaseId; }
+    current: function () { return currentBaseId; },
+    openBrowser: hasDom ? openBrowser : function () {},
+    closeBrowser: hasDom ? closeBrowser : function () {}
   };
 
 })(typeof window !== 'undefined' ? window : this);

@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.29.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.30.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 > **這一版是 `alpha` 分支的研究性實作。** 它在既有的完整功能之上，加了一組
 > 針對「第一次來的人」與「讀長經的人」的改動（見下方 **🅰️ alpha 分支多了什麼**）。
@@ -78,7 +78,7 @@
 | **專注模式**（<kbd>F</kbd>） | 讀長經時收起頁首、側欄、辭典與麵包屑，只留經文。右上角留一顆「離開專注」，不會把人困住。 |
 | **讀到卷末，接下來讀什麼** | 文末直接給同層的上一篇／下一篇，按鈕上寫出經名。只認同一個資料夾，目錄檔跳過。 |
 | **藏經地圖** | 把 7,222 個檔案攤成一張方塊圖，面積代表字數。一眼看出大正藏 6,453 萬字與卍續藏 6,348 萬字幾乎一樣大；點方塊進去還能看到 20 個部類各自的份量。 |
-| **歷代註疏** | 讀完一部經，卷末直接列出歷代註解。金剛經 14 部（隋天台智者大師 → 民國）、法華經 11 部、維摩詰經 10 部。資料取自 CBETA 的 `[cf. No.]` 交叉參照，不是手寫清單。 |
+| **歷代註疏** | 32 部經、141 部註解的譜系。金剛經 14 部（隋天台智者大師 → 民國）、法華經 11 部、維摩詰經 10 部。首頁「歷代註疏」一次列完，點一組到該經卷末看完整清單。資料取自 CBETA 的 `[cf. No.]` 交叉參照，不是手寫清單。 |
 | **同經異譯對讀** | 同一部經的多個譯本並排。心經四個譯本（般若共利言、智慧輪、法成、法月）各自成欄，直接看出「觀自在菩薩」與「觀世音自在菩薩」的差別。另有阿彌陀經、金剛經、維摩詰經三組。 |
 
 另外還有兩件基礎工作：
@@ -313,7 +313,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.29.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.30.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -500,7 +500,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.29.0)
+├── package.json        # Project information (v4.30.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

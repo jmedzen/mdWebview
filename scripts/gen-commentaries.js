@@ -69,6 +69,12 @@ function readAuthor(fullPath) {
     if (line.length < 3) continue;
     if (/^[，。、；：]/.test(line)) continue;
 
+    /*
+     * CBETA 有些檔案開頭是表格，框線字元（┌┬┐├┼┤└┴┘│─）會混進署名行，
+     * 例如「┌一敘古┬一敘說」。那根本不是人名，直接跳過這一行。
+     */
+    if (/[┌┬┐├┼┤└┴┘│─╔╦╗╠╬╣╚╩╝║═]/.test(line)) continue;
+
     // 去掉行內全角空白
     const norm = line.replace(/[\u3000\s]+/g, ' ').trim();
 
@@ -117,6 +123,34 @@ function parseAttribution(line) {
   const templeM = by.match(/^.{0,10}?寺\s*(.+)$/);
   if (templeM) by = templeM[1].trim();
   by = by.replace(/法師$/, '').trim();
+
+  /*
+   * 「天台智者大師說門人灌頂」是同一次署名的兩段：誰說的、誰記的。
+   * 黏在一起會變成一個 12 字的人名。取「門人」之後那一段（實際執筆者）。
+   */
+  const discipleM = by.match(/門人\s*(.+)$/);
+  if (discipleM) by = discipleM[1].trim();
+
+  /*
+   * 宋代以後的署名常是一長串官銜加姓名：
+   *   「朝請郎飛騎尉賜緋魚袋晁說之撰」
+   *
+   * 整串顯示在卡片上會擠成一條，讀者也抓不到重點——他要的是「誰寫的」。
+   * 官銜只留最後的人名。判準：人名通常是最後兩到四字，前面那串帶有
+   * 「郎、尉、袋、大夫、學士、中書、舍人」這類職官字。
+   */
+  if (by.length >= 6 && /[郎尉袋大夫學士中書舍人供奉待制侍郎尚書令監丞簿]/.test(by)) {
+    // 找最後一個職官字的後面
+    let last = -1;
+    const marks = ['郎', '尉', '袋', '大夫', '學士', '中書', '舍人', '供奉', '待制',
+      '侍郎', '尚書', '令', '監', '丞', '簿', '使', '卿'];
+    for (const mk of marks) {
+      const idx = by.lastIndexOf(mk);
+      if (idx >= 0 && idx + mk.length > last) last = idx + mk.length;
+    }
+    const namePart = by.slice(last).trim();
+    if (namePart.length >= 2 && namePart.length <= 5) by = namePart;
+  }
 
   /*
    * 收尾的健壯性檢查。
@@ -170,6 +204,24 @@ for (const baseNum of Object.keys(pairs)) {
     .filter(Boolean)
     // 去掉自我參照（底本自己也有 cf 時）
     .filter(c => c.id !== baseId);
+
+  /*
+   * 依經號去重。
+   *
+   * 語料裡有同一部經放在兩個部類的情況（T1839《理門論述記》同時在
+   * 「14瑜伽部類」與「15論集部類」），掃出來就是兩筆路徑、同一個經號。
+   * 對讀者而言那是同一部書，列兩次只會讓人以為壞掉。
+   *
+   * 保留第一部（掃描順序即目錄順序，穩定可重現）。
+   */
+  const seenIds = {};
+  const uniqueComms = comms.filter(c => {
+    if (seenIds[c.id]) return false;
+    seenIds[c.id] = true;
+    return true;
+  });
+  comms.length = 0;
+  Array.prototype.push.apply(comms, uniqueComms);
 
   if (comms.length < 2) continue;   // 只有一部註疏稱不上「譜系」
 

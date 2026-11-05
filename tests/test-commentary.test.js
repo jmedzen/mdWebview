@@ -153,6 +153,78 @@ describe('歷代註疏：作者抽取', () => {
   test('產生器有記錄第一版為什麼寫壞（後人不會重犯）', () => {
     assert.match(GEN_JS, /第一版寫壞了|沒有先跳過經題行/);
   });
+
+  test('作者不含 CBETA 表格框線字元', () => {
+    // 實測抓到「┌一敘古┬一敘說」被當成人名——那是表格框線。
+    for (const f of FAMILIES) {
+      for (const c of f.commentaries) {
+        if (!c.by) continue;
+        assert.doesNotMatch(c.by, /[┌┬┐├┼┤└┴┘│─╔╦╗╠╬╣╚╩╝║═]/,
+          `${c.id} 的作者含框線字元：「${c.by}」`);
+      }
+    }
+  });
+
+  test('作者不是一長串官銜（宋代署名常是官銜+姓名）', () => {
+    for (const f of FAMILIES) {
+      for (const c of f.commentaries) {
+        if (!c.by) continue;
+        assert.ok(c.by.length <= 8,
+          `${c.id} 的作者「${c.by}」長達 ${c.by.length} 字，可能含官銜`);
+      }
+    }
+  });
+
+  test('同一組內不得有重複經號（語料有同號不同資料夾的檔案）', () => {
+    for (const f of FAMILIES) {
+      const ids = new Set();
+      for (const c of f.commentaries) {
+        assert.ok(!ids.has(c.id), `${f.base.id} 組內 ${c.id} 重複出現`);
+        ids.add(c.id);
+      }
+    }
+  });
+});
+
+describe('歷代註疏：譜系瀏覽器（批次 8b）', () => {
+  test('有首頁入口（批次 8 沒有入口，等於看不到）', () => {
+    assert.match(INDEX_HTML, /id="homeCommentaryOpen"/);
+    assert.match(LINK_JS, /homeCommentaryOpen/);
+  });
+
+  test('對話框有無障礙屬性', () => {
+    const block = INDEX_HTML.match(/<div[^>]*id="commentaryBrowserOverlay"[^>]*>/);
+    assert.ok(block, '找不到 commentaryBrowserOverlay');
+    assert.match(block[0], /role="dialog"/);
+    assert.match(block[0], /aria-modal="true"/);
+    assert.match(block[0], /aria-labelledby="commentaryBrowserTitle"/);
+  });
+
+  test('每一組都列出來（不是只列前幾組）', () => {
+    assert.match(LINK_JS, /families\.forEach\(function \(f\) \{ list\.appendChild\(renderGroup\(f\)\)/);
+  });
+
+  test('點一組會關掉對話框再開檔（不然會擋住經文）', () => {
+    assert.match(LINK_JS, /closeBrowser\(\);\s*\n?\s*openFile\(entry\.base\.path\)/);
+  });
+
+  test('Esc 可以關閉', () => {
+    assert.match(LINK_JS, /e\.key === 'Escape' && browserOpen/);
+  });
+
+  test('點背景可以關閉', () => {
+    assert.match(LINK_JS, /e\.target === overlay\) closeBrowser/);
+  });
+
+  test('同一位作者寫多部時去重（吉藏寫了兩部法華註）', () => {
+    assert.match(LINK_JS, /seen\[c\.by\]\s*=\s*true/);
+  });
+
+  test('瀏覽器是 grid，不是逐列堆疊', () => {
+    const block = STYLE_CSS.match(/\.commentary-browser-list\s*\{[\s\S]*?\}/);
+    assert.ok(block);
+    assert.match(block[0], /display:\s*grid/);
+  });
 });
 
 describe('歷代註疏：與 app.js 的邊界', () => {

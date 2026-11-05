@@ -1,6 +1,6 @@
 /**
  * @file server.js — mdWebview Backend Server
- * @version 4.29.0
+ * @version 4.30.0
  *
  * 單一 Node.js HTTP 伺服器（無外部框架），提供：
  *   - SPA 首頁 SSR 注入（主題、字型、站名、公告、config）
@@ -1316,7 +1316,7 @@ async function handleKepan(req, res, query) {
     const rel = path.relative(r.root, r.resolved).split(path.sep).join('/');
     const payload = await kepan.getKepanForFile(r.root, rel);
     if (!payload) return sendJSON(res, 200, { kepan: null });
-    // 本篇沒有科判標題，但同一部經有：回傳其他講次，側欄提示可以去看（v4.29.0）
+    // 本篇沒有科判標題，但同一部經有：回傳其他講次，側欄提示可以去看（v4.30.0）
     const body = JSON.stringify(payload.none ? { kepan: null, nearby: payload } : { kepan: payload });
     const etag = `W/"kepan-${body.length}-${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"`;
     if (req.headers['if-none-match'] === etag) {
