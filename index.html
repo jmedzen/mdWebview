@@ -492,6 +492,7 @@
               <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
               <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>
               <button type="button" class="home-chip" id="homePathsOpen">一條路走到底</button>
+              <button type="button" class="home-chip" id="homeMapOpen">藏經地圖</button>
             </div>
             <button type="button" class="home-scroll-cue" id="homeScrollCue" hidden>向下 · 我的書架與今日</button>
           </div>
@@ -1110,6 +1111,44 @@
     資料在 app.js 的 LEARNING_PATHS（只認經號＋經名，從 /api/tree 解析
     實際檔案，語料換版不會斷）。
   -->
+  <!--
+    藏經地圖（alpha 批次 6）。
+
+    側邊欄的檔案樹是「目錄」，它告訴你東西在哪裡，但不會告訴你「這裡
+    有多大」。7,222 個檔案、1.3 GB 的藏經擺在一個可折疊的清單裡，人只
+    看得到自己展開的那三四層，對整體形狀毫無概念。
+
+    這張地圖把整個藏經畫成方塊圖（treemap）：每個方塊是一部經，面積
+    代表字數。一眼就能看出《大正藏》跟《卍續藏》幾乎一樣大、般若部
+    佔了多大的位置、哪幾部經獨自撐起一整個部類。
+
+    刻意不做的事：沒有排行、沒有「最熱門」、沒有推薦。這是地圖，不是榜單。
+  -->
+  <div class="modal-overlay" id="canonMapOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="canonMapTitle">
+    <div class="modal-card canon-map-card">
+      <div class="modal-header">
+        <span class="modal-icon">🗺️</span>
+        <h2 id="canonMapTitle">藏經地圖</h2>
+        <button type="button" class="modal-close-btn" id="canonMapCloseBtn" title="關閉" aria-label="關閉">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="canon-map-body">
+        <p class="canon-map-intro">
+          每個方塊是一部經，<strong>面積代表字數</strong>。點方塊直接打開那一部；滑過去看字數。
+        </p>
+        <!-- 麵包屑：點進某一部之後可以往上退回全藏 -->
+        <nav class="canon-map-crumbs" id="canonMapCrumbs" aria-label="地圖層級"></nav>
+        <div class="canon-map-stage" id="canonMapStage">
+          <div class="canon-map-grid" id="canonMapGrid"></div>
+        </div>
+        <div class="canon-map-legend" id="canonMapLegend"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="learningPathsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="learningPathsTitle">
     <div class="modal-card learning-paths-card">
       <div class="modal-header">
@@ -3064,5 +3103,8 @@
   <script src="highlights.js?v=4.27.15" defer></script>
   <script src="kepan-sidebar.js?v=4.27.15" defer></script>
   <script src="app.js?v=4.27.15" defer></script>
+  <!-- 藏經地圖：獨立模組，只讀 state.treeData 與 window.mdwOpenFile，
+       不碰 app.js 的既有狀態。放在 app.js 之後，確保兩個介面都已備妥。 -->
+  <script src="canon-map.js?v=4.27.15" defer></script>
 </body>
 </html>

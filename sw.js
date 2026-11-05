@@ -14,6 +14,7 @@ const SHELL_ASSETS = [
   '/',
   '/style.css',
   '/app.js',
+  '/canon-map.js',
   '/library-sync.js',
   '/highlights.js',
   '/kepan-sidebar.js',

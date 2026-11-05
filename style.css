@@ -12580,3 +12580,263 @@ html[data-display-script="hans"] .learning-path-name {
     white-space: normal;
   }
 }
+
+/* ================================================================
+   §49 藏經地圖（alpha 批次 6）
+
+   問題：側邊欄的檔案樹是「目錄」，它告訴你東西在哪，卻不告訴你
+   「這裡有多大」。7,222 個檔案擺在可折疊清單裡，人只看得到自己
+   展開的那三四層，對整部藏經的形狀毫無概念。
+
+   做法：方塊圖（treemap）。面積 = 字數。這是唯一一種能同時表達
+   「有哪些東西」與「各佔多少」而還讀得下去的圖。
+
+   視覺上刻意不像儀表板：沒有格線、沒有圖例表格、沒有座標軸。
+   它應該讀起來像一張地圖——有大小、有質感、可以放大縮小。
+   ================================================================ */
+.canon-map-card {
+  width: calc(100vw - 48px);
+  max-width: 1080px;
+  /* 固定高度 + stage flex:1：方塊圖需要確定的畫布，
+     高度飄動會讓每次打開的版面都不一樣。 */
+  height: calc(100vh - 64px);
+  max-height: 780px;
+  display: flex;
+  flex-direction: column;
+}
+
+.canon-map-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 4px 6px;
+}
+
+.canon-map-intro {
+  margin: 0 0 10px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.canon-map-intro strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── 麵包屑 ──────────────────────────────────────────────────── */
+.canon-map-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+  margin-bottom: 8px;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+}
+.canon-map-crumb {
+  padding: 3px 8px;
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.canon-map-crumb:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+.canon-map-crumb[aria-current="true"] {
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: default;
+}
+.canon-map-crumb-sep {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* ── 方塊圖舞台 ──────────────────────────────────────────────── */
+.canon-map-stage {
+  /* 高度由外層的 flex 分配，自己不設固定值。
+     之前用 aspect-ratio 會讓卡片比 stage 高，底部空出一條——
+     看起來像渲染失敗，其實只是高度沒對齊。 */
+  flex: 1;
+  min-height: 320px;
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+/*
+  方塊圖用 CSS grid 做「比例感」而不是真的 treemap 演算法。
+
+  真正的 treemap 需要計算矩形切割，那是幾百行幾何程式，而且在
+  資料變動時容易出錯。這裡改用「按比例分配權重、由 flex-grow 決定
+  大小」的近似法：視覺上同樣能看出誰大誰小，但程式碼只有幾行，
+  也天生會隨容器大小重排。
+
+  代價：方塊不是嚴格的面積正比。所以圖上不標百分比，只標字數——
+  不宣稱精確，就不會誤導。
+*/
+.canon-map-grid {
+  position: absolute;
+  inset: 0;
+  /* 方塊由 slice-and-dice 算出精確座標，所以用絕對定位，
+     不用 flex 換行（換行填不滿會留下大片空白）。 */
+}
+
+/* 單一方塊 */
+.canon-map-cell {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 7px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.3;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  /* 絕對定位的方塊彼此相鄰，用 outline 做縫隙（不佔空間、不影響座標） */
+  outline: 2px solid var(--bg-primary);
+  outline-offset: -2px;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.canon-map-cell:hover,
+.canon-map-cell:focus-visible {
+  z-index: 2;
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px var(--shadow-color);
+  transform: translateY(-1px);
+}
+.canon-map-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 太小的方塊不塞文字（塞了也是糊的），只用顏色與 tooltip */
+.canon-map-cell.is-tiny {
+  padding: 0;
+}
+.canon-map-cell.is-tiny .canon-map-name,
+.canon-map-cell.is-tiny .canon-map-size {
+  display: none;
+}
+
+.canon-map-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+  /* 文字底下墊一層漸層，深色主題上才讀得清楚 */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  font-weight: 500;
+}
+.canon-map-size {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  transition: opacity 0.12s ease;
+}
+.canon-map-cell:hover .canon-map-size,
+.canon-map-cell:focus-visible .canon-map-size {
+  opacity: 1;
+}
+
+/* 目錄（部類）方塊：可點進去，用較亮的底色與右上的角標區分 */
+.canon-map-cell.is-folder {
+  background: var(--hover-bg);
+  border-style: dashed;
+}
+.canon-map-cell.is-folder::after {
+  content: "▸";
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* 六個層級的色相：讓相鄰部類不會糊成一片，但不搶文字。
+   15% 是調出來的——低於 10% 在深色主題上幾乎看不出差別，
+   高於 22% 又會蓋掉 serif 字的質感。 */
+.canon-map-cell[data-tone="0"] { background: color-mix(in srgb, var(--accent) 15%, var(--bg-secondary)); }
+.canon-map-cell[data-tone="1"] { background: color-mix(in srgb, #d4a843 15%, var(--bg-secondary)); }
+.canon-map-cell[data-tone="2"] { background: color-mix(in srgb, #5a9e6f 16%, var(--bg-secondary)); }
+.canon-map-cell[data-tone="3"] { background: color-mix(in srgb, #c0574d 16%, var(--bg-secondary)); }
+.canon-map-cell[data-tone="4"] { background: color-mix(in srgb, #7c6cb0 17%, var(--bg-secondary)); }
+.canon-map-cell[data-tone="5"] { background: color-mix(in srgb, #4a8fa8 17%, var(--bg-secondary)); }
+.canon-map-cell.is-folder[data-tone] { background: var(--hover-bg); }
+
+/* ── 圖例 ────────────────────────────────────────────────────── */
+.canon-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 9px;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+.canon-map-stat strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* 空狀態（樹還沒載入完） */
+.canon-map-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: calc(13px * var(--ui-font-scale, 1));
+}
+
+/* ── 手機：整張卡片吃滿，方塊最小尺寸放大 ───────────────────── */
+@media (max-width: 768px) {
+  .canon-map-card {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    max-height: none;
+    border-radius: 0;
+  }
+  .canon-map-cell {
+    /* 手指點不到小方塊，所以手機上放寬最小尺寸、減少一層資訊 */
+    font-size: calc(11px * var(--ui-font-scale, 1));
+    padding: 4px 5px;
+  }
+  .canon-map-intro {
+    font-size: calc(12.5px * var(--ui-font-scale, 1));
+  }
+}
+
+/* 減少動態偏好：不要 hover 位移 */
+@media (prefers-reduced-motion: reduce) {
+  .canon-map-cell {
+    transition: border-color 0.12s ease;
+  }
+  .canon-map-cell:hover,
+  .canon-map-cell:focus-visible {
+    transform: none;
+  }
+}
+
+@media print {
+  .canon-map-overlay { display: none !important; }
+}
