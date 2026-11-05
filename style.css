@@ -2848,12 +2848,50 @@ section.chunk.chunk-error {
 }
 
 .home-shelf-row {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 56px;
   padding: 0;
   background: none;
   border: 0;
   box-shadow: none;
+}
+
+/* 說明文字在左、書架在右（手機版維持單欄，見下方 media query） */
+.home-shelf-info {
+  order: -1;
+}
+
+/* ── 專注模式：只留內文，Esc 離開 ── */
+body.focus-mode .app-header,
+body.focus-mode .sidebar,
+body.focus-mode .resize-handle,
+body.focus-mode .page-search-bar,
+body.focus-mode .back-to-top {
+  display: none !important;
+}
+
+body.focus-mode .app {
+  padding-top: 0;
+}
+
+.focus-mode-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 13px;
+  z-index: 10000;
+  pointer-events: none;
+  animation: focusHintFade 2.6s ease forwards;
+}
+
+@keyframes focusHintFade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .home-notice {
