@@ -11154,6 +11154,26 @@
       });
     }
 
+    // ── 專注模式：隱藏標題列與側邊欄，只留內文；只能按 Esc 離開 ──
+    const focusModeBtn = $('focusModeBtn');
+    if (focusModeBtn) {
+      focusModeBtn.addEventListener('click', () => {
+        document.body.classList.add('focus-mode');
+        focusModeBtn.blur();
+        const hint = document.createElement('div');
+        hint.className = 'focus-mode-hint';
+        hint.textContent = '專注模式 · 按 Esc 離開';
+        document.body.appendChild(hint);
+        setTimeout(() => hint.remove(), 2600);
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        if (!document.body.classList.contains('focus-mode')) return;
+        document.body.classList.remove('focus-mode');
+        e.preventDefault();
+      });
+    }
+
     // ── Dictionary Lookup Panel ──
     const dictToggleBtn = $('dictToggleBtn');
     if (dictToggleBtn) {
