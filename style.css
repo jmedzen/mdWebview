@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.31.0
+   mdWebview — Style System (style.css) v4.32.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.31.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.32.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -13685,4 +13685,293 @@ html[data-display-script="hans"] .learning-path-name {
   #sidecarOverlay {
     display: none !important;
   }
+}
+
+/* ================================================================
+   §54 經註並讀：常駐邊註欄（alpha 批次 10）
+
+   把註疏從彈窗搬到經文旁邊，像古籍的眉批：原文在中間，註在邊上，
+   同時可見，不必為了看懂一句話而把整頁關掉。
+
+   ── 為什麼是「邊欄」而不是「再開一個彈窗」
+
+   前面四個批次做的都是彈窗。每一個都要離開經文。對閱讀器來說這是
+   錯的互動方式——讀經時最不需要的就是「離開經文」。
+
+   ── 版面規則
+
+   只在寬度夠的時候出現（1180px 以上）。窄螢幕沒有邊欄的空間，硬塞
+   會把經文擠成一條細線；那比不顯示更糟。
+
+   經文欄本身不變寬也不變窄：邊欄是「多出來的」，不是「搶來的」。
+   ================================================================ */
+
+.margin-rail {
+  display: none;   /* 預設不出現，由 @media 打開 */
+}
+
+@media (min-width: 1180px) {
+  /*
+   * 右側留出邊欄的位置。
+   *
+   * 這裡用 padding-right 而不是把邊欄做成 flex 的一員，是因為
+   * .content-wrapper 本來就 max-width + margin:auto 置中。加了右側
+   * padding 之後，置中的基準變成「扣掉邊欄的區域」——經文會自動往
+   * 左移並在新區域裡置中，而不是被邊欄壓住或偏一邊。
+   */
+  html.with-margin-rail .content {
+    padding-right: 316px;
+  }
+
+  /*
+   * 邊註欄用 position: fixed，不用 sticky。
+   *
+   * 試過 absolute + 內層 sticky：父層在 #content 裡，會跟著內容捲走
+   * （實測 top: -5324px），整個邊欄跑到視窗外。sticky 需要父層撐滿
+   * 內容高度才生效，而 #content 的高度由內文決定，不能拿來當容器。
+   *
+   * fixed 之後它固定在視窗右側，經文怎麼捲都不動——這才是「邊註」
+   * 該有的行為。右邊界留出辭典欄的寬度，用 CSS 變數傳進來。
+   */
+  .margin-rail {
+    display: block;
+    position: fixed;
+    top: 0;
+    right: var(--dict-rail-offset, 0px);
+    bottom: 0;
+    width: 292px;
+    padding-top: calc(48px + env(safe-area-inset-top, 0px));   /* 讓開頂端固定列 */
+    z-index: 9;            /* 低於辭典欄(10)，高於經文 */
+    pointer-events: none;  /* 只有內層可點，避免擋住底下的捲動 */
+  }
+
+  .margin-rail-inner {
+    position: relative;
+    height: 100%;
+    overflow-y: auto;
+    pointer-events: auto;
+    margin: 0 10px 0 0;
+    padding: 20px 4px 28px 16px;
+    /* 像書頁邊緣的註文：一條細線，不要框、不要底色 */
+    border-left: 1px solid var(--border-subtle);
+    scrollbar-width: thin;
+  }
+
+  .margin-rail-inner::-webkit-scrollbar { width: 4px; }
+  .margin-rail-inner::-webkit-scrollbar-thumb {
+    background: var(--border-subtle);
+    border-radius: 2px;
+  }
+}
+
+/* ── 標頭 ── */
+.margin-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.margin-rail-label {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+}
+
+.margin-rail-meta {
+  flex: 1;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+}
+
+.margin-rail-close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+
+.margin-rail-close:hover {
+  opacity: 1;
+  background: var(--hover-bg);
+}
+
+/* ── 單則註文 ── */
+.margin-note {
+  margin-bottom: 16px;
+  transition: opacity 0.28s ease;
+}
+
+/*
+ * 延續顯示的註解：淡一點，讓讀者知道那是上一段的。
+ *
+ * 0.42 太淡——原本的顏色已經是 --text-muted，再乘一次就看不見了
+ * （實測截圖幾乎讀不出來）。0.66 還看得出「這是延續的」，但讀得到。
+ */
+.margin-note.is-lingering {
+  opacity: 0.66;
+}
+
+.margin-note-who {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.margin-note-era {
+  font-size: calc(9px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+  padding: 0 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  line-height: 1.5;
+}
+
+.margin-note-name {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/*
+ * 註文比經文小一號、淡一階。
+ *
+ * 邊註是「陪讀」不是「主角」。如果它和經文一樣大一樣黑，眼睛會一直被
+ * 拉過去，反而讀不下去。
+ */
+.margin-note-text {
+  margin: 0;
+  font-family: var(--cjk-serif), serif;
+  /*
+   * 邊註要比經文小一號，但不能用 --text-muted。
+   *
+   * muted 是給「路徑、時間戳」那種附屬資訊用的，用在整段中文上，
+   * 在深色底會糊成一片。改用 text-secondary 再降一點透明度，
+   * 既能讀、又不會跟經文搶。
+   */
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.95;
+  color: var(--text-secondary);
+  opacity: 0.86;
+  text-align: justify;
+}
+
+.margin-note-empty {
+  margin: 0;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  line-height: 1.8;
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.margin-note-more {
+  display: inline-block;
+  margin-top: -6px;
+  padding: 3px 0;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.margin-note-more:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* ── 工具列開關 ── */
+#marginRailToggle.is-on {
+  color: var(--accent);
+}
+
+/*
+ * 窄螢幕完全不出現。
+ *
+ * 這不是「降級」，是「本來就不該有」——手機上經文已經只剩 300px 寬，
+ * 再切一條邊欄出來就沒東西可讀了。
+ */
+@media (max-width: 1179px) {
+  .margin-rail { display: none !important; }
+  html.with-margin-rail .content { padding-right: 0; }
+}
+
+@media print {
+  /* 列印經文時不印邊註：那是螢幕上的陪讀工具 */
+  .margin-rail { display: none !important; }
+  html.with-margin-rail .content { padding-right: 0; }
+}
+
+/*
+ * 邊註正在講的那一段：左側一條細線。
+ *
+ * 不用底色、不用框——讀經時任何大面積的視覺變化都是干擾。一條 2px
+ * 的線足以讓眼睛把左右兩邊連起來，又不會把經文變成表格。
+ */
+@media (min-width: 1180px) {
+  html.with-margin-rail #markdownBody p.has-margin-note {
+    position: relative;
+  }
+
+  html.with-margin-rail #markdownBody p.has-margin-note::before {
+    content: '';
+    position: absolute;
+    left: -18px;
+    top: 0.25em;
+    bottom: 0.25em;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    opacity: 0.5;
+    transition: opacity 0.2s ease;
+  }
+}
+
+/*
+ * 邊欄裡「接下來幾句」的註解。
+ *
+ * 分隔線帶出被註的那句話（「↓ 應如是降伏其心」），讀者才知道下面那一則
+ * 對應的是哪一句，而不會誤以為還是同一段的解釋。
+ */
+.margin-note-ahead {
+  margin: 14px 0 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 接下來那幾處的註解：比當前這一段再淡一點，形成層次 */
+.margin-note.is-ahead {
+  opacity: 0.72;
 }

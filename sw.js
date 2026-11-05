@@ -5,7 +5,7 @@
    - Search & Admin: Network-Only (no stale cache / quota risk)
    ================================================================ */
 
-const CACHE_VERSION = 'v4.31.0';
+const CACHE_VERSION = 'v4.32.0';
 const SHELL_CACHE = `mdwebview-shell-${CACHE_VERSION}`;
 const CONTENT_CACHE = `mdwebview-content-${CACHE_VERSION}`;
 
@@ -20,6 +20,7 @@ const SHELL_ASSETS = [
   '/commentary-link.js',
   '/sidecar-data.js',
   '/sidecar-reader.js',
+  '/margin-notes.js',
   '/library-sync.js',
   '/highlights.js',
   '/kepan-sidebar.js',

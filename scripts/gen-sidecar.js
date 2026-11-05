@@ -81,40 +81,85 @@ function loadFamilies() {
 /**
  * 從一部註疏抽出「引文 → 解釋」。
  *
- * 格式不是一律 `「…」解釋`。實際看過的情況：
+ * ── 第一版錯在哪
  *
- *   「如是」者，佛所說。           ← 引文後接「者」
- *   「爾時，世尊」下明別序。        ← 引文後接「下」
- *   「一時」者，言則當理…          ← 一般情況
+ * 我原本「取到第一個句號為止」，想說一句解釋就是一句。實際跑出來才發現
+ * 註疏的句子極短，第一個句號常常只切到科判標記：
  *
- * 所以引文後面那一段，先剝掉開頭的「者，」「下」「中」「云」這些
- * 轉接詞，再取到第一個句號為止。
+ *   引文「若見諸相非相」→「，是經之正體也。」          ← 只留下半句
+ *   「如是」者，佛所說。般泥洹時，侍者請問…             ← 只留下「者，佛所說。」
  *
- * 解釋太短（少於 6 字）就不要——那多半是「是果，此之因果同約實相」這種
- * 殘句，硬留下來只會讓面板裡塞滿看不懂的片段。
+ * 結果 3,091 則註解的中位數只有 12 字，一半以上是「第二、廣答。」這種
+ * 科判編號——面板裡看起來像壞掉。
+ *
+ * ── 現在的規則
+ *
+ * 取到「意義完整為止」：
+ *   1. 至少累積到 MIN_CHARS 字
+ *   2. 遇到句號且已達 MIN_CHARS 才停
+ *   3. 最多到 MAX_NOTE_CHARS
+ *   4. 遇到下一個引文就停（那是下一條註解的地盤）
+ *
+ * 另外丟掉兩種不是解釋的東西：
+ *   - 純科判（「第二、廣答。」「第三結勸也。」）
+ *   - 引文本身就是提問（「何者為般若如是堅利？」→「答：」），那種
+ *     引文是註疏家自己的設問，不是經文
  */
+const MIN_NOTE_CHARS = 24;
+
+/** 純科判標記：開頭是「第X、」或「X、」，結尾是「也／答／勸」這類，且不長。 */
+const KEPAN_ONLY_RE = /^(第?[一二三四五六七八九十百]+[、，,]|初|次|後)[^。]{0,12}[。]?$/;
+
+/** 引文本身是設問：結尾是問號。那不是經文，是註疏家的提問。 */
+function isRhetoricalQuestion(quote) {
+  return /[？?]$/.test(quote);
+}
+
 function extractNotes(text) {
   const out = [];
-  const re = /「([^」]{2,80})」([^「]{0,600})/g;
+  const re = /「([^」]{2,80})」([^「]{0,900})/g;
   let m;
+
   while ((m = re.exec(text))) {
     const quote = normalize(m[1]);
     if (quote.length < 2) continue;
+    if (isRhetoricalQuestion(m[1])) continue;
 
     let tail = m[2];
 
     // 剝掉開頭的轉接詞（含標點）
     tail = tail.replace(/^[\s\u3000]*[者下中云謂，。、：；]+\s*/, '');
+    if (!tail) continue;
 
-    // 取到第一個句尾標點
-    const stop = tail.search(/[。！？]/);
-    let note = stop >= 0 ? tail.slice(0, stop + 1) : tail;
+    /*
+     * 累積到「夠長＋句號」為止。
+     *
+     * 逐句掃描而不是一次切到底：遇到句號時看累積長度夠不夠，不夠就
+     * 繼續往下一句接。這樣「者，佛所說。般泥洹時，侍者請問…」會併成
+     * 一整段，而不是只留前半句。
+     */
+    let note = '';
+    let cursor = 0;
+    while (cursor < tail.length && note.length < MAX_NOTE_CHARS) {
+      const rest = tail.slice(cursor);
+      const stop = rest.search(/[。！？]/);
+      if (stop < 0) {
+        note += rest;
+        break;
+      }
+      note += rest.slice(0, stop + 1);
+      cursor += stop + 1;
+      if (note.length >= MIN_NOTE_CHARS) break;
+    }
 
-    // 去掉引文裡殘留的引號與校勘符號
-    note = note.replace(/[「」『』]/g, '').trim();
+    note = note.replace(/[「」『』]/g, '').replace(/\s+/g, ' ').trim();
     if (note.length > MAX_NOTE_CHARS) note = note.slice(0, MAX_NOTE_CHARS);
 
     if (note.length < 6) continue;
+
+    // 純科判不要：那不是解釋，是目錄
+    if (KEPAN_ONLY_RE.test(note)) continue;
+
     out.push({ quote, note });
   }
   return out;
