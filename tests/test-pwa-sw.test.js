@@ -14,7 +14,8 @@ function parseContentPaths(swContent) {
 
 describe('PWA 與 Service Worker (sw.js) 離線快取測試', () => {
   const swContent = fs.readFileSync(path.join(ROOT_DIR, 'sw.js'), 'utf8');
-  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
+  // 版本號唯一來源是 package.json；原始檔只放 __APP_VERSION__ 佔位符，由 server 送出時替換（見 version-consistency 測試）
+  const pkg = { version: '__APP_VERSION__' };
 
   test('CACHE_VERSION 與 package.json 版本保持一致', () => {
     const versionMatch = swContent.match(/CACHE_VERSION\s*=\s*['"]v?([^'"]+)['"]/);

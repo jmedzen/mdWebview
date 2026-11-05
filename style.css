@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.21
+   mdWebview — Style System (style.css)
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -2874,24 +2874,27 @@ body.focus-mode .app {
   padding-top: 0;
 }
 
-.focus-mode-hint {
+/* 右上角常駐的小 pill：不搶眼，只提醒怎麼離開 */
+.focus-mode-pill {
+  display: none;
   position: fixed;
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%);
-  padding: 8px 18px;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.7);
-  color: #fff;
-  font-size: 13px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.6;
   z-index: 10000;
   pointer-events: none;
-  animation: focusHintFade 2.6s ease forwards;
+  user-select: none;
 }
 
-@keyframes focusHintFade {
-  0%, 70% { opacity: 1; }
-  100% { opacity: 0; }
+body.focus-mode .focus-mode-pill {
+  display: block;
 }
 
 .home-notice {

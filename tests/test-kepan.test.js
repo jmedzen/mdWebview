@@ -426,8 +426,8 @@ describe('接線（靜態檢查）', () => {
     assert.match(html, /<input type="search" id="kepanSearch"[^>]*role="combobox"[^>]*aria-controls="kepanResults"/);
     assert.match(html, /id="kepanSearch" class="sidebar-filter-input"/, '沿用側欄篩選框樣式（手機 16px 防縮放）');
     assert.match(html, /<div class="kepan-results" id="kepanResults" role="listbox"[^>]*hidden>/);
-    const k = html.indexOf(`kepan-sidebar.js?v=${pkg.version}`);
-    assert.ok(k > 0, 'kepan-sidebar.js 應帶目前版本號');
+    const k = html.indexOf("kepan-sidebar.js?v=__APP_VERSION__");
+    assert.ok(k > 0, 'kepan-sidebar.js 應帶版本佔位符（server 送出時換成目前版本）');
     assert.ok(k < html.indexOf('app.js?v='), 'kepan-sidebar.js 應在 app.js 之前');
   });
 
