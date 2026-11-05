@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.32.0
+   mdWebview — Style System (style.css) v4.33.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.32.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.33.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -13974,4 +13974,194 @@ html[data-display-script="hans"] .learning-path-name {
 /* 接下來那幾處的註解：比當前這一段再淡一點，形成層次 */
 .margin-note.is-ahead {
   opacity: 0.72;
+}
+
+/* ================================================================
+   §55 首頁經文流（alpha 批次 11）
+
+   首頁往下就是經文，一段接一段。
+
+   ── 為什麼要大改首頁
+
+   前九個批次的功能全部掛在首頁下方六個小晶片裡。首頁第一屏是一朵
+   蓮花、站名、搜尋框、三張入門卡——十輪的成果，換來一個啟動器。
+
+   佛典閱讀器的首頁不讀經，是本末倒置。
+
+   ── 版面的選擇
+
+   經文用大一點的字、寬一點的行距，比首頁其他區塊都更「像正文」。
+   出處與動作退成小字、淡色——它們是註腳，不是主角。
+
+   整條流不置中、不卡片化：卡片會讓每一段變成獨立的罐頭，讀者自然
+   而然停下來；純文字段落連著排，才會往下讀。
+   ================================================================ */
+
+.scroll-reading {
+  width: 100%;
+  max-width: 720px;
+  margin: 40px auto 8px;
+  text-align: left;
+}
+
+.scroll-reading[hidden] {
+  display: none !important;
+}
+
+.scroll-reading-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 22px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.scroll-reading-title {
+  margin: 0;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.scroll-reading-sub {
+  flex: 1;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+}
+
+.scroll-reading-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+
+.scroll-reading-close:hover {
+  opacity: 1;
+  background: var(--hover-bg);
+}
+
+.scroll-reading-list {
+  display: block;
+}
+
+/* ── 一段 ── */
+.scroll-reading-item {
+  margin-bottom: 34px;
+}
+
+/*
+ * 經文本身：比首頁任何其他文字都大，行距也更寬。
+ *
+ * 這是整頁的視覺重心。前面的批次把首頁做成「一堆等重的小方塊」，
+ * 結果沒有一個東西是主角；這裡讓經文當主角。
+ */
+.scroll-reading-text {
+  margin: 0 0 10px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(15.5px * var(--ui-font-scale, 1));
+  line-height: 2.05;
+  color: var(--text-primary);
+  text-align: justify;
+  /* 首字不放大：經文常常以「爾時」「佛告」開頭，首字放大會顯得突兀 */
+}
+
+/* ── 出處與動作 ── */
+.scroll-reading-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-family: var(--ui-sans), sans-serif;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+}
+
+.scroll-reading-src {
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.scroll-reading-act {
+  padding: 1px 0;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.14s ease;
+}
+
+.scroll-reading-act:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* 「看這一段」是次要動作，比「讀這部經」再淡一點 */
+.scroll-reading-act-jump {
+  opacity: 0.5;
+}
+
+.scroll-reading-act-jump:hover {
+  opacity: 1;
+}
+
+/* 「有歷代註疏」是提示而不是動作，用標記樣式 */
+.scroll-reading-act-note {
+  opacity: 0.6;
+  padding: 0 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.scroll-reading-act-note:hover {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+/* ── 載入哨兵 ── */
+.scroll-reading-sentinel {
+  height: 1px;
+}
+
+@media (max-width: 760px) {
+  .scroll-reading {
+    margin-top: 28px;
+    padding: 0 4px;
+  }
+
+  .scroll-reading-text {
+    font-size: calc(15px * var(--ui-font-scale, 1));
+    line-height: 2;
+    text-align: left;   /* 手機上兩端對齊會出現很醜的字距空隙 */
+  }
+
+  .scroll-reading-item {
+    margin-bottom: 28px;
+  }
+}
+
+@media print {
+  /* 列印首頁時不印這一整條流（列印的目的是經文本身，不是首頁） */
+  .scroll-reading { display: none !important; }
 }

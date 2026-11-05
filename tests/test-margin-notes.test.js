@@ -127,8 +127,12 @@ describe('經註並讀：版面', () => {
   });
 
   test('列印不輸出邊註', () => {
-    const printBlock = CSS.slice(CSS.lastIndexOf('@media print'));
-    assert.match(printBlock, /\.margin-rail \{ display: none !important/);
+    // 不能用 lastIndexOf('@media print')——後面的批次（§55 經文流）
+    // 也有自己的 @media print，會抓到錯的那一塊。
+    const s54 = section54();
+    const idx = s54.indexOf('@media print');
+    assert.ok(idx > 0, '§54 裡沒有 @media print');
+    assert.match(s54.slice(idx), /\.margin-rail \{ display: none !important/);
   });
 
   test('經文欄不會被邊欄擠窄', () => {
