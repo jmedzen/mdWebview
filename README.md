@@ -6,7 +6,7 @@
 
 ## 繁體中文
 
-`mdWebview` (v4.34.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
+`mdWebview` (v4.35.0) 是一個用瀏覽器閱讀佛典經論的網站。把整批經論放進去，就能像翻書一樣閱讀、搜尋，還能隨時查佛學辭典。讀者不需要安裝任何東西，打開網址就能用。
 
 > **這一版是 `alpha` 分支的研究性實作。** 它在既有的完整功能之上，加了一組
 > 針對「第一次來的人」與「讀長經的人」的改動（見下方 **🅰️ alpha 分支多了什麼**）。
@@ -78,6 +78,7 @@
 | **專注模式**（<kbd>F</kbd>） | 讀長經時收起頁首、側欄、辭典與麵包屑，只留經文。右上角留一顆「離開專注」，不會把人困住。 |
 | **讀到卷末，接下來讀什麼** | 文末直接給同層的上一篇／下一篇，按鈕上寫出經名。只認同一個資料夾，目錄檔跳過。 |
 | **藏經地圖** | 把 7,222 個檔案攤成一張方塊圖，面積代表字數。一眼看出大正藏 6,453 萬字與卍續藏 6,348 萬字幾乎一樣大；點方塊進去還能看到 20 個部類各自的份量。 |
+| **原文優先** | 搜尋結果把「經文原文」與「後人講解」分開，原文排在最前、用經文字體，講解明顯退後。搜「應無所住」的 494 個命中裡，198 個是經、296 個是解 — 不必點進去就分得出來。 |
 | **經文地圖** | 整部經的結構壓成一條卷軸，貼在經文最上方。每一塊是一卷或一品，寬度按真實篇幅分配，一條線標出「你在這裡」，點一下就跳過去。大般若經 772 品、468 萬字，在這裡是看得見的長度。 |
 | **經文流** | 首頁往下就是經文，420 段完整段落，一段接一段，捲到底自動接下一段。每段標出處（經號與經名），可「讀這部經」或「看這一段」（跳到原文那一行）。資料寫在 `passages-data.js`。 |
 | **經註並讀** | 註疏不只是一個彈窗，它常駐在經文右側，隨捲動跟著換。讀金剛經讀到「佛告須菩提」，右邊就是胡吉藏、智者大師對這一句的解釋，還有接下來幾句的。窄螢幕自動收起，可以關掉並記住。 |
@@ -317,7 +318,7 @@ mdWebview/
 
 ## English
 
-`mdWebview` (v4.34.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
+`mdWebview` (v4.35.0) is a website for reading Buddhist sutras and commentaries in your browser. Put your texts in, and you can read them like a book, search across all of them, and look up a Buddhist dictionary at any time. Readers do not need to install anything — just open the site.
 
 ### ✨ What You Can Do
 
@@ -504,7 +505,7 @@ mdWebview/
 ├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information (v4.34.0)
+├── package.json        # Project information (v4.35.0)
 ├── Dockerfile          # Settings for packaging with Docker
 ├── docker-compose.yml  # Docker startup settings
 ├── ARCHITECTURE.md     # In-depth notes for developers

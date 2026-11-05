@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.34.0
+   mdWebview — Style System (style.css) v4.35.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.34.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.35.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -14398,4 +14398,100 @@ html[data-display-script="hans"] .learning-path-name {
 @media (max-width: 760px) {
   .sutra-shape-track { height: 16px; }
   .sutra-shape-caption { font-size: calc(9.5px * var(--ui-font-scale, 1)); }
+}
+
+/* ================================================================
+   §57 搜尋：原文優先（alpha 批次 13）
+
+   搜「應無所住」，全庫 1,887 次、散在 494 個檔案。其中只有 1 個是
+   《金剛經》原文，其餘 493 個都在解釋那句話。
+
+   原本兩者混在一起排：140 筆來自《金剛般若經贊述釋記》，92 筆來自
+   《金剛般若波羅蜜經講義》……讀者想找「佛到底怎麼說的」，得先翻過
+   幾百筆後人的話。
+
+   這裡把原文那層往前搬，並且讓兩層在視覺上一眼分得出來——不必點
+   進去就知道哪個是佛說的。
+   ================================================================ */
+
+/* ── 結果上方的分層說明 ── */
+.source-first-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.source-first-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-family: var(--ui-sans), sans-serif;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  line-height: 1.6;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+}
+
+/* 原文：用強調色，因為它是讀者要找的東西 */
+.source-first-tag.is-source {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+/* 講解：中性灰，明顯退後 */
+.source-first-tag.is-commentary {
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+/* ── 原文那組：左側一道強調色，並改用經文字體 ── */
+.search-result-group.is-source {
+  position: relative;
+  padding-left: 9px;
+  margin-bottom: 6px;
+}
+
+.search-result-group.is-source::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.search-result-group.is-source .search-result-file {
+  font-family: var(--cjk-serif), serif;
+  font-weight: 600;
+}
+
+/*
+ * 原文摘要：用經文字體、稍大的字、較寬的行距。
+ *
+ * 這不只是裝飾。搜尋結果的摘要一眼看過去，「一時，佛在舍衛國…」與
+ * 「述曰，此依世親答第二問也」的差別，比任何標籤都直接。
+ */
+.search-result-group.is-source .search-result-snippet {
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  line-height: 1.85;
+  color: var(--text-primary);
+}
+
+/* ── 講解那組：整體退後一階 ── */
+.search-result-group.is-commentary {
+  opacity: 0.92;
+}
+
+.search-result-group.is-commentary .search-result-snippet {
+  color: var(--text-secondary);
 }
