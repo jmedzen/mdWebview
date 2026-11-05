@@ -218,8 +218,12 @@ describe('經文流：版面', () => {
   });
 
   test('列印首頁不輸出經文流', () => {
-    const print = CSS.slice(CSS.lastIndexOf('@media print'));
-    assert.match(print, /\.scroll-reading \{ display: none !important/);
+    // 不能用 lastIndexOf('@media print')——後面的批次（§56 經文地圖）
+    // 也有自己的 @media print，會抓到錯的那一塊。
+    const s55 = section55();
+    const idx = s55.indexOf('@media print');
+    assert.ok(idx > 0, '§55 裡沒有 @media print');
+    assert.match(s55.slice(idx), /\.scroll-reading \{ display: none !important/);
   });
 
   test('Service Worker 兩個都快取', () => {

@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.33.0
+   mdWebview — Style System (style.css) v4.34.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.33.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.34.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -14164,4 +14164,238 @@ html[data-display-script="hans"] .learning-path-name {
 @media print {
   /* 列印首頁時不印這一整條流（列印的目的是經文本身，不是首頁） */
   .scroll-reading { display: none !important; }
+}
+
+/* ================================================================
+   §56 這部經的形狀（alpha 批次 12）
+
+   整部經的結構壓成一條細長的卷軸，貼在經文最上方。
+
+   ── 要解決的問題
+
+   《大般若經》單一檔案 467 萬字、1,894 個標題。左邊的大綱是一個
+   1,894 項的清單——它告訴你「有哪些標題」，不告訴你「這部經長什麼
+   樣子、我現在在哪、還剩多少」。
+
+   這條卷軸回答後者：每一塊是一卷或一品，寬度按真實篇幅分配，
+   一條線標出「你在這裡」，點一下就跳過去。
+
+   ── 為什麼看起來是這個樣子
+
+   刻意做得又薄又淡。它常駐在經文上方，任何搶眼的設計都會干擾閱讀；
+   但完全看不見又失去導覽作用。所以：28px 高、無底色、只有一塊塊
+   極淡的灰，目前那一塊才亮起來。
+   ================================================================ */
+
+.sutra-shape {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  margin: 0 0 20px;
+  padding: 0;
+  user-select: none;
+}
+
+.sutra-shape[hidden] {
+  display: none !important;
+}
+
+/*
+ * 塊與塊之間留 2px。
+ *
+ * 原本 1px，配上同樣淡的顏色，整個 strip 糊成一條線。2px + 深淺交錯
+ * 才看得出分節。
+ */
+.sutra-shape-strip {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  gap: 2px;
+  height: 100%;
+}
+
+/*
+ * 一塊＝一卷或一品。
+ *
+ * 用 flex-grow 表示篇幅，瀏覽器自己算比例；視窗縮放不必重算。
+ * 極短的塊給一個最小寬度，否則點不到。
+ */
+.sutra-shape-seg {
+  flex-basis: 0;
+  min-width: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  /*
+   * 用 text-muted 而不是 border-subtle。
+   *
+   * border-subtle 在深色底幾乎與背景同色，實測整條地圖看起來像一條
+   * 裝飾線而不是地圖。muted 再加透明度，才看得出一塊一塊。
+   */
+  background: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.16s ease, opacity 0.16s ease;
+  opacity: 0.42;
+}
+
+.sutra-shape-seg:hover {
+  background: var(--text-muted);
+  opacity: 1;
+}
+
+/*
+ * 每 10 塊亮一階，形成節奏。
+ *
+ * 沒有這個，155 塊看起來是一片均勻的灰——眼睛沒有落點，地圖就失去
+ * 「分節」的意義。
+ */
+.sutra-shape-seg.is-major {
+  opacity: 0.85;
+}
+
+/* 目前所在的那一塊 */
+.sutra-shape-seg.is-current {
+  background: var(--accent);
+  opacity: 1;
+}
+
+/* ── 你在這裡 ── */
+/*
+ * 「你在這裡」。
+ *
+ * 做得比區塊更亮、更高，因為它是整條地圖上唯一會動的東西——讀者的
+ * 眼睛要靠它定位，不能讓它跟其他線混在一起。
+ */
+.sutra-shape-here {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+  transition: left 0.1s linear;
+  box-shadow: 0 0 0 1.5px var(--bg-primary);
+  z-index: 2;
+}
+
+/* ── 滑過去的提示 ── */
+.sutra-shape-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  max-width: 320px;
+  padding: 3px 7px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-elevated, var(--bg-secondary));
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 20;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+.sutra-shape-tip[hidden] {
+  display: none !important;
+}
+
+/* 手機：地圖保留，但更薄——它仍是「這部經有多大」的唯一線索 */
+@media (max-width: 760px) {
+  .sutra-shape {
+    height: 20px;
+    margin-bottom: 14px;
+  }
+
+  .sutra-shape-tip {
+    display: none !important;   /* 觸控沒有 hover */
+  }
+}
+
+@media print {
+  /* 列印經文時不印導覽 */
+  .sutra-shape { display: none !important; }
+}
+
+/*
+ * 說明列與軌道（批次 12 補）。
+ *
+ * 地圖本身只有形狀，沒有尺度。「772 品」與「467 萬字」擺上去，
+ * 那條抽象的灰線才變成「這部經有多大」。
+ */
+.sutra-shape {
+  flex-direction: column;
+  height: auto;
+  gap: 5px;
+  /*
+   * 撐滿可用寬度，不受 --content-max-width 限制。
+   *
+   * 經文欄窄是為了閱讀舒適（一行 40 字）；但地圖是「整體比例」的視覺化，
+   * 越寬越好讀。實測在 1440px 螢幕上被壓到 650px，772 品擠成一團。
+   *
+   * 用負 margin 抵銷 content-wrapper 的左右 padding，讓它真的貼邊。
+   */
+  margin-left: -48px;
+  margin-right: -48px;
+  max-width: none;
+}
+
+@media (max-width: 760px) {
+  .sutra-shape {
+    margin-left: -16px;
+    margin-right: -16px;
+  }
+}
+
+.sutra-shape-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  /*
+   * 兩端對齊需要「中間留白」，但 flex 的 space-between 在只有兩個子元素
+   * 時就是靠 gap 撐開。實測截圖變成「28 品7 萬字」黏在一起，是因為
+   * .sutra-shape 的 flex-direction 改成 column 之後，caption 也跟著
+   * 變成 column 的對齊語境。明確寫 row。
+   */
+  flex-direction: row;
+  font-family: var(--ui-sans), sans-serif;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.sutra-shape-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sutra-shape-chars {
+  flex: none;
+  opacity: 0.8;
+}
+
+/*
+ * 軌道：strip 與「你在這裡」的共同座標系。
+ *
+ * 標記要相對「軌道」定位而不是相對整個 bar——bar 現在上面還有說明列，
+ * 相對 bar 定位會讓線跑到說明列上。
+ */
+.sutra-shape-track {
+  position: relative;
+  height: 22px;
+}
+
+@media (max-width: 760px) {
+  .sutra-shape-track { height: 16px; }
+  .sutra-shape-caption { font-size: calc(9.5px * var(--ui-font-scale, 1)); }
 }
