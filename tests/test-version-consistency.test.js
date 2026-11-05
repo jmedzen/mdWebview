@@ -149,9 +149,31 @@ describe('全站版本號一致性測試 (Version Consistency)', () => {
    * 才退回 patch 減一，且此時若無法推導則明確失敗而非靜默略過。
    */
   const prevVersion = (() => {
+    const { execSync } = require('node:child_process');
+
+    /*
+     * 首選：從 package.json 自己的 git 歷史取「上一個不同的版本號」。
+     *
+     * 這是唯一在所有升版情境都成立的做法。原本只讀 commit 標題裡的
+     * `chore(release): vX.Y.Z`，但那個慣例早就不用了（最後一筆是 v4.2.1），
+     * 一旦 patch 歸零（升 X.Y.0），算術推算也失效——v4.28.0 升版時就是
+     * 這樣踩到的：本檔案註解警告過同一個坑，卻仍只防了 patch 減一。
+     */
     try {
-      const { execSync } = require('node:child_process');
-      const log = execSync('git log --format=%s -n 200', {
+      const diff = execSync('git log -p --format= -- package.json', {
+        cwd: ROOT_DIR, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 32 * 1024 * 1024
+      });
+      const found = [...diff.matchAll(/^\+\s*"version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"/gm)]
+        .map(m => m[1])
+        .find(v => v !== version);
+      if (found) return found;
+    } catch (_) { /* 沒有 git 時往下試 */ }
+
+    // 次選：commit 標題的 release 慣例
+    try {
+      const log = execSync('git log --format=%s -n 500', {
         cwd: ROOT_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
       });
       const found = [...log.matchAll(/chore\(release\):\s*v(\d+\.\d+\.\d+)/g)]

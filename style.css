@@ -1,5 +1,5 @@
 /* ================================================================
-   mdWebview — Style System (style.css) v4.27.15
+   mdWebview — Style System (style.css) v4.28.0
    5 Themes · Glassmorphism · Micro-animations · CJK Typography
 
    ── 段落索引（Section Map）──────────────────────────────────────
@@ -12120,7 +12120,7 @@ a.small-btn {
 .kepan-mark { flex: none; color: var(--accent); font-weight: 700; }
 .kepan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kepan-alt-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: .55; }
-/* 操作說明（v4.27.15）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
+/* 操作說明（v4.28.0）：搜尋框右邊的「?」小鈕，按了才出現小卡；沒看過的人鈕上有小點 */
 .kepan-search .sidebar-filter-input { padding-right: 26px; }
 .kepan-search .sidebar-filter-clear { right: 38px; }
 .kepan-help-btn {
@@ -12839,4 +12839,292 @@ html[data-display-script="hans"] .learning-path-name {
 
 @media print {
   .canon-map-overlay { display: none !important; }
+}
+
+/* ================================================================
+   §50 同經異譯對讀（alpha 批次 7）
+
+   同一部經被譯過很多次。心經在大正藏裡有四個可讀的譯本，它們講同一件
+   事，但開頭、句式、用詞都不一樣。這種差異本身就是內容。
+
+   版面像「攤開四本書在桌上」：每欄一個譯本，各自有自己的捲動。
+   刻意不做同步捲動——各譯本長度不同（576 到 684 字）、段落切分也不同，
+   硬綁在一起只會互相牽扯。讀者要對哪兩句，自己捲。
+
+   也不做逐句對齊（見 index.html 的說明：實測最長共同片段 0 字）。
+   ================================================================ */
+.parallel-card {
+  width: calc(100vw - 40px);
+  max-width: 1400px;
+  height: calc(100vh - 48px);
+  max-height: 900px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 譯本選擇列 ──────────────────────────────────────────── */
+.parallel-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+}
+
+.parallel-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.parallel-slot-label {
+  color: var(--text-muted);
+  font-family: var(--ui-sans), sans-serif;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+}
+
+.parallel-slot select {
+  font: inherit;
+  font-family: var(--cjk-serif), serif;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  max-width: 190px;
+}
+.parallel-slot select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.parallel-slot-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.parallel-slot-remove:hover {
+  color: var(--danger, #c0574d);
+  background: var(--hover-bg);
+}
+
+.parallel-add {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.parallel-add:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.parallel-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+/* ── 對讀區 ──────────────────────────────────────────────── */
+.parallel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.parallel-columns {
+  display: flex;
+  height: 100%;
+  overflow-x: auto;
+  /* 每欄之間用細線分隔，像書頁的中縫 */
+  gap: 0;
+}
+
+.parallel-col {
+  flex: 1 1 0;
+  min-width: 280px;
+  max-width: 50%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-subtle);
+  min-height: 0;
+}
+.parallel-col:last-child {
+  border-right: none;
+}
+
+.parallel-col-head {
+  flex: none;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+.parallel-col-title {
+  margin: 0;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.parallel-col-meta {
+  margin-top: 3px;
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+}
+
+/* 每欄自己的捲動區 */
+.parallel-col-text {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 40px;
+  font-family: var(--cjk-serif), serif;
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  line-height: 1.95;
+  color: var(--text-primary);
+  text-align: justify;
+  overflow-wrap: break-word;
+}
+
+.parallel-col-text p {
+  margin: 0 0 1em;
+}
+.parallel-col-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* 經題與譯者：比正文小一級、淡一點，但保留 */
+.parallel-col-text .parallel-head {
+  margin-bottom: 1.1em;
+  padding-bottom: 0.7em;
+  border-bottom: 1px dashed var(--border-subtle);
+  font-size: 0.86em;
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+/* 大正藏編號那類註解行，縮小淡化 */
+.parallel-col-text .parallel-note {
+  font-size: 0.82em;
+  color: var(--text-muted);
+  font-family: var(--ui-sans), sans-serif;
+}
+
+/* ── 底部統計 ────────────────────────────────────────────── */
+.parallel-foot {
+  flex: none;
+  padding: 9px 20px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.parallel-foot strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* 載入 / 錯誤狀態 */
+.parallel-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+
+/* ── 手機：一欄一欄往下堆 ───────────────────────────────── */
+@media (max-width: 900px) {
+  .parallel-card {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    max-height: none;
+    border-radius: 0;
+  }
+  .parallel-columns {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .parallel-col {
+    flex: none;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .parallel-col-text {
+    /* 手機上前一欄不要吃掉整個畫面，讓下一欄看得見 */
+    max-height: 52vh;
+  }
+  .parallel-slot select {
+    max-width: 130px;
+  }
+}
+
+/* ── 深色主題下的中縫加深，避免兩欄糊在一起 ─────────────── */
+[data-theme="obsidian-dark"] .parallel-col {
+  border-right-color: rgba(255, 255, 255, 0.09);
+}
+
+/* 減少動態偏好：這個元件沒有動畫，但要確保平滑捲動不強制開啟 */
+@media (prefers-reduced-motion: reduce) {
+  .parallel-col-text {
+    scroll-behavior: auto;
+  }
+}
+
+@media print {
+  .parallelReadingOverlay {
+    display: none !important;
+  }
+}
+
+/* 欄頭的譯者為主標，年代用括號淡出 */
+.parallel-col-era {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.parallel-col-note {
+  margin-top: 2px;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  font-family: var(--ui-sans), sans-serif;
+  color: var(--text-muted);
+  opacity: 0.85;
 }
