@@ -8732,6 +8732,9 @@
   // ═══════════════════════════════════════════════════════════
   const SYNC_URL = '/api/me/sync';
   const SYNC_PUSH_DELAY_MS = 4000;
+  // 只是閱讀進度（捲動）造成的異動不急著送：捲動中每次 persist 都會觸發，4 秒一次太頻繁。
+  // 頁面隱藏／關閉時 flushLibrarySyncOnHide 會立刻補送，所以拉長不會遺失進度。
+  const SYNC_PROGRESS_DELAY_MS = 60000;
   const SYNC_PULL_MIN_GAP_MS = 20000;
   const SYNC_POLL_MS = 90000;
   const SYNC_BEACON_MAX_BYTES = 60000;
@@ -8739,7 +8742,7 @@
 
   const librarySnap = { b: new Map(), h: new Map(), l: new Map() };
   let syncMetaMemory = null; // localStorage 不能用（Safari 私密模式等）時的後備
-  const syncRt = { timer: null, inflight: null, lastPullAt: 0, user: null, status: 'local', retryAt: 0 };
+  const syncRt = { timer: null, inflight: null, lastPullAt: 0, timerDue: 0, user: null, status: 'local', retryAt: 0 };
 
   function syncMeta() {
     let m = storage.getJson(STORAGE_KEYS.SYNC_META, null) || syncMetaMemory;
@@ -8772,7 +8775,7 @@
    * 把 state.bookmarks（'b'）或 state.recentFiles（'h'）寫回 localStorage，並與上次的快照比對：
    * 新增或時間戳變動的記為待送出，消失的記為墓碑。所有本機異動都經過這裡。
    */
-  function persistLibrary(kind) {
+  function persistLibrary(kind, opts) {
     const K = LIBRARY_KINDS[kind];
     const list = K.list() || [];
     const snap = librarySnap[kind];
@@ -8799,7 +8802,7 @@
     }
     storage.setJson(K.storageKey(), list);
     saveSyncMeta(m);
-    scheduleLibrarySync();
+    scheduleLibrarySync(opts && opts.progressOnly ? SYNC_PROGRESS_DELAY_MS : SYNC_PUSH_DELAY_MS);
   }
 
   function wireFromLocal(kind, path, m) {
@@ -8844,8 +8847,16 @@
   }
 
   function scheduleLibrarySync(delay = SYNC_PUSH_DELAY_MS) {
-    if (!syncRt.user || syncRt.timer) return;
-    syncRt.timer = setTimeout(() => { syncRt.timer = null; runLibrarySync('push'); }, Math.max(delay, syncRt.retryAt - Date.now()));
+    if (!syncRt.user) return;
+    const wait = Math.max(delay, syncRt.retryAt - Date.now());
+    const due = Date.now() + wait;
+    if (syncRt.timer) {
+      // 已排程且不會更晚：沿用；若這次需要更早送（例如進度排了 60 秒，之後新增書籤），改排較早的
+      if (syncRt.timerDue <= due) return;
+      clearTimeout(syncRt.timer);
+    }
+    syncRt.timerDue = due;
+    syncRt.timer = setTimeout(() => { syncRt.timer = null; runLibrarySync('push'); }, wait);
   }
 
   function setSyncStatus(status) {
@@ -8964,7 +8975,7 @@
         if (changed) refreshLibraryUi();
         syncRt.lastPullAt = Date.now();
         setSyncStatus('ok');
-        if (hasPendingSync()) scheduleLibrarySync(SYNC_PUSH_DELAY_MS);
+        if (hasPendingSync()) scheduleLibrarySync(SYNC_PROGRESS_DELAY_MS);
         return true;
       } catch (err) {
         log.warn('library sync failed', err);
@@ -9113,7 +9124,7 @@
       bm.pct = pct;
       bm.line = line || null;
       bm.ts = Date.now();
-      persistLibrary('b');
+      persistLibrary('b', { progressOnly: true });
       if (isLibraryOpen() && libraryUi.tab === 'bookmarks') renderLibrary();
     }
     const item = (state.recentFiles || []).find(i => i.filePath === filePath);
@@ -9122,7 +9133,7 @@
     item.pct = pct;
     item.line = line || null;
     item.ts = Date.now();
-    persistLibrary('h');
+    persistLibrary('h', { progressOnly: true });
     if (isLibraryOpen() && libraryUi.tab === 'recent') renderLibrary();
   }
 
