@@ -194,7 +194,7 @@ describe('lib/share-card-server：伺服器畫圖', () => {
     assert.deepEqual([og.width, og.height], ShareCard.PIXEL_SIZES.og);
   });
 
-  test('同一張背景圖同時有 8 個版型在畫，只解碼一次', async (t) => {
+  test('同一張背景圖同時有 8 個版型在畫，每條畫圖執行緒最多解碼一次', async (t) => {
     if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
     const { createCanvas } = require('@napi-rs/canvas');
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-piccard-dec-'));
@@ -209,7 +209,10 @@ describe('lib/share-card-server：伺服器畫圖', () => {
     const before = sc.decodeCount();
     const verse = { text: '應無所住，而生其心。', source: '金剛經' };
     await Promise.all(ShareCard.LAYOUTS.map(layout => sc.render({ layout, size: 'portrait', preview: true, verse, greeting: '早安', date: '2026-11-03', siteName: 's', host: '', picAbs })));
-    assert.equal(sc.decodeCount() - before, 1);
+    // 執行緒池：每條執行緒各留一份解碼快取，所以最多 = 池子開了幾條（單執行緒時就是 1）
+    const n = sc.cacheStatus().workers;
+    assert.ok(n >= 1);
+    assert.ok(sc.decodeCount() - before <= n, `解碼 ${sc.decodeCount() - before} 次，執行緒 ${n} 條`);
   });
 
   test('背景縮圖大小：剛好蓋滿 1620×2025，不夠大的原圖不縮', () => {
@@ -290,6 +293,24 @@ describe('lib/share-card-server：伺服器畫圖', () => {
     assert.ok(total <= 0.3 * 1024 * 1024, `磁碟上 ${total} B 超過上限`);
     assert.ok(count < ShareCard.LAYOUTS.length, '舊的應該被刪掉');
     assert.ok(sc.cacheStatus().diskPruned > 0);
+  });
+
+  test('同時 8 個版型：開多條畫圖執行緒，數量受 SHARE_CARD_WORKERS 與上限 4 約束', async (t) => {
+    t.after(async () => { delete process.env.SHARE_CARD_WORKERS; await sc._resetForTests(); });
+    const verse = { text: '諸惡莫作，眾善奉行。', source: '法句經' };
+    const all = () => Promise.all(['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'].map(layout =>
+      sc.render({ layout, size: 'portrait', preview: true, verse, greeting: '早安', date: '2026-11-04', siteName: 's', host: '' })));
+    process.env.SHARE_CARD_WORKERS = '2';
+    await sc._resetForTests();
+    await all();
+    assert.equal(sc.cacheStatus().workerPoolMax, 2);
+    assert.equal(sc.cacheStatus().workers, 2);
+    process.env.SHARE_CARD_WORKERS = '99';
+    assert.equal(sc.cacheStatus().workerPoolMax, 4, '上限 4');
+    process.env.SHARE_CARD_WORKERS = '1';
+    await sc._resetForTests({ disk: true });
+    await all();
+    assert.equal(sc.cacheStatus().workers, 1);
   });
 
   test('SHARE_CARD_WORKER=0 時改在主執行緒畫；SHARE_CARD_CACHE_DIR=off 不寫磁碟', async (t) => {
@@ -394,7 +415,7 @@ describe('首頁與伺服器接線', () => {
     assert.match(serverJs, /preview: query\.size === 'preview'/);
     assert.match(serverJs, /'Server-Timing': shareCardServerTiming\(timing\)/);
     assert.match(appJs, /const size = 'preview';/);
-    assert.match(appJs, /SHARE_PREVIEW_PARALLEL = 2/);
+    assert.match(appJs, /SHARE_PREVIEW_PARALLEL = 3/);
     assert.match(appJs, /bumpSharePreview\(layout\)/);
     // 分享、存檔、複製圖片都拿全尺寸
     const fullUses = appJs.match(/getShareCardBlob\(shareRt\.layout, 'portrait'\)/g) || [];
