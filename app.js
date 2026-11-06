@@ -2966,7 +2966,7 @@
     });
   }
 
-  const SHARE_PREVIEW_PARALLEL = 2;
+  const SHARE_PREVIEW_PARALLEL = 3;
   let sharePreviewGen = 0;
   let sharePreviewQueue = [];
 
