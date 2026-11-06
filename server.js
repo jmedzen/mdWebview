@@ -60,6 +60,7 @@ const { Worker } = require('worker_threads');
 const { marked } = require('marked');  // Still needed for inline fallback
 const searchVariants = require('./i18n/search-variants');
 const { migrateLegacyIndexFiles } = require('./lib/index-dir');
+const { isIndexRelevantChange } = require('./lib/watch-filter');
 const kepan = require('./lib/kepan');
 
 // ── Core Native Modules (Refactored to lib/) ───────────────────────────────
@@ -269,6 +270,9 @@ function setupTreeWatcher() {
         if (filename && (filename.startsWith('.') || filename.includes('/.'))) {
           return;
         }
+
+        // 索引只收 .md：附件（PDF、圖片…）的異動不重建，免得反覆重建把 RSS 墊高
+        if (!isIndexRelevantChange(mdRoot, eventType, filename)) return;
 
         // Invalidate tree and search cache; mark sitemap as dirty (deferred debounced update)
         cachedTree = null;
@@ -3237,6 +3241,7 @@ function setupDictWatcher() {
   try {
     dictWatcher = watchTreeRecursive(root, (eventType, filename) => {
       if (filename && (filename.startsWith('.') || filename.includes('/.'))) return;
+      if (!isIndexRelevantChange(root, eventType, filename)) return;
       invalidateDictIndex();
       if (filename) {
         const dictKey = `dict:${filename}`;
