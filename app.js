@@ -9533,6 +9533,7 @@
     hlRt.painted = [];
     if (!hlSupported()) return;
     for (const c of HL.COLORS) setHighlightRanges(c, []);
+    nudgeHighlightRepaint();
   }
 
   // 每個顏色常駐一個 Highlight 物件，更新時 clear()＋add()，而不是每次換一個新物件。
@@ -9547,6 +9548,21 @@
     for (const r of ranges) h.add(r);
     if (ranges.length) { if (CSS.highlights.get(name) !== h) CSS.highlights.set(name, h); }
     else CSS.highlights.delete(name);
+  }
+
+  // Safari／Firefox 改了 Highlight 內容後不一定重畫：下一個畫面輕推一下內文的圖層，強迫重繪。
+  // Chromium 會自己重畫，不需要。
+  const HL_NEEDS_NUDGE = typeof navigator !== 'undefined' && !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent || '');
+  let hlNudgeRaf = 0;
+  function nudgeHighlightRepaint() {
+    if (!HL_NEEDS_NUDGE || hlNudgeRaf) return;
+    hlNudgeRaf = requestAnimationFrame(() => {
+      hlNudgeRaf = 0;
+      const body = $('markdownBody');
+      if (!body) return;
+      body.style.opacity = '0.999';
+      requestAnimationFrame(() => { body.style.opacity = ''; });
+    });
   }
 
   function ensureHighlightObserver(body) {
@@ -9612,6 +9628,7 @@
     }
     hlRt.painted = painted;
     for (const c of HL.COLORS) setHighlightRanges(c, byColor[c]);
+    nudgeHighlightRepaint();
     if (changed) persistLibrary('l');
     if (lostChanged) { saveHighlightLost(); renderBookmarksList(); }
     updateHighlightLostBar();

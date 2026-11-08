@@ -258,5 +258,6 @@ describe('highlights client wiring (static checks)', () => {
     assert.doesNotMatch(app, /CSS\.highlights\.set\(`mdw-hl-\$\{c\}`, new Highlight/);
     assert.match(app, /function setHighlightRanges\(color, ranges\)/);
     assert.match(paint, /setHighlightRanges\(c, byColor\[c\]\)/);
+    assert.match(paint, /nudgeHighlightRepaint\(\)/);
   });
 });
