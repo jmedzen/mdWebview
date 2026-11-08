@@ -312,7 +312,7 @@
   }
 
   // ── 版型 A：晨光留白 ─────────────────────────────────────────────────
-  const PAPER = '#f8f3e8', INK = '#2a2620', INK_SOFT = '#7a6a52', GOLD = '#b08d4a', RULE = '#d9ccb2';
+  const PAPER = '#f6f0e2', INK = '#2a2620', INK_SOFT = '#7a6a52', GOLD = '#b08d4a', RULE = '#d9ccb2';
 
   function drawA(ctx, w, h, o) {
     const land = w > h;
@@ -323,7 +323,7 @@
       const ih = Math.round(h * 0.58);
       drawCover(ctx, o.image, 0, 0, w, ih, 0.5, 0.45);
       const fade = ctx.createLinearGradient(0, ih * 0.55, 0, ih);
-      fade.addColorStop(0, 'rgba(248,243,232,0)');
+      fade.addColorStop(0, 'rgba(246,240,226,0)');
       fade.addColorStop(1, PAPER);
       ctx.fillStyle = fade;
       ctx.fillRect(0, ih * 0.55 - 1, w, ih * 0.45 + 2);
@@ -372,7 +372,7 @@
     const iw = Math.round(w * 0.5);
     drawCover(ctx, o.image, 0, 0, iw, h, 0.5, 0.5);
     const fade = ctx.createLinearGradient(iw * 0.6, 0, iw, 0);
-    fade.addColorStop(0, 'rgba(248,243,232,0)');
+    fade.addColorStop(0, 'rgba(246,240,226,0)');
     fade.addColorStop(1, PAPER);
     ctx.fillStyle = fade;
     ctx.fillRect(iw * 0.6, 0, iw * 0.4 + 1, h);
