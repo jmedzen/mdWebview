@@ -229,7 +229,7 @@ describe('highlights client wiring (static checks)', () => {
   });
 
   test('drawn with the CSS Custom Highlight API (no DOM changes) in four underline colours', () => {
-    assert.match(app, /CSS\.highlights\.set\(`mdw-hl-\$\{c\}`/);
+    assert.match(app, /CSS\.highlights\.set\(name, h\)/);
     for (const c of ['r', 'y', 'g', 'b']) assert.match(css, new RegExp(`::highlight\\(mdw-hl-${c}\\) \\{ text-decoration: underline`));
   });
 
@@ -251,5 +251,12 @@ describe('highlights client wiring (static checks)', () => {
     const paint = app.slice(app.indexOf('function paintHighlights'), app.indexOf('function flashHighlight'));
     assert.match(paint, /const trustworthy = !idx\.conv/);
     assert.match(paint, /if \(trustworthy\) \{/);
+  });
+
+  test('paint reuses one Highlight object per colour (clear+add) so later repaints show up', () => {
+    const paint = app.slice(app.indexOf('function paintHighlights'), app.indexOf('function flashHighlight'));
+    assert.doesNotMatch(app, /CSS\.highlights\.set\(`mdw-hl-\$\{c\}`, new Highlight/);
+    assert.match(app, /function setHighlightRanges\(color, ranges\)/);
+    assert.match(paint, /setHighlightRanges\(c, byColor\[c\]\)/);
   });
 });

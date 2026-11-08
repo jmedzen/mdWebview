@@ -9532,7 +9532,21 @@
   function clearHighlightPaint() {
     hlRt.painted = [];
     if (!hlSupported()) return;
-    for (const c of HL.COLORS) CSS.highlights.delete(`mdw-hl-${c}`);
+    for (const c of HL.COLORS) setHighlightRanges(c, []);
+  }
+
+  // 每個顏色常駐一個 Highlight 物件，更新時 clear()＋add()，而不是每次換一個新物件。
+  // 換物件在部分瀏覽器（Safari）只有第一次建立會重畫，之後改色、再劃、刪除都不動。
+  const hlObjects = {};
+  function setHighlightRanges(color, ranges) {
+    if (!hlSupported()) return;
+    const name = `mdw-hl-${color}`;
+    let h = hlObjects[color];
+    if (!h) { h = hlObjects[color] = new Highlight(); }
+    h.clear();
+    for (const r of ranges) h.add(r);
+    if (ranges.length) { if (CSS.highlights.get(name) !== h) CSS.highlights.set(name, h); }
+    else CSS.highlights.delete(name);
   }
 
   function ensureHighlightObserver(body) {
@@ -9597,12 +9611,7 @@
       painted.push({ id: h.id, range });
     }
     hlRt.painted = painted;
-    if (hlSupported()) {
-      for (const c of HL.COLORS) {
-        if (byColor[c].length) CSS.highlights.set(`mdw-hl-${c}`, new Highlight(...byColor[c]));
-        else CSS.highlights.delete(`mdw-hl-${c}`);
-      }
-    }
+    for (const c of HL.COLORS) setHighlightRanges(c, byColor[c]);
     if (changed) persistLibrary('l');
     if (lostChanged) { saveHighlightLost(); renderBookmarksList(); }
     updateHighlightLostBar();
