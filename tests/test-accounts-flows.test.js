@@ -200,6 +200,7 @@ describe('account flows over HTTP', () => {
   });
 
   test('legacy /api/admin/login and /logout refuse cross-site and non-JSON requests', async () => {
+    await makeAdmin(); // 端點在尚未建立管理員時一律回 400，先確保有管理員
     const evil = await rq('/api/admin/login', { method: 'POST', body: { username: 'x', password: 'y' }, headers: { Origin: 'https://evil.example' } });
     assert.equal(evil.status, 403);
     const nullOrigin = await rq('/api/admin/login', { method: 'POST', body: { username: 'x', password: 'y' }, headers: { Origin: 'null' } });

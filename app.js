@@ -1291,6 +1291,15 @@
   // 科判列稍後才知道所在的科）而改變高度時，再對齊一次；使用者一動手就作廢。
   let lastLineJump = null;
 
+  // 搜尋結果（辭典前綴／模糊結果沒有關鍵字可傳）點選後，下一次跳行要置中。
+  // 旗標只活一小段時間，由 scrollToLine / scrollToLineVirtual 消耗。
+  let centerNextJumpUntil = 0;
+  function consumeCenterJump(highlightQuery) {
+    const flagged = Date.now() < centerNextJumpUntil;
+    centerNextJumpUntil = 0;
+    return !!highlightQuery || flagged;
+  }
+
   function safeScrollToElement(targetEl, containerEl, blockPos = 'start') {
     if (!targetEl) return;
     if (!containerEl) containerEl = $('content');
@@ -1687,13 +1696,16 @@
       // 的高亮視窗會向前納入兄弟區塊（見 highlightLineKeyword），firstMark 因此可能
       // 位在要求行之前；若以它定位，游標會停在該 mark 而非使用者點選的行。
       scrollTarget = target;
+      // 搜尋結果（有關鍵字）點選後垂直置中；其餘跳行（目錄、分享連結）仍靠上對齊。
+      const blockPos = consumeCenterJump(highlightQuery) ? 'center' : 'start';
+      if (blockPos === 'center' && hlRes && hlRes.matched && hlRes.hitBlock) scrollTarget = hlRes.hitBlock;
 
       if (flashBlock) {
         flashBlock.classList.add('line-highlight');
         setTimeout(() => flashBlock.classList.remove('line-highlight'), 2500);
       }
 
-      safeScrollToElement(scrollTarget, $('content'), 'start');
+      safeScrollToElement(scrollTarget, $('content'), blockPos);
       lastLineJump = { el: scrollTarget, at: Date.now() };
 
       // 佈局未定時量測與重流修正（Requirement [D]）
@@ -1702,9 +1714,12 @@
         if (!c || !scrollTarget || !scrollTarget.isConnected) return;
         const tr = scrollTarget.getBoundingClientRect();
         const cr = c.getBoundingClientRect();
-        const expectedTop = cr.top + 12 + stickyTopInset(c);
+        const inset = stickyTopInset(c);
+        const expectedTop = blockPos === 'center'
+          ? cr.top + inset + ((cr.height - inset) / 2) - (tr.height / 2)
+          : cr.top + 12 + inset;
         if (Math.abs(tr.top - expectedTop) > 16) {
-          safeScrollToElement(scrollTarget, c, 'start');
+          safeScrollToElement(scrollTarget, c, blockPos);
         }
       });
     }
@@ -4480,11 +4495,19 @@
     // 外解析一次並重複使用；切勿於修正迴圈中重新呼叫 anchorAtOrBefore()，否則切換檔案
     // 後殘留的影格可能對新文件取到最後一個 anchor，把畫面甩到文末。
     scrollTarget = target;
+    // 搜尋結果（有關鍵字）垂直置中；其餘仍靠上對齊。
+    const centerJump = consumeCenterJump(highlightQuery);
+    if (centerJump && hlRes && hlRes.matched && hlRes.hitBlock) scrollTarget = hlRes.hitBlock;
+    const wantTop = (c, el) => {
+      const inset = stickyTopInset(c);
+      if (!centerJump) return 12 + inset;
+      return inset + ((c.getBoundingClientRect().height - inset) / 2) - (el.getBoundingClientRect().height / 2);
+    };
 
     const content = $('content');
     const targetRect = scrollTarget.getBoundingClientRect();
     const containerRect = content.getBoundingClientRect();
-    content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - 12 - stickyTopInset(content));
+    content.scrollTop = Math.max(0, content.scrollTop + (targetRect.top - containerRect.top) - wantTop(content, scrollTarget));
 
     // 有界的事後修正：字體大小／行高／最大寬度都會改變實際行高，且 spacer 高度是以單一
     // avgPxPerLine 估算（離已掛載窗越遠誤差越大），因此第一次定位可能失準。以 anchor 的
@@ -4500,8 +4523,8 @@
       if (v._jumpLock !== lock) return;
       if (state.virtual !== v || state._openToken !== jumpToken) { v._jumpLock = null; return; }
       const c = $('content');
-      if (!target.isConnected || !c) return release();
-      const d = (target.getBoundingClientRect().top - c.getBoundingClientRect().top) - 12 - stickyTopInset(c);
+      if (!scrollTarget.isConnected || !c) return release();
+      const d = (scrollTarget.getBoundingClientRect().top - c.getBoundingClientRect().top) - wantTop(c, scrollTarget);
       const abs = Math.abs(d);
       if (abs <= 2 || abs >= lastAbs || attempt >= 3) return releaseAfterScroll();
       lastAbs = abs;
@@ -9532,7 +9555,37 @@
   function clearHighlightPaint() {
     hlRt.painted = [];
     if (!hlSupported()) return;
-    for (const c of HL.COLORS) CSS.highlights.delete(`mdw-hl-${c}`);
+    for (const c of HL.COLORS) setHighlightRanges(c, []);
+    nudgeHighlightRepaint();
+  }
+
+  // 每個顏色常駐一個 Highlight 物件，更新時 clear()＋add()，而不是每次換一個新物件。
+  // 換物件在部分瀏覽器（Safari）只有第一次建立會重畫，之後改色、再劃、刪除都不動。
+  const hlObjects = {};
+  function setHighlightRanges(color, ranges) {
+    if (!hlSupported()) return;
+    const name = `mdw-hl-${color}`;
+    let h = hlObjects[color];
+    if (!h) { h = hlObjects[color] = new Highlight(); }
+    h.clear();
+    for (const r of ranges) h.add(r);
+    if (ranges.length) { if (CSS.highlights.get(name) !== h) CSS.highlights.set(name, h); }
+    else CSS.highlights.delete(name);
+  }
+
+  // Safari／Firefox 改了 Highlight 內容後不一定重畫：下一個畫面輕推一下內文的圖層，強迫重繪。
+  // Chromium 會自己重畫，不需要。
+  const HL_NEEDS_NUDGE = typeof navigator !== 'undefined' && !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent || '');
+  let hlNudgeRaf = 0;
+  function nudgeHighlightRepaint() {
+    if (!HL_NEEDS_NUDGE || hlNudgeRaf) return;
+    hlNudgeRaf = requestAnimationFrame(() => {
+      hlNudgeRaf = 0;
+      const body = $('markdownBody');
+      if (!body) return;
+      body.style.opacity = '0.999';
+      requestAnimationFrame(() => { body.style.opacity = ''; });
+    });
   }
 
   function ensureHighlightObserver(body) {
@@ -9597,12 +9650,8 @@
       painted.push({ id: h.id, range });
     }
     hlRt.painted = painted;
-    if (hlSupported()) {
-      for (const c of HL.COLORS) {
-        if (byColor[c].length) CSS.highlights.set(`mdw-hl-${c}`, new Highlight(...byColor[c]));
-        else CSS.highlights.delete(`mdw-hl-${c}`);
-      }
-    }
+    for (const c of HL.COLORS) setHighlightRanges(c, byColor[c]);
+    nudgeHighlightRepaint();
     if (changed) persistLibrary('l');
     if (lostChanged) { saveHighlightLost(); renderBookmarksList(); }
     updateHighlightLostBar();
@@ -11362,6 +11411,7 @@
         const query = ($('dictSearchInput')?.value || '').trim();
         sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '', query });
         const highlight = state.dictMode === 'fulltext' ? query : null;
+        centerNextJumpUntil = Date.now() + 10000;
         openFile(file, line ? parseInt(line, 10) : null, highlight || null);
         // On touch/narrow screens the right dict panel overlays the reader, so
         // collapse it once a result is opened to reveal the entry.

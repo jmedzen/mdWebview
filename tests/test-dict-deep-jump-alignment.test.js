@@ -115,7 +115,7 @@ describe('辭典深層結果跳轉定位：以要求行的 anchor 為準 (Deep J
     assert.match(virtualBody, /state\.virtual\s*!==\s*v/, '應比對 state.virtual 身分，避免對已卸載文件捲動');
     assert.match(virtualBody, /const jumpToken\s*=\s*state\._openToken;/, '應於進入時捕捉 _openToken');
     assert.match(virtualBody, /state\._openToken\s*!==\s*jumpToken/, '應偵測文件切換並中止修正');
-    assert.match(virtualBody, /target\.isConnected/, '應確認 target 仍在文件樹中');
+    assert.match(virtualBody, /scrollTarget\.isConnected/, '應確認 scrollTarget 仍在文件樹中');
   });
 
   test('修正迴圈具備無進展（震盪）與捲動邊界終止條件', () => {

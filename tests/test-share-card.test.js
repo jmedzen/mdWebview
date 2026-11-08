@@ -172,23 +172,29 @@ describe('lib/share-card-server：伺服器畫圖', () => {
     assert.ok(sc.status().fonts.includes('DancingScript-700.ttf'), '字型沒被載入');
   });
 
-  test('分享面板小預覽：直式版面畫在 864×1080，比全尺寸小很多；快取和全尺寸分開', async (t) => {
+  test('分享面板小預覽：直式版面畫在 540×675，比全尺寸小很多；快取和全尺寸分開', async (t) => {
     if (!sc.available()) { t.skip('@napi-rs/canvas 不可用'); return; }
     const { loadImage } = require('@napi-rs/canvas');
-    assert.deepEqual(ShareCard.PREVIEW_PIXELS, [864, 1080]);
+    assert.deepEqual(ShareCard.PREVIEW_PIXELS, [540, 675]);
     const opts = { layout: 'A', size: 'portrait', verse: { text: '諸惡莫作，眾善奉行。', source: '' }, greeting: '早安', date: '2026-11-03', siteName: 's', host: '', qr: 'https://example.org/v/0123456789A' };
     const timing = {};
     const small = await sc.render({ ...opts, preview: true }, timing);
     const full = await sc.render(opts);
     assert.notEqual(small, full);
     const img = await loadImage(small);
-    assert.deepEqual([img.width, img.height], [864, 1080]);
+    assert.deepEqual([img.width, img.height], [540, 675]);
     assert.ok(small.length < full.length / 2, `預覽 ${small.length} B 應比全尺寸 ${full.length} B 小很多`);
     assert.equal(timing.cache, 'miss');
     for (const k of ['decode', 'draw', 'encode']) assert.ok(Number.isFinite(timing[k]), `timing.${k}`);
     const again = {};
     await sc.render({ ...opts, preview: true }, again);
     assert.equal(again.cache, 'hit');
+    // WebP：只有預覽能要，比 JPEG 小，快取獨立
+    const webp = await sc.render({ ...opts, preview: true, webp: true });
+    assert.equal(webp.toString('latin1', 8, 12), 'WEBP');
+    assert.ok(webp.length < small.length, `WebP ${webp.length} B 應比 JPEG ${small.length} B 小`);
+    const fullWebp = await sc.render({ ...opts, webp: true });
+    assert.equal(fullWebp[0], 0xff, '全尺寸一律 JPEG');
     // og 沒有預覽版：preview 只對直式有效
     const og = await loadImage(await sc.render({ ...opts, size: 'og', preview: true }));
     assert.deepEqual([og.width, og.height], ShareCard.PIXEL_SIZES.og);

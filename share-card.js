@@ -27,13 +27,16 @@
 })(typeof self !== 'undefined' ? self : this, function (getQrLib) {
   'use strict';
 
+  // 奶油底色：所有米色版型共用（A/I/J/N/P/Q）。B/C 與 QR 色不在此列。
+  const CREAM_TOP = '#f6f0e2', CREAM_BOTTOM = '#efe6d0', CREAM_RGB = '246,240,226';
+
   const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'];
   const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
   const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
   // 分享面板裡的小預覽（直式版面縮成 0.8 倍）：手機上一格只有約 260 CSS px 寬，
   // 用不到 1620 寬；真正傳出去、存下來的仍是 PIXEL_SIZES.portrait 全尺寸。
-  const PREVIEW_PIXELS = [864, 1080];
+  const PREVIEW_PIXELS = [540, 675];
   const GREETINGS = ['早安', '午安', '晚安', '法安', '自在', '吉祥'];   // 法安／自在／吉祥 = 不分時間，給跨時區的收件人
   const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
 
@@ -312,7 +315,7 @@
   }
 
   // ── 版型 A：晨光留白 ─────────────────────────────────────────────────
-  const PAPER = '#f8f3e8', INK = '#2a2620', INK_SOFT = '#7a6a52', GOLD = '#b08d4a', RULE = '#d9ccb2';
+  const PAPER = CREAM_TOP, INK = '#2a2620', INK_SOFT = '#7a6a52', GOLD = '#b08d4a', RULE = '#d9ccb2';
 
   function drawA(ctx, w, h, o) {
     const land = w > h;
@@ -323,7 +326,7 @@
       const ih = Math.round(h * 0.58);
       drawCover(ctx, o.image, 0, 0, w, ih, 0.5, 0.45);
       const fade = ctx.createLinearGradient(0, ih * 0.55, 0, ih);
-      fade.addColorStop(0, 'rgba(248,243,232,0)');
+      fade.addColorStop(0, 'rgba(246,240,226,0)');
       fade.addColorStop(1, PAPER);
       ctx.fillStyle = fade;
       ctx.fillRect(0, ih * 0.55 - 1, w, ih * 0.45 + 2);
@@ -372,7 +375,7 @@
     const iw = Math.round(w * 0.5);
     drawCover(ctx, o.image, 0, 0, iw, h, 0.5, 0.5);
     const fade = ctx.createLinearGradient(iw * 0.6, 0, iw, 0);
-    fade.addColorStop(0, 'rgba(248,243,232,0)');
+    fade.addColorStop(0, 'rgba(246,240,226,0)');
     fade.addColorStop(1, PAPER);
     ctx.fillStyle = fade;
     ctx.fillRect(iw * 0.6, 0, iw * 0.4 + 1, h);
@@ -658,7 +661,7 @@
   // 海報式不對稱：整幅圖往右漸隱成米色，右側兩欄超大直書經句，「早安」是一方紅印。
   function drawI(ctx, w, h, o) {
     if (w > h) return drawILand(ctx, w, h, o);
-    const CREAM = '246,240,226';
+    const CREAM = CREAM_RGB;
     ctx.fillStyle = `rgb(${CREAM})`;
     ctx.fillRect(0, 0, w, h);
     drawCover(ctx, o.image, 0, 0, w, h, 0.4, 0.5);
@@ -736,7 +739,7 @@
   function drawJ(ctx, w, h, o) {
     if (w > h) return drawJLand(ctx, w, h, o);
     const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#f6f0e1'); bg.addColorStop(1, '#efe6d0');
+    bg.addColorStop(0, CREAM_TOP); bg.addColorStop(1, CREAM_BOTTOM);
     ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
     grain(ctx, w, h, 9, 0.06, false);
     // 廊柱：兩側細金線，端點小菱形
@@ -836,7 +839,7 @@
   function drawN(ctx, w, h, o) {
     if (w > h) return drawNLand(ctx, w, h, o);
     const split = 820;
-    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    paperBg(ctx, 0, 0, w, h, CREAM_TOP, CREAM_BOTTOM);
     drawCover(ctx, o.image, 0, 0, w, split, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
     ctx.fillRect(0, split, w, 6);
@@ -858,7 +861,7 @@
   function drawP(ctx, w, h, o) {
     if (w > h) return drawPLand(ctx, w, h, o);
     const pw = 440;
-    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    paperBg(ctx, 0, 0, w, h, CREAM_TOP, CREAM_BOTTOM);
     grain(ctx, w, h, 6, 0.05, false);
     drawCover(ctx, o.image, 0, 0, pw, h, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h);
@@ -899,7 +902,7 @@
   function drawQ(ctx, w, h, o) {
     if (w > h) return drawQLand(ctx, w, h, o);
     const t1 = 290, t2 = 1000;
-    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    paperBg(ctx, 0, 0, w, h, CREAM_TOP, CREAM_BOTTOM);
     grain(ctx, w, h, 8, 0.05, false);
     ctx.fillStyle = '#231e18';
     ctx.font = enFont(124);
@@ -926,7 +929,7 @@
   // 版型 N 的橫式：左圖右文。
   function drawNLand(ctx, w, h, o) {
     const split = 720;
-    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    paperBg(ctx, 0, 0, w, h, CREAM_TOP, CREAM_BOTTOM);
     drawCover(ctx, o.image, 0, 0, split, h, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h);
     ctx.fillRect(split, 0, 6, h);
@@ -945,7 +948,7 @@
   // 版型 P 的橫式：左邊直立的圖、右邊置中直書經句。
   function drawPLand(ctx, w, h, o) {
     const pw = 360;
-    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    paperBg(ctx, 0, 0, w, h, CREAM_TOP, CREAM_BOTTOM);
     grain(ctx, w, h, 6, 0.05, false);
     drawCover(ctx, o.image, 0, 0, pw, h, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h);
@@ -978,7 +981,7 @@
   // 版型 Q 的橫式：上條英文問候與日期、中間整幅的圖、下方經句。
   function drawQLand(ctx, w, h, o) {
     const t1 = 100, t2 = 440;
-    paperBg(ctx, 0, 0, w, h, '#f7f1e3', '#efe6d0');
+    paperBg(ctx, 0, 0, w, h, CREAM_TOP, CREAM_BOTTOM);
     grain(ctx, w, h, 8, 0.05, false);
     ctx.fillStyle = '#231e18';
     ctx.font = enFont(62);
@@ -998,7 +1001,7 @@
 
   // 版型 I 的橫式（連結預覽圖 1200×630）：圖在左、漸隱成米色，右側直書。
   function drawILand(ctx, w, h, o) {
-    const CREAM = '246,240,226';
+    const CREAM = CREAM_RGB;
     ctx.fillStyle = `rgb(${CREAM})`;
     ctx.fillRect(0, 0, w, h);
     drawCover(ctx, o.image, 0, 0, w, h, 0.4, 0.5);
@@ -1051,7 +1054,7 @@
   // 版型 J 的橫式：左邊拱形畫窗，右邊問候、蓮花線、經句。
   function drawJLand(ctx, w, h, o) {
     const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#f6f0e1'); bg.addColorStop(1, '#efe6d0');
+    bg.addColorStop(0, CREAM_TOP); bg.addColorStop(1, CREAM_BOTTOM);
     ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
     grain(ctx, w, h, 9, 0.06, false);
     const ax = 86, aw = 380, ay = 74, ah = 482, ar = aw / 2;

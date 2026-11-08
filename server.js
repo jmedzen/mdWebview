@@ -2663,6 +2663,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       }
     }
 
+    // Release the previous index BEFORE building the new one so old + new never coexist
+    // (this was the dominant ~2x factor in the rebuild RSS peak). Search falls back to the
+    // non-index path while `ready` is false; the new index is swapped in atomically below.
+    if (searchIndex.ready) {
+      searchIndex = { ready: false, building: true, vaultSig: null, createdAt: null, fileList: [], fileMap: new Map(), units: [], bigrams: new Map() };
+      if (global.gc) global.gc();
+    }
+
     const heapLimitMb = Math.round(v8.getHeapStatistics().heap_size_limit / (1024 * 1024));
     const startRssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
     if (heapLimitMb < 4096) {
@@ -2726,9 +2734,16 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       (result, task) => {
         for (const r of result.results) {
           for (const bg of r.bigrams) {
+            // Growable Uint32Array posting buffer (4 B/entry, no per-element boxing)
+            // instead of a JS number[] — roughly halves peak heap during build.
             let list = bigrams.get(bg);
-            if (!list) { list = []; bigrams.set(bg, list); }
-            list.push(r.unitId);
+            if (!list) { list = { buf: new Uint32Array(2), n: 0 }; bigrams.set(bg, list); }
+            if (list.n === list.buf.length) {
+              const grown = new Uint32Array(list.buf.length * 2);
+              grown.set(list.buf);
+              list.buf = grown;
+            }
+            list.buf[list.n++] = r.unitId;
           }
           // 逐 unit 累加並檢查里程碑：worker 是一檔一 task 回傳，若只在 task
           // 結束時累加，單一大檔案會一次跳過好幾個里程碑（實測曾一次跳 4200
@@ -2753,11 +2768,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     // Sort posting lists for O(n+m) sorted-merge intersection, then compact in-place to TypedArrays
     const useUint16 = units.length < 65536;
     for (const [bg, list] of bigrams.entries()) {
-      if (list.length === 1) {
-        bigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
+      if (list.n === 1) {
+        bigrams.set(bg, list.buf[0]); // Primitive number (0 bytes V8 Heap overhead!)
       } else {
-        list.sort((a, b) => a - b);
-        bigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list));
+        // Sort in place on the typed array, then copy to an exact-size array so the
+        // over-allocated growth buffer is released immediately (per-key, not all at once).
+        const view = list.buf.subarray(0, list.n);
+        view.sort();
+        bigrams.set(bg, useUint16 ? Uint16Array.from(view) : view.slice());
       }
     }
 
@@ -4430,7 +4448,7 @@ function shareCardSite(req) {
 }
 
 /** 卡片參數（日期、問候、版型、尺寸）整理成合法值。 */
-function shareCardParams(query) {
+function shareCardParams(query, req) {
   // 連結沒帶日期時用「網站時區」的今天（不用伺服器的 UTC）；沒帶問候時用不分時間的「吉祥」，
   // 因為這張圖是給不知道在哪個時區的收件人（LINE 預覽的爬蟲）看的。
   // 瀏覽器端畫卡一定會帶上傳送者自己時區的日期與問候。
@@ -4441,6 +4459,8 @@ function shareCardParams(query) {
     size: ShareCard.normalizeSize(query.size),
     // size=preview：分享面板裡的小預覽（直式版面、較小的畫布），傳出去的仍是 size=portrait
     preview: query.size === 'preview',
+    // 預覽圖：瀏覽器的 Accept 有 image/webp 就出 WebP（更小）；其他情況維持 JPEG
+    webp: query.size === 'preview' && /image\/webp/.test(String((req && req.headers.accept) || '')),
     qr: query.qr === '1'
   };
 }
@@ -4507,7 +4527,7 @@ async function handleShareCardImage(req, res, query) {
   try {
     const v = await findCardSubject(query);
     if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
-    const p = shareCardParams(query);
+    const p = shareCardParams(query, req);
     const pics = await shareCardServer.listPics();
     const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
     let picAbs = rel ? shareCardServer.resolvePic(rel) : null;
@@ -4516,10 +4536,12 @@ async function handleShareCardImage(req, res, query) {
     const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, qr: shareCardQrUrl(req, v, p), ...shareCardSite(req) }, timing);
     const etag = `"sc-${crypto.createHash('md5').update(buf).digest('hex').slice(0, 16)}"`;
     const headers = Object.assign({
-      'Content-Type': 'image/jpeg',
+      'Content-Type': p.webp ? 'image/webp' : 'image/jpeg',
       'Content-Length': buf.length,
-      'Cache-Control': 'public, max-age=3600',
+      // 預覽圖網址已含 id／版型／日期／問候，內容固定，瀏覽器可放心久存；其餘維持 1 小時
+      'Cache-Control': p.size === 'preview' || p.preview ? 'public, max-age=86400' : 'public, max-age=3600',
       'ETag': etag,
+      ...(p.preview ? { 'Vary': 'Accept' } : {}),
       // 瀏覽器開發工具「Timing」看得到：解碼背景圖／畫圖／JPEG 編碼各花幾毫秒（快取命中則只有 cache）
       'Server-Timing': shareCardServerTiming(timing)
     }, SECURITY_HEADERS);

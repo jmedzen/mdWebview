@@ -465,3 +465,24 @@ describe('接線（靜態檢查）', () => {
     assert.ok(!/\.kepan-nav \{[^}]*position: sticky/.test(css), '不再是黏在正文底部的長條');
   });
 });
+
+describe('動態科判：純文字干支行', () => {
+  test('opts.plain 時掃沒有 # 的「干支＋數字（＋分N科）」行', () => {
+    const segs = K.parseHeadingSegments('甲一、本地分（分二科）', { plain: true });
+    assert.deepEqual(segs.map(s => [s.ch, s.num, s.title, s.split]), [['甲', 1, '本地分', 2]]);
+    assert.equal(K.parseHeadingSegments('子三重舉標簡', { plain: true })[0].ch, '子');
+  });
+  test('預設（不給 plain）仍只認 # 標題', () => {
+    assert.deepEqual(K.parseHeadingSegments('甲一、本地分'), []);
+  });
+  test('講解文字、縮排行、非干支起頭都不算', () => {
+    for (const l of ['一般段落', '天地玄黃', '甲一、他說，是的。', '  甲一、縮排', '說 甲一、不在行首'])
+      assert.deepEqual(K.parseHeadingSegments(l, { plain: true }), [], l);
+  });
+  test('buildKepanTree：純文字行與 # 標題混合建樹，程式碼區塊內不掃', () => {
+    const text = ['甲一、總標（分二科）', '乙一、先', '## 乙二、後', '```', '丙一、不該算', '```', '丙一、尾'].join('\n');
+    const t = K.buildKepanTree([{ name: 'a', text }]);
+    assert.deepEqual(t.nodes.slice(1).map(n => n.m + n.t), ['甲一總標', '乙一先', '乙二後', '丙一尾']);
+    assert.deepEqual(t.heads[0].map(h => h[0]), [1, 2, 3, 7]);
+  });
+});
