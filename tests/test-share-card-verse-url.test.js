@@ -94,13 +94,13 @@ describe('換一句後網址列跟著換', () => {
     assert.equal(sb2.calls.length, 0);
   });
 
-  test('接線：換一句後同步網址；回首頁帶著 ?verse=；分享連結進來留著 verse、清掉 d/g/l', () => {
+  test('接線：換一句後同步網址；回首頁帶著 ?verse=；分享連結進來留著 verse、清掉 d/g/l/b', () => {
     const shuffle = extractFunction(appJs, 'async function shuffleHomeVerse()');
     assert.match(shuffle, /renderHomeVerse\(\);\s*syncHomeVerseUrl\(\);/);
     const goHome = extractFunction(appJs, 'function goHome(clearUrl = true)');
     assert.match(goHome, /history\.pushState\(null, '', homeVerseUrl\(\)\)/);
     const apply = extractFunction(appJs, 'async function applyVerseLinkFromUrl()');
-    assert.match(apply, /for \(const k of \['d', 'g', 'l'\]\) params\.delete\(k\);/);
+    assert.match(apply, /for \(const k of \['d', 'g', 'l', 'b'\]\) params\.delete\(k\);/);
     assert.match(apply, /syncHomeVerseUrl\(\);/);
   });
 

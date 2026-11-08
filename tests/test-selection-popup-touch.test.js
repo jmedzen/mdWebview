@@ -2,6 +2,7 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { resolveTestMdRoot } = require('./helpers/md-root');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const appJs = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
@@ -131,7 +132,7 @@ function stopServer(child) {
 
 describe('選字彈窗「更多」：iPhone 觸控實測', () => {
   const pw = loadPlaywright();
-  const mdRoot = path.join(ROOT_DIR, 'md');
+  const mdRoot = resolveTestMdRoot();
   const FILE = '01-大正藏/03般若部類/T0251《般若波羅蜜多心經》.md';
   const hasCorpus = fs.existsSync(path.join(mdRoot, FILE));
   const skip = !pw ? '未安裝 playwright' : (!hasCorpus ? 'md/ 為空（先跑 tests/fixtures/make-test-corpus.js）' : false);

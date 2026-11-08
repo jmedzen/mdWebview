@@ -882,7 +882,6 @@
           </svg>
         </button>
       </div>
-      <p class="share-card-hint" id="shareCardHint"><span class="only-desktop">點選喜歡的版型，按兩側箭頭或滾輪看更多</span><span class="only-mobile">左右滑動選版型</span></p>
       <div class="share-card-carousel">
         <button type="button" class="share-card-nav share-card-nav-prev" id="shareCardPrev" title="上一個版型" aria-label="上一個版型">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.28 3.22a.75.75 0 010 1.06L6.56 8l3.72 3.72a.75.75 0 11-1.06 1.06L4.97 8.53a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z"/></svg>
@@ -892,23 +891,22 @@
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.72 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.44 8 5.72 4.28a.75.75 0 010-1.06z"/></svg>
         </button>
       </div>
-      <div class="share-card-dots" id="shareCardDots" aria-hidden="true"></div>
-      <div class="share-card-greetings" id="shareCardGreetings" role="radiogroup" aria-label="問候語"></div>
-      <label class="share-card-qr-toggle">
-        <input type="checkbox" id="shareCardQr">
-        <span>附 QR 碼<span class="share-card-qr-note">（掃了連回原文）</span></span>
-      </label>
+      <div class="share-card-controls">
+        <div class="share-card-bases" id="shareCardBases" role="radiogroup" aria-label="底色"></div>
+        <div class="share-card-opt" id="shareCardGreetings"></div>
+        <button type="button" class="share-card-pill is-on" id="shareCardQr" role="switch" aria-checked="true" title="卡片右下角附一個 QR 碼，掃了連回原文">QR 碼</button>
+      </div>
       <div class="share-card-actions">
         <button type="button" class="share-card-act share-card-act-line" id="shareCardLine">
           <span class="share-card-ic">LINE</span><span id="shareCardLineLabel">傳到 LINE</span>
         </button>
-        <button type="button" class="share-card-act" id="shareCardSave">
+        <button type="button" class="share-card-act" id="shareCardSave" title="存圖片" aria-label="存圖片">
           <span class="share-card-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>存圖片
         </button>
-        <button type="button" class="share-card-act" id="shareCardCopyImg">
+        <button type="button" class="share-card-act" id="shareCardCopyImg" title="複製圖片" aria-label="複製圖片">
           <span class="share-card-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" stroke-width="2"/></svg></span>複製圖片
         </button>
-        <button type="button" class="share-card-act" id="shareCardCopyLink">
+        <button type="button" class="share-card-act" id="shareCardCopyLink" title="複製連結" aria-label="複製連結">
           <span class="share-card-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>複製連結
         </button>
       </div>

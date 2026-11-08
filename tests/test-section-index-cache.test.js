@@ -22,6 +22,7 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { resolveTestMdRoot } = require('./helpers/md-root');
 const os = require('node:os');
 
 // 隔離：bin 檔改寫到暫存目錄。
@@ -90,7 +91,7 @@ function collectLargeFiles(mdRoot) {
 
 test('Section Index Cache: 磁碟鏡像可持久化超過 20 筆（突破 LRU 上限）', async (t) => {
 
-  const mdRoot = path.join(process.cwd(), 'md');
+  const mdRoot = resolveTestMdRoot();
   if (!fs.existsSync(mdRoot)) {
     t.skip('vault (md/) 不存在，略過');
     return;
@@ -121,7 +122,7 @@ test('Section Index Cache: 磁碟鏡像可持久化超過 20 筆（突破 LRU �
 });
 
 test('Section Index Cache: 連續建置合併為單次寫入（去抖）', async (t) => {
-  const mdRoot = path.join(process.cwd(), 'md');
+  const mdRoot = resolveTestMdRoot();
   if (!fs.existsSync(mdRoot)) {
     t.skip('vault (md/) 不存在，略過');
     return;
@@ -170,7 +171,7 @@ test('Section Index Cache: 連續建置合併為單次寫入（去抖）', async
  * 會依實際路徑分別累加：LRU 命中、鏡像命中、worker 重建。
  */
 test('Section Index Cache: 三層快取計數器可區分 LRU 命中／鏡像命中／重建', async (t) => {
-  const mdRoot = path.join(process.cwd(), 'md');
+  const mdRoot = resolveTestMdRoot();
   if (!fs.existsSync(mdRoot)) {
     t.skip('vault (md/) 不存在，略過');
     return;
@@ -210,7 +211,7 @@ test('Section Index Cache: 三層快取計數器可區分 LRU 命中／鏡像命
 });
 
 test('Section Index Cache: 讀滿超過 20 筆後，被淘汰的檔案由鏡像命中而非重建', async (t) => {
-  const mdRoot = path.join(process.cwd(), 'md');
+  const mdRoot = resolveTestMdRoot();
   if (!fs.existsSync(mdRoot)) {
     t.skip('vault (md/) 不存在，略過');
     return;

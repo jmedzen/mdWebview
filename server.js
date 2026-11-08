@@ -78,7 +78,7 @@ const {
   getRootRealpath, isRealPathWithinRoot, clearRealpathCache,
   flattenMarkdownFiles, getClientIP, getBaseUrl,
   safeDecodeURI, safeDecodeURIComponent,
-  hasHiddenSegment, isMarkdownPath, isForbiddenContentRoot
+  hasHiddenSegment, isMarkdownPath, isForbiddenContentRoot, parseByteRange
 } = require('./lib/utils');
 
 const {
@@ -995,7 +995,7 @@ async function handleFile(req, res, query) {
  *   1. 相對於文件資料夾（query.doc 指定文件位置）
  *   2. 相對於 mdRoot 根目錄
  *   3. 全庫模糊搜尋（依 basename 比對）
- * 包含 MIME 類型推斷、ETag + Cache-Control、範圍請求（Range）支援。
+ * 包含 MIME 類型推斷、ETag + Cache-Control、單一範圍請求（Range → 206/416）支援。
  *
  * @param {http.IncomingMessage} req   - HTTP 請求物件（可含 Range 標頭）
  * @param {http.ServerResponse}  res   - HTTP 回應物件
@@ -1107,29 +1107,39 @@ async function handleMedia(req, res, query) {
       return res.end();
     }
 
-    if (req.method === 'HEAD') {
-      res.writeHead(200, Object.assign({
-        'Content-Type': contentType,
-        'Content-Length': stat.size,
-        'ETag': etag,
-        'Cache-Control': 'public, max-age=86400'
+    // Byte ranges (PDF viewers, Safari, resumed downloads). The ETag is weak, and
+    // If-Range needs a strong validator, so a conditional range request is
+    // answered with the whole file rather than risk splicing two versions.
+    const range = req.headers['if-range'] ? null : parseByteRange(req.headers['range'], stat.size);
+    if (range && range.unsatisfiable) {
+      res.writeHead(416, Object.assign({
+        'Content-Range': `bytes */${stat.size}`,
+        'Content-Type': 'text/plain'
       }, SECURITY_HEADERS));
       return res.end();
     }
 
-    const stream = fs.createReadStream(resolvedPath);
     const mediaHeaders = {
       'Content-Type': contentType,
-      'Content-Length': stat.size,
+      'Content-Length': range ? range.end - range.start + 1 : stat.size,
+      'Accept-Ranges': 'bytes',
       'ETag': etag,
       'Cache-Control': 'public, max-age=86400'
     };
+    if (range) mediaHeaders['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
     // Directly navigating to a vault .svg serves an executable same-origin document.
     // A restrictive CSP neutralizes any embedded script without affecting <img> use.
     if (ext === '.svg') {
       mediaHeaders['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'";
     }
-    res.writeHead(200, Object.assign({}, SECURITY_HEADERS, mediaHeaders));
+
+    if (req.method === 'HEAD') {
+      res.writeHead(range ? 206 : 200, Object.assign({}, SECURITY_HEADERS, mediaHeaders));
+      return res.end();
+    }
+
+    const stream = fs.createReadStream(resolvedPath, range ? { start: range.start, end: range.end } : undefined);
+    res.writeHead(range ? 206 : 200, Object.assign({}, SECURITY_HEADERS, mediaHeaders));
 
     stream.on('error', (streamErr) => {
       Logger.error('Media', `Error streaming media file "${resolvedPath}"`, streamErr, req);
@@ -3643,6 +3653,30 @@ async function handleDictSearch(req, res, query) {
   }
 }
 
+// ── API: request-body helpers ────────────────────────────────
+/** Answer an oversized request body with 413 and close the connection afterwards. */
+function sendPayloadTooLarge(res) {
+  if (res.headersSent) return;
+  // `Connection: close` makes Node hang up once the 413 is out, so a client that
+  // keeps streaming a huge body cannot hold the socket open.
+  res.setHeader('Connection', 'close');
+  sendJSON(res, 413, { error: 'Payload too large', code: 'PAYLOAD_TOO_LARGE' });
+}
+
+/**
+ * readJSONBody for handlers that treat a malformed body as "no data" (field
+ * validation then answers 400). An oversized body is answered here with 413 and
+ * the function returns null, so the caller must `return` straight away.
+ */
+async function readBodyOr413(req, res) {
+  try {
+    return await readJSONBody(req);
+  } catch (err) {
+    if (err && err.status === 413) { sendPayloadTooLarge(res); return null; }
+    return {};
+  }
+}
+
 // ── API: Dictionary Analytics Event (client-side beacon) ────────────────────
 // Fire-and-forget endpoint for the client-side dictionary panel. Dictionary
 // queries auto-search on every keystroke (no Enter), so we deliberately do NOT
@@ -3655,7 +3689,8 @@ async function handleDictSearch(req, res, query) {
 // Never blocks the caller; a malformed body simply yields an empty payload.
 async function handleDictEvent(req, res) {
   let data = {};
-  try { data = await readJSONBody(req); } catch (_) {}
+  data = await readBodyOr413(req, res);
+  if (data === null) return;
   const kind = String(data.kind || '').trim();
   const file = String(data.file || '').trim().slice(0, 500);
   const headword = String(data.headword || '').trim().slice(0, 300);
@@ -3679,7 +3714,8 @@ async function handleDictEvent(req, res) {
  */
 async function handleTreeFilterEvent(req, res) {
   let data = {};
-  try { data = await readJSONBody(req); } catch (_) {}
+  data = await readBodyOr413(req, res);
+  if (data === null) return;
   const q = String(data.query || '').trim().slice(0, 300);
   if (!q) {
     return sendJSON(res, 400, { error: 'Missing query' });
@@ -4452,10 +4488,13 @@ function shareCardParams(query, req) {
   // 連結沒帶日期時用「網站時區」的今天（不用伺服器的 UTC）；沒帶問候時用不分時間的「吉祥」，
   // 因為這張圖是給不知道在哪個時區的收件人（LINE 預覽的爬蟲）看的。
   // 瀏覽器端畫卡一定會帶上傳送者自己時區的日期與問候。
+  const base = ShareCard.normalizeBase(query.base || query.b);   // 沒帶或不認得一律奶油，舊連結不變
   return {
     date: ShareCard.normalizeDate(query.d) || ShareCard.zonedNow(dailyVerseTimezone()).ymd,
     greeting: ShareCard.GREETINGS.includes(query.g) ? query.g : '吉祥',
-    layout: ShareCard.normalizeLayout(query.layout || query.l),
+    // 底色只影響紙底版型；B 只給奶油，月白／竹青／素紙各有專屬版型（K／L／M）
+    layout: ShareCard.layoutFor(query.layout || query.l, base),
+    base,
     size: ShareCard.normalizeSize(query.size),
     // size=preview：分享面板裡的小預覽（直式版面、較小的畫布），傳出去的仍是 size=portrait
     preview: query.size === 'preview',
@@ -4519,7 +4558,12 @@ async function handleShareCardMeta(req, res, query) {
   }
 }
 
-/** GET /api/share-card.jpg?id=&layout=A|B|C&size=portrait|preview|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
+/** 網址上的底色參數：奶油（預設）不寫，舊連結與快取網址維持原樣。 */
+function shareCardBaseQs(p, key) {
+  return p.base && p.base !== 'cream' ? `&${key}=${p.base}` : '';
+}
+
+/** GET /api/share-card.jpg?id=&layout=A|B|C&base=cream|moon|…&size=portrait|preview|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
 async function handleShareCardImage(req, res, query) {
   if (!shareCardServer.available()) {
     return sendJSON(res, 503, { error: 'Share card renderer unavailable', renderer: false });
@@ -4602,7 +4646,8 @@ async function handlePicCard(req, res, query) {
  */
 async function handleShareCardEvent(req, res) {
   let data = {};
-  try { data = await readJSONBody(req); } catch (_) {}
+  data = await readBodyOr413(req, res);
+  if (data === null) return;
   const ev = String(data.ev || '');
   if (!shareStats.CLIENT_EVENTS.has(ev)) return sendJSON(res, 400, { error: 'Unknown event' });
   const verseIdStr = /^[0-9a-f]{10}$/.test(String(data.verse || '')) ? String(data.verse) : '';
@@ -4733,12 +4778,12 @@ async function handleVerseShareLink(req, res, query) {
     }
     const baseUrl = getBaseUrl(req, config.settings.siteUrl);
     const site = config.settings.siteName || 'mdWebview';
-    const qs = `id=${v.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+    const qs = `id=${v.id}&layout=${p.layout}${shareCardBaseQs(p, 'base')}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
     og = {
       title: `${p.greeting}．${shareOgFirst(v.text)}`,
       desc: `${v.text}${v.source ? `　《${v.source}》` : ''}　— ${site} · 每日經句`,
       img: `${baseUrl}/api/share-card.jpg?${qs}`,
-      url: `${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`
+      url: `${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}${shareCardBaseQs(p, 'b')}`
     };
   }
   sendIndexWithShareOg(req, res, og);
@@ -4747,7 +4792,7 @@ async function handleVerseShareLink(req, res, query) {
 /** 選句的分享連結：打開那一篇並跳到那一行，預覽圖是那張早安圖。 */
 function quoteShareUrl(baseUrl, quote, p) {
   return `${baseUrl}/?file=${encodeURIComponent(quote.path)}${quote.line ? `&line=${quote.line}` : ''}` +
-    `&quote=${quote.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`;
+    `&quote=${quote.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}${shareCardBaseQs(p, 'b')}`;
 }
 
 /**
@@ -4764,7 +4809,7 @@ function handleQuoteShareLink(req, res, query) {
     }
     const baseUrl = getBaseUrl(req, config.settings.siteUrl);
     const site = config.settings.siteName || 'mdWebview';
-    const qs = `q=${q.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+    const qs = `q=${q.id}&layout=${p.layout}${shareCardBaseQs(p, 'base')}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
     og = {
       title: `${p.greeting}．${shareOgFirst(q.text)}`,
       desc: `${q.text}${q.source ? `　《${q.source}》` : ''}　— ${site} · 經文選句`,
@@ -4789,7 +4834,8 @@ async function handleCreateShareQuote(req, res) {
   const user = require('./lib/session').getUser(req);
   if (!user) return sendJSON(res, 401, { error: '登入後才能用選取的經文製作早安圖', code: 'LOGIN_REQUIRED' });
   let data = {};
-  try { data = await readJSONBody(req); } catch (_) {}
+  data = await readBodyOr413(req, res);
+  if (data === null) return;
   const text = typeof data.text === 'string' ? data.text : '';
   const r = resolveMdPath(typeof data.path === 'string' ? data.path : '');
   if (!r) return sendJSON(res, 404, { error: '找不到這一篇', code: 'NOT_FOUND' });
@@ -4866,7 +4912,8 @@ async function handleAdminHideShareQuote(req, res) {
   if (!requireAdmin(req, res, sendJSON)) return;
   if (!accounts.lenientSameOrigin(req)) return sendJSON(res, 403, { error: '請求來源不符', code: 'BAD_ORIGIN' });
   let data = {};
-  try { data = await readJSONBody(req); } catch (_) {}
+  data = await readBodyOr413(req, res);
+  if (data === null) return;
   const id = String(data.id || '');
   if (!shareQuotes.ID_RE.test(id) || !accountsDb.isAvailable()) return sendJSON(res, 400, { error: 'Invalid id' });
   if (!accountsDb.setShareQuoteHidden(id, !!data.hidden)) return sendJSON(res, 404, { error: 'Not found' });
@@ -5403,6 +5450,7 @@ async function handleAdminDiagnosePath(req, res) {
       type: type || 'vault'
     });
   } catch (err) {
+    if (err && err.status === 413) return sendPayloadTooLarge(res);
     return sendJSON(res, 500, { error: err.message });
   }
 }
@@ -5927,6 +5975,7 @@ const server = http.createServer((req, res) => {
       Logger.info('Admin', `Admin account "${(name || email).slice(0, 100)}" and siteUrl "${cleanSiteUrl}" successfully initialized from ${getClientIP(req)}`, req);
       return sendJSON(res, 200, result.body);
     }).catch(err => {
+      if (err && err.status === 413) return sendPayloadTooLarge(res);
       Logger.error('Admin', 'First-run setup failed', err, req);
       return sendJSON(res, 500, { error: 'Internal Server Error' });
     });
@@ -6231,6 +6280,7 @@ const server = http.createServer((req, res) => {
         return sendJSON(res, 400, { error: `Directory path does not exist or is not readable (${err.code || err.message})` });
       });
     }).catch(err => {
+      if (err && err.status === 413) return sendPayloadTooLarge(res);
       return sendJSON(res, 500, { error: err.message });
     });
   }
