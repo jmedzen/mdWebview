@@ -363,6 +363,7 @@ describe('檔案瀏覽器篩選日誌與數據分析 — 注音/拼音組字感�
     const ctx = {
       searchMetrics,
       readJSONBody: async (req) => req._body || {},
+      readBodyOr413: async (req) => req._body || {},
       sendJSON: (_res, status, payload) => { response = { status, payload }; },
       Logger: {
         info(tag, message, _req, extra) {
