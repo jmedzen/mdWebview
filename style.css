@@ -7069,6 +7069,395 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   box-shadow: none;
 }
 
+/* ── §31e 後台緊急修正（改版第 1 階段） ── */
+
+/* 後台的設定格線只有一欄；舊的 .config-card.full-width 用 span 2，會在一欄格線裡
+   長出隱形的第二欄，讓其他卡片並排（安全與攔截、備份與還原）。 */
+.admin-shell .config-card.full-width {
+  grid-column: 1 / -1;
+}
+
+/* 說明文字：.form-hint（搜尋引擎與分享頁）原本沒有任何樣式，字比標籤還大。
+   與 .field-hint 一致。 */
+.admin-shell .form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 素紙主題的強調色是朱紅，和刪除、還原等危險操作分不開；後台改用素紙的墨藍。 */
+[data-theme="paper"] .admin-shell {
+  --accent: var(--link-color);
+  --accent-hover: #17466d;
+  --accent-dim: rgba(31, 90, 138, 0.1);
+}
+
+@media (max-width: 768px) {
+  /* 系統狀態：舊的兩欄格線寫在手機規則之後，把手機一欄蓋掉了 */
+  .admin-shell .hardware-dashboard-grid,
+  .admin-shell .index-status-columns,
+  .admin-shell .hardware-sub-metrics.grid-2col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-shell .hardware-sub-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-shell .sub-metric.full-width {
+    grid-column: 1 / -1;
+  }
+
+  /* 卡片標題列的重建索引按鈕換到下一行，不擠標題 */
+  .admin-shell .hardware-card-header {
+    flex-wrap: wrap;
+  }
+
+  .admin-shell .hardware-card-header #hwRebuildIndexBtn {
+    margin-left: 0 !important;
+  }
+}
+
+/* ── §31f 後台元件（改版第 2 階段） ──
+   一頁一件事：區塊（.config-card）沿用總覽卡片的外觀，不再收合；
+   標籤、說明文字、開關列各只有一種樣子。 */
+.admin-shell {
+  --adm-gap: 14px;
+  --adm-settings-width: 760px;
+  --status-ok: #2e9e5b;
+  --status-warn: #e0a100;
+  --status-bad: #d64545;
+}
+
+/* 設定頁：一欄、最寬 760px（使用者、備份等清單頁另計） */
+.admin-shell #adminPaneConfig .admin-config-grid,
+.admin-shell #adminPaneSeo .admin-config-grid,
+.admin-shell #adminPaneAccountSystem .admin-config-grid,
+.admin-shell #adminPaneReports .admin-config-grid,
+.admin-shell #adminSettingsForm > .modal-actions,
+.admin-shell #adminSeoForm > .modal-actions {
+  max-width: var(--adm-settings-width);
+}
+
+.admin-shell .admin-config-grid {
+  gap: var(--adm-gap);
+}
+
+/* 區塊 */
+.admin-shell .config-card,
+.admin-shell .config-card:hover {
+  padding: 16px 18px;
+  gap: 14px;
+  border-color: var(--border-subtle);
+  box-shadow: none;
+  transition: none;
+}
+
+.admin-shell .config-card-header {
+  gap: 8px;
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  cursor: default;
+}
+
+.admin-shell .config-card-icon {
+  font-size: 16px;
+}
+
+.admin-shell .config-card-title {
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  max-width: none;
+  flex-shrink: 1;
+}
+
+/* 狀態燈與狀態文字靠右，和總覽的「前往 ›」同一個位置 */
+.admin-shell .config-card-header > .status-light {
+  order: 2;
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  box-shadow: none;
+}
+
+.admin-shell .config-card-header > .status-light-text {
+  order: 3;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.admin-shell .config-card-header > .account-badge {
+  order: 4;
+  margin-left: 4px;
+}
+
+.admin-shell .status-light.ok { background: var(--status-ok); }
+.admin-shell .status-light.warn { background: var(--status-warn); }
+.admin-shell .status-light.bad { background: var(--status-bad); }
+.admin-shell .config-card-toggle { display: none; }
+
+/* 標籤：只有一種（13.5px 粗體主色）；舊頁面把 .field-hint 當標籤用的也一起統一 */
+.admin-shell .form-group > label,
+.admin-shell .field-label-row > label,
+.admin-shell label.field-hint[for] {
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.admin-shell .form-group {
+  gap: 6px;
+}
+
+.admin-shell .config-card-body {
+  gap: 16px;
+}
+
+.admin-shell .form-group > .field-hint,
+.admin-shell .form-group > .form-hint {
+  margin-top: 0;
+}
+
+/* 開關列：標題在左、開關在右；底下需要填的欄位整行 */
+.admin-shell .footer-config-grid {
+  gap: 0;
+}
+
+.admin-shell .footer-setting-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 14px 0 0;
+  margin: 14px 0 0;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+
+.admin-shell .footer-config-grid > .footer-setting-item:first-child,
+.admin-shell .config-card-body > .footer-setting-item:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.admin-shell .toggle-switch-wrapper {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  margin-bottom: 0;
+}
+
+.admin-shell .toggle-switch-title {
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+}
+
+.admin-shell .footer-setting-item .footer-input-wrap {
+  min-width: 0;
+}
+
+.admin-shell .footer-setting-item .footer-input-wrap input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* ── 改版第 3 階段：其餘設定頁 ── */
+
+/* 區塊標題列右側的動作鈕（例如寄件網域 DNS 的「重新檢查」） */
+.admin-shell .config-card-header > .adm-header-action {
+  order: 5;
+  margin-left: 8px;
+}
+
+.admin-shell .config-card-header > .status-light.off:not(:has(~ .status-light-text:not(:empty))) {
+  visibility: hidden;
+}
+
+/* 舊頁面的「標籤＋欄位」直排：標籤和上一個欄位之間留出段落距離 */
+.admin-shell .setup-form > label.field-hint[for]:not(:first-child),
+.admin-shell .config-card-body > label.field-hint[for]:not(:first-child) {
+  margin-top: 6px;
+}
+
+/* 邀請碼：三個欄位各有標籤 */
+.admin-shell .adm-invite-form {
+  display: grid;
+  grid-template-columns: 110px 150px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.admin-shell .adm-invite-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .admin-shell .adm-invite-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-shell .adm-invite-note,
+  .admin-shell .adm-invite-form > button {
+    grid-column: 1 / -1;
+  }
+}
+
+/* 登入方式：私鑰的檔案鈕 */
+.admin-shell .sso-file-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+.admin-shell .sso-file-btn > input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── 改版第 4 階段：推薦閱讀、監控頁、清單頁 ── */
+
+/* 推薦閱讀：和其他設定頁一樣一欄、最寬 760px，區塊外觀同 .config-card */
+.admin-shell .suggest-admin-form {
+  height: auto;
+}
+
+.admin-shell .suggest-layout {
+  flex: none;
+  min-height: auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--adm-gap);
+  max-width: var(--adm-settings-width);
+}
+
+.admin-shell .suggest-col-left,
+.admin-shell .suggest-col-right {
+  gap: var(--adm-gap);
+  min-height: auto;
+}
+
+.admin-shell .suggest-section {
+  padding: 16px 18px;
+  gap: 12px;
+}
+
+.admin-shell .suggest-section-hot,
+.admin-shell .suggest-hot-info {
+  flex: none;
+}
+
+.admin-shell .suggest-section-title {
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0;
+  gap: 8px;
+}
+
+.admin-shell .suggest-section-icon {
+  font-size: 16px;
+}
+
+.admin-shell .suggest-hint {
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 數據分析：數字卡和總覽的 KPI 卡一樣；工具列可換行，篩選框不被截斷 */
+.admin-shell .analytics-actions {
+  flex-wrap: wrap;
+}
+
+.admin-shell .admin-table-filter {
+  width: 260px;
+  max-width: 100%;
+}
+
+.admin-shell .analytics-cards-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.admin-shell .analytics-card {
+  padding: 12px 14px;
+  align-items: flex-start;
+}
+
+.admin-shell .analytics-card-value {
+  font-size: calc(22px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.admin-shell .analytics-card-label {
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.admin-shell .analytics-section {
+  padding: 16px 18px;
+}
+
+.admin-shell .analytics-section-title {
+  font-weight: 600;
+}
+
+/* 系統狀態：卡片內距與標題同其他區塊 */
+.admin-shell .hardware-card {
+  padding: 16px 18px;
+}
+
+/* 清單頁的表格：手機上橫向捲動，不把欄位擠成一字一行 */
+@media (max-width: 768px) {
+  .admin-shell .analytics-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-shell .admin-users-table,
+  .admin-shell #adminPaneUsers .analytics-table {
+    min-width: 560px;
+  }
+
+  .admin-shell .admin-table-filter {
+    width: 100%;
+  }
+}
+
+/* 備份清單：檔名靠左，下載與還原靠右 */
+.admin-shell #adminBackupList .account-list-row {
+  gap: 8px;
+}
+
+.admin-shell #adminBackupList .account-list-row > span:first-child {
+  margin-right: auto;
+}
+
+/* 區塊裡單獨一顆的按鈕（立即備份、全部解除、載入更早的紀錄）不再撐滿整列 */
+.admin-shell .config-card-body > .modal-btn {
+  align-self: flex-start;
+  width: auto;
+}
+
+/* 使用者分頁裡的設定類區塊（註冊、邀請碼）也照設定頁寬度 */
+.admin-shell .config-card[data-card="registration"],
+.admin-shell .config-card[data-card="invites"] {
+  max-width: var(--adm-settings-width);
+}
+
+.admin-shell .footer-setting-item .diagnose-result {
+  width: 100%;
+}
+
 .analytics-clean-badge {
   font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-primary);

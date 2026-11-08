@@ -5901,11 +5901,11 @@ const server = http.createServer((req, res) => {
         return sendJSON(res, 400, { error: 'Username and password are required' });
       }
       if (!siteUrl) {
-        return sendJSON(res, 400, { error: '首頁權威 URL (Canonical URL) 為必填項目' });
+        return sendJSON(res, 400, { error: '網站網址為必填項目' });
       }
       const cleanSiteUrl = siteUrl.replace(/\/+$/, '');
       if (!/^https?:\/\//i.test(cleanSiteUrl)) {
-        return sendJSON(res, 400, { error: '首頁權威 URL 格式不正確，必須以 http:// 或 https:// 開頭' });
+        return sendJSON(res, 400, { error: '網站網址格式不正確，必須以 http:// 或 https:// 開頭' });
       }
       if (password.length < 12) {
         return sendJSON(res, 400, { error: '管理員密碼長度至少需為 12 個字元' });
