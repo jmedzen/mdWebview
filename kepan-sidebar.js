@@ -839,7 +839,7 @@
     const hs = S.payload.heads[S.fileIndex] || [];
     for (const [line] of hs) {
       const el = document.getElementById('L' + line);
-      const h = el && el.closest('h1, h2, h3, h4, h5, h6');
+      const h = el && el.closest('h1, h2, h3, h4, h5, h6, p');   // 純文字科判行渲染成 <p>
       if (!h || h.classList.contains('kepan-heading')) continue;
       const segs = headingSegments(h.textContent);
       if (!segs.length) continue;
