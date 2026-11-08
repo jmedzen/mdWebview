@@ -27,6 +27,8 @@
   - 系統預設繁體；若你的瀏覽器語言是簡體中文，首次造訪會自動切成簡體，並跳出提示告訴你可從右上角選單切回。
   - 經文原文仍是繁體，簡體是在你的瀏覽器裡即時轉換的；簡體顯示時搜尋會一併比對簡繁字形，輸入簡體或繁體都找得到。
 - 🔖 **書籤與歷程**：右上角選單的「書籤與歷程」會從右側滑出一個面板（手機上是全螢幕）。書籤依資料夾分組，可收合、排序、刪除；歷程依今天／昨天／更早分組。兩個分頁都會顯示每篇讀到幾成的進度條，按「繼續閱讀」回到上次的位置。同一個選單也能直接調整字級大小。
+- 🖍️ **劃重點**：選取經文後，選字小選單最前面有朱、黃、綠、藍四個色點，點一下就在字下畫線；點已劃線的地方可改色、複製或取消。劃線會掛在書籤下，在「書籤與歷程」裡逐條展開、跳回原處。經文日後小改時劃線會跟著新文字走，真的找不到時標成「找不到原處」，不會刪掉。
+- ✂️ **選字小選單**：同一個選單還能複製（可附出處）、查辭典、全站搜尋、複製這一行的分享連結，登入後也能把選取的句子做成早安圖。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
 **搜尋**
@@ -43,6 +45,7 @@
 
 - 🔔 **操作提示**：複製、加書籤、換配色等操作都會跳出小提示；如果操作失敗，提示會停留久一點，讓你看清楚發生什麼事。
 - 🌐 **分享到社群**：把網址貼到 Facebook、Line 等地方時，會自動顯示標題、簡介與預覽圖。
+- ☁️ **登入後跨裝置同步**：書籤、閱讀歷程與劃重點會同步到同一個帳號的其他裝置。
 - 🔒 **後台管理**：管理員可設定站名、公告與推薦清單，查看使用情況與系統狀態，並匯出報表。密碼以加密方式保存，有人反覆嘗試登入會被暫時擋下；登入與登出也都有記錄，方便日後追查。
 - 📦 **離線也能看**：核心程式都放在自己的網站上，不依賴外部服務。看過的內容在斷網後仍可重看；若點開還沒下載過的經文，會清楚顯示「目前處於離線狀態，此經文尚未快取」，而不是空白畫面。
 - 📲 **加到手機桌面**：可以像 App 一樣放在桌面，點一下就讀，不必每次開瀏覽器。
@@ -133,6 +136,18 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 點網站右上角的選單按鈕（頭像）登入，再從選單點「後台系統設定」即可管理。第一次使用時，會請你先設定管理員的 Email（或帳號名稱）與密碼。網站設定存在 `config.json`，帳號存在同一個資料夾的 `users.db`。
 
+後台左邊是分組的頁面清單，右邊一次只顯示一頁（手機上先看清單、點進去再看那一頁）。打開時先看到「總覽」，所有需要處理的項目（例如寄信還沒設定）都列在那裡，點了就到對應的頁面。
+
+| 分組 | 頁面 |
+| :--- | :--- |
+| 網站 | 網站與經文庫、閱讀預設、首頁頁尾與公告、推薦閱讀（含每日經文與早安圖）、搜尋引擎與分享 |
+| 讀者與登入 | 使用者、註冊與邀請碼、登入方式、條款與隱私 |
+| 外部服務 | 開站設定、寄信、Turnstile 人機驗證 |
+| 營運 | 數據分析、報表信 |
+| 系統 | 系統狀態（含重建索引等維護）、安全與攔截、日誌、備份與還原 |
+
+設定類的頁面改了欄位後，畫面底部會出現儲存列，按「儲存」（寄信、Turnstile、登入方式是「儲存並檢查」）才會生效，也可以「還原」。按 <kbd>Ctrl</kbd>／<kbd>Cmd</kbd> + <kbd>K</kbd> 可以搜尋後台的頁面與欄位。網址帶 `#admin/<頁面>` 可以直接打開某一頁。單機版會藏起帳號、搜尋引擎與數據分析相關的頁面。
+
 **每日經文（首頁正中間那一句）**
 
 經句有兩個來源，合併後去掉重複的：
@@ -210,28 +225,47 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 ```text
 mdWebview/
 ├── md/                 # 你的經論檔案放這裡（可再分資料夾）
-├── dicts/              # 佛學辭典檔案（.txt）
+├── dicts/              # 佛學辭典檔案
+├── data/               # Docker 掛載：config.json、users.db、backups/、secrets.key、sutra-quote/、pic-card/
 ├── logs/               # 存取日誌與流量統計（自動產生）
-├── index/              # 搜尋索引快取 *.bin（自動產生，可刪除重建）
-├── tests/              # 自動測試
-├── tools/              # 開發工具（如產生搜尋字組表）
-├── lib/                # 網站主程式會用到的模組
-├── index.html          # 網站主頁
-├── app.js              # 網頁的互動邏輯（目錄、搜尋、辭典、配色、後台）
-├── style.css           # 外觀與五種配色
-├── sw.js               # 離線瀏覽支援
+├── index/              # 搜尋索引快取 *.bin 與早安圖快取（自動產生，可刪除重建）
 ├── server.js           # 網站主程式
+├── lib/                # 主程式的模組（設定、帳號、寄信、報表、科判、早安圖、索引…共 32 個）
+├── render-worker.js    # 伺服器端把 Markdown 變成網頁（背景執行緒）
+├── index-worker.js     # 建立與查詢全文搜尋索引（背景執行緒）
+├── index.html          # 網站主頁（也包含整個後台）
+├── app.js              # 網頁的互動邏輯（目錄、閱讀、搜尋、辭典、劃重點、後台）
+├── style.css           # 外觀與八種配色
+├── kepan-sidebar.js    # 科判側欄
+├── highlights.js       # 劃重點的定位規則（瀏覽器與伺服器共用）
+├── library-sync.js     # 書籤與歷程的同步規則（瀏覽器與伺服器共用）
+├── share-card.js       # 早安圖的版型與畫法（瀏覽器與伺服器共用）
+├── md-worker.js        # 瀏覽器端的 Markdown 解析（備援）
+├── sw.js               # 離線瀏覽支援
 ├── marked.min.js       # 把 Markdown 變成網頁的程式（自帶，不需連外網）
-├── i18n/               # 繁簡顯示切換與介面字串表
-├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC）
+├── i18n/               # 繁簡顯示切換、簡繁字形比對表與介面字串
+├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC、QR 碼、手寫字型）
 ├── manifest.json       # 加到手機主畫面的設定
-├── config.json         # 網站設定（站名、公告、推薦清單等）
-├── package.json        # 專案資訊（v4.27.0）
-├── Dockerfile          # 打包成 Docker 的設定
-├── docker-compose.yml  # Docker 啟動設定
+├── tests/              # 自動測試（npm test）
+├── tools/              # 開發工具（產生簡繁字組表）
+├── Dockerfile、docker-compose.yml、docker-entrypoint.sh   # Docker 打包與啟動
+├── .env.example        # 金鑰設定範本（複製成 .env）
 ├── ARCHITECTURE.md     # 給開發者的深入說明
 └── README.md           # 本文件
 ```
+
+### 🛠️ 開發與測試
+
+```bash
+npm ci
+npm start      # http://localhost:8330，可用 PORT 改埠
+npm test       # 執行 tests/ 裡的所有測試
+```
+
+- 本機已經有一個正式的網站在跑時，測試請換一個埠（例如 `PORT=8401`），並用另一份 `CONFIG_PATH`，以免動到正式的設定與帳號資料。
+- 分支流程：從 `dev` 開功能分支 → PR 合回 `dev` → 驗證後由 `dev` 開 PR 到 `main` 發布。`dev` 與 `main` 推上 GitHub 後會自動建出 Docker 映像（`:dev`、`:latest`）。
+- 版本號只寫在 `package.json` 與 `package-lock.json`。
+- 環境變數總表、後台的程式結構與資料流請看 [`ARCHITECTURE.md`](./ARCHITECTURE.md)（§0、§10.1、§21–§23）。
 
 ---
 
@@ -291,6 +325,8 @@ mdWebview/
   - Traditional is the default. If your browser language is Simplified Chinese, your first visit switches to Simplified automatically and a notice points you to the button.
   - The texts themselves stay Traditional; Simplified is converted in your browser on the fly. In Simplified display, searches match Simplified and Traditional forms, so typing either finds the text.
 - 🔖 **Bookmarks & History**: 書籤與歷程 in the top-right menu slides out a panel from the right (full screen on phones). Bookmarks are grouped by folder and can be collapsed, sorted and deleted; recent reading is grouped into today / yesterday / earlier. Both tabs show a progress bar for how far you read each text, and 繼續閱讀 takes you back to where you stopped. The same menu also adjusts the text size.
+- 🖍️ **Highlights**: Select some text and the small selection menu starts with four color dots (vermilion, yellow, green, blue); tap one to underline the passage. Tap a highlight to recolor, copy or remove it. Highlights belong to bookmarks and are listed under each bookmark in Bookmarks & History, where you can jump back to them. When a text is lightly edited later, highlights follow the new wording; if one can no longer be found it is marked as such, never deleted.
+- ✂️ **Selection menu**: The same menu copies (optionally with the source), looks up the dictionary, searches the whole library, copies a link to the line, and — when signed in — turns the selected sentence into a greeting card.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
 
 **Searching**
@@ -307,6 +343,7 @@ mdWebview/
 
 - 🔔 **Helpful messages**: Copying, bookmarking, and switching color schemes each show a small message. If something fails, the message stays up longer so you can see what happened.
 - 🌐 **Sharing on social media**: Paste a link into Facebook, Line, or similar and it shows a title, description, and preview image.
+- ☁️ **Sync across devices**: When signed in, bookmarks, reading history and highlights sync to your other devices.
 - 🔒 **Admin area**: Administrators can set the site name, announcements, and recommended reading, view usage and system status, and export reports. Passwords are stored encrypted, repeated failed sign-in attempts are temporarily blocked, and sign-ins and sign-outs are logged for later review.
 - 📦 **Works offline**: The core files are all hosted on your own site with no outside services. Anything you have already viewed stays readable without a network; if you open a text that was never downloaded, you get a clear "you are offline and this text is not cached yet" message rather than a blank page.
 - 📲 **Add to your home screen**: Install it like an app and open a text in one tap, without launching a browser.
@@ -397,6 +434,18 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 Open the menu at the top right of the site (the avatar button), sign in, then choose "後台系統設定" (System administration). The first time you use it, you will be asked to set the administrator's email (or a username) and password. Site settings are stored in `config.json`; accounts are stored in `users.db` in the same folder.
 
+The admin area lists grouped pages on the left and shows one page at a time on the right (on phones you see the list first, then the page). It opens on Overview, which collects everything that needs attention (for example, mail not set up yet) and links straight to the right page.
+
+| Group | Pages |
+| :--- | :--- |
+| Site | Site & library, Reading defaults, Home footer & announcements, Recommended reading (incl. daily verse and greeting cards), Search engines & sharing |
+| Readers & sign-in | Users, Sign-up & invite codes, Sign-in methods, Terms & privacy |
+| External services | Site setup, Mail, Turnstile |
+| Operations | Analytics, Report emails |
+| System | System status (incl. index rebuilds), Security & blocking, Logs, Backup & restore |
+
+On settings pages, a save bar appears at the bottom once you change a field; nothing takes effect until you press Save (Save & check for mail, Turnstile and sign-in methods), or Revert. <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>K</kbd> searches admin pages and fields, and `#admin/<page>` in the URL opens a page directly. The single-user build hides the account, search-engine and analytics pages.
+
 **Reader accounts (online site)**
 
 Readers can sign up with an email address or sign in with Google, Facebook or Apple (only the ones you configure appear). Accounts live in `./data/users.db` and are backed up daily to `./data/backups/`, so back up the whole `./data` folder.
@@ -443,28 +492,47 @@ In single-user mode:
 ```text
 mdWebview/
 ├── md/                 # Put your texts here (subfolders allowed)
-├── dicts/              # Buddhist dictionary files (.txt)
+├── dicts/              # Buddhist dictionary files
+├── data/               # Docker mount: config.json, users.db, backups/, secrets.key, sutra-quote/, pic-card/
 ├── logs/               # Access logs and traffic statistics (generated)
-├── index/              # Search index caches *.bin (generated; safe to delete, rebuilt automatically)
-├── tests/              # Automated tests
-├── tools/              # Developer tools (e.g. generating the search variant table)
-├── lib/                # Modules used by the main server program
-├── index.html          # The main page
-├── app.js              # Page behavior (contents, search, dictionary, themes, admin)
-├── style.css           # Appearance and the five color schemes
-├── sw.js               # Offline support
+├── index/              # Search index caches *.bin and the greeting-card cache (generated; safe to delete)
 ├── server.js           # The main server program
+├── lib/                # Server modules (settings, accounts, mail, reports, outlines, greeting cards, indexes… 32 in all)
+├── render-worker.js    # Server-side Markdown rendering (background thread)
+├── index-worker.js     # Builds and queries the full-text index (background thread)
+├── index.html          # The main page (also contains the whole admin area)
+├── app.js              # Page behavior (contents, reading, search, dictionary, highlights, admin)
+├── style.css           # Appearance and the eight color schemes
+├── kepan-sidebar.js    # Outline (科判) sidebar
+├── highlights.js       # Highlight anchoring rules (shared by browser and server)
+├── library-sync.js     # Bookmark and history sync rules (shared by browser and server)
+├── share-card.js       # Greeting-card layouts and drawing (shared by browser and server)
+├── md-worker.js        # In-browser Markdown parsing (fallback)
+├── sw.js               # Offline support
 ├── marked.min.js       # Turns Markdown into web pages (bundled, no internet needed)
-├── i18n/               # Traditional/Simplified display switching and interface strings
-├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC)
+├── i18n/               # Traditional/Simplified display, variant table and interface strings
+├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC, QR codes, a script font)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
-├── config.json         # Site settings (name, announcements, recommended reading, etc.)
-├── package.json        # Project information
-├── Dockerfile          # Settings for packaging with Docker
-├── docker-compose.yml  # Docker startup settings
+├── tests/              # Automated tests (npm test)
+├── tools/              # Developer tools (generating the variant table)
+├── Dockerfile, docker-compose.yml, docker-entrypoint.sh   # Docker packaging and startup
+├── .env.example        # Template for secrets (copy to .env)
 ├── ARCHITECTURE.md     # In-depth notes for developers
 └── README.md           # This document
 ```
+
+### 🛠️ Development and Testing
+
+```bash
+npm ci
+npm start      # http://localhost:8330; change with PORT
+npm test       # runs every test in tests/
+```
+
+- If a production instance is already running on this machine, test on another port (for example `PORT=8401`) with a separate `CONFIG_PATH`, so you never touch the real settings and account database.
+- Branch flow: branch off `dev` → PR back into `dev` → once verified, a `dev` → `main` PR releases it. Pushes to `dev` and `main` build Docker images automatically (`:dev`, `:latest`).
+- The version number lives only in `package.json` and `package-lock.json`.
+- For the full environment-variable list, the admin code structure and data flow, see [`ARCHITECTURE.md`](./ARCHITECTURE.md) (§0, §10.1, §21–§23).
 
 ---
 

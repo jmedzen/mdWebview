@@ -11217,10 +11217,25 @@
     // ── 專注模式：隱藏標題列與側邊欄，只留內文；只能按 Esc 離開 ──
     const focusModeBtn = $('focusModeBtn');
     if (focusModeBtn) {
+      // 手機寬度隱藏按鈕（見 style.css）。若在桌機進入專注模式後視窗縮到手機寬度
+      // （例如平板轉直），就自動離開，免得沒有 Esc 可按而卡住。
+      const focusModeNarrowMq = window.matchMedia('(max-width: 768px)');
+      const exitFocusModeIfNarrow = () => {
+        if (focusModeNarrowMq.matches) document.body.classList.remove('focus-mode');
+      };
+      focusModeNarrowMq.addEventListener('change', exitFocusModeIfNarrow);
       focusModeBtn.addEventListener('click', () => {
+        if (focusModeNarrowMq.matches) return;
         document.body.classList.add('focus-mode');
         focusModeBtn.blur();
       });
+      // 觸控裝置沒有 Esc：點右上角的 pill 離開
+      const focusModeExit = $('focusModeExit');
+      if (focusModeExit) {
+        focusModeExit.addEventListener('click', () => {
+          document.body.classList.remove('focus-mode');
+        });
+      }
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
         if (!document.body.classList.contains('focus-mode')) return;

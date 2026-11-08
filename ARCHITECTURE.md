@@ -1,12 +1,14 @@
 # 🏗️ mdWebview — Architecture Reference
 
-> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（`app.js` 18,349、`server.js` 6,539、`style.css` 12,001、`index.html` 2,918，加上 `lib/` 31 個模組、根目錄 5 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
+> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（v4.31.0：`app.js` 18,465、`server.js` 6,565、`style.css` 12,455、`index.html` 2,963，加上 `lib/` 32 個模組、根目錄 9 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
+> 第一次看這份文件：先讀 [§0 檔案配置與資料位置](#0-檔案配置與資料位置v4310)，再依需要跳到各節。開發、測試、部署與分支流程見 [§23](#23-開發測試部署與分支流程)。
 
 ---
 
 ## 目錄
 
+0. [檔案配置與資料位置](#0-檔案配置與資料位置v4310)
 1. [系統架構總覽](#1-系統架構總覽)
 2. [請求路由決策樹](#2-請求路由決策樹)
    - [2.1 Sitemap 防抖與 Stale-While-Revalidate 機制](#21-sitemap-防抖與-stale-while-revalidate-機制)
@@ -30,6 +32,7 @@
    - [9.1 段落索引與通用 Helper](#91-段落索引與通用-helper)
    - [9.2 State 物件欄位一覽](#92-state-物件欄位一覽)
 10. [config.json 設定欄位一覽](#10-configjson-設定欄位一覽)
+    - [10.1 環境變數總表](#101-環境變數總表)
 11. [關鍵常數速查](#11-關鍵常數速查)
 12. [Worker Thread 架構](#12-worker-thread-架構)
 13. [安全性設計](#13-安全性設計)
@@ -45,6 +48,59 @@
     - [19.3 條款頁面](#193-條款頁面)
     - [19.4 尚未包含（下一階段）](#194-尚未包含下一階段)
 20. [科判側欄](#20-科判側欄v4200)
+21. [後台介面結構](#21-後台介面結構v4310)
+22. [資料流總覽：一份經文從磁碟到畫面](#22-資料流總覽一份經文從磁碟到畫面)
+23. [開發、測試、部署與分支流程](#23-開發測試部署與分支流程)
+
+---
+
+## 0. 檔案配置與資料位置（v4.31.0）
+
+### 0.1 程式碼
+
+| 位置 | 跑在哪裡 | 內容 |
+| :--- | :--- | :--- |
+| `server.js` | Node 主執行緒 | HTTP 伺服器與主路由、檔案樹與監視、SEO、爬蟲 SSR、大檔分塊、章節索引、全文 Bigram 索引、辭典索引、首頁推薦與每日經文、早安圖 API、後台維護 API（段落見 §8.2） |
+| `lib/`（32 個模組） | Node | 從 `server.js` 抽出的模組：設定、日誌、統計、帳號與 session、寄信、報表、科判、早安圖、索引目錄、檔案監視過濾等（逐一見 §8.1） |
+| `render-worker.js` | Node Worker | Markdown → HTML（SSR、`/api/render`、分塊） |
+| `index-worker.js` | Node Worker | Bigram 索引建置、章節解析、全文掃描 |
+| `lib/share-card-render-worker.js` | Node Worker | 早安圖畫圖（`@napi-rs/canvas`，按需開的執行緒池） |
+| `index.html` | 瀏覽器 | 單頁殼：閱讀器、側欄、彈窗，以及整個後台（`#adminShell`，見 §21） |
+| `app.js` | 瀏覽器 | 前端主程式（IIFE，§0–§23 段落見 §9）：目錄、閱讀、搜尋、辭典、偏好、書籤與歷程、劃重點、選字彈窗、後台 |
+| `style.css` | 瀏覽器 | 全站樣式、八種配色、後台外觀（§31a–§31b 外框與總覽，§31e–§31f 為 v4.31.0 改版） |
+| `md-worker.js` | 瀏覽器 Web Worker | 前端備援的 Markdown 解析 |
+| `kepan-sidebar.js` | 瀏覽器 | 科判側欄（`window.MdwKepan`，見 §20） |
+| `highlights.js` | 瀏覽器＋Node 共用 | 劃重點的定位與合併規則（純函式，`MdwHighlights`；伺服器由 `lib/library-store.js` 引用） |
+| `library-sync.js` | 瀏覽器＋Node 共用 | 書籤與歷程的同步規則（last-write-wins＋墓碑，`MdwLibrarySync`） |
+| `share-card.js` | 瀏覽器＋Node 共用 | 早安圖版型與繪圖（伺服器用 `@napi-rs/canvas`，瀏覽器用 `<canvas>` 當備援） |
+| `sw.js`、`manifest.json` | 瀏覽器 | Service Worker 離線快取、PWA 設定 |
+| `i18n/` | 瀏覽器 | 繁簡顯示（`display-script.js`）、字組比對表（`search-variants.js`，由 `tools/build-search-variants.js` 產生）、介面字串（`zh-TW.js`／`zh-CN.js`） |
+| `vendor/` | 瀏覽器 | 自帶的第三方程式：KaTeX、Pele（Mermaid 語法圖表）、OpenCC、`qrcode`、手寫體字型 |
+| `tests/` | 開發 | `node --test` 測試（75 個檔案）；`tests/fixtures/make-test-corpus.js` 產生測試用經文庫 |
+| `tools/` | 開發 | `build-search-variants.js` |
+| `Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | 部署 | 見 §23.3 |
+| `.github/workflows/` | CI | `docker-image.yml`（建映像）、`cleanup-ghcr.yml`（清舊映像），見 §14 |
+
+唯一的 npm 依賴是 `marked`（伺服器端渲染）與 `@napi-rs/canvas`（伺服器畫早安圖，載入失敗時改由瀏覽器畫）；HTTP、SQLite（`node:sqlite`）、Worker 都用 Node 內建模組，需 Node 24 以上。
+
+### 0.2 執行時的資料
+
+| 資料 | 預設位置（Docker 容器內） | 決定方式 | 要備份嗎 |
+| :--- | :--- | :--- | :--- |
+| 經文庫（`.md`、圖片、PDF） | `/data/md` | `config.json` 的 `settings.mdRoot`；不存在或是空目錄時依序試 `MD_ROOT`、`/data/md`、`/data`、`<程式目錄>/md`（`lib/config.js` `getMdRoot()`） | 自行管理 |
+| 辭典 | `/data/dicts` | `settings.dictionaryPath`（預設 `DICTIONARY_PATH`，否則經文庫旁的 `dicts/`）；`settings.dictionaryEnabled` 關閉時辭典 API 一律 404 | 自行管理 |
+| 網站設定 | `/data/config.json` | `CONFIG_PATH`（見 §10） | ✅ |
+| 帳號資料庫 | `/data/users.db`（WAL：`-wal`、`-shm`） | `USERS_DB_PATH`，預設與 `config.json` 同目錄 | ✅ |
+| 帳號資料庫每日備份 | `/data/backups/` | `DB_BACKUP_DIR` | ✅ |
+| 後台填入金鑰的加密金鑰 | `/data/secrets.key` | 與 `users.db` 同目錄（`lib/integrations.js`） | ✅ 與資料庫一起 |
+| 每日經文資料夾 | `/data/sutra-quote/` | `SUTRA_QUOTE_DIR`（相對路徑以 `config.json` 所在目錄為基準） | ✅ |
+| 早安圖背景圖庫 | `/data/pic-card/` | `PIC_CARD_DIR` | ✅ |
+| 早安圖字型 | `/data/fonts/` → `/app/fonts/`（建置時下載 Noto Serif TC）→ `vendor/fonts/` | `SHARE_CARD_FONT_DIR` 優先 | 選擇性 |
+| 存取日誌與統計 | `/data/logs/`（`access-*.jsonl`、`analytics-aggregates.json`） | `LOG_DIR` | 想留統計就備份 |
+| 索引快取 | `/data/index/`（`search-index-cache.bin`、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`） | `INDEX_DIR`；v4.19.0 以前在 `LOG_DIR`，啟動時自動搬（`lib/index-dir.js`） | 不必，可重建 |
+| 早安圖成品快取 | `/data/index/share-card/` | `SHARE_CARD_CACHE_DIR`（`off` 關閉）、上限 `SHARE_CARD_CACHE_MB`（預設 200） | 不必 |
+
+非 Docker 執行時，以上 `/data` 換成 `MDW_USER_DATA`（預設為程式目錄）。
 
 ---
 
@@ -121,8 +177,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Req["HTTP Request"] --> AuthCheck{"Session Token\n有效？"}
-    AuthCheck -- "有 token" --> SlideSession["延長 Session\n(+6h)"]
+    Req["HTTP Request"] --> AuthCheck{"Session cookie\n有效？"}
+    AuthCheck -- "有 cookie" --> SlideSession["延長 Session\n(lib/session.js)"]
     SlideSession --> RouteCheck
     AuthCheck -- "無 token" --> RouteCheck
 
@@ -678,11 +734,11 @@ if (existing === 'true' || existing === 'false') return false;
 
 ### 8.1 lib/ 原生模組職責劃分
 
-`lib/` 目前共 **31 個原生模組**（下表逐一列出）。下圖只畫出最常被引用的核心，其餘（帳號／科判／早安圖／首頁／整合金鑰等）見表格：
+`lib/` 目前共 **32 個原生模組**（下表逐一列出）。下圖只畫出最常被引用的核心，其餘（帳號／科判／早安圖／首頁／整合金鑰等）見表格：
 
 ```mermaid
 flowchart TD
-    ServerEntry["server.js (主服務入口 6,539 行、121 個頂層函式)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
+    ServerEntry["server.js (主服務入口 6,565 行)\nHTTP 生命週期 / 主路由分發 / 定時維護排程"]
 
     ServerEntry --> ConstMod["lib/constants.js\n全域常數 / MIME / 安全標頭"]
     ServerEntry --> UtilMod["lib/utils.js\n時區 / PRNG / 爬蟲辨識 / 路徑安全"]
@@ -703,7 +759,7 @@ flowchart TD
 |---------|---------|-------------------|
 | `lib/constants.js` | 集中定義系統全域常數、MIME 類型、安全性 HTTP 標頭與版本資訊 | `APP_ROOT`, `PORT`, `CONFIG_PATH`, `APP_VERSION`, `MAX_LOG_BUFFER`, `CRAWLER_UA_REGEX`, `LOG_DIR`, `INDEX_DIR`, `ANALYTICS_STORE_PATH`, `MIME_TYPES`, `SECURITY_HEADERS` |
 | `lib/index-dir.js` | 索引快取檔名清單與舊位置遷移：啟動時把 `LOG_DIR` 裡的 `*-index-cache.*` 搬到 `INDEX_DIR`（同檔案系統 rename；跨掛載點 EXDEV 改為複製→改名→刪舊檔；目的地已有檔以新為準；失敗只記警告，索引照常重建） | `INDEX_CACHE_FILES`, `migrateLegacyIndexFiles` |
-| `lib/kepan.js` | 從講記標題抽取科判樹：依「甲乙…子丑…天地玄黃…」字序判層級（不看 # 數）、一行多層拆段、跨卷重述同一科不重建、「辰」等重複用字與「巳／己」誤植依編號接續；frontmatter `round`／`kepan` 分講輪與合輯、單篇 `kepan: true` 免科數門檻（v4.27.15）、各輪另講對照、章節式標題（v4.25.0）；依資料夾（檔案數＋最新修改時間）快取 | `buildKepanTree`, `buildChapterTree`, `buildFolder`, `linkRounds`, `parseHeadingSegments`, `getKepanForFile`, `toClientPayload` |
+| `lib/watch-filter.js` | 檔案監視事件過濾（v4.30）：只有 `.md`、目錄或無法判斷的異動才觸發全文／辭典索引重建，附件（PDF、圖片…）的改寫不算 | `isIndexRelevantChange` |
 | `lib/utils.js` | 零依賴通用公用函數：字串跳脫、時區轉換、PRNG、安全解碼與路徑遍歷防護 | `escapeXml`, `formatTimestampInTz`, `mulberry32`, `getCrawlerName`, `isCrawlerRequest`, `isBotEntry`, `extractAnalyticsPath`, `getRootRealpath`, `isRealPathWithinRoot`, `flattenMarkdownFiles`, `getClientIP`, `getBaseUrl`, `safeDecodeURI`, `safeDecodeURIComponent` |
 | `lib/config.js` | 系統設定生命週期管理：3 層優先序載入、原子儲存、`fs.watch` 熱重載、Markdown/辭典根路徑解析與記憶化快取 | `config`, `loadConfig`, `saveConfig`, `setupConfigWatcher`, `resetConfigWatcher`, `getMdRoot`, `deriveDictRoot`, `getDictionaryPath`, `invalidateMdRootMemo`, `isRealPathWithinMdRoot` |
 | `lib/auth.js` | 管理員權限閘門（讀 `lib/session.js` 的 session 並檢查 role=admin）、時序安全比對、滑動視窗 API 限流（30 req/s）、CSRF 同源驗證 | `loginAttempts`, `MAX_ATTEMPTS`, `LOCK_DURATION`, `MAX_LOGIN_ENTRIES`, `checkApiRateLimit`, `timingSafeCompare`, `hashPassword`（僅舊格式）, `verifySameOrigin`, `getAdminUser`, `isAuthenticated`, `isAuthorizedAdmin`, `requireAdmin`, `readJSONBody` |
@@ -732,12 +788,12 @@ flowchart TD
 | `lib/share-card-render-worker.js` | 早安圖的畫圖工作執行緒（v4.24.0）：`ShareCard.draw` 是同步的，8 張壓在主執行緒會讓全站卡 0.4–1.6 秒，搬到這裡後主執行緒只收發訊息；v4.30.0 起 Worker 是按需開的執行緒池（`SHARE_CARD_WORKERS`，預設可用核心數 − 1、上限 4，Docker 有 CPU 限制時跟著縮），8 張預覽可多條並行；每條各留一份背景圖解碼快取（約 100MB） | （Worker 入口，無具名導出） |
 | `lib/share-card-server.js` | 早安圖伺服器端：`pic-card/` 背景圖庫遞迴掃描（每分鐘最多重掃一次）、依「經句＋日期」雜湊挑圖、`@napi-rs/canvas` 延遲載入（失敗＝不能畫，回 503）、字型註冊、成品磁碟快取與 Worker 管理 | `picDir`, `fontDirs`, `listPics`, `pickPic`, `resolvePic`, `isRealPicPath`, `available`, `status`, `render`, `cacheDir`, `cacheStatus`, `shutdown`, `decodeCount` |
 | `lib/share-stats.js` | 早安圖事件定義與統計彙整：事件寫成 `tag = 'ShareCard'` 的結構化日誌、聚合成趨勢列；不記帳號與問候語 | `TREND_FIELDS`, `SHARE_TAG`, `SHARE_EVENTS`, `CLIENT_EVENTS`, `SEND_EVENTS`, `ERROR_STAGES`, `sanitizeShareFields`, `shareFieldsOf`, `isShareServerEntry`, `shareKeysOf`, `summarizeShareMap`, `emptyShareSummary`, `withVerseTexts`, `emptyTrendRow`, `addEventToTrendRow`, `addShareMapToTrendRow`, `emptyHourBins` |
-| `lib/kepan.js` | 從講記標題抽取科判樹（v4.20.0）：依「甲乙…→子丑…→天地玄黃…」字序判層級（**不看 `#` 數**）、一行多層拆段、跨卷重述同一科不重建、字序重複用字與「巳／己」誤植以「編號能否接續」判定；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；依資料夾（檔案數＋最新 mtime）快取 | `LEVELS`, `MIN_NODES`, `MIN_NODES_FORCED`, `MIN_NODES_SINGLE`, `parseChapterHeading`, `usesChapters`, `buildChapterTree`, `pickScopeDepth`, `kepanFlag`, `groupFiles`, `linkRounds`, `topicOfTitle`, `bookOfTitle`, `roundTopic`, `describeRounds`, `buildFolder`, `cnNum`, `parseHeadingSegments`, `orderFiles`, `buildKepanTree`, `toClientPayload`, `getKepanForFile`, `clearKepanCache` |
+| `lib/kepan.js` | 從講記標題抽取科判樹（v4.20.0）：依「甲乙…→子丑…→天地玄黃…」字序判層級（**不看 `#` 數**）、一行多層拆段、跨卷重述同一科不重建、字序重複用字與「巳／己」誤植以「編號能否接續」判定；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；v4.30.0 起動態科判也掃不帶 `#` 的純文字干支行（`parseHeadingSegments(line, { plain: true })`）；依資料夾（檔案數＋最新 mtime）快取 | `LEVELS`, `MIN_NODES`, `MIN_NODES_FORCED`, `MIN_NODES_SINGLE`, `parseChapterHeading`, `usesChapters`, `buildChapterTree`, `pickScopeDepth`, `kepanFlag`, `groupFiles`, `linkRounds`, `topicOfTitle`, `bookOfTitle`, `roundTopic`, `describeRounds`, `buildFolder`, `cnNum`, `parseHeadingSegments`, `orderFiles`, `buildKepanTree`, `toClientPayload`, `getKepanForFile`, `clearKepanCache` |
 
 
 ### 8.2 server.js 段落分區表（Section Map）
 
-`server.js` 約 **6,539 行、121 個頂層函式**。下表行號為 **v4.27.15 實測值**，改動後會位移——**請以區段標題或函式名搜尋**。
+`server.js` 約 **6,565 行**（v4.31.0）。下表行號為 **v4.27.15 實測值**，改動後會位移——**請以區段標題或函式名搜尋**。
 
 | 段落 | 起始行 | 行數 | 職責 |
 | :--- | ---: | ---: | :--- |
@@ -823,6 +879,22 @@ flowchart TD
 > - 所有 `/api/*` 路由均受 Global Rate Limiter 保護（30 req/s per IP，滑動視窗）。
 > - 管理員 API 需通過 `verifySameOrigin` CSRF 同源驗證，並攜帶有效 session token（一律以 `X-Admin-Token` 標頭傳遞）。
 > - `/api/admin/analytics/export` 不再接受 `?token=` 查詢字串認證，僅認可 `X-Admin-Token` 標頭。
+
+**`lib/accounts.js` 的路由**（`isAccountRoute()` 為真時由 `accounts.handle()` 處理，不在上表）：
+
+| 路徑 | 說明 |
+| :--- | :--- |
+| `/api/auth/*`（`config`、`register`、`login`、`logout`、`verify`、`confirm-email`、`resend-verification`、`reset-request`、`reset`、`password`、`reauth`、`accept-terms`）與第三方登入回調 | 讀者註冊、登入、驗證信、重設密碼 |
+| `/api/me`、`/api/me/email`、`/api/me/sessions`、`/api/me/export`、`/api/me/reauth`、`/api/me/sync` | 我的帳號；`sync` 同步書籤、歷程、劃重點（`lib/library-store.js`） |
+| `/privacy`、`/terms` | 條款頁 |
+| `/api/health` | 健康檢查（Docker `HEALTHCHECK` 用，帳號資料庫不可用回 503） |
+| `/api/admin/accounts-overview`、`/api/admin/users…`、`/api/admin/registration`、`/api/admin/invites…` | 後台使用者、註冊方式、邀請碼 |
+| `/api/admin/auth-providers…`、`/api/admin/mail…`、`/api/admin/turnstile…` | 第三方登入、寄信、Turnstile 設定與檢查 |
+| `/api/admin/bot-stats`、`/api/admin/auth-events`、`/api/admin/lockouts…` | 安全與攔截 |
+| `/api/admin/db-backups…` | 帳號資料庫備份下載與還原 |
+| `/api/admin/reports…` | 報表信設定、預覽、寄送（`lib/reports.js`） |
+
+後台各頁對應哪些 API 見 §21.2。
 
 ---
 
@@ -1063,9 +1135,44 @@ flowchart TD
 | `settings.baiduSiteVerification` | `string` | `''` | `BAIDU_SITE_VERIFICATION` | 百度站長平台驗證碼 |
 | `settings.announcementCollapsedCount` | `number` | `3` | — | 首頁公告預設先列幾則（`0` = 全部顯示） |
 | `settings.suggestListUpdatedAt` | `number` | `0` | — | 推薦清單最後更新時間戳（ms，用於快取失效） |
-| `admin.username` | `string` | — | — | 管理員帳號 |
-| `admin.passwordHash` | `string` | — | — | PBKDF2 密碼雜湊 |
-| `admin.salt` | `string` | — | — | PBKDF2 salt（hex） |
+| `admin.username` | `string` | — | — | **舊版**管理員帳號；第一次登入時搬進 `users.db`，之後不再使用 |
+| `admin.passwordHash` | `string` | — | — | 舊版 PBKDF2 密碼雜湊（同上） |
+| `admin.salt` | `string` | — | — | 舊版 PBKDF2 salt（同上） |
+
+> 帳號、session、寄信／Turnstile／第三方登入的後台設定、報表信設定都不在 `config.json`，而在 `users.db`（`app_settings` 表，金鑰以 `secrets.key` 加密）。
+
+### 10.1 環境變數總表
+
+上表「環境變數」欄是 `config.json` 欄位的預設值來源。以下是**不對應 `config.json`** 的環境變數（皆由程式碼實際讀取，v4.31.0）：
+
+| 類別 | 變數 | 預設 | 作用（讀取位置） |
+| :--- | :--- | :--- | :--- |
+| 路徑 | `MDW_USER_DATA` | 程式目錄 | 可寫資料的根目錄；下列路徑未設定時都放在這裡（`lib/constants.js`） |
+| 路徑 | `CONFIG_PATH` | `<MDW_USER_DATA>/config.json` | 設定檔 |
+| 路徑 | `MD_ROOT` | — | 經文庫候選路徑（`settings.mdRoot` 無效時才用，見 §0.2） |
+| 路徑 | `DICTIONARY_PATH` | 經文庫旁的 `dicts/` | `settings.dictionaryPath` 的預設值 |
+| 路徑 | `LOG_DIR`、`INDEX_DIR` | `<MDW_USER_DATA>/logs`、`/index` | 日誌與統計、索引快取 |
+| 路徑 | `USERS_DB_PATH`、`DB_BACKUP_DIR` | `config.json` 旁的 `users.db`、`backups/` | 帳號資料庫與每日備份（`lib/db.js`） |
+| 路徑 | `SUTRA_QUOTE_DIR`、`PIC_CARD_DIR`、`SHARE_CARD_FONT_DIR` | `config.json` 旁的 `sutra-quote/`、`pic-card/`、`fonts/` | 每日經文資料夾、早安圖背景圖庫與字型 |
+| 網路 | `PORT`、`HOST` | `8330`、`0.0.0.0`（單機模式 `127.0.0.1`） | 監聽埠與位址 |
+| 網路 | `MDW_PORT_SCAN` | 關 | 埠被占用時往後找 10 個 |
+| 網路 | `TRUST_PROXY` | 關（Docker 映像預設 `true`） | 採信轉發標頭的代理範圍（§13） |
+| 網路 | `PUBLIC_BASE_URL` | 後台「網站網址」 | 驗證信與第三方登入回調用的對外網址 |
+| 網路 | `COOKIE_SECURE` | `auto` | session cookie 是否加 Secure（`lib/session.js`） |
+| 部署 | `MDW_DEPLOY_TARGET`、`MDW_ALLOW_LAN` | `web`、關 | 單機模式與區網閱讀（§13、README） |
+| 帳號 | `ADMIN_SETUP_TOKEN`、`ADMIN_EMAIL` | 啟動時隨機印在 console、— | 首次建立管理員的一次性設定碼；舊版 `config.json` 管理員搬進 `users.db` 時用的 Email |
+| 帳號 | `MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_FROM` | — | 寄信（Resend）；有設定時優先於後台（`lib/integrations.js`） |
+| 帳號 | `TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY` | — | Cloudflare Turnstile |
+| 帳號 | `GOOGLE_CLIENT_ID`／`_SECRET`、`FACEBOOK_APP_ID`／`_SECRET`、`APPLE_CLIENT_ID`、`APPLE_TEAM_ID`、`APPLE_KEY_ID`、`APPLE_PRIVATE_KEY_PATH`／`APPLE_PRIVATE_KEY` | — | 第三方登入 |
+| 帳號 | `SCRYPT_LN`、`USERS_DB_JOURNAL` | 預設成本、`wal` | 密碼雜湊成本；資料庫日誌模式（`delete` 給不支援 WAL 的檔案系統） |
+| 效能 | `MDW_RENDER_POOL_SIZE`、`MDW_INDEX_POOL_SIZE` | `max(2, CPU-1)`、`max(2, min(4, CPU-1))` | Worker 池大小（§12） |
+| 效能 | `SHARE_CARD_WORKER`、`SHARE_CARD_WORKERS` | 開、可用核心數 − 1（上限 4） | 早安圖畫圖執行緒（`0`／`off` 改在主執行緒畫） |
+| 效能 | `SHARE_CARD_CACHE_DIR`、`SHARE_CARD_CACHE_MB` | `<INDEX_DIR>/share-card`、200 | 早安圖成品快取（`off` 關閉） |
+| 效能 | `SECTION_INDEX_SAVE_DEBOUNCE_MS`、`SECTION_INDEX_TRACE` | 20000、關 | 章節索引寫盤去抖、逐檔追蹤（§4.1） |
+| 效能 | `NODE_OPTIONS`／`NODE_MAX_OLD_SPACE_MB` | Docker `--max-old-space-size=6144` | V8 heap 上限（§5） |
+| 除錯 | `DEBUG` | 關 | 輸出 `DEBUG` 等級日誌 |
+
+金鑰類變數放 `.env`（範本 `.env.example`），不要寫進 `docker-compose.yml`。
 
 ---
 
@@ -1100,7 +1207,7 @@ flowchart TD
 | `SECTION_INDEX_SAVE_DEBOUNCE_MS` | `server.js` | `20,000`（20s） | 章節索引寫盤去抖時間；把連續建置合併為單次寫入 |
 | `SECTION_INDEX_TRACE` | 環境變數 | 未設定（關閉） | 設為 `1` 時逐檔輸出 `DEBUG` 快取命中追蹤；預設關閉以免 289 筆逐檔訊息灌滿 600 筆環狀緩衝 |
 | `MAX_ANALYTICS_KEYS` | `lib/analytics.js` | `5,000` | Analytics 記憶體 Map 最大 key 數（防記憶體爆炸） |
-| `SESSION_DURATION` | `lib/auth.js` | `21,600,000`（6h） | 管理員 session 有效存活時間 |
+| `USER_IDLE_MS`／`ADMIN_IDLE_MS` | `lib/session.js` | 30 天／7 天 | session 閒置多久過期（使用就延長）；管理員另有絕對上限 `ADMIN_ABSOLUTE_MS` 30 天 |
 | `MAX_ATTEMPTS` | `lib/auth.js` | `5` | 管理員密碼錯誤次數上限（超限觸發鎖定） |
 | `LOCK_DURATION` | `lib/auth.js` | `900,000`（15m） | 登入失敗鎖定時間（15 分鐘） |
 | `SEARCH_CACHE_MAX` | `server.js` | `30` | 全文搜尋結果快取最大筆數 |
@@ -1183,8 +1290,8 @@ mdWebview 使用兩組獨立的 Worker Thread Pool，各司其職，具備嚴格
 | **X-Frame-Options** | `SECURITY_HEADERS` | `SAMEORIGIN`，防 Clickjacking |
 | **Path Traversal 防護** | `serveStaticFile()` | 黑名單（`.git`、`server.js`、`config.json` 檔名與解析路徑）+ 白名單副檔名 + `path.relative` 逃逸偵測 |
 | **Symlink 逃逸防護** | `isRealPathWithinMdRoot()` | `fs.realpath()` 解析後比較真實路徑是否在 `mdRoot` 內 |
-| **管理員密碼** | `api/admin/login` | PBKDF2（`sha256`，iterations=100,000，salt=hex random） |
-| **Session 管理** | `sessions Map` | 記憶體 Map；6 小時滾動更新；每 15 分鐘清理過期 token |
+| **密碼雜湊** | `lib/password.js` | scrypt（PHC 字串，`SCRYPT_LN` 可調成本）；舊 PBKDF2 雜湊仍可登入，登入成功時自動升級 |
+| **Session 管理** | `lib/session.js` | 存在 `users.db` 的 cookie session（`__Host-mdw_sid`／`mdw_sid`，HttpOnly、SameSite=Lax；`COOKIE_SECURE=auto`）；一般 30 天、管理員 7 天沒用才過期；敏感操作要求 10 分鐘內重新驗證 |
 | **IP Rate Limiting** | `checkApiRateLimit()` | 每 IP 30 req/s 滑動視窗；超限 HTTP 429 |
 | **XSS 防護** | `escapeHtmlString()` | 所有 SSR 注入的設定值均 HTML 轉義 |
 | **Bot token 遮蔽** | 存取日誌中介 | URL 中的 `?token=...` 在記錄前自動遮蔽（`server.js` `parsed.search.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]')`） |
@@ -1684,3 +1791,143 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 - **審計第二批**（v4.27.8）：同一部經裡沒有科判標題的篇，`buildFolder()` 給 `{ none, dir, title, others }`，`/api/kepan` 以 `{ kepan: null, nearby }` 回傳；側欄 `setTabMode('none')` 同時留「大綱」「科判」分頁，科判分頁列出本經有科判的講次（`#kepanNone`）。範圍不再叫「地」（搜尋「目前範圍內 N」、選單提示「切換科判範圍」）。講次按鈕 `roundPickerLabel()`：一段內容一行「講次 … 共 N 講」，多段內容分「內容」「講次」兩行。測試 `tests/test-kepan-ux-batch2.test.js`。
 - **審計第三批**（v4.27.9）：第一次讀到某部科判系列時從「檔案」分頁自動換到「科判」（`mdw-kepan-seen`，搜尋分頁不搶）；觸控時＋／−可按範圍放大；樹頂一次性操作提示（`#kepanHint`，`mdw-kepan-hint-done`）；「另講」改「其他講次：」，樹上有對照的科加小點；顯示時以 `shortTitle()` 拿掉「(分N科)」；拿掉側欄重複的「科判」標題；開檔後第一次定位不提示「已進入」；鍵盤 `[` `]` 前一科／後一科；搜尋結果層數改小字。進度仍只寫百分比（師父先前決定），滑過說明是全部幾科中的位置。測試 `tests/test-kepan-ux-batch3.test.js`。
 - **測試**：`tests/test-kepan.test.js`（抽取規則、資料夾快取、`/api/kepan` 端對端、側欄純函式、接線靜態檢查）、`tests/test-kepan-rounds.test.js`（講輪分組、kepan 開關、另講對照、章節式標題、前端講輪函式）。
+
+---
+
+## 21. 後台介面結構（v4.31.0）
+
+後台不是獨立頁面，而是 `index.html` 裡的全頁外框 `#adminShell`（v4.4.0 起取代舊的橫向分頁列），由 `app.js` 控制，樣式在 `style.css` §31a–§31f。從右上角選單的「後台系統設定」進入；網址帶 `#admin/<頁面>` 可直接開某一頁（`adminPageFromHash()`／`setAdminHash()`，只動屬於後台的雜湊）。v4.31.0 的四階段改版（#176–#179）統一了區塊、標籤、開關列與儲存方式，並把用語改成「網站網址」「經文庫」「匯出」。
+
+### 21.1 外框
+
+- **左欄導覽** `#adminNav`：分組的 `.admin-nav-item` 按鈕。每個按鈕的 `data-page` 是頁面名稱、`data-pane` 指向 `ADMIN_PANES` 裡的一個分頁容器、`data-cards` 列出這一頁要顯示的卡片（空白＝整個分頁）、`data-save` 表示這是設定頁（會出現底部儲存列）、`data-web-only` 表示單機模式藏起。
+- **右側一頁一件事**：`showAdminPage(page)` 切分頁容器、只留 `data-cards` 列出的 `.config-card[data-card]`（其他加 `admin-page-hidden`），更新標題 `#adminPageTitle` 與麵包屑 `#adminPageCrumb`，再依分頁呼叫 `runAdminPaneLoader()` 載入資料。分頁裡有未儲存欄位時不重新載入，以免蓋掉使用者剛打的字。
+- **手機**（≤ 768px）：`#adminShell[data-view]` 在 `list`（分組清單）與 `page`（單頁，左上 `#adminBackBtn` 返回）之間切換。
+- **狀態燈**：卡片的 `.status-light`（`ok`／`warn`／`bad`）彙整到導覽項目的 `.admin-nav-light`；總覽的「待處理」清單（`collectAdminTodos()`）列出所有 warn／bad 卡片，點了直接到那一頁。
+- **⌘K／Ctrl+K 搜尋**：每次打開時從畫面現場建索引（頁面、卡片標題、欄位名稱），單機模式藏起的頁面不列；公開網站另有「在使用者中搜尋」。
+- **底部儲存列** `#adminSaveBar`：設定頁共用。使用者碰過的欄位記下原值，與原值不同才算未儲存，導覽項目加 `has-unsaved`。儲存時依 `data-save` 找對應的處理：`ADMIN_SAVE_FORMS`（送出表單）、`ADMIN_SAVE_BUTTONS`（按卡片裡藏起來的舊儲存鈕，`.admin-legacy-save`）或 `ADMIN_SAVE_ACTIONS`（登入方式：只存改過的那幾家）。寄信、Turnstile、登入方式的按鈕寫「儲存並檢查」，條款寫「發布」。立即生效的動作（寄測試信、各家登入開關）加 `data-no-dirty`，不觸發儲存列。別頁還有未儲存時，列會改成「回去儲存」。
+
+### 21.2 頁面一覽
+
+| 分組 | 頁面（`data-page`） | 分頁容器（`data-pane`） | 卡片 | 儲存 | 主要 API |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| — | 🏠 總覽 `overview` | `overview` | 全部 | — | `/api/admin/hardware`、`/api/admin/analytics`、`/api/admin/accounts-overview` |
+| 網站 | 🌐 網站與經文庫 `site` | `config` | `site` | `config` | `GET/POST /api/admin/settings`、`/api/admin/diagnose-path` |
+| 網站 | 🎨 閱讀預設 `reading` | `config` | `reading` | `config` | 同上 |
+| 網站 | 🏡 首頁頁尾與公告 `homepage` | `config` | `footer`、`announce` | `config` | 同上 |
+| 網站 | 📖 推薦閱讀 `suggest` | `suggest` | 整頁（推薦、熱門、每日法語、每日經文、早安圖、選句） | `suggest` | `/api/admin/settings`、`/api/admin/daily-verses`、`/api/admin/share-card`、`/api/admin/share-quotes` |
+| 網站 | 🔍 搜尋引擎與分享 `seo` ※ | `seo` | 整頁 | `seo` | `/api/admin/settings`、`/api/admin/seo-stats`、`/api/admin/rebuild-sitemap` |
+| 讀者與登入 ※ | 👥 使用者 `users` | `users` | `users` | — | `/api/admin/users…` |
+| 讀者與登入 ※ | 📝 註冊與邀請碼 `registration` | `users` | `registration`、`invites` | `registration` | `/api/admin/registration`、`/api/admin/invites` |
+| 讀者與登入 ※ | 🔑 登入方式 `sso` | `accountsys` | `sso` | `sso` | `/api/admin/auth-providers…` |
+| 讀者與登入 ※ | 📄 條款與隱私 `legal` | `accountsys` | `legal` | `legal` | （`lib/accounts.js`） |
+| 外部服務 ※ | 🚀 開站設定 `setup` | `accountsys` | `setup` | — | 引導寄信與 Turnstile |
+| 外部服務 ※ | ✉️ 寄信 `mail` | `accountsys` | `mail`、`maildns`、`mailtest` | `mail` | `/api/admin/mail…` |
+| 外部服務 ※ | 🛡️ Turnstile 人機驗證 `turnstile` | `accountsys` | `turnstile`、`turnstiletest` | `turnstile` | `/api/admin/turnstile…` |
+| 營運 ※ | 📊 數據分析 `analytics` | `analytics` | 整頁 | — | `/api/admin/analytics`、`/api/admin/analytics/export` |
+| 營運 ※ | 📬 報表信 `reports` | `reports` | 整頁 | `reports` | `/api/admin/reports…` |
+| 系統 | 🖥️ 系統狀態 `hardware` | `hardware` | 整頁（含重建索引等維護動作） | — | `/api/admin/hardware`、`/api/admin/rebuild-*`、`/api/admin/clear-cache` |
+| 系統 | 🚨 安全與攔截 `security` ※ | `users` | `bots`、`lockouts`、`events` | — | `/api/admin/bot-stats`、`/api/admin/lockouts`、`/api/admin/auth-events` |
+| 系統 | 📜 日誌 `logs` | `logs` | 整頁 | — | `/api/admin/logs` |
+| 系統 | 💾 備份與還原 `backup` | `backup` | `cfgbackup`、`db` | — | 設定匯出入、`/api/admin/db-backups…` |
+
+※ 帶 `data-web-only`，單機模式（`MDW_DEPLOY_TARGET` 非 `web`）不顯示。
+
+### 21.3 新增後台頁面或卡片時
+
+1. 卡片放進對應的 `.admin-tab-pane`，帶唯一的 `data-card`；新頁面在 `#adminNav` 加一個 `.admin-nav-item`。
+2. 新分頁容器要加進 `ADMIN_PANES`，並在 `runAdminPaneLoader()` 加載入函式。
+3. 設定頁加 `data-save`，並在 `ADMIN_SAVE_FORMS`／`ADMIN_SAVE_BUTTONS`／`ADMIN_SAVE_ACTIONS` 其中之一登記；存檔成功呼叫 `markAdminSaved(key)`。
+4. 新外觀寫在 `.admin-shell` 底下，不要改名舊 class（`config-card`、`hardware-card`、`suggest-section`…）：頁面切換、狀態燈、⌘K 都靠它們找卡片。
+5. `tests/test-admin-shell.test.js` 會檢查每個導覽項目都對得到分頁與卡片、每張卡片都屬於某一頁、儲存列的登記完整。
+
+---
+
+## 22. 資料流總覽：一份經文從磁碟到畫面
+
+```mermaid
+flowchart LR
+    subgraph Disk ["磁碟"]
+        MD["經文庫 settings.mdRoot / MD_ROOT"]
+        DICT["辭典 DICTIONARY_PATH"]
+        DB["users.db"]
+        PIC["pic-card/ · sutra-quote/"]
+        IDX["index/*.bin"]
+    end
+    subgraph Server ["server.js + lib/"]
+        Watch["fs.watch + lib/watch-filter.js\n（只有 .md 異動才觸發重建）"]
+        Tree["/api/tree"]
+        Render["/api/render · render-chunk\nrender-worker.js"]
+        Search["Bigram 索引\nindex-worker.js"]
+        Kepan["lib/kepan.js → /api/kepan"]
+        Share["lib/share-card-server.js\n→ /api/share-card.jpg"]
+        Sync["lib/library-store.js\n→ /api/me/sync"]
+    end
+    subgraph Browser ["瀏覽器"]
+        App["app.js 閱讀器"]
+        KS["kepan-sidebar.js"]
+        HL["highlights.js 劃重點"]
+        LS["library-sync.js 書籤／歷程"]
+        SC["share-card.js 備援繪圖"]
+    end
+    MD --> Watch --> Search
+    MD --> Tree --> App
+    MD --> Render --> App
+    MD --> Kepan --> KS
+    DICT --> Search
+    Search <--> IDX
+    Search --> App
+    PIC --> Share --> App
+    Share -. "伺服器不能畫 (503)" .-> SC
+    App --> HL --> Sync
+    App --> LS --> Sync
+    Sync <--> DB
+```
+
+- **經文庫與目錄**：`getMdRoot()` 解析經文庫根目錄（§0.2）；`/api/tree` 回傳樹，`fs.watch` 異動時失效。檔案監視事件先經 `lib/watch-filter.js`：附件（PDF、圖片…）的改寫不觸發整庫索引重建（重建尖峰約 4GB，alpine 的 musl malloc 不太還記憶體）。
+- **閱讀**：小檔走 `/api/render`，≥ 1MB 走 `/api/section-index` + `/api/render-chunk` 虛擬化（§4）。爬蟲走 SSR（§3）。
+- **全文搜尋**：主庫與辭典各一份 Bigram 倒排索引，建置在 Index Worker，存成 `INDEX_DIR` 下的 `.bin`（§5、§12）。v4.30 起 posting 用 `Uint32Array`、重建前先釋放舊索引以降低尖峰。
+- **科判**：`lib/kepan.js` 從講記標題抽科判樹；v4.30.0 起動態科判也掃不帶 `#` 的純文字干支行（行首「干支＋數字」，科名不得含逗號句號，跳過程式碼區塊），見 §20。
+- **劃重點與書籤**：本機存在 `localStorage`，登入後以 `POST /api/me/sync` 同步（游標為使用者遞增 `seq`，last-write-wins＋墓碑）；規則在根目錄的共用純函式檔，瀏覽器與伺服器跑同一份（§19「書籤與歷程同步」「劃重點」）。畫線用 CSS Custom Highlight API，每個顏色常駐一個 `Highlight` 物件（v4.30 修正改色、再劃、刪除後不重畫的問題）。
+- **早安圖**：伺服器以 `share-card.js` + `@napi-rs/canvas` 在工作執行緒池畫圖、成品存 `index/share-card/`；不能畫時回 503，瀏覽器改用同一份 `share-card.js` 畫（§19「每日經句：換一句與早安圖」起）。
+- **帳號**：`lib/db.js`（`node:sqlite`）＋ `lib/session.js` cookie session；第三方登入、寄信、Turnstile 的金鑰可由環境變數或後台設定（§19、§10.1）。
+
+---
+
+## 23. 開發、測試、部署與分支流程
+
+### 23.1 本機執行
+
+```bash
+npm ci
+npm start            # = node server.js，預設 http://localhost:8330
+```
+
+- 需要 Node 24 以上（`node:sqlite`、`node --test`）。
+- `PORT` 改埠；**本機已有正式實例在 8330 時，測試請用其他埠**（例如 `PORT=8401`），並用獨立的 `CONFIG_PATH`／`MDW_USER_DATA`，避免動到正式設定與帳號資料庫。正式實例不會熱重載程式碼。
+- 埠被占用時預設直接失敗；`MDW_PORT_SCAN=1` 才往後找（`tests/test-port-selection.test.js`）。
+
+### 23.2 測試
+
+```bash
+npm test             # = node --test tests/*.test.js
+node --test tests/test-admin-shell.test.js   # 只跑一個檔案
+```
+
+- 測試多半是純函式測試與對 `app.js`／`index.html`／`style.css` 的靜態檢查（例如函式名不得重複、後台導覽對得到卡片），另有起子行程或載入 `server.js` 的端對端測試（如 `test-port-selection`、`test-single-user-mode`、`test-search-deeplink`）。
+- 部分前端測試用 `tests/fixtures/make-test-corpus.js` 產生暫存語料，不依賴本機 `md/`。
+- 版本號唯一來源是 `package.json`：`lib/constants.js` 讀它，`index.html`／`sw.js` 只放 `__APP_VERSION__` 佔位符由伺服器代換。`tests/test-version-consistency.test.js` 檢查 `package.json` 與 `package-lock.json` 一致、且現行版本號沒有被寫死回原始檔；升版只改這兩個檔（例如 `npm version minor --no-git-tag-version`）。
+
+### 23.3 Docker 部署
+
+- `Dockerfile`：`node:24-alpine`，`npm ci --omit=dev`，建置時下載 Noto Serif TC（早安圖用，失敗不擋建置），`EXPOSE 8330`，`HEALTHCHECK` 打 `/api/health`（帳號資料庫不可用回 503）。預設環境變數：`PORT=8330`、`CONFIG_PATH=/data/config.json`、`LOG_DIR=/data/logs`、`INDEX_DIR=/data/index`、`MD_ROOT=/data/md`、`DICTIONARY_PATH=/data/dicts`、`TRUST_PROXY=true`、`NODE_OPTIONS=--max-old-space-size=6144`。
+- `docker-entrypoint.sh`：以 root 啟動時只把會寫入的路徑（設定檔與其目錄、logs、index、`users.db`、backups、`secrets.key`）交給 `node` 使用者，再 `su-exec node` 降權；經文庫與辭典的擁有者不動。
+- `docker-compose.yml`：埠 `8330:8330`；掛載 `./data`、`./logs`、`./index`、`./md`、`./dicts`；金鑰放 `.env`（範本 `.env.example`），`NODE_MAX_OLD_SPACE_MB` 調 V8 heap。
+- 映像由 CI 發到 `ghcr.io/jmedzen/mdwebview`（§14）：`dev` 分支 → `:dev`，`main` → `:latest`／`:main`，`v*.*.*` tag → 版本號。
+
+### 23.4 分支流程
+
+1. 功能或修正從 `dev` 開分支（如 `fix/…`、`perf/…`、`admin-ui/…`），PR 合回 `dev`。互相疊的 PR 依序合併，前一個合併後把下一個的 base 改成 `dev`。
+2. 升版用獨立的小 PR（`chore/bump-X.Y.Z`，提交訊息「版本 A → B」），只改 `package.json` 與 `package-lock.json`。
+3. `dev` 驗證過後，以 `dev → main` 的 PR 發布；`main` 推上去後 CI 產出 `:latest`。
+4. 不直接推 `main`。
