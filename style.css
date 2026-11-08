@@ -7324,6 +7324,130 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   pointer-events: none;
 }
 
+/* ── 改版第 4 階段：推薦閱讀、監控頁、清單頁 ── */
+
+/* 推薦閱讀：和其他設定頁一樣一欄、最寬 760px，區塊外觀同 .config-card */
+.admin-shell .suggest-admin-form {
+  height: auto;
+}
+
+.admin-shell .suggest-layout {
+  flex: none;
+  min-height: auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--adm-gap);
+  max-width: var(--adm-settings-width);
+}
+
+.admin-shell .suggest-col-left,
+.admin-shell .suggest-col-right {
+  gap: var(--adm-gap);
+  min-height: auto;
+}
+
+.admin-shell .suggest-section {
+  padding: 16px 18px;
+  gap: 12px;
+}
+
+.admin-shell .suggest-section-hot,
+.admin-shell .suggest-hot-info {
+  flex: none;
+}
+
+.admin-shell .suggest-section-title {
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0;
+  gap: 8px;
+}
+
+.admin-shell .suggest-section-icon {
+  font-size: 16px;
+}
+
+.admin-shell .suggest-hint {
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 數據分析：數字卡和總覽的 KPI 卡一樣；工具列可換行，篩選框不被截斷 */
+.admin-shell .analytics-actions {
+  flex-wrap: wrap;
+}
+
+.admin-shell .admin-table-filter {
+  width: 260px;
+  max-width: 100%;
+}
+
+.admin-shell .analytics-cards-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.admin-shell .analytics-card {
+  padding: 12px 14px;
+  align-items: flex-start;
+}
+
+.admin-shell .analytics-card-value {
+  font-size: calc(22px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.admin-shell .analytics-card-label {
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.admin-shell .analytics-section {
+  padding: 16px 18px;
+}
+
+.admin-shell .analytics-section-title {
+  font-weight: 600;
+}
+
+/* 系統狀態：卡片內距與標題同其他區塊 */
+.admin-shell .hardware-card {
+  padding: 16px 18px;
+}
+
+/* 清單頁的表格：手機上橫向捲動，不把欄位擠成一字一行 */
+@media (max-width: 768px) {
+  .admin-shell .analytics-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-shell .admin-users-table,
+  .admin-shell #adminPaneUsers .analytics-table {
+    min-width: 560px;
+  }
+
+  .admin-shell .admin-table-filter {
+    width: 100%;
+  }
+}
+
+/* 備份清單：檔名靠左，下載與還原靠右 */
+.admin-shell #adminBackupList .account-list-row {
+  gap: 8px;
+}
+
+.admin-shell #adminBackupList .account-list-row > span:first-child {
+  margin-right: auto;
+}
+
+/* 區塊裡單獨一顆的按鈕（立即備份、全部解除、載入更早的紀錄）不再撐滿整列 */
+.admin-shell .config-card-body > .modal-btn {
+  align-self: flex-start;
+  width: auto;
+}
+
 /* 使用者分頁裡的設定類區塊（註冊、邀請碼）也照設定頁寬度 */
 .admin-shell .config-card[data-card="registration"],
 .admin-shell .config-card[data-card="invites"] {

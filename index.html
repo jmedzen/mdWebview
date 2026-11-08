@@ -570,7 +570,7 @@
         <span class="modal-icon">🪷</span>
         <h2>設定管理員帳戶</h2>
       </div>
-      <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與首頁權威 URL。Email 與帳號名稱至少填一個。</p>
+      <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與網站網址。Email 與帳號名稱至少填一個。</p>
       <form id="adminSetupForm" class="modal-form">
         <div class="form-group">
           <label for="setupToken">一次性設定碼</label>
@@ -594,7 +594,7 @@
           <input type="password" id="setupPasswordConfirm" placeholder="再次輸入密碼" required autocomplete="new-password">
         </div>
         <div class="form-group">
-          <label for="setupSiteUrl">首頁權威 URL (Canonical URL)</label>
+          <label for="setupSiteUrl">網站網址</label>
           <input type="text" id="setupSiteUrl" placeholder="例如: https://mbt.mahabodhi.co" required>
           <span class="field-hint">設定對外權威網址，用於 SEO Canonical、Sitemap 與社群分享卡片。</span>
         </div>
@@ -1290,7 +1290,7 @@
                     <span class="field-hint">顯示在頁首與瀏覽器分頁上的名稱。</span>
                   </div>
                   <div class="form-group half">
-                    <label for="settingsSiteUrl">首頁權威 URL</label>
+                    <label for="settingsSiteUrl">網站網址</label>
                     <input type="text" id="settingsSiteUrl" placeholder="例如: https://mbt.mahabodhi.co">
                     <span class="field-hint">對外的正式網址，用於搜尋引擎與 Sitemap。</span>
                   </div>
@@ -1657,12 +1657,12 @@
           </div>
           <div class="hardware-refresh-controls">
             <button type="button" class="action-btn text-action-btn" id="hwClearCacheBtn" title="清空記憶體靜態檔案快取、搜尋快取與 Sitemap 快取">🧹 清除快取</button>
-            <button type="button" class="action-btn text-action-btn" id="hwRefreshBtn" title="刷新狀態">🔄 實時刷新</button>
+            <button type="button" class="action-btn text-action-btn" id="hwRefreshBtn" title="重新讀取系統狀態">🔄 重新整理</button>
             <select id="hwAutoRefreshSelect" class="setting-select compact-select">
-              <option value="1000">自動刷新: 1秒</option>
-              <option value="5000">自動刷新: 5秒</option>
-              <option value="10000" selected>自動刷新: 10秒</option>
-              <option value="0">手動刷新</option>
+              <option value="1000">每 1 秒更新</option>
+              <option value="5000">每 5 秒更新</option>
+              <option value="10000" selected>每 10 秒更新</option>
+              <option value="0">不自動更新</option>
             </select>
           </div>
         </div>
@@ -1679,7 +1679,7 @@
               <div class="hardware-metric-value" id="hwCpuModel">載入中…</div>
               <div class="progress-bar-row" style="margin-top: 6px;">
                 <div class="progress-bar-label">
-                  <span>實時 CPU 使用率</span>
+                  <span>目前 CPU 使用率</span>
                   <span id="hwCpuUsageText">0.0%</span>
                 </div>
                 <div class="progress-bar-track">
@@ -1755,7 +1755,7 @@
             <div class="hardware-card-body">
               <div class="progress-bar-row">
                 <div class="progress-bar-label">
-                  <span>Vault 磁碟空間</span>
+                  <span>經文庫磁碟空間</span>
                   <span id="hwDiskText">-- / --</span>
                 </div>
                 <div class="progress-bar-track">
@@ -1792,7 +1792,7 @@
                   <span class="sub-val" id="hwIndexDirSize">--</span>
                 </div>
                 <div class="sub-metric full-width">
-                  <span class="sub-label">Vault 路徑</span>
+                  <span class="sub-label">經文庫路徑</span>
                   <span class="sub-val" id="hwVaultPath" title="" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
                 </div>
               </div>
@@ -1904,7 +1904,7 @@
             <div class="hardware-card-body">
               <div class="hardware-sub-metrics grid-2col">
                 <div class="sub-metric">
-                  <span class="sub-label">實時吞吐量</span>
+                  <span class="sub-label">每分鐘請求數</span>
                   <span class="sub-val" id="hwNetworkRpm">0 req/min</span>
                 </div>
                 <div class="sub-metric">
@@ -2378,7 +2378,7 @@
             </label>
             <input type="text" id="adminLogSearchInput" class="admin-log-search" placeholder="關鍵字過濾 (IP, URL)...">
             <button type="button" id="adminLogDownloadBtn" class="modal-btn cancel-btn small-btn">📥 下載</button>
-            <button type="button" id="adminLogRefreshBtn" class="modal-btn submit-btn small-btn">🔄 整理</button>
+            <button type="button" id="adminLogRefreshBtn" class="modal-btn secondary-btn small-btn">🔄 重新整理</button>
           </div>
         </div>
         <div class="admin-log-viewer" id="adminLogViewer">
@@ -2399,8 +2399,8 @@
           <div class="analytics-actions">
             <span class="analytics-clean-badge">🛡️ 純淨數據（已過濾爬蟲）</span>
             <input type="text" id="analyticsTableFilterInput" class="admin-table-filter" placeholder="🔍 快速篩選文章 / 詞條 / 關鍵字...">
-            <button type="button" id="analyticsExportCsvBtn" class="modal-btn submit-btn small-btn">📥 導出 CSV</button>
-            <button type="button" id="analyticsExportJsonBtn" class="modal-btn cancel-btn small-btn">📥 導出 JSON</button>
+            <button type="button" id="analyticsExportCsvBtn" class="modal-btn submit-btn small-btn">📥 匯出 CSV</button>
+            <button type="button" id="analyticsExportJsonBtn" class="modal-btn cancel-btn small-btn">📥 匯出 JSON</button>
           </div>
         </div>
 
@@ -2798,7 +2798,7 @@
                   <div id="suggestArticleDropdown" class="article-picker-dropdown" style="display: none;"></div>
                 </div>
                 <textarea id="suggestAdminList" class="suggest-textarea" rows="7" placeholder="每行一個相對路徑，例如：&#10;05-新標藏經/辯中邊論/辯中邊論述記科句.md&#10;10-玅境長老/解深密經/長老-分別瑜伽品.md"></textarea>
-                <span class="suggest-hint">相對 Vault 路徑（.md 副檔名可省略），每行一個。可直接從上方搜尋框點擊快速加入。</span>
+                <span class="suggest-hint">經文庫裡的相對路徑（.md 副檔名可省略），每行一個。可直接從上方搜尋框點擊快速加入。</span>
               </div>
 
               <!-- Blacklist -->

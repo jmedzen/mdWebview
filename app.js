@@ -11818,13 +11818,13 @@
       }
 
       if (!siteUrl) {
-        errorEl.textContent = '請填寫首頁權威 URL';
+        errorEl.textContent = '請填寫網站網址';
         errorEl.style.display = 'block';
         return;
       }
 
       if (!/^https?:\/\//i.test(siteUrl)) {
-        errorEl.textContent = '首頁權威 URL 格式不正確，必須以 http:// 或 https:// 開頭';
+        errorEl.textContent = '網站網址 格式不正確，必須以 http:// 或 https:// 開頭';
         errorEl.style.display = 'block';
         return;
       }
@@ -14649,10 +14649,10 @@
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        showToast(`📥 已成功導出分析數據報告 (${format.toUpperCase()})`, 'success');
+        showToast(`📥 已匯出分析數據報告 (${format.toUpperCase()})`, 'success');
       } catch (err) {
         console.warn('[Analytics] Export failed:', err);
-        showToast('❌ 分析數據報告導出失敗', 'error');
+        showToast('❌ 分析數據報告匯出失敗', 'error');
       }
     };
 
@@ -16716,7 +16716,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定網站網址（到「網站與經文庫」填寫首頁權威 URL）', MAIL: '尚未設定寄信（到「寄信」頁設定）' };
+  const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定網站網址（到「網站與經文庫」填寫網站網址）', MAIL: '尚未設定寄信（到「寄信」頁設定）' };
 
   let adminRegModeKnown = '';
   let adminLegalVersionKnown = null;
@@ -16835,13 +16835,26 @@
     if (reset) tbody.innerHTML = '';
     for (const e of r.data.events) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${escHtml(fmtDateTime(e.at))}</td><td>${escHtml(e.event)}</td><td>${escHtml(e.user_label || (e.user_id ? `#${e.user_id}` : '—'))}${e.actor_label ? `<br><span class="field-hint">由 ${escHtml(e.actor_label)}</span>` : ''}</td><td>${escHtml(e.ip || '')}</td><td>${escHtml(e.detail || '')}</td>`;
+      const evLabel = adminEventLabel(e.event);
+      tr.innerHTML = `<td>${escHtml(fmtDateTime(e.at))}</td><td title="${escHtml(e.event)}">${escHtml(evLabel)}${evLabel !== e.event ? `<br><span class="field-hint">${escHtml(e.event)}</span>` : ''}</td><td>${escHtml(e.user_label || (e.user_id ? `#${e.user_id}` : '—'))}${e.actor_label ? `<br><span class="field-hint">由 ${escHtml(e.actor_label)}</span>` : ''}</td><td>${escHtml(e.ip || '')}</td><td>${escHtml(e.detail || '')}</td>`;
       tbody.appendChild(tr);
     }
     if (reset && !r.data.events.length) tbody.innerHTML = '<tr><td colspan="5" class="analytics-empty">沒有紀錄</td></tr>';
     const last = r.data.events[r.data.events.length - 1];
     adminUsersState.eventsBefore = last ? last.id : null;
     $('adminEventsMoreBtn').hidden = r.data.events.length < 100;
+  }
+
+  // 登入與帳號紀錄：事件代碼換成中文，代碼仍留在下方小字（篩選欄位要用代碼開頭）
+  const ADMIN_EVENT_LABELS = {
+    login_ok: '登入成功', login_fail: '登入失敗', login_blocked: '登入被鎖定', logout: '登出',
+    admin_setup: '建立管理員', admin_migrated: '管理員搬進帳號資料庫', admin_db_restore: '還原帳號資料庫',
+    password_rehash: '更新密碼雜湊'
+  };
+  function adminEventLabel(code) {
+    if (ADMIN_EVENT_LABELS[code]) return ADMIN_EVENT_LABELS[code];
+    if (/^bot_/.test(code)) return '擋下機器人';
+    return code;
   }
 
   // ── 後台：帳號系統分頁 ──
@@ -16937,7 +16950,7 @@
     const val = id => { const el = $(id); return el ? (el.type === 'checkbox' ? el.checked : String(el.value || '').trim()) : ''; };
     const L = setAdminCardLight;
     L('site', !val('settingsMdRoot') ? 'bad' : !val('settingsSiteUrl') ? 'warn' : 'ok',
-      !val('settingsMdRoot') ? '尚未設定經文目錄' : !val('settingsSiteUrl') ? '未設定首頁權威 URL（影響驗證信連結與 SEO）' : '經文目錄與網址都已設定');
+      !val('settingsMdRoot') ? '尚未設定經文目錄' : !val('settingsSiteUrl') ? '未設定網站網址（影響驗證信連結與 SEO）' : '經文目錄與網址都已設定');
     L('reading', 'off');
     const footerIssues = [];
     if (val('settingsEnableDownload') && !val('settingsDownloadUrl')) footerIssues.push('已開啟離線下載但沒有填下載網址');
@@ -16968,7 +16981,7 @@
     const notes = [];
     if (o.adminNeedsEmail) notes.push('你的管理員帳號還沒有 Email，忘記密碼時無法自行重設。請到右上角「我的帳號」補上。');
     adminNotice('adminAccountSysNotice', notes.join(' '));
-    $('adminPublicBaseUrl').textContent = o.publicBaseUrl ? `${o.publicBaseUrl}${o.publicBaseUrlSource === 'env' ? '（環境變數）' : '（首頁權威 URL）'}` : '未設定';
+    $('adminPublicBaseUrl').textContent = o.publicBaseUrl ? `${o.publicBaseUrl}${o.publicBaseUrlSource === 'env' ? '（環境變數）' : '（網站網址）'}` : '未設定';
     renderAdminDbStatus(o.database);
     renderAdminSetup(o.setup);
     await Promise.all([loadAdminTurnstile(), loadAdminProviders(), loadAdminMail(), loadAdminMailDns(), loadAdminLegal(), loadAdminBackups()]);
@@ -16976,7 +16989,7 @@
 
   // 開站設定：每一步對應一張卡片，按「前往」捲到那張卡片。
   const ADMIN_SETUP_HINTS = {
-    baseUrl: '驗證信裡的連結要用網站的正式網址，在「系統設定」的「首頁權威 URL」填寫',
+    baseUrl: '驗證信裡的連結要用網站的正式網址，在「網站與經文庫」頁填寫網站網址',
     mail: '填入 Resend 的 API 金鑰與寄件 Email',
     mailTest: '寄一封信給自己，確認收得到（也請看看是不是被當成垃圾信）',
     turnstile: '填入 Cloudflare Turnstile 的 Site key 與 Secret key',
@@ -17055,7 +17068,7 @@
     try { const u = new URL(p.callbackUrl); origin = u.origin; host = u.hostname; } catch (_) { /* 還沒設對外網址 */ }
     if (host && !/^\d+\.\d+\.\d+\.\d+$/.test(host)) parent = host.split('.').slice(-2).join('.');
     const cb = p.callbackUrl;
-    const noUrl = '<strong>（還沒有對外網址：請先到「系統設定」填寫首頁權威 URL，這裡才會顯示要貼的值。）</strong>';
+    const noUrl = '<strong>（還沒有對外網址：請先到「網站與經文庫」頁填寫網站網址，這裡才會顯示要貼的值。）</strong>';
     const v = (x) => x ? ssoValue(x) : noUrl;
     const privacy = origin ? origin + '/privacy' : '';
     const terms = origin ? origin + '/terms' : '';
@@ -17169,7 +17182,7 @@
       <details class="setup-howto"><summary>怎麼申請 ${escHtml(p.label)} 的金鑰？（完整逐步說明）</summary><ol class="sso-steps">${ssoHowto(id, p).map(t => `<li>${t}</li>`).join('')}</ol></details>
       <div class="sso-callback">
         <span class="field-hint">回調網址（加到 ${escHtml(p.label)} 後台的重新導向 URI）</span>
-        ${p.callbackUrl ? `<div class="account-inline-form"><input type="text" readonly class="sso-callback-input" value="${escHtml(p.callbackUrl)}" aria-label="${escHtml(p.label)} 回調網址"><button type="button" class="modal-btn secondary-btn small-btn sso-copy">複製</button></div>` : '<span class="field-hint">還沒有對外網址，請先到「系統設定」填寫首頁權威 URL。</span>'}
+        ${p.callbackUrl ? `<div class="account-inline-form"><input type="text" readonly class="sso-callback-input" value="${escHtml(p.callbackUrl)}" aria-label="${escHtml(p.label)} 回調網址"><button type="button" class="modal-btn secondary-btn small-btn sso-copy">複製</button></div>` : '<span class="field-hint">還沒有對外網址，請先到「網站與經文庫」頁填寫網站網址。</span>'}
       </div>
       <div class="setup-form sso-fields"></div>
       <div class="field-hint sso-lock-note"></div>
