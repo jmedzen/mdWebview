@@ -12148,23 +12148,22 @@ a.small-btn {
 .share-card-slide:focus-visible { outline: none; }
 .share-card-slide:focus-visible .share-card-frame { outline-color: var(--accent); }
 
-/* 版型位置（取代圓點）：「3 / 8」 */
-.share-card-dots { text-align: center; margin-top: 8px; font-size: 0.85rem; letter-spacing: 0.08em; color: var(--text-secondary); min-height: 1.2em; }
-.share-card-qr-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  user-select: none;
+/* QR 碼膠囊開關：亮 = 附、暗 = 不附 */
+.share-card-pill {
+  min-height: 36px; padding: 0 13px; border-radius: 18px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+  font-size: 0.9rem; letter-spacing: 0.08em; opacity: 0.55;
+  transition: opacity 0.2s, background 0.2s, color 0.2s, box-shadow 0.2s;
 }
-.share-card-qr-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.share-card-qr-note { color: var(--text-muted); }
+.share-card-pill.is-on {
+  opacity: 1; background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 0 10px var(--accent-dim, rgba(120, 160, 255, 0.35));
+}
+.share-card-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .share-card-actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-top: 14px;
   position: sticky;
@@ -12198,23 +12197,11 @@ a.small-btn {
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
-.share-card-act-line {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  justify-content: center;
-  gap: 10px;
-  padding: 10px 0;
+.share-card-act-line .share-card-ic {
   background: #06c755;
   color: #fff;
-  font-size: 1rem;
-  font-weight: 700;
-}
-.share-card-act-line:hover { background: #05b34c; color: #fff; }
-.share-card-act-line .share-card-ic {
-  width: auto; height: auto; background: none; color: #fff; border-radius: 0;
   font: 800 13px/1 'Inter', sans-serif;
   letter-spacing: 0.02em;
-  padding: 3px 6px; border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: 5px;
 }
 
 /* 手機：底部抽屜，一次看一張，左右滑 */
@@ -12261,34 +12248,28 @@ a.small-btn {
   background: transparent; color: #f3ead6; font-size: 1rem; cursor: pointer;
 }
 
-/* 早安圖：底色一排色票（先選），再看版型；問候語下拉與 QR 同一排 */
-.share-card-field { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 2px 0 0; }
-.share-card-label { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.1em; flex: none; }
-.share-card-base-note { margin: 2px 0 10px; text-align: center; font-size: 0.78rem; color: var(--text-muted); min-height: 1.2em; }
-.share-card-base-note.is-notice { color: var(--accent); }
-.share-card-options { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; }
-.share-card-opt { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); }
+/* 早安圖：預覽下面一排——底色色票、問候語下拉、QR 開關，全部直接點 */
+.share-card-controls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 8px; margin-top: 12px; }
+.share-card-opt { display: flex; align-items: center; font-size: 0.85rem; color: var(--text-secondary); }
 .share-card-select {
-  min-height: 36px; padding: 0 28px 0 12px; border-radius: 18px; cursor: pointer;
+  min-height: 36px; padding: 0 24px 0 12px; border-radius: 18px; cursor: pointer;
   border: 1px solid var(--border); background-color: var(--bg-secondary); color: var(--text-primary);
   font-family: var(--cjk-serif), serif; font-size: 0.95rem; letter-spacing: 0.08em;
 }
 .share-card-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* 底色色票（奶油／月白／杏粉／素紙；只影響紙底版型） */
-.share-card-bases { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 10px; margin: 0; }
+/* 底色色票（奶油／月白／竹青／素紙；只影響紙底版型） */
+.share-card-bases { display: flex; align-items: center; gap: 0; }
 .share-card-base {
-  display: inline-flex; flex-direction: column; align-items: center; gap: 3px; min-width: 44px; min-height: 44px;
-  padding: 2px 4px; border: none; background: transparent; cursor: pointer; color: var(--text-secondary);
+  display: inline-flex; align-items: center; justify-content: center; min-width: 34px; min-height: 44px;
+  padding: 0 2px; border: none; background: transparent; cursor: pointer; color: var(--text-secondary);
 }
 .share-card-base-swatch {
-  width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
   display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--cjk-serif), serif; font-size: 0.8rem; font-weight: 700;
 }
-.share-card-base-name { font-size: 0.75rem; letter-spacing: 0.08em; }
 .share-card-base.is-selected .share-card-base-swatch { box-shadow: 0 0 0 2px var(--bg-primary, #fff), 0 0 0 4px var(--accent); }
-.share-card-base.is-selected .share-card-base-name { color: var(--text-primary); }
 
 /* ── 科判側欄（v4.21.0，kepan-sidebar.js）────────────────────
    科判系列的講記：側欄「科判」分頁取代「大綱」，閱讀框頂端有地標與完整路徑，

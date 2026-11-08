@@ -2895,11 +2895,9 @@
     let sel = $('shareCardGreetingSel');
     if (!sel) {
       wrap.textContent = '';
-      const lab = document.createElement('label');
-      lab.htmlFor = 'shareCardGreetingSel';
-      lab.textContent = '問候';
       sel = document.createElement('select');
       sel.id = 'shareCardGreetingSel';
+      sel.setAttribute('aria-label', '問候語');
       sel.className = 'share-card-select';
       sel.title = '時間問候：依你現在的時間（早安／午安／晚安）；法安、自在、吉祥不分時間，適合跨時區';
       for (const mode of SHARE_GREETING_MODES) {
@@ -2909,7 +2907,7 @@
         sel.appendChild(o);
       }
       sel.addEventListener('change', () => selectShareGreeting(sel.value));
-      wrap.append(lab, sel);
+      wrap.appendChild(sel);
     }
     sel.value = shareRt.greetingMode;
   }
@@ -2943,40 +2941,25 @@
       b.dataset.base = id;
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', on ? 'true' : 'false');
-      b.title = `${t.name}底`;
+      const own = SC.layoutsFor(id).filter(l => !['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'].includes(l));
+      b.title = `${t.name}底${own.length ? `（專屬版型：${own.map(l => SC.LAYOUT_NAMES[l]).join('、')}）` : '（可用全部版型）'}`;
+      b.setAttribute('aria-label', b.title);
       const sw = document.createElement('span');
       sw.className = 'share-card-base-swatch';
       sw.style.background = `linear-gradient(${t.top}, ${t.bottom})`;
       sw.style.color = t.ink;
       sw.textContent = '字';
       sw.setAttribute('aria-hidden', 'true');
-      const name = document.createElement('span');
-      name.className = 'share-card-base-name';
-      name.textContent = t.name;
-      b.append(sw, name);
+      b.append(sw);
       b.addEventListener('click', () => selectShareBase(id));
       wrap.appendChild(b);
     }
   }
 
-  /** 目前底色可用的版型（B 只有奶油；月白／杏粉／素紙各多一個專屬版型）。 */
+  /** 目前底色可用的版型（B 只有奶油；月白／竹青／素紙各多一個專屬版型）。 */
   function shareLayouts() {
     const SC = window.ShareCard;
     return SC.layoutsFor ? SC.layoutsFor(shareRt.base) : SC.LAYOUTS;
-  }
-
-  /** 色票下面那行小字：這個底色有哪些專屬版型。notice = 剛剛因為換底色而換掉版型的提示。 */
-  function renderShareBaseNote(notice) {
-    const el = $('shareCardBaseNote');
-    const SC = window.ShareCard;
-    if (!el || !SC || !SC.BASES) return;
-    const common = SC.layoutsFor('moon').filter(l => l !== 'K');
-    const own = shareLayouts().filter(l => !common.includes(l) && l !== 'B');
-    const name = SC.BASES[shareRt.base].name;
-    let text = shareRt.base === 'cream' ? `${name}底　可用全部版型，含「${SC.LAYOUT_NAMES.B}」` : `${name}底　專屬版型：${own.map(l => SC.LAYOUT_NAMES[l]).join('、')}`;
-    if (notice) text = notice;
-    el.textContent = text;
-    el.classList.toggle('is-notice', !!notice);
   }
 
   function selectShareBase(id) {
@@ -2995,19 +2978,17 @@
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
     shareRt.urls = [];
     renderShareBases();
-    renderShareBaseNote(notice);
+    if (notice) showToast(notice, 'info', 3200);
     renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
   }
 
   function renderShareSlides() {
     const SC = window.ShareCard;
     const wrap = $('shareCardSlides');
-    const dots = $('shareCardDots');
     if (!wrap || !SC) return;
     const size = 'preview';
     const slideImgs = new Map();
     wrap.textContent = '';
-    dots.textContent = '';
     const layouts = shareLayouts();
     for (const layout of layouts) {
       const fig = document.createElement('button');
@@ -3093,8 +3074,6 @@
     }
     const L = window.ShareCard ? shareLayouts() : [];
     const i = L.indexOf(layout);
-    const ctr = $('shareCardDots');
-    if (ctr && i >= 0) ctr.textContent = `${i + 1} / ${L.length}`;
     const prev = $('shareCardPrev'), next = $('shareCardNext');
     if (prev) prev.disabled = i <= 0;
     if (next) next.disabled = i < 0 || i >= L.length - 1;
@@ -3172,9 +3151,8 @@
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
     shareRt.base = window.ShareCard.normalizeBase ? window.ShareCard.normalizeBase(storage.get(SHARE_BASE_KEY, 'cream')) : 'cream';
     if (window.ShareCard.layoutFor) shareRt.layout = window.ShareCard.layoutFor(shareRt.layout, shareRt.base);
-    shareRt.qr = storage.get(SHARE_QR_KEY, '0') === '1';
-    const qrBox = $('shareCardQr');
-    if (qrBox) qrBox.checked = shareRt.qr;
+    shareRt.qr = storage.get(SHARE_QR_KEY, '1') === '1';   // 預設附 QR 碼
+    syncShareQrPill();
     shareRt.blobs = new Map();
     shareRt.meta = null;
     shareRt.serverOk = true;
@@ -3185,16 +3163,24 @@
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
     renderShareGreetings();
     renderShareBases();
-    renderShareBaseNote();
     renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
     sendShareEvent('open');
     const card = ov.querySelector('.share-card-card');
     if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
   }
 
+  /** QR 膠囊：亮 = 附 QR 碼、暗 = 不附。 */
+  function syncShareQrPill() {
+    const pill = $('shareCardQr');
+    if (!pill) return;
+    pill.classList.toggle('is-on', shareRt.qr);
+    pill.setAttribute('aria-checked', shareRt.qr ? 'true' : 'false');
+  }
+
   /** 「附 QR 碼」開關：記在本機，換了就重畫面板上的預覽。 */
   function setShareQr(on) {
     shareRt.qr = !!on;
+    syncShareQrPill();
     storage.set(SHARE_QR_KEY, shareRt.qr ? '1' : '0');
     if (!shareRt.open) return;
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
@@ -3429,7 +3415,7 @@
     if (!ov) return;
     $('shareCardCloseBtn').addEventListener('click', closeShareCard);
     const qrBox = $('shareCardQr');
-    if (qrBox) qrBox.addEventListener('change', () => setShareQr(qrBox.checked));
+    if (qrBox) qrBox.addEventListener('click', () => setShareQr(!shareRt.qr));
     ov.addEventListener('click', e => { if (e.target === ov) closeShareCard(); });
     document.addEventListener('keydown', e => {
       if (!shareRt.open) return;

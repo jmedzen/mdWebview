@@ -4492,7 +4492,7 @@ function shareCardParams(query, req) {
   return {
     date: ShareCard.normalizeDate(query.d) || ShareCard.zonedNow(dailyVerseTimezone()).ymd,
     greeting: ShareCard.GREETINGS.includes(query.g) ? query.g : '吉祥',
-    // 底色只影響紙底版型；B 只給奶油，月白／杏粉／素紙各有專屬版型（K／L／M）
+    // 底色只影響紙底版型；B 只給奶油，月白／竹青／素紙各有專屬版型（K／L／M）
     layout: ShareCard.layoutFor(query.layout || query.l, base),
     base,
     size: ShareCard.normalizeSize(query.size),

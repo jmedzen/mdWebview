@@ -120,9 +120,9 @@ describe('share-card.js：QR 小籤', () => {
 });
 
 describe('前端：附 QR 碼開關', () => {
-  test('面板有開關，預設不附，記在本機', () => {
+  test('面板有開關（膠囊），預設附，記在本機', () => {
     assert.match(indexHtml, /id="shareCardQr"/);
-    assert.match(appJs, /storage\.get\(SHARE_QR_KEY, '0'\) === '1'/);
+    assert.match(appJs, /storage\.get\(SHARE_QR_KEY, '1'\) === '1'/);
     assert.match(appJs, /qr=1/);
   });
 
