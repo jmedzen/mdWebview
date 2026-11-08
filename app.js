@@ -12159,12 +12159,28 @@
   // ── 底部儲存列 ──
   // 設定類頁面（導覽項目帶 data-save）共用一條儲存列：使用者動過的欄位記下
   // 原值，與原值不同的才算「未儲存」；儲存成功由各頁的存檔程式呼叫
-  // markAdminSaved(key)。寄信、Turnstile、登入方式是「填金鑰→驗證」流程，
-  // 按鈕留在卡片裡，旁邊直接顯示驗證結果，不走這條列。
+  // markAdminSaved(key)。寄信、Turnstile、登入方式是「填金鑰→驗證」流程：
+  // 也走這條列（按鈕寫「儲存並檢查」），驗證結果仍顯示在卡片裡。
+  // 「寄測試信」「移除金鑰」這類立即動作留在卡片裡，不算未儲存。
   const adminDirtyFields = new Map(); // element → { orig, save }
-  const ADMIN_SAVE_LABEL = { legal: '發布' };
+  const ADMIN_SAVE_LABEL = { legal: '發布', mail: '儲存並檢查', turnstile: '儲存並檢查', sso: '儲存並檢查' };
   const ADMIN_SAVE_FORMS = { config: 'adminSettingsForm', seo: 'adminSeoForm', suggest: 'adminSuggestForm' };
-  const ADMIN_SAVE_BUTTONS = { registration: 'adminRegSaveBtn', legal: 'adminLegalSaveBtn', reports: 'adminReportsSaveBtn' };
+  const ADMIN_SAVE_BUTTONS = {
+    registration: 'adminRegSaveBtn', legal: 'adminLegalSaveBtn', reports: 'adminReportsSaveBtn',
+    mail: 'adminMailSaveBtn', turnstile: 'adminTurnstileSaveBtn'
+  };
+  // 登入方式一頁有好幾家，各自存檔：只存有改過欄位的那幾家
+  const ADMIN_SAVE_ACTIONS = {
+    sso: () => {
+      const dirty = adminDirtyEntries().map(([el]) => el);
+      document.querySelectorAll('#adminProviderList > *').forEach(section => {
+        if (dirty.some(el => section.contains(el))) {
+          const btn = section.querySelector('.sso-save');
+          if (btn && !btn.disabled) btn.click();
+        }
+      });
+    }
+  };
 
   function adminFieldValue(el) {
     return (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
@@ -12210,6 +12226,10 @@
   }
 
   function refreshAdminSaveBar() {
+    // 區塊重畫後（例如登入方式存檔成功）舊欄位已不在頁面上，不再算未儲存
+    for (const el of [...adminDirtyFields.keys()]) {
+      if (!el.isConnected) adminDirtyFields.delete(el);
+    }
     state._adminDirty = adminDirtyCount('') > 0;
     const bar = $('adminSaveBar');
     if (!bar) return;
@@ -12268,6 +12288,8 @@
     } else if (ADMIN_SAVE_BUTTONS[save]) {
       const btn = $(ADMIN_SAVE_BUTTONS[save]);
       if (btn) btn.click();
+    } else if (ADMIN_SAVE_ACTIONS[save]) {
+      ADMIN_SAVE_ACTIONS[save]();
     }
   }
 
@@ -16694,7 +16716,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定對外網址（PUBLIC_BASE_URL 或首頁權威 URL）', MAIL: '尚未設定寄信（MAIL_PROVIDER、MAIL_API_KEY、MAIL_FROM）' };
+  const REG_BLOCKER_TEXT = { PUBLIC_BASE_URL: '尚未設定網站網址（到「網站與經文庫」填寫首頁權威 URL）', MAIL: '尚未設定寄信（到「寄信」頁設定）' };
 
   let adminRegModeKnown = '';
   let adminLegalVersionKnown = null;
@@ -17140,7 +17162,7 @@
         <strong>${escHtml(p.label)}</strong>
         <span class="sso-status">${ssoStatusBadge(p)}</span>
         <label class="toggle-switch sso-toggle-wrap" title="${canToggle ? '在登入畫面顯示這個登入方式' : '金鑰填齊並通過檢查後才能開啟'}">
-          <input type="checkbox" class="sso-toggle" ${p.enabled && p.configured ? 'checked' : ''} ${canToggle ? '' : 'disabled'} aria-label="${escHtml(p.label)} 登入開關">
+          <input type="checkbox" class="sso-toggle" data-no-dirty ${p.enabled && p.configured ? 'checked' : ''} ${canToggle ? '' : 'disabled'} aria-label="${escHtml(p.label)} 登入開關">
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -17152,7 +17174,7 @@
       <div class="setup-form sso-fields"></div>
       <div class="field-hint sso-lock-note"></div>
       <div class="account-inline-form">
-        <button type="button" class="modal-btn submit-btn small-btn sso-save">儲存並檢查</button>
+        <button type="button" class="modal-btn submit-btn small-btn sso-save admin-legacy-save">儲存並檢查</button>
         <button type="button" class="modal-btn secondary-btn small-btn sso-check" ${p.configured ? '' : 'hidden'}>檢查設定</button>
         <button type="button" class="modal-btn secondary-btn small-btn sso-clear" ${webSet.length ? '' : 'hidden'}>清除網頁上設定的金鑰</button>
       </div>
@@ -17192,6 +17214,10 @@
         wrap.appendChild(note);
       }
       if (f.multiline && !f.locked) {
+        // 瀏覽器原生的檔案鈕是英文（Choose File），包成一般按鈕的樣子
+        const pickBtn = document.createElement('label');
+        pickBtn.className = 'modal-btn secondary-btn small-btn sso-file-btn';
+        pickBtn.textContent = '從檔案讀入（.p8）';
         const pick = document.createElement('input');
         pick.type = 'file';
         pick.accept = '.p8,.pem,.txt';
@@ -17199,9 +17225,14 @@
         pick.setAttribute('aria-label', '選擇 .p8 檔');
         pick.addEventListener('change', async () => {
           const file = pick.files && pick.files[0];
-          if (file) input.value = await file.text();
+          if (!file) return;
+          rememberAdminField(input);
+          input.value = await file.text();
+          pickBtn.firstChild.textContent = `已讀入 ${file.name}`;
+          refreshAdminSaveBar();
         });
-        wrap.appendChild(pick);
+        pickBtn.appendChild(pick);
+        wrap.appendChild(pickBtn);
       }
       fieldsBox.appendChild(wrap);
     }
@@ -17233,6 +17264,7 @@
         return;
       }
       const out = refresh(r.data.providers);
+      refreshAdminSaveBar();
       const lines = [toggle ? '✅ 已更新' : '✅ 已儲存'];
       if (r.data.check && r.data.check.state === 'valid') lines.push('服務商接受這組金鑰');
       (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
@@ -17442,7 +17474,7 @@
 
     const notice = $('adminReportsNotice');
     const problems = [];
-    if (!d.mail.configured) problems.push('寄信還沒設定好，報表不會寄出。請先到「🔑 帳號系統」設定 Resend。');
+    if (!d.mail.configured) problems.push('寄信還沒設定好，報表不會寄出。請先到「寄信」頁設定 Resend。');
     else if (d.mail.provider === 'log') problems.push('寄信目前是測試模式（只寫進日誌），報表不會真的寄出。');
     if (!d.recipients.length) problems.push('沒有收件人：請填收件人，或替管理員帳號設定 Email。');
     notice.textContent = problems.join('\n');
@@ -17790,6 +17822,7 @@
       (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
       if (r.data.mail.configured && r.data.mail.provider === 'resend') lines.push('下一步：確認下方 DNS 都是「正常」，然後寄一封測試信給自己。');
       showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      markAdminSaved('mail');
       renderAdminMail(r.data.mail);
       fillAdminMailForm(r.data.mail);
       renderAdminSetup(r.data.setup);
@@ -17829,6 +17862,7 @@
       (r.data.warnings || []).forEach(w => lines.push(`⚠️ ${w}`));
       if (r.data.info.configured) lines.push('下一步：按「開始實測」親自通過一次驗證。');
       showSetupResult(out, (r.data.warnings || []).length ? '' : 'ok', lines);
+      markAdminSaved('turnstile');
       renderAdminTurnstile(r.data.info);
       fillAdminTurnstileForm(r.data.info);
       renderAdminSetup(r.data.setup);

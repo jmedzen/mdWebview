@@ -7265,6 +7265,65 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   min-width: 0;
 }
 
+/* ── 改版第 3 階段：其餘設定頁 ── */
+
+/* 區塊標題列右側的動作鈕（例如寄件網域 DNS 的「重新檢查」） */
+.admin-shell .config-card-header > .adm-header-action {
+  order: 5;
+  margin-left: 8px;
+}
+
+.admin-shell .config-card-header > .status-light.off:not(:has(~ .status-light-text:not(:empty))) {
+  visibility: hidden;
+}
+
+/* 舊頁面的「標籤＋欄位」直排：標籤和上一個欄位之間留出段落距離 */
+.admin-shell .setup-form > label.field-hint[for]:not(:first-child),
+.admin-shell .config-card-body > label.field-hint[for]:not(:first-child) {
+  margin-top: 6px;
+}
+
+/* 邀請碼：三個欄位各有標籤 */
+.admin-shell .adm-invite-form {
+  display: grid;
+  grid-template-columns: 110px 150px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.admin-shell .adm-invite-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .admin-shell .adm-invite-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-shell .adm-invite-note,
+  .admin-shell .adm-invite-form > button {
+    grid-column: 1 / -1;
+  }
+}
+
+/* 登入方式：私鑰的檔案鈕 */
+.admin-shell .sso-file-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+.admin-shell .sso-file-btn > input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 使用者分頁裡的設定類區塊（註冊、邀請碼）也照設定頁寬度 */
 .admin-shell .config-card[data-card="registration"],
 .admin-shell .config-card[data-card="invites"] {
