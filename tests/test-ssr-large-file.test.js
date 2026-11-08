@@ -1,3 +1,6 @@
+// 辭典測試需要辭典功能開啟（預設關閉，開發機靠 config.json／環境變數啟用）
+if (!process.env.DICTIONARY_ENABLED) process.env.DICTIONARY_ENABLED = 'true';
+
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
