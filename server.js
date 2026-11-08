@@ -4452,10 +4452,13 @@ function shareCardParams(query, req) {
   // 連結沒帶日期時用「網站時區」的今天（不用伺服器的 UTC）；沒帶問候時用不分時間的「吉祥」，
   // 因為這張圖是給不知道在哪個時區的收件人（LINE 預覽的爬蟲）看的。
   // 瀏覽器端畫卡一定會帶上傳送者自己時區的日期與問候。
+  const base = ShareCard.normalizeBase(query.base || query.b);   // 沒帶或不認得一律奶油，舊連結不變
   return {
     date: ShareCard.normalizeDate(query.d) || ShareCard.zonedNow(dailyVerseTimezone()).ymd,
     greeting: ShareCard.GREETINGS.includes(query.g) ? query.g : '吉祥',
-    layout: ShareCard.normalizeLayout(query.layout || query.l),
+    // 底色只影響紙底版型；B 只給奶油，月白／杏粉／素紙各有專屬版型（K／L／M）
+    layout: ShareCard.layoutFor(query.layout || query.l, base),
+    base,
     size: ShareCard.normalizeSize(query.size),
     // size=preview：分享面板裡的小預覽（直式版面、較小的畫布），傳出去的仍是 size=portrait
     preview: query.size === 'preview',
@@ -4519,7 +4522,12 @@ async function handleShareCardMeta(req, res, query) {
   }
 }
 
-/** GET /api/share-card.jpg?id=&layout=A|B|C&size=portrait|preview|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
+/** 網址上的底色參數：奶油（預設）不寫，舊連結與快取網址維持原樣。 */
+function shareCardBaseQs(p, key) {
+  return p.base && p.base !== 'cream' ? `&${key}=${p.base}` : '';
+}
+
+/** GET /api/share-card.jpg?id=&layout=A|B|C&base=cream|moon|…&size=portrait|preview|og&d=YYYY-MM-DD&g=早安 — 畫好的卡片。 */
 async function handleShareCardImage(req, res, query) {
   if (!shareCardServer.available()) {
     return sendJSON(res, 503, { error: 'Share card renderer unavailable', renderer: false });
@@ -4733,12 +4741,12 @@ async function handleVerseShareLink(req, res, query) {
     }
     const baseUrl = getBaseUrl(req, config.settings.siteUrl);
     const site = config.settings.siteName || 'mdWebview';
-    const qs = `id=${v.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+    const qs = `id=${v.id}&layout=${p.layout}${shareCardBaseQs(p, 'base')}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
     og = {
       title: `${p.greeting}．${shareOgFirst(v.text)}`,
       desc: `${v.text}${v.source ? `　《${v.source}》` : ''}　— ${site} · 每日經句`,
       img: `${baseUrl}/api/share-card.jpg?${qs}`,
-      url: `${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`
+      url: `${baseUrl}/?verse=${v.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}${shareCardBaseQs(p, 'b')}`
     };
   }
   sendIndexWithShareOg(req, res, og);
@@ -4747,7 +4755,7 @@ async function handleVerseShareLink(req, res, query) {
 /** 選句的分享連結：打開那一篇並跳到那一行，預覽圖是那張早安圖。 */
 function quoteShareUrl(baseUrl, quote, p) {
   return `${baseUrl}/?file=${encodeURIComponent(quote.path)}${quote.line ? `&line=${quote.line}` : ''}` +
-    `&quote=${quote.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}`;
+    `&quote=${quote.id}&d=${p.date}&g=${encodeURIComponent(p.greeting)}&l=${p.layout}${shareCardBaseQs(p, 'b')}`;
 }
 
 /**
@@ -4764,7 +4772,7 @@ function handleQuoteShareLink(req, res, query) {
     }
     const baseUrl = getBaseUrl(req, config.settings.siteUrl);
     const site = config.settings.siteName || 'mdWebview';
-    const qs = `q=${q.id}&layout=${p.layout}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
+    const qs = `q=${q.id}&layout=${p.layout}${shareCardBaseQs(p, 'base')}&size=og&d=${p.date}&g=${encodeURIComponent(p.greeting)}`;
     og = {
       title: `${p.greeting}．${shareOgFirst(q.text)}`,
       desc: `${q.text}${q.source ? `　《${q.source}》` : ''}　— ${site} · 經文選句`,
