@@ -7120,6 +7120,161 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   }
 }
 
+/* ── §31f 後台元件（改版第 2 階段） ──
+   一頁一件事：區塊（.config-card）沿用總覽卡片的外觀，不再收合；
+   標籤、說明文字、開關列各只有一種樣子。 */
+.admin-shell {
+  --adm-gap: 14px;
+  --adm-settings-width: 760px;
+  --status-ok: #2e9e5b;
+  --status-warn: #e0a100;
+  --status-bad: #d64545;
+}
+
+/* 設定頁：一欄、最寬 760px（使用者、備份等清單頁另計） */
+.admin-shell #adminPaneConfig .admin-config-grid,
+.admin-shell #adminPaneSeo .admin-config-grid,
+.admin-shell #adminPaneAccountSystem .admin-config-grid,
+.admin-shell #adminPaneReports .admin-config-grid,
+.admin-shell #adminSettingsForm > .modal-actions,
+.admin-shell #adminSeoForm > .modal-actions {
+  max-width: var(--adm-settings-width);
+}
+
+.admin-shell .admin-config-grid {
+  gap: var(--adm-gap);
+}
+
+/* 區塊 */
+.admin-shell .config-card,
+.admin-shell .config-card:hover {
+  padding: 16px 18px;
+  gap: 14px;
+  border-color: var(--border-subtle);
+  box-shadow: none;
+  transition: none;
+}
+
+.admin-shell .config-card-header {
+  gap: 8px;
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  cursor: default;
+}
+
+.admin-shell .config-card-icon {
+  font-size: 16px;
+}
+
+.admin-shell .config-card-title {
+  font-size: calc(14.5px * var(--ui-font-scale, 1));
+  max-width: none;
+  flex-shrink: 1;
+}
+
+/* 狀態燈與狀態文字靠右，和總覽的「前往 ›」同一個位置 */
+.admin-shell .config-card-header > .status-light {
+  order: 2;
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  box-shadow: none;
+}
+
+.admin-shell .config-card-header > .status-light-text {
+  order: 3;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+.admin-shell .config-card-header > .account-badge {
+  order: 4;
+  margin-left: 4px;
+}
+
+.admin-shell .status-light.ok { background: var(--status-ok); }
+.admin-shell .status-light.warn { background: var(--status-warn); }
+.admin-shell .status-light.bad { background: var(--status-bad); }
+.admin-shell .config-card-toggle { display: none; }
+
+/* 標籤：只有一種（13.5px 粗體主色）；舊頁面把 .field-hint 當標籤用的也一起統一 */
+.admin-shell .form-group > label,
+.admin-shell .field-label-row > label,
+.admin-shell label.field-hint[for] {
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.admin-shell .form-group {
+  gap: 6px;
+}
+
+.admin-shell .config-card-body {
+  gap: 16px;
+}
+
+.admin-shell .form-group > .field-hint,
+.admin-shell .form-group > .form-hint {
+  margin-top: 0;
+}
+
+/* 開關列：標題在左、開關在右；底下需要填的欄位整行 */
+.admin-shell .footer-config-grid {
+  gap: 0;
+}
+
+.admin-shell .footer-setting-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 14px 0 0;
+  margin: 14px 0 0;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+
+.admin-shell .footer-config-grid > .footer-setting-item:first-child,
+.admin-shell .config-card-body > .footer-setting-item:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.admin-shell .toggle-switch-wrapper {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  margin-bottom: 0;
+}
+
+.admin-shell .toggle-switch-title {
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+}
+
+.admin-shell .footer-setting-item .footer-input-wrap {
+  min-width: 0;
+}
+
+.admin-shell .footer-setting-item .footer-input-wrap input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* 使用者分頁裡的設定類區塊（註冊、邀請碼）也照設定頁寬度 */
+.admin-shell .config-card[data-card="registration"],
+.admin-shell .config-card[data-card="invites"] {
+  max-width: var(--adm-settings-width);
+}
+
+.admin-shell .footer-setting-item .diagnose-result {
+  width: 100%;
+}
+
 .analytics-clean-badge {
   font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-primary);
