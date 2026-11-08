@@ -11229,6 +11229,13 @@
         document.body.classList.add('focus-mode');
         focusModeBtn.blur();
       });
+      // 觸控裝置沒有 Esc：點右上角的 pill 離開
+      const focusModeExit = $('focusModeExit');
+      if (focusModeExit) {
+        focusModeExit.addEventListener('click', () => {
+          document.body.classList.remove('focus-mode');
+        });
+      }
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
         if (!document.body.classList.contains('focus-mode')) return;

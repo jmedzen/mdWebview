@@ -2885,6 +2885,7 @@ body.focus-mode .app {
   border: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
   color: var(--text-muted);
+  font-family: inherit;
   font-size: 12px;
   line-height: 1.5;
   opacity: 0.6;
@@ -2895,6 +2896,28 @@ body.focus-mode .app {
 
 body.focus-mode .focus-mode-pill {
   display: block;
+}
+
+.focus-mode-pill-touch {
+  display: none;
+}
+
+/* iPhone / iPad 沒有 Esc：pill 變成可點的離開按鈕 */
+@media (hover: none), (pointer: coarse) {
+  .focus-mode-pill {
+    pointer-events: auto;
+    cursor: pointer;
+    padding: 6px 14px;
+    font-size: 13px;
+    opacity: 0.85;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .focus-mode-pill-key {
+    display: none;
+  }
+  .focus-mode-pill-touch {
+    display: inline;
+  }
 }
 
 /* 手機沒有 Esc 可離開，所以不提供專注模式 */
