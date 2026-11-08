@@ -12148,13 +12148,12 @@ a.small-btn {
 .share-card-slide:focus-visible { outline: none; }
 .share-card-slide:focus-visible .share-card-frame { outline-color: var(--accent); }
 
-.share-card-dots { display: none; justify-content: center; gap: 6px; margin-top: 8px; }
+/* 版型位置（取代圓點）：「3 / 8」 */
+.share-card-dots { text-align: center; margin-top: 8px; font-size: 0.85rem; letter-spacing: 0.08em; color: var(--text-secondary); min-height: 1.2em; }
 .share-card-qr-toggle {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  margin-top: 12px;
   font-size: 0.85rem;
   color: var(--text-secondary);
   cursor: pointer;
@@ -12162,14 +12161,17 @@ a.small-btn {
 }
 .share-card-qr-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .share-card-qr-note { color: var(--text-muted); }
-.share-card-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: background 0.2s, width 0.2s; }
-.share-card-dots span.on { width: 16px; border-radius: 3px; background: var(--accent); }
 
 .share-card-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 14px;
+  position: sticky;
+  bottom: -24px;
+  padding: 10px 0 2px;
+  background: inherit;
+  border-top: 1px solid var(--border);
 }
 .share-card-act {
   display: flex;
@@ -12196,11 +12198,23 @@ a.small-btn {
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
-.share-card-act-line .share-card-ic {
+.share-card-act-line {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 0;
   background: #06c755;
   color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.share-card-act-line:hover { background: #05b34c; color: #fff; }
+.share-card-act-line .share-card-ic {
+  width: auto; height: auto; background: none; color: #fff; border-radius: 0;
   font: 800 13px/1 'Inter', sans-serif;
   letter-spacing: 0.02em;
+  padding: 3px 6px; border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: 5px;
 }
 
 /* 手機：底部抽屜，一次看一張，左右滑 */
@@ -12216,11 +12230,11 @@ a.small-btn {
   .share-card-slides { gap: 12px; padding: 6px 13%; scroll-padding: 0 13%; }
   .share-card-slide { flex-basis: 100%; }
   .share-card-slides .share-card-frame { max-height: 46dvh; width: auto; margin: 0 auto; }
-  .share-card-dots { display: flex; }
   .share-card-nav { display: none; }
   .share-card-hint .only-desktop { display: none; }
   .share-card-hint .only-mobile { display: inline; }
-  .share-card-ic { width: 48px; height: 48px; }
+  .share-card-ic { width: 44px; height: 44px; }
+  .share-card-actions { bottom: calc(-18px - env(safe-area-inset-bottom)); padding-bottom: calc(2px + env(safe-area-inset-bottom) * 0); }
 }
 @keyframes shareCardUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 
@@ -12247,17 +12261,22 @@ a.small-btn {
   background: transparent; color: #f3ead6; font-size: 1rem; cursor: pointer;
 }
 
-/* 早安圖問候語選擇（早安／午安／晚安／吉祥） */
-.share-card-greetings { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 12px 0 2px; }
-.share-card-greeting {
-  min-height: 36px; padding: 0 16px; border-radius: 18px; cursor: pointer;
-  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
-  font-family: var(--cjk-serif), serif; font-size: 0.95rem; letter-spacing: 0.1em;
+/* 早安圖：底色一排色票（先選），再看版型；問候語下拉與 QR 同一排 */
+.share-card-field { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 2px 0 0; }
+.share-card-label { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.1em; flex: none; }
+.share-card-base-note { margin: 2px 0 10px; text-align: center; font-size: 0.78rem; color: var(--text-muted); min-height: 1.2em; }
+.share-card-base-note.is-notice { color: var(--accent); }
+.share-card-options { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; }
+.share-card-opt { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); }
+.share-card-select {
+  min-height: 36px; padding: 0 28px 0 12px; border-radius: 18px; cursor: pointer;
+  border: 1px solid var(--border); background-color: var(--bg-secondary); color: var(--text-primary);
+  font-family: var(--cjk-serif), serif; font-size: 0.95rem; letter-spacing: 0.08em;
 }
-.share-card-greeting.is-selected { border-color: var(--accent); color: var(--text-primary); background: var(--bg-secondary); box-shadow: inset 0 0 0 1px var(--accent); }
+.share-card-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* 早安圖底色選擇（奶油／月白／杏粉／素紙／墨夜；只影響紙底版型） */
-.share-card-bases { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 10px; margin: 10px 0 2px; }
+/* 底色色票（奶油／月白／杏粉／素紙；只影響紙底版型） */
+.share-card-bases { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 10px; margin: 0; }
 .share-card-base {
   display: inline-flex; flex-direction: column; align-items: center; gap: 3px; min-width: 44px; min-height: 44px;
   padding: 2px 4px; border: none; background: transparent; cursor: pointer; color: var(--text-secondary);
