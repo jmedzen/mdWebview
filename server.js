@@ -2663,6 +2663,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       }
     }
 
+    // Release the previous index BEFORE building the new one so old + new never coexist
+    // (this was the dominant ~2x factor in the rebuild RSS peak). Search falls back to the
+    // non-index path while `ready` is false; the new index is swapped in atomically below.
+    if (searchIndex.ready) {
+      searchIndex = { ready: false, building: true, vaultSig: null, createdAt: null, fileList: [], fileMap: new Map(), units: [], bigrams: new Map() };
+      if (global.gc) global.gc();
+    }
+
     const heapLimitMb = Math.round(v8.getHeapStatistics().heap_size_limit / (1024 * 1024));
     const startRssMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
     if (heapLimitMb < 4096) {
@@ -2726,9 +2734,16 @@ async function buildSearchIndexAsync(forceRebuild = false) {
       (result, task) => {
         for (const r of result.results) {
           for (const bg of r.bigrams) {
+            // Growable Uint32Array posting buffer (4 B/entry, no per-element boxing)
+            // instead of a JS number[] — roughly halves peak heap during build.
             let list = bigrams.get(bg);
-            if (!list) { list = []; bigrams.set(bg, list); }
-            list.push(r.unitId);
+            if (!list) { list = { buf: new Uint32Array(2), n: 0 }; bigrams.set(bg, list); }
+            if (list.n === list.buf.length) {
+              const grown = new Uint32Array(list.buf.length * 2);
+              grown.set(list.buf);
+              list.buf = grown;
+            }
+            list.buf[list.n++] = r.unitId;
           }
           // 逐 unit 累加並檢查里程碑：worker 是一檔一 task 回傳，若只在 task
           // 結束時累加，單一大檔案會一次跳過好幾個里程碑（實測曾一次跳 4200
@@ -2753,11 +2768,14 @@ async function buildSearchIndexAsync(forceRebuild = false) {
     // Sort posting lists for O(n+m) sorted-merge intersection, then compact in-place to TypedArrays
     const useUint16 = units.length < 65536;
     for (const [bg, list] of bigrams.entries()) {
-      if (list.length === 1) {
-        bigrams.set(bg, list[0]); // Primitive number (0 bytes V8 Heap overhead!)
+      if (list.n === 1) {
+        bigrams.set(bg, list.buf[0]); // Primitive number (0 bytes V8 Heap overhead!)
       } else {
-        list.sort((a, b) => a - b);
-        bigrams.set(bg, useUint16 ? new Uint16Array(list) : new Uint32Array(list));
+        // Sort in place on the typed array, then copy to an exact-size array so the
+        // over-allocated growth buffer is released immediately (per-key, not all at once).
+        const view = list.buf.subarray(0, list.n);
+        view.sort();
+        bigrams.set(bg, useUint16 ? Uint16Array.from(view) : view.slice());
       }
     }
 
