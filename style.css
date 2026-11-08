@@ -7069,6 +7069,57 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   box-shadow: none;
 }
 
+/* ── §31e 後台緊急修正（改版第 1 階段） ── */
+
+/* 後台的設定格線只有一欄；舊的 .config-card.full-width 用 span 2，會在一欄格線裡
+   長出隱形的第二欄，讓其他卡片並排（安全與攔截、備份與還原）。 */
+.admin-shell .config-card.full-width {
+  grid-column: 1 / -1;
+}
+
+/* 說明文字：.form-hint（搜尋引擎與分享頁）原本沒有任何樣式，字比標籤還大。
+   與 .field-hint 一致。 */
+.admin-shell .form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 素紙主題的強調色是朱紅，和刪除、還原等危險操作分不開；後台改用素紙的墨藍。 */
+[data-theme="paper"] .admin-shell {
+  --accent: var(--link-color);
+  --accent-hover: #17466d;
+  --accent-dim: rgba(31, 90, 138, 0.1);
+}
+
+@media (max-width: 768px) {
+  /* 系統狀態：舊的兩欄格線寫在手機規則之後，把手機一欄蓋掉了 */
+  .admin-shell .hardware-dashboard-grid,
+  .admin-shell .index-status-columns,
+  .admin-shell .hardware-sub-metrics.grid-2col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-shell .hardware-sub-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-shell .sub-metric.full-width {
+    grid-column: 1 / -1;
+  }
+
+  /* 卡片標題列的重建索引按鈕換到下一行，不擠標題 */
+  .admin-shell .hardware-card-header {
+    flex-wrap: wrap;
+  }
+
+  .admin-shell .hardware-card-header #hwRebuildIndexBtn {
+    margin-left: 0 !important;
+  }
+}
+
 .analytics-clean-badge {
   font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-primary);
