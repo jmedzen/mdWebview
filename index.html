@@ -1202,14 +1202,14 @@
             <div class="admin-nav-group-title">讀者與登入</div>
             <button type="button" class="admin-nav-item" data-page="users" data-pane="users" data-cards="users"><span class="admin-nav-icon" aria-hidden="true">👥</span><span class="admin-nav-label">使用者</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="registration" data-save="registration" data-pane="users" data-cards="registration,invites"><span class="admin-nav-icon" aria-hidden="true">📝</span><span class="admin-nav-label">註冊與邀請碼</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="sso" data-pane="accountsys" data-cards="sso"><span class="admin-nav-icon" aria-hidden="true">🔑</span><span class="admin-nav-label">登入方式</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="sso" data-save="sso" data-pane="accountsys" data-cards="sso"><span class="admin-nav-icon" aria-hidden="true">🔑</span><span class="admin-nav-label">登入方式</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="legal" data-save="legal" data-pane="accountsys" data-cards="legal"><span class="admin-nav-icon" aria-hidden="true">📄</span><span class="admin-nav-label">條款與隱私</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
             <div class="admin-nav-group-title">外部服務</div>
             <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="mail" data-pane="accountsys" data-cards="mail"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="turnstile" data-pane="accountsys" data-cards="turnstile"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="mail" data-save="mail" data-pane="accountsys" data-cards="mail,maildns,mailtest"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="turnstile" data-save="turnstile" data-pane="accountsys" data-cards="turnstile,turnstiletest"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
             <div class="admin-nav-group-title">營運</div>
@@ -2003,12 +2003,21 @@
               <h3 class="config-card-title">邀請碼</h3>
             </div>
             <div class="config-card-body">
-              <p class="field-hint">依序填：可使用次數、幾天後失效（0 為不失效）、備註。產生的邀請碼只顯示一次。</p>
-              <div class="account-inline-form">
-                <input data-no-dirty type="number" id="adminInviteUses" min="1" max="1000" value="1" aria-label="可使用次數" title="可使用次數">
-                <input data-no-dirty type="number" id="adminInviteDays" min="0" max="365" value="14" aria-label="幾天後失效（0 為不失效）" title="幾天後失效（0 為不失效）">
-                <input data-no-dirty type="text" id="adminInviteNote" maxlength="200" placeholder="備註（給誰）" aria-label="備註">
-                <button type="button" class="modal-btn submit-btn small-btn" id="adminInviteCreateBtn">產生</button>
+              <p class="field-hint">產生的邀請碼只顯示一次，請當場複製。</p>
+              <div class="adm-invite-form">
+                <div class="adm-invite-field">
+                  <label class="field-hint" for="adminInviteUses">可使用次數</label>
+                  <input data-no-dirty type="number" id="adminInviteUses" min="1" max="1000" value="1">
+                </div>
+                <div class="adm-invite-field">
+                  <label class="field-hint" for="adminInviteDays">幾天後失效（0＝不會）</label>
+                  <input data-no-dirty type="number" id="adminInviteDays" min="0" max="365" value="14">
+                </div>
+                <div class="adm-invite-field adm-invite-note">
+                  <label class="field-hint" for="adminInviteNote">備註</label>
+                  <input data-no-dirty type="text" id="adminInviteNote" maxlength="200" placeholder="給誰">
+                </div>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminInviteCreateBtn">產生邀請碼</button>
               </div>
               <div id="adminInviteNew" class="invite-new" hidden role="status">
                 <div class="invite-new-label">新的邀請碼（只會顯示這一次，請現在複製）</div>
@@ -2082,9 +2091,11 @@
           <div data-card="mail" class="config-card full-width" id="adminMailCard">
             <div class="config-card-header">
               <span class="config-card-icon">✉️</span>
-              <h3 class="config-card-title">寄信（驗證信、重設密碼信）</h3>
+              <h3 class="config-card-title">寄信設定</h3>
             </div>
             <div class="config-card-body">
+              <p class="field-hint">驗證信、重設密碼信與報表信都從這裡寄出。</p>
+              <div id="adminMailStatus" class="account-list"></div>
               <details class="setup-howto" id="adminMailHowto">
                 <summary>怎麼取得 Resend 金鑰？（約 10 分鐘）</summary>
                 <ol>
@@ -2117,20 +2128,35 @@
                 </div>
                 </div>
                 <div id="adminMailLockNote" class="field-hint"></div>
+                <div id="adminMailSaveResult" class="setup-result" style="display: none;"></div>
                 <div class="account-inline-form">
-                  <button type="button" class="modal-btn submit-btn small-btn" id="adminMailSaveBtn">儲存並檢查</button>
+                  <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminMailSaveBtn">儲存並檢查</button>
                   <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailClearKeyBtn" hidden>移除金鑰</button>
                 </div>
-                <div id="adminMailSaveResult" class="setup-result" style="display: none;"></div>
               </div>
-              <div id="adminMailStatus" class="account-list"></div>
-              <div class="account-inline-form">
-                <strong class="field-hint">寄件網域 DNS</strong>
-                <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailDnsBtn">重新檢查</button>
-              </div>
+            </div>
+          </div>
+
+          <div data-card="maildns" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">🌐</span>
+              <h3 class="config-card-title">寄件網域 DNS</h3>
+              <button type="button" class="modal-btn secondary-btn small-btn adm-header-action" id="adminMailDnsBtn">重新檢查</button>
+            </div>
+            <div class="config-card-body">
               <div id="adminMailDns" class="account-list"></div>
+            </div>
+          </div>
+
+          <div data-card="mailtest" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">📨</span>
+              <h3 class="config-card-title">寄測試信</h3>
+            </div>
+            <div class="config-card-body">
+              <label class="field-hint" for="adminMailTestTo">收件 Email</label>
               <div class="account-inline-form">
-                <input type="email" id="adminMailTestTo" placeholder="收件 Email（預設寄給自己）" aria-label="測試收件 Email">
+                <input type="email" id="adminMailTestTo" data-no-dirty placeholder="留白＝寄給自己">
                 <button type="button" class="modal-btn secondary-btn small-btn" id="adminMailTestBtn">寄測試信</button>
               </div>
             </div>
@@ -2139,9 +2165,11 @@
           <div data-card="turnstile" class="config-card full-width" id="adminTurnstileCard">
             <div class="config-card-header">
               <span class="config-card-icon">🛡️</span>
-              <h3 class="config-card-title">Turnstile 人機驗證</h3>
+              <h3 class="config-card-title">Turnstile 金鑰</h3>
             </div>
             <div class="config-card-body">
+              <p class="field-hint">註冊畫面用 Cloudflare Turnstile 擋機器人，訪客通常不必點任何東西。</p>
+              <div id="adminTurnstileStatus" class="account-list"></div>
               <details class="setup-howto" id="adminTurnstileHowto">
                 <summary>怎麼取得 Turnstile 金鑰？（約 3 分鐘，免費）</summary>
                 <ol>
@@ -2157,16 +2185,25 @@
                 <label class="field-hint" for="adminTurnstileSecret">Secret key</label>
                 <input type="password" id="adminTurnstileSecret" autocomplete="off" spellcheck="false" placeholder="0x 開頭">
                 <div id="adminTurnstileLockNote" class="field-hint"></div>
+                <div id="adminTurnstileSaveResult" class="setup-result" style="display: none;"></div>
                 <div class="account-inline-form">
-                  <button type="button" class="modal-btn submit-btn small-btn" id="adminTurnstileSaveBtn">儲存並檢查</button>
+                  <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminTurnstileSaveBtn">儲存並檢查</button>
                   <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileDisableBtn" hidden>停用 Turnstile</button>
                 </div>
-                <div id="adminTurnstileSaveResult" class="setup-result" style="display: none;"></div>
               </div>
-              <div id="adminTurnstileStatus" class="account-list"></div>
+            </div>
+          </div>
+
+          <div data-card="turnstiletest" class="config-card full-width">
+            <div class="config-card-header">
+              <span class="config-card-icon">🧪</span>
+              <h3 class="config-card-title">實測</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">存好金鑰後親自通過一次，確認網域設定正確，訪客才不會卡在註冊畫面。</p>
               <div class="account-inline-form">
                 <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileLiveBtn">開始實測</button>
-                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileCheckBtn">只檢查 secret</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTurnstileCheckBtn">只檢查 Secret key</button>
                 <span id="adminTurnstileCheckResult" class="field-hint"></span>
               </div>
               <div id="adminTurnstileLiveBox" class="setup-live-box" hidden></div>
@@ -2254,7 +2291,7 @@
               <h3 class="config-card-title">每日與每週報表</h3>
             </div>
             <div class="config-card-body">
-              <p class="field-hint">透過「🔑 帳號系統」設定好的 Resend 寄出，內容有使用者（新註冊、登入、活躍、閱讀同步、安全事件）、流量（閱讀、訪客、熱門文章、每小時／每日圖表）與關鍵字（熱門搜尋、上升最多、查無結果、辭典）。日報寄前一天，週報寄到前一天為止的 7 天，各自和前一期比較。</p>
+              <p class="field-hint">透過「寄信」頁設定好的 Resend 寄出，內容有使用者（新註冊、登入、活躍、閱讀同步、安全事件）、流量（閱讀、訪客、熱門文章、每小時／每日圖表）與關鍵字（熱門搜尋、上升最多、查無結果、辭典）。日報寄前一天，週報寄到前一天為止的 7 天，各自和前一期比較。</p>
               <div id="adminReportsNotice" class="setup-result error" style="display: none;"></div>
               <div class="setup-form">
                 <input type="hidden" id="adminReportsTz">
@@ -2299,11 +2336,11 @@
                 <span id="adminReportsPreviewInfo" class="field-hint"></span>
               </div>
               <div class="account-inline-form">
-                <select id="adminReportsSendKind" aria-label="要寄的報表">
+                <select id="adminReportsSendKind" data-no-dirty aria-label="要寄的報表">
                   <option value="daily">日報</option>
                   <option value="weekly">週報</option>
                 </select>
-                <input type="email" id="adminReportsTestTo" placeholder="測試收件 Email（留白 = 寄給收件人）" aria-label="測試收件 Email">
+                <input type="email" id="adminReportsTestTo" data-no-dirty placeholder="測試收件 Email（留白 = 寄給收件人）" aria-label="測試收件 Email">
                 <button type="button" class="modal-btn submit-btn small-btn" id="adminReportsSendBtn">立即寄出</button>
               </div>
               <iframe id="adminReportsPreview" class="report-preview-frame" title="報表預覽" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
