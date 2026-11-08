@@ -47,7 +47,7 @@
   };
   const BASE_IDS = Object.keys(BASES);
   const BASE_NAMES = Object.fromEntries(BASE_IDS.map(k => [k, BASES[k].name]));
-  // 每種底色可用的版型：B（沉浸全幅）只給奶油；K 圓月＝月白、L 扇面＝杏粉、M 裱框＝素紙 各自專屬。
+  // 每種底色可用的版型：B（沉浸全幅）只給奶油；K 圓月＝月白、L 卷軸＝杏粉、M 裱框＝素紙 各自專屬。
   const COMMON_LAYOUTS = ['A', 'C', 'I', 'J', 'N', 'P', 'Q'];
   const BASE_LAYOUTS = {
     cream: ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'],
@@ -66,7 +66,7 @@
   let T = BASES.cream;
 
   const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q', 'K', 'L', 'M'];
-  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式', K: '圓月', L: '扇面', M: '裱框' };
+  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式', K: '圓月', L: '卷軸', M: '裱框' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
   const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
   // 分享面板裡的小預覽（直式版面縮成 0.8 倍）：手機上一格只有約 260 CSS px 寬，
@@ -1169,90 +1169,10 @@
     tailBlock(ctx, w, h, o, 1085, 190, 56);
   }
 
-  // ── 版型 L：扇面（杏粉底）──────────────────────────────────────────
-  // 一把半開的摺扇：扇面是圖片，一摺一摺有明暗；底下露出竹骨，兩根邊骨描金，
-  // 扇釘上垂一條紅穗與玉珠。扇子後面有淡淡的同心弧，像扇子打開時留下的光暈。
-  const FAN_PANELS = 16;
-  /** 畫一把摺扇。扇釘在 (cx, cy)，扇面外徑 R、內徑 r，張開角度 a0→a1（弧度，y 向下）。 */
-  function drawFan(ctx, o, cx, cy, R, r, a0, a1) {
-    const n = FAN_PANELS, step = (a1 - a0) / n;
-    const sector = (r1, r2, b0, b1) => {
-      ctx.beginPath();
-      ctx.arc(cx, cy, r2, b0, b1, false);
-      ctx.arc(cx, cy, r1, b1, b0, true);
-      ctx.closePath();
-    };
-    // 扇子後面的光暈：同心細弧
-    ctx.save();
-    ctx.strokeStyle = T.gold;
-    for (const [rr, a] of [[R + 30, 0.26], [R + 56, 0.13]]) {
-      ctx.globalAlpha = a; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.arc(cx, cy, rr, a0 + 0.04, a1 - 0.04); ctx.stroke();
-    }
-    ctx.restore();
-    // 竹骨（扇面下方露出來的部分）
-    ctx.save();
-    ctx.lineCap = 'round';
-    for (let k = 1; k < n; k++) {
-      const a = a0 + k * step;
-      ctx.strokeStyle = 'rgba(150,104,70,0.55)'; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 16, cy + Math.sin(a) * 16); ctx.lineTo(cx + Math.cos(a) * (r + 6), cy + Math.sin(a) * (r + 6)); ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,240,220,0.5)'; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 18, cy + Math.sin(a) * 18 - 1); ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r - 1); ctx.stroke();
-    }
-    ctx.restore();
-    // 扇面的影子（讓扇子浮在紙上）
-    ctx.save();
-    ctx.shadowColor = 'rgba(120,64,44,0.28)'; ctx.shadowBlur = 36; ctx.shadowOffsetY = 14;
-    sector(r, R, a0, a1); ctx.fillStyle = T.top; ctx.fill();
-    ctx.restore();
-    // 扇面：圖片
-    ctx.save();
-    sector(r, R, a0, a1); ctx.clip();
-    drawCover(ctx, o.image, cx - R, cy - R, R * 2, R - r * 0.2, 0.5, 0.45);
-    // 一摺一摺的明暗（單數摺向光、雙數摺背光），從扇釘往外再加一層淡淡的漸層
-    for (let k = 0; k < n; k++) {
-      const b0 = a0 + k * step, b1 = b0 + step;
-      const g = ctx.createLinearGradient(cx + Math.cos(b0) * R, cy + Math.sin(b0) * R, cx + Math.cos(b1) * R, cy + Math.sin(b1) * R);
-      if (k % 2 === 0) { g.addColorStop(0, 'rgba(255,248,240,0.11)'); g.addColorStop(1, 'rgba(255,248,240,0.02)'); }
-      else { g.addColorStop(0, 'rgba(70,36,24,0.02)'); g.addColorStop(1, 'rgba(70,36,24,0.09)'); }
-      sector(r, R, b0, b1); ctx.fillStyle = g; ctx.fill();
-    }
-    const rg = ctx.createRadialGradient(cx, cy, r, cx, cy, R);
-    rg.addColorStop(0, `rgba(${T.rgb},0.55)`); rg.addColorStop(0.28, `rgba(${T.rgb},0)`);
-    rg.addColorStop(0.9, 'rgba(255,255,255,0)'); rg.addColorStop(1, 'rgba(255,250,244,0.18)');
-    sector(r, R, a0, a1); ctx.fillStyle = rg; ctx.fill();
-    // 摺線
-    ctx.lineWidth = 1;
-    for (let k = 1; k < n; k++) {
-      const a = a0 + k * step;
-      ctx.strokeStyle = k % 2 ? 'rgba(90,50,34,0.22)' : 'rgba(255,250,240,0.35)';
-      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); ctx.stroke();
-    }
-    ctx.restore();
-    // 扇緣：外緣雙金線、內緣細金線
-    ctx.save();
-    ctx.strokeStyle = goldGrad(ctx, cx - R, cy - R, cx + R, cy);
-    ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
-    ctx.lineWidth = 1; ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.arc(cx, cy, R - 12, a0, a1); ctx.stroke();
-    ctx.globalAlpha = 1; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); ctx.stroke();
-    // 兩根邊骨（大骨）：從扇釘一直到外緣，描金
-    ctx.lineCap = 'round';
-    for (const a of [a0, a1]) {
-      const x1 = cx + Math.cos(a) * 10, y1 = cy + Math.sin(a) * 10, x2 = cx + Math.cos(a) * (R + 8), y2 = cy + Math.sin(a) * (R + 8);
-      ctx.strokeStyle = 'rgba(110,66,40,0.9)'; ctx.lineWidth = 11;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-      ctx.strokeStyle = goldGrad(ctx, x1, y1, x2, y2); ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-    }
-    // 扇釘
-    const pin = ctx.createRadialGradient(cx - 4, cy - 4, 1, cx, cy, 15);
-    pin.addColorStop(0, '#fff4d0'); pin.addColorStop(0.5, '#d2a64c'); pin.addColorStop(1, '#8a6224');
-    ctx.fillStyle = pin; ctx.beginPath(); ctx.arc(cx, cy, 15, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-  }
-
-  /** 扇墜：從 (x, y) 垂下的紅繩、盤長結、玉珠與流蘇，總長 len。 */
+  // ── 版型 L：卷軸（杏粉底）──────────────────────────────────────────
+  // 整張圖滿版鋪開、不加任何遮罩或形狀，像一幅剛攤開的畫卷：圖的下緣是一根畫軸（兩端金頭），
+  // 軸兩側垂下紅穗；問候在圖上方的紙邊，經句寫在畫軸下面的紙上。
+  /** 穗子：從 (x, y) 垂下的紅繩、盤長結、玉珠與流蘇，總長 len。 */
   function drawTassel(ctx, x, y, len, s) {
     const k = s || 1;
     ctx.save();
@@ -1282,55 +1202,61 @@
     ctx.restore();
   }
 
+  function scrollRod(ctx, x, y, w, thick) {
+    const g = ctx.createLinearGradient(0, y, 0, y + thick);
+    g.addColorStop(0, '#d9b676'); g.addColorStop(0.35, '#9a6a3c'); g.addColorStop(0.7, '#6e4524'); g.addColorStop(1, '#4a2d16');
+    ctx.save();
+    ctx.shadowColor = 'rgba(80,40,20,0.35)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 8;
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, thick);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,236,200,0.35)'; ctx.fillRect(x, y + 2, w, 2);
+    for (const cx of [x + 10, x + w - 10]) {
+      const k = ctx.createRadialGradient(cx - 3, y + thick / 2 - 3, 1, cx, y + thick / 2, thick * 0.8);
+      k.addColorStop(0, '#fff2c8'); k.addColorStop(0.55, '#d2a64c'); k.addColorStop(1, '#8a6224');
+      ctx.fillStyle = k; ctx.beginPath(); ctx.arc(cx, y + thick / 2, thick * 0.72, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
   function drawL(ctx, w, h, o) {
     if (w > h) return drawLLand(ctx, w, h, o);
     paperBg(ctx, 0, 0, w, h, T.top, T.bottom);
     grain(ctx, w, h, 13, 0.05, false);
-    // 問候：紅字疏排，兩側金色細線收邊；下面一行日期
-    ctx.fillStyle = T.red;
-    ctx.font = font(900, 62);
-    drawSpaced(ctx, o.greeting, w / 2, 150, 34, 'center');
+    ctx.fillStyle = T.red; ctx.font = font(900, 56);
+    drawSpaced(ctx, o.greeting, 64, 104, 24);
+    ctx.fillStyle = T.inkSoft; ctx.font = font(500, 24);
+    drawSpaced(ctx, `${o.date.dotted}　${o.date.week} · ${o.date.term}`, w - 64, 98, 4, 'right');
+    const iy = 140, ih = 800;
+    drawCover(ctx, o.image, 0, iy, w, ih, 0.5, 0.5);
     ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
-    ctx.fillRect(w / 2 - 250, 128, 120, 1.6); ctx.fillRect(w / 2 + 130, 128, 120, 1.6);
-    ctx.fillStyle = T.inkSoft;
-    ctx.font = font(500, 24);
-    drawSpaced(ctx, `${o.date.monthCn}${cnNumber(+o.date.day)}日　${o.date.week} · ${o.date.term}`, w / 2, 200, 5, 'center');
-    // 扇子：張開 140°，扇釘在 y=870
-    const cx = w / 2, cy = 860;
-    drawFan(ctx, o, cx, cy, 480, 172, Math.PI * (1 + 10 / 180), Math.PI * (2 - 10 / 180));
-    drawTassel(ctx, cx, cy, 120, 1.15);
-    // 經句、出處、頁尾
+    ctx.fillRect(0, iy - 2, w, 3);
+    scrollRod(ctx, 0, iy + ih, w, 26);
+    drawTassel(ctx, 130, iy + ih + 22, 130, 1.0);
+    drawTassel(ctx, w - 130, iy + ih + 22, 130, 1.0);
     ctx.fillStyle = T.ink;
-    const r = centerVerse(ctx, o, w / 2, 1088, w - 240, 140, { maxSize: 50, minSize: 28, lead: 1.6, maxLines: 3 });
-    sourceLine(ctx, o, w / 2, r.bottom + 42, T.source, 24);
-    goldLine(ctx, w / 2 - 70, h - 92, 140, T.gold, 0.8);
-    ctx.fillStyle = T.muted;
-    ctx.font = font(500, 20);
-    drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 52, 5, 'center');
+    const r = centerVerse(ctx, o, w / 2, 1108, w - 360, 140, { maxSize: 50, minSize: 28, lead: 1.6, maxLines: 3 });
+    sourceLine(ctx, o, w / 2, r.bottom + 40, T.source, 24);
+    ctx.fillStyle = T.muted; ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 40, 5, 'center');
     if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 64 - b.w, h - 40 - b.h); }
-    else drawSeal(ctx, '吉祥', w - 64 - 56, h - 44 - 56, 56);
+    else drawSeal(ctx, '吉祥', w - 64 - 56, h - 40 - 56, 56);
   }
 
-  // 版型 L 的橫式（連結預覽）：扇子在左，右邊問候、經句。
+  // 版型 L 的橫式（連結預覽）：圖在左半、滿版高、不遮罩，右邊是紙。
   function drawLLand(ctx, w, h, o) {
     paperBg(ctx, 0, 0, w, h, T.top, T.bottom);
     grain(ctx, w, h, 13, 0.05, false);
-    drawFan(ctx, o, 330, 470, 300, 100, Math.PI * (1 + 12 / 180), Math.PI * (2 - 12 / 180));
-    drawTassel(ctx, 330, 470, 110, 0.9);
-    const cx = 640 + (w - 640) / 2;
-    ctx.fillStyle = T.red;
-    ctx.font = font(900, 50);
+    const iw = 700;
+    drawCover(ctx, o.image, 0, 0, iw, h, 0.5, 0.5);
+    ctx.fillStyle = goldGrad(ctx, 0, 0, 0, h); ctx.fillRect(iw, 0, 4, h);
+    const cx = iw + 4 + (w - iw - 4) / 2;
+    ctx.fillStyle = T.red; ctx.font = font(900, 50);
     drawSpaced(ctx, o.greeting, cx, 120, 26, 'center');
-    ctx.fillStyle = goldGrad(ctx, 0, 0, w, 0);
-    ctx.fillRect(cx - 200, 102, 90, 1.4); ctx.fillRect(cx + 110, 102, 90, 1.4);
     ctx.fillStyle = T.ink;
-    const r = centerVerse(ctx, o, cx, 300, w - 640 - 110, 220, { maxSize: 42, minSize: 24, lead: 1.6, maxLines: 5 });
+    const r = centerVerse(ctx, o, cx, 300, w - iw - 100, 220, { maxSize: 40, minSize: 24, lead: 1.6, maxLines: 5 });
     sourceLine(ctx, o, cx, r.bottom + 38, T.source, 21);
-    ctx.fillStyle = T.inkSoft;
-    ctx.font = font(500, 19);
+    ctx.fillStyle = T.inkSoft; ctx.font = font(500, 19);
     drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, cx, h - 64, 3, 'center');
-    ctx.fillStyle = T.muted;
-    ctx.font = font(500, 17);
+    ctx.fillStyle = T.muted; ctx.font = font(500, 17);
     drawSpaced(ctx, `${o.siteName} · ${o.label}`, cx, h - 36, 4, 'center');
   }
 
