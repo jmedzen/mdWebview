@@ -47,10 +47,10 @@ describe('科判跳轉讓開黏性地標列：純函式與結構', () => {
   test('app.js：跳到某行（含搜尋、虛擬捲動）都扣掉黏性列高度', () => {
     assert.match(APP_JS, /function stickyTopInset\(containerEl\)/);
     assert.match(APP_JS, /targetScrollTop -= 12 \+ inset;/, 'safeScrollToElement 的 start 對齊要扣列高');
-    assert.match(APP_JS, /const expectedTop = cr\.top \+ 12 \+ stickyTopInset\(c\);/, 'scrollToLine 的重流修正要用同一條基準');
+    assert.match(APP_JS, /const inset = stickyTopInset\(c\);[\s\S]{0,200}: cr\.top \+ 12 \+ inset;/, 'scrollToLine 的重流修正要用同一條基準');
     const virt = APP_JS.slice(APP_JS.indexOf('async function scrollToLineVirtual('));
-    assert.match(virt.slice(0, 6000), /- 12 - stickyTopInset\(content\)\)/, '虛擬捲動第一次定位要扣列高');
-    assert.match(virt.slice(0, 6000), /- 12 - stickyTopInset\(c\);/, '虛擬捲動修正迴圈要扣列高');
+    assert.match(virt.slice(0, 6000), /- wantTop\(content, scrollTarget\)\)/, '虛擬捲動第一次定位要扣列高');
+    assert.match(virt.slice(0, 6000), /wantTop = \(c, el\) => \{\s*const inset = stickyTopInset\(c\);[\s\S]{0,60}12 \+ inset/, '虛擬捲動修正迴圈要扣列高');
     assert.match(APP_JS, /new ResizeObserver\([\s\S]{0,400}lastLineJump[\s\S]{0,200}\.observe\(stickyBar\)/,
       '跳行後地標列才換高度時要重新對齊');
   });
