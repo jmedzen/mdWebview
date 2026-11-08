@@ -2897,6 +2897,13 @@ body.focus-mode .focus-mode-pill {
   display: block;
 }
 
+/* 手機沒有 Esc 可離開，所以不提供專注模式 */
+@media (max-width: 768px) {
+  .focus-mode-btn {
+    display: none;
+  }
+}
+
 .home-notice {
   max-width: 680px;
   margin-top: 96px;
