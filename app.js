@@ -16853,9 +16853,13 @@
     }
   }
 
-  /** 幫每張卡片補上狀態燈與收合箭頭（只做一次）。 */
+  /**
+   * 幫每張卡片補上狀態燈（只做一次）。
+   * 後台改成一頁一件事之後，每頁只有一到三個區塊，不再提供收合：
+   * 舊版留下的收合紀錄一併清掉，避免整頁只剩一條標題列。
+   */
   function enhanceAdminCards() {
-    const saved = readAdminCollapsed();
+    try { localStorage.removeItem(ADMIN_COLLAPSE_KEY); } catch (_) {}
     document.querySelectorAll('.config-card[data-card]').forEach(card => {
       if (card.dataset.lightsReady) return;
       const header = card.querySelector('.config-card-header');
@@ -16870,18 +16874,7 @@
       const text = document.createElement('span');
       text.className = 'status-light-text';
       header.insertBefore(text, header.querySelector('.config-card-title').nextSibling);
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'config-card-toggle';
-      btn.setAttribute('aria-label', '展開或收合此區塊');
-      btn.textContent = '▾';
-      header.appendChild(btn);
-      header.classList.add('collapsible');
-      header.addEventListener('click', ev => {
-        if (ev.target.closest('button:not(.config-card-toggle), a, input, select, label')) return;
-        setAdminCardCollapsed(card, !card.classList.contains('collapsed'), true);
-      });
-      setAdminCardCollapsed(card, !!saved[card.dataset.card], false);
+      setAdminCardCollapsed(card, false, false);
       renderAdminCardLight(card.dataset.card);
     });
   }
