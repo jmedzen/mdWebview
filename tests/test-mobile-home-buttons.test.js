@@ -19,6 +19,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { resolveTestMdRoot } = require('./helpers/md-root');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const APP_JS = fs.readFileSync(path.join(ROOT_DIR, 'app.js'), 'utf8');
@@ -80,7 +81,7 @@ function stopServer(child) {
 
 describe('手機首頁按鈕：iPhone 觸控實測', () => {
   const pw = loadPlaywright();
-  const mdRoot = path.join(ROOT_DIR, 'md');
+  const mdRoot = resolveTestMdRoot();
   const hasCorpus = fs.existsSync(mdRoot) && fs.readdirSync(mdRoot).length > 0;
   const skip = !pw ? '未安裝 playwright' : (!hasCorpus ? 'md/ 為空（先跑 tests/fixtures/make-test-corpus.js）' : false);
 
