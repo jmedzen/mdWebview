@@ -2956,7 +2956,7 @@
     }
   }
 
-  /** 目前底色可用的版型（B 只有奶油；月白／杏粉／素紙各多一個專屬版型）。 */
+  /** 目前底色可用的版型（B 只有奶油；月白／竹青／素紙各多一個專屬版型）。 */
   function shareLayouts() {
     const SC = window.ShareCard;
     return SC.layoutsFor ? SC.layoutsFor(shareRt.base) : SC.LAYOUTS;
@@ -3151,9 +3151,8 @@
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
     shareRt.base = window.ShareCard.normalizeBase ? window.ShareCard.normalizeBase(storage.get(SHARE_BASE_KEY, 'cream')) : 'cream';
     if (window.ShareCard.layoutFor) shareRt.layout = window.ShareCard.layoutFor(shareRt.layout, shareRt.base);
-    shareRt.qr = storage.get(SHARE_QR_KEY, '0') === '1';
-    const qrBox = $('shareCardQr');
-    if (qrBox) qrBox.checked = shareRt.qr;
+    shareRt.qr = storage.get(SHARE_QR_KEY, '1') === '1';   // 預設附 QR 碼
+    syncShareQrPill();
     shareRt.blobs = new Map();
     shareRt.meta = null;
     shareRt.serverOk = true;
@@ -3170,9 +3169,18 @@
     if (card) { card.tabIndex = -1; card.focus({ preventScroll: true }); }
   }
 
+  /** QR 膠囊：亮 = 附 QR 碼、暗 = 不附。 */
+  function syncShareQrPill() {
+    const pill = $('shareCardQr');
+    if (!pill) return;
+    pill.classList.toggle('is-on', shareRt.qr);
+    pill.setAttribute('aria-checked', shareRt.qr ? 'true' : 'false');
+  }
+
   /** 「附 QR 碼」開關：記在本機，換了就重畫面板上的預覽。 */
   function setShareQr(on) {
     shareRt.qr = !!on;
+    syncShareQrPill();
     storage.set(SHARE_QR_KEY, shareRt.qr ? '1' : '0');
     if (!shareRt.open) return;
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
@@ -3407,7 +3415,7 @@
     if (!ov) return;
     $('shareCardCloseBtn').addEventListener('click', closeShareCard);
     const qrBox = $('shareCardQr');
-    if (qrBox) qrBox.addEventListener('change', () => setShareQr(qrBox.checked));
+    if (qrBox) qrBox.addEventListener('click', () => setShareQr(!shareRt.qr));
     ov.addEventListener('click', e => { if (e.target === ov) closeShareCard(); });
     document.addEventListener('keydown', e => {
       if (!shareRt.open) return;

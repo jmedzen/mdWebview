@@ -28,13 +28,14 @@ function contrast(a, b) {
 
 describe('share-card.js：底色配色表', () => {
   test('四種底色，奶油是第一個也是預設；不認得的值一律奶油', () => {
-    assert.deepEqual(ShareCard.BASE_IDS, ['cream', 'moon', 'apricot', 'plain']);
+    assert.deepEqual(ShareCard.BASE_IDS, ['cream', 'moon', 'bamboo', 'plain']);
     assert.equal(ShareCard.normalizeBase(''), 'cream');
     assert.equal(ShareCard.normalizeBase(undefined), 'cream');
     assert.equal(ShareCard.normalizeBase('<script>'), 'cream');
     assert.equal(ShareCard.normalizeBase('__proto__'), 'cream');
     assert.equal(ShareCard.normalizeBase('NIGHT'), 'cream', '墨夜已拿掉');
     assert.equal(ShareCard.normalizeBase('MOON'), 'moon');
+    assert.equal(ShareCard.normalizeBase('apricot'), 'bamboo', '舊名杏粉對到竹青');
     assert.equal(ShareCard.BASE_NAMES.moon, '月白');
   });
 
@@ -72,9 +73,9 @@ describe('share-card.js：畫圖時真的換色', () => {
 
   test('紙底版型（N 的字區）：奶油、素紙畫出不同紙色', () => {
     const cream = px('N', 'cream', 20, 1300);
-    const apricot = px('N', 'apricot', 20, 1300);
-    assert.notDeepEqual(cream, apricot);
-    assert.ok(cream[1] > apricot[1], `${cream} / ${apricot}`);
+    const bamboo = px('N', 'bamboo', 20, 1300);
+    assert.notDeepEqual(cream, bamboo);
+    assert.ok(cream[0] > bamboo[0], `${cream} / ${bamboo}`);
   });
 
   test('不給 base 與 base=cream 畫出來一樣；畫完不影響下一張', () => {
@@ -91,17 +92,17 @@ describe('share-card.js：畫圖時真的換色', () => {
   test('B 只給奶油；K／L／M 各自專屬一種底色，其他底色退回 A', () => {
     const L = ShareCard.layoutFor;
     assert.equal(L('B', 'cream'), 'B');
-    for (const b of ['moon', 'apricot', 'plain']) assert.equal(L('B', b), 'A', b);
+    for (const b of ['moon', 'bamboo', 'plain']) assert.equal(L('B', b), 'A', b);
     assert.equal(L('K', 'moon'), 'K'); assert.equal(L('K', 'cream'), 'A'); assert.equal(L('K', 'plain'), 'A');
-    assert.equal(L('L', 'apricot'), 'L'); assert.equal(L('L', 'moon'), 'A');
-    assert.equal(L('M', 'plain'), 'M'); assert.equal(L('M', 'apricot'), 'A');
+    assert.equal(L('L', 'bamboo'), 'L'); assert.equal(L('L', 'moon'), 'A');
+    assert.equal(L('M', 'plain'), 'M'); assert.equal(L('M', 'bamboo'), 'A');
     assert.deepEqual(ShareCard.layoutsFor('cream'), ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q']);
     assert.equal(ShareCard.layoutsFor('moon').length, 8);
     assert.deepEqual(px('K', 'cream', 300, 300), px('A', 'cream', 300, 300), '不能用的版型畫成 A');
   });
 
   test('K／L／M 畫得出來，和 A 不一樣，頁面中央有圖', () => {
-    for (const [layout, base] of [['K', 'moon'], ['L', 'apricot'], ['M', 'plain']]) {
+    for (const [layout, base] of [['K', 'moon'], ['L', 'bamboo'], ['M', 'plain']]) {
       assert.notDeepEqual(px(layout, base, 540, 1085), px('A', base, 540, 1085), layout);
     }
   });

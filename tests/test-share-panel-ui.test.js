@@ -37,12 +37,20 @@ describe('分享面板版面（預覽優先）', () => {
     assert.match(appJs, /已換成「\$\{SCx\.LAYOUT_NAMES\.A\}」/);
   });
 
-  test('「傳到 LINE」是主按鈕，存圖／複製圖／複製連結是純圖示（有 title 與 aria-label），同一排固定在底部', () => {
-    for (const id of ['shareCardSave', 'shareCardCopyImg', 'shareCardCopyLink']) {
-      assert.match(indexHtml, new RegExp(`id="${id}" title="[^"]+" aria-label="[^"]+"`));
-    }
-    assert.match(styleCss, /\.share-card-actions \{[^}]*display: flex;[^}]*position: sticky;[^}]*bottom:/);
-    assert.match(styleCss, /\.share-card-act-line \{\s*flex: 1;/);
-    assert.match(styleCss, /\.share-card-act:not\(\.share-card-act-line\) \{[^}]*font-size: 0;/);
+  test('四顆動作按鈕一樣大：同一排、四等分，固定在底部；LINE 只是綠色圖示', () => {
+    assert.match(styleCss, /\.share-card-actions \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(4, 1fr\);[^}]*position: sticky;[^}]*bottom:/);
+    assert.match(styleCss, /\.share-card-act-line \.share-card-ic \{\s*background: #06c755;/);
+    assert.doesNotMatch(styleCss, /\.share-card-act:not\(\.share-card-act-line\)/, '沒有單獨放大或縮小某一顆');
+    assert.doesNotMatch(styleCss, /\.share-card-act-line \{\s*flex: 1;/);
+  });
+
+  test('QR 是膠囊開關：亮 = 附、暗 = 不附，預設亮（開）；舊的勾選框拿掉了', () => {
+    assert.match(indexHtml, /<button type="button" class="share-card-pill is-on" id="shareCardQr" role="switch" aria-checked="true"/);
+    assert.doesNotMatch(indexHtml, /type="checkbox" id="shareCardQr"/);
+    assert.match(appJs, /storage\.get\(SHARE_QR_KEY, '1'\) === '1'/, '沒存過就是開');
+    assert.match(appJs, /function syncShareQrPill\(\)/);
+    assert.match(appJs, /qrBox\.addEventListener\('click', \(\) => setShareQr\(!shareRt\.qr\)\)/);
+    assert.match(styleCss, /\.share-card-pill \{[^}]*opacity: 0\.55;/);
+    assert.match(styleCss, /\.share-card-pill\.is-on \{\s*opacity: 1;/);
   });
 });
