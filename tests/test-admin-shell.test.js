@@ -99,14 +99,20 @@ describe('後台外框與導覽', () => {
     assert.match(html, /id="adminSaveBar"/);
     const block = name => (app.match(new RegExp(`const ${name} = \\{([^}]*)\\}`)) || [])[1] || '';
     const handled = [...(block('ADMIN_SAVE_FORMS') + block('ADMIN_SAVE_BUTTONS')).matchAll(/(\w+):/g)].map(m => m[1]);
+    // 一頁多組各自存檔的（登入方式）：ADMIN_SAVE_ACTIONS 裡的函式；存檔成功後區塊重畫，
+    // 舊欄位離開頁面就不再算未儲存（refreshAdminSaveBar 裡的 isConnected 檢查）
+    const actionsBlock = (app.match(/const ADMIN_SAVE_ACTIONS = \{([\s\S]*?)\n  \};/) || [])[1] || '';
+    const actions = [...actionsBlock.matchAll(/^\s{4}(\w+): \(\) =>/gm)].map(m => m[1]);
+    if (actions.length) assert.match(app, /if \(!el\.isConnected\) adminDirtyFields\.delete\(el\)/);
     const keys = [...new Set(navItems.map(n => (html.match(new RegExp(`data-page="${n.page}" data-save="(\\w+)"`)) || [])[1]).filter(Boolean))];
     assert.ok(keys.length >= 6, `data-save 太少：${keys}`);
     for (const k of keys) {
-      assert.ok(handled.includes(k), `data-save="${k}" 沒有對應的存檔方式`);
+      assert.ok(handled.includes(k) || actions.includes(k), `data-save="${k}" 沒有對應的存檔方式`);
+      if (actions.includes(k)) continue;
       assert.match(app, new RegExp(`markAdminSaved\\('${k}'\\)`), `存檔成功時沒有呼叫 markAdminSaved('${k}')`);
     }
     // 卡片裡被儲存列取代的按鈕要藏起來
-    for (const id of ['adminRegSaveBtn', 'adminLegalSaveBtn', 'adminReportsSaveBtn']) {
+    for (const id of ['adminRegSaveBtn', 'adminLegalSaveBtn', 'adminReportsSaveBtn', 'adminMailSaveBtn', 'adminTurnstileSaveBtn']) {
       assert.match(html, new RegExp(`class="[^"]*admin-legacy-save[^"]*" id="${id}"`), `${id} 應標記 admin-legacy-save`);
     }
   });
