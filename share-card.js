@@ -43,19 +43,30 @@
       tag: '252,244,239', tagInk: '#2e1e1a', tagSoft: '#6f5048', tagLine: '176,128,72' },
     plain: { name: '素紙', top: '#f7f7f4', bottom: '#eaeae5', rgb: '247,247,244',
       ink: '#1f1f1f', inkSoft: '#57554f', source: '#6e675a', muted: '#86837b', gold: '#a88a48', rule: '#d6d4cc', red: '#9c2f27', grain: '#6e6a60',
-      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' },
-    night: { name: '墨夜', top: '#1f1c19', bottom: '#141210', rgb: '31,28,25',
-      ink: '#f1e8d4', inkSoft: '#c4b596', source: '#d0ab68', muted: '#9c907a', gold: '#c9a24a', rule: '#4a4237', red: '#e0675a', grain: '#000000',
-      tag: '33,30,27', tagInk: '#f1e8d4', tagSoft: '#c4b596', tagLine: '201,162,74' }
+      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' }
   };
   const BASE_IDS = Object.keys(BASES);
   const BASE_NAMES = Object.fromEntries(BASE_IDS.map(k => [k, BASES[k].name]));
+  // 每種底色可用的版型：B（沉浸全幅）只給奶油；K 圓月＝月白、L 花邊＝杏粉、M 裱框＝素紙 各自專屬。
+  const COMMON_LAYOUTS = ['A', 'C', 'I', 'J', 'N', 'P', 'Q'];
+  const BASE_LAYOUTS = {
+    cream: ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'],
+    moon: COMMON_LAYOUTS.concat('K'),
+    apricot: COMMON_LAYOUTS.concat('L'),
+    plain: COMMON_LAYOUTS.concat('M')
+  };
+  function layoutsFor(base) { return BASE_LAYOUTS[normalizeBase(base)].slice(); }
+  /** 該底色不能用的版型（例如月白底的 B）退回 A。 */
+  function layoutFor(layout, base) {
+    const l = normalizeLayout(layout);
+    return BASE_LAYOUTS[normalizeBase(base)].includes(l) ? l : 'A';
+  }
   function normalizeBase(b) { const k = String(b || '').toLowerCase(); return BASE_IDS.includes(k) ? k : 'cream'; }
   // 目前這張卡的配色（draw() 開頭設定、結束還原；畫圖是同步的，不會互相干擾）
   let T = BASES.cream;
 
-  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'];
-  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式' };
+  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q', 'K', 'L', 'M'];
+  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式', K: '圓月', L: '花邊', M: '裱框' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
   const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
   // 分享面板裡的小預覽（直式版面縮成 0.8 倍）：手機上一格只有約 260 CSS px 寬，
@@ -1115,6 +1126,101 @@
     drawSpaced(ctx, `${o.siteName} · ${o.label}`, cx, h - 42, 4, 'center');
   }
 
+
+  // ════════════════════════════════════════════════════════════════════
+  // 底色專屬版型 K（月白）、L（杏粉）、M（素紙）。直式為主；橫式（連結預覽）沿用 A。
+  // ════════════════════════════════════════════════════════════════════
+  /** 共用的下半部：經句置中、出處、日期、站名、QR。 */
+  function tailBlock(ctx, w, h, o, cy, boxH, maxSize) {
+    ctx.fillStyle = T.ink;
+    const r = centerVerse(ctx, o, w / 2, cy, w - 260, boxH, { maxSize: maxSize || 56, minSize: 30, lead: 1.6, maxLines: 4 });
+    sourceLine(ctx, o, w / 2, r.bottom + 46, T.source, 26);
+    ctx.fillStyle = T.inkSoft;
+    ctx.font = font(500, 24);
+    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, h - 100, 4, 'center');
+    ctx.fillStyle = T.muted;
+    ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 64, 5, 'center');
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 64 - b.w, h - 40 - b.h); }
+    return r;
+  }
+
+  // ── 版型 K：圓月（月白底）──────────────────────────────────────────
+  // 一輪圓月般的圓形畫窗，雙金環；上方紅字問候，下方蓮花線與經句。
+  function drawK(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    paperBg(ctx, 0, 0, w, h, T.top, T.bottom);
+    grain(ctx, w, h, 12, 0.05, false);
+    ctx.fillStyle = T.red;
+    ctx.font = font(900, 58);
+    drawSpaced(ctx, o.greeting, w / 2, 128, 28, 'center');
+    const cx = w / 2, cy = 540, R = 330;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+    drawCover(ctx, o.image, cx - R, cy - R, R * 2, R * 2, 0.5, 0.5);
+    ctx.restore();
+    ctx.strokeStyle = goldGrad(ctx, cx - R, cy - R, cx + R, cy + R);
+    ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(cx, cy, R + 20, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R + 36, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    lotusDivider(ctx, cx, 940, 280, T.gold);
+    tailBlock(ctx, w, h, o, 1085, 190, 56);
+  }
+
+  // ── 版型 L：花邊（杏粉底）──────────────────────────────────────────
+  // 圖片整幅在上，下緣是一圈圓弧花邊（金線描邊）；紅印問候壓在圖左上，經句在下。
+  function drawL(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    paperBg(ctx, 0, 0, w, h, T.top, T.bottom);
+    grain(ctx, w, h, 13, 0.05, false);
+    const ih = 760, n = 9, r = w / (2 * n);
+    const scallop = () => {
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(w, 0); ctx.lineTo(w, ih);
+      for (let i = n - 1; i >= 0; i--) ctx.arc(r + 2 * r * i, ih, r, 0, Math.PI, false);
+      ctx.closePath();
+    };
+    ctx.save(); scallop(); ctx.clip();
+    drawCover(ctx, o.image, 0, 0, w, ih + r, 0.5, 0.5);
+    ctx.restore();
+    ctx.save();
+    ctx.strokeStyle = goldGrad(ctx, 0, ih, w, ih + r); ctx.lineWidth = 4;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) { ctx.moveTo(2 * r * (i + 1), ih); ctx.arc(r + 2 * r * i, ih, r, 0, Math.PI, false); }
+    ctx.stroke();
+    ctx.restore();
+    redSeal(ctx, o.greeting, 56, 56, 112);
+    tailBlock(ctx, w, h, o, 1090, 210, 58);
+  }
+
+  // ── 版型 M：裱框（素紙底）──────────────────────────────────────────
+  // 像掛在牆上的一幅裱好的畫：細外框、留白襯紙、圖外再描一圈細線；字全部置中，極簡。
+  function drawM(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    paperBg(ctx, 0, 0, w, h, T.top, T.bottom);
+    grain(ctx, w, h, 14, 0.04, false);
+    ctx.strokeStyle = T.rule; ctx.lineWidth = 1.5;
+    ctx.strokeRect(40.5, 40.5, w - 81, h - 81);
+    ctx.fillStyle = T.ink;
+    ctx.font = font(700, 44);
+    drawSpaced(ctx, o.greeting, w / 2, 128, 22, 'center');
+    const ix = 150, iy = 190, iw = w - 300, ih = 700;
+    ctx.save();
+    ctx.shadowColor = 'rgba(30,30,20,0.22)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 10;
+    ctx.fillStyle = T.top; ctx.fillRect(ix, iy, iw, ih);
+    ctx.restore();
+    drawCover(ctx, o.image, ix, iy, iw, ih, 0.5, 0.5);
+    ctx.strokeStyle = T.gold; ctx.lineWidth = 1.4;
+    ctx.strokeRect(ix - 16.5, iy - 16.5, iw + 33, ih + 33);
+    ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.strokeRect(ix - 30.5, iy - 30.5, iw + 61, ih + 61);
+    ctx.globalAlpha = 1;
+    goldLine(ctx, w / 2 - 60, 960, 120, T.gold);
+    tailBlock(ctx, w, h, o, 1085, 190, 54);
+  }
+
   // ── QR 碼小籤（原文連結）────────────────────────────────────────────
   // o.qr = { modules: boolean[][] }。一律畫在不透明的米色籤上（深色格子＋淺色底），
   // 背景圖亮或暗都掃得到；不寫字。籤與「吉祥」印同大（版面座標 64），
@@ -1175,7 +1281,7 @@
   /**
    * 畫一張卡。ctx 是 2D context（瀏覽器或 @napi-rs/canvas 都可以），畫布大小要先設好。
    * opts: { layout, base, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host, label, qr }
-   * base = 底色（BASE_IDS：cream 奶油〔預設〕、moon 月白、apricot 杏粉、plain 素紙、night 墨夜），只影響紙底版型。
+   * base = 底色（BASE_IDS：cream 奶油〔預設〕、moon 月白、apricot 杏粉、plain 素紙），只影響紙底版型；B 只給奶油，K/L/M 各是月白/杏粉/素紙專屬。
    * qr = 原文連結網址（短網址），只畫在直式；不給就不畫。畫布請用 PIXEL_SIZES 的大小。
    * label = 頁尾站名後的字：每日經句（預設）或 經文選句（選字製作的卡片）。
    */
@@ -1193,7 +1299,7 @@
       // QR 只畫在直式（og 是連結預覽，本身就能點，縮圖後也掃不到）
       qr: size === 'portrait' && opts.qr ? qrMatrix(opts.qr) : null
     };
-    const layout = normalizeLayout(opts.layout);
+    const layout = layoutFor(opts.layout, opts.base);
     // 畫布比版面大（直式 1620 寬）時整體放大
     const sc = ctx.canvas && ctx.canvas.width ? ctx.canvas.width / w : 1;
     T = BASES[normalizeBase(opts.base)];
@@ -1206,6 +1312,9 @@
     else if (layout === 'N') drawN(ctx, w, h, o);
     else if (layout === 'P') drawP(ctx, w, h, o);
     else if (layout === 'Q') drawQ(ctx, w, h, o);
+    else if (layout === 'K') drawK(ctx, w, h, o);
+    else if (layout === 'L') drawL(ctx, w, h, o);
+    else if (layout === 'M') drawM(ctx, w, h, o);
     else drawA(ctx, w, h, o);
     ctx.restore();
     T = BASES.cream;
@@ -1222,7 +1331,7 @@
   }
 
   return {
-    LAYOUTS, LAYOUT_NAMES, BASES, BASE_IDS, BASE_NAMES, normalizeBase, SIZES, PIXEL_SIZES, PREVIEW_PIXELS, GREETINGS, GREETING_EN, SERIF, qrMatrix,
+    LAYOUTS, LAYOUT_NAMES, BASES, BASE_IDS, BASE_NAMES, normalizeBase, layoutsFor, layoutFor, SIZES, PIXEL_SIZES, PREVIEW_PIXELS, GREETINGS, GREETING_EN, SERIF, qrMatrix,
     draw, dateInfo, normalizeDate, normalizeLabel, LABELS, greetingForHour, zonedNow, normalizeGreeting, normalizeLayout, normalizeSize,
     packLines, fitText, clauses, sealText, hash32
   };

@@ -2951,11 +2951,18 @@
     }
   }
 
+  /** 目前底色可用的版型（B 只有奶油；月白／杏粉／素紙各多一個專屬版型）。 */
+  function shareLayouts() {
+    const SC = window.ShareCard;
+    return SC.layoutsFor ? SC.layoutsFor(shareRt.base) : SC.LAYOUTS;
+  }
+
   function selectShareBase(id) {
     const base = window.ShareCard.normalizeBase(id);
     storage.set(SHARE_BASE_KEY, base);
     if (!shareRt.open || base === shareRt.base) return;
     shareRt.base = base;
+    if (!shareLayouts().includes(shareRt.layout)) shareRt.layout = 'A';   // 這個底色沒有原本的版型
     for (const u of shareRt.urls) URL.revokeObjectURL(u);
     shareRt.urls = [];
     renderShareBases();
@@ -2971,7 +2978,8 @@
     const slideImgs = new Map();
     wrap.textContent = '';
     dots.textContent = '';
-    for (const layout of SC.LAYOUTS) {
+    const layouts = shareLayouts();
+    for (const layout of layouts) {
       const fig = document.createElement('button');
       fig.type = 'button';
       fig.className = 'share-card-slide';
@@ -2997,8 +3005,8 @@
     selectShareLayout(shareRt.layout, true);
     // 載入順序：選中的那張 → 它的左右鄰居 → 再外面；同時最多 SHARE_PREVIEW_PARALLEL 張，
     // 免得選中的那張排在瀏覽器的連線佇列後面
-    const sel = SC.LAYOUTS.indexOf(shareRt.layout);
-    const order = SC.LAYOUTS.slice().sort((a, b) => Math.abs(SC.LAYOUTS.indexOf(a) - sel) - Math.abs(SC.LAYOUTS.indexOf(b) - sel));
+    const sel = layouts.indexOf(shareRt.layout);
+    const order = layouts.slice().sort((a, b) => Math.abs(layouts.indexOf(a) - sel) - Math.abs(layouts.indexOf(b) - sel));
     const gen = ++sharePreviewGen;
     const loadOne = layout => {
       const { img, frame } = slideImgs.get(layout);
@@ -3057,7 +3065,7 @@
       }
     }
     for (const d of $('shareCardDots').children) d.classList.toggle('on', d.dataset.layout === layout);
-    const L = window.ShareCard ? window.ShareCard.LAYOUTS : [];
+    const L = window.ShareCard ? shareLayouts() : [];
     const i = L.indexOf(layout);
     const prev = $('shareCardPrev'), next = $('shareCardNext');
     if (prev) prev.disabled = i <= 0;
@@ -3066,7 +3074,7 @@
 
   /** 選上一個／下一個版型（鍵盤左右鍵、桌機兩側箭頭）。 */
   function stepShareLayout(delta) {
-    const L = window.ShareCard.LAYOUTS;
+    const L = shareLayouts();
     const i = L.indexOf(shareRt.layout) + delta;
     if (i >= 0 && i < L.length) { selectShareLayout(L[i], true); prefetchShareBlob(); }
   }
@@ -3135,6 +3143,7 @@
     }
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
     shareRt.base = window.ShareCard.normalizeBase ? window.ShareCard.normalizeBase(storage.get(SHARE_BASE_KEY, 'cream')) : 'cream';
+    if (window.ShareCard.layoutFor) shareRt.layout = window.ShareCard.layoutFor(shareRt.layout, shareRt.base);
     shareRt.qr = storage.get(SHARE_QR_KEY, '0') === '1';
     const qrBox = $('shareCardQr');
     if (qrBox) qrBox.checked = shareRt.qr;

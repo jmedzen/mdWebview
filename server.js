@@ -4452,12 +4452,13 @@ function shareCardParams(query, req) {
   // 連結沒帶日期時用「網站時區」的今天（不用伺服器的 UTC）；沒帶問候時用不分時間的「吉祥」，
   // 因為這張圖是給不知道在哪個時區的收件人（LINE 預覽的爬蟲）看的。
   // 瀏覽器端畫卡一定會帶上傳送者自己時區的日期與問候。
+  const base = ShareCard.normalizeBase(query.base || query.b);   // 沒帶或不認得一律奶油，舊連結不變
   return {
     date: ShareCard.normalizeDate(query.d) || ShareCard.zonedNow(dailyVerseTimezone()).ymd,
     greeting: ShareCard.GREETINGS.includes(query.g) ? query.g : '吉祥',
-    layout: ShareCard.normalizeLayout(query.layout || query.l),
-    // 底色（只影響紙底版型）；沒帶或不認得一律奶油，舊連結不變
-    base: ShareCard.normalizeBase(query.base || query.b),
+    // 底色只影響紙底版型；B 只給奶油，月白／杏粉／素紙各有專屬版型（K／L／M）
+    layout: ShareCard.layoutFor(query.layout || query.l, base),
+    base,
     size: ShareCard.normalizeSize(query.size),
     // size=preview：分享面板裡的小預覽（直式版面、較小的畫布），傳出去的仍是 size=portrait
     preview: query.size === 'preview',

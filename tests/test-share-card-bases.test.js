@@ -27,13 +27,14 @@ function contrast(a, b) {
 }
 
 describe('share-card.js：底色配色表', () => {
-  test('五種底色，奶油是第一個也是預設；不認得的值一律奶油', () => {
-    assert.deepEqual(ShareCard.BASE_IDS, ['cream', 'moon', 'apricot', 'plain', 'night']);
+  test('四種底色，奶油是第一個也是預設；不認得的值一律奶油', () => {
+    assert.deepEqual(ShareCard.BASE_IDS, ['cream', 'moon', 'apricot', 'plain']);
     assert.equal(ShareCard.normalizeBase(''), 'cream');
     assert.equal(ShareCard.normalizeBase(undefined), 'cream');
     assert.equal(ShareCard.normalizeBase('<script>'), 'cream');
     assert.equal(ShareCard.normalizeBase('__proto__'), 'cream');
-    assert.equal(ShareCard.normalizeBase('NIGHT'), 'night');
+    assert.equal(ShareCard.normalizeBase('NIGHT'), 'cream', '墨夜已拿掉');
+    assert.equal(ShareCard.normalizeBase('MOON'), 'moon');
     assert.equal(ShareCard.BASE_NAMES.moon, '月白');
   });
 
@@ -69,29 +70,40 @@ describe('share-card.js：畫圖時真的換色', () => {
     return Array.from(c.getContext('2d').getImageData(x, y, 1, 1).data.slice(0, 3));
   };
 
-  test('紙底版型（N 的字區）：奶油、墨夜畫出不同紙色，墨夜是深色', () => {
+  test('紙底版型（N 的字區）：奶油、素紙畫出不同紙色', () => {
     const cream = px('N', 'cream', 20, 1300);
-    const night = px('N', 'night', 20, 1300);
-    assert.notDeepEqual(cream, night);
-    assert.ok(cream[0] > 200 && night[0] < 60, `${cream} / ${night}`);
+    const apricot = px('N', 'apricot', 20, 1300);
+    assert.notDeepEqual(cream, apricot);
+    assert.ok(cream[1] > apricot[1], `${cream} / ${apricot}`);
   });
 
   test('不給 base 與 base=cream 畫出來一樣；畫完不影響下一張', () => {
     assert.deepEqual(px('J', undefined, 20, 20), px('J', 'cream', 20, 20));
-    px('J', 'night', 20, 20);
+    px('J', 'moon', 20, 20);
     assert.deepEqual(px('J', undefined, 20, 20), px('J', 'cream', 20, 20));
   });
 
-  test('B 滿版版型不受底色影響', () => {
-    assert.deepEqual(px('B', 'night', 500, 1200), px('B', 'cream', 500, 1200));
+  test('C 經籤：背景照片不變，中間的經籤底框跟著底色', () => {
+    assert.deepEqual(px('C', 'moon', 20, 20), px('C', 'cream', 20, 20), '籤外的照片');
+    assert.notDeepEqual(px('C', 'moon', 540, 700), px('C', 'cream', 540, 700));
   });
 
-  test('C 經籤：背景照片不變，中間的經籤底框跟著底色（墨夜是深色）', () => {
-    assert.deepEqual(px('C', 'night', 20, 20), px('C', 'cream', 20, 20), '籤外的照片');
-    const cream = px('C', 'cream', 540, 700);
-    const night = px('C', 'night', 540, 700);
-    assert.notDeepEqual(cream, night);
-    assert.ok(night[0] < cream[0] - 60, `${cream} / ${night}`);
+  test('B 只給奶油；K／L／M 各自專屬一種底色，其他底色退回 A', () => {
+    const L = ShareCard.layoutFor;
+    assert.equal(L('B', 'cream'), 'B');
+    for (const b of ['moon', 'apricot', 'plain']) assert.equal(L('B', b), 'A', b);
+    assert.equal(L('K', 'moon'), 'K'); assert.equal(L('K', 'cream'), 'A'); assert.equal(L('K', 'plain'), 'A');
+    assert.equal(L('L', 'apricot'), 'L'); assert.equal(L('L', 'moon'), 'A');
+    assert.equal(L('M', 'plain'), 'M'); assert.equal(L('M', 'apricot'), 'A');
+    assert.deepEqual(ShareCard.layoutsFor('cream'), ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q']);
+    assert.equal(ShareCard.layoutsFor('moon').length, 8);
+    assert.deepEqual(px('K', 'cream', 300, 300), px('A', 'cream', 300, 300), '不能用的版型畫成 A');
+  });
+
+  test('K／L／M 畫得出來，和 A 不一樣，頁面中央有圖', () => {
+    for (const [layout, base] of [['K', 'moon'], ['L', 'apricot'], ['M', 'plain']]) {
+      assert.notDeepEqual(px(layout, base, 540, 1085), px('A', base, 540, 1085), layout);
+    }
   });
 
   test('經籤的字在籤底上夠清楚', () => {
@@ -106,7 +118,7 @@ describe('share-card.js：畫圖時真的換色', () => {
 });
 
 describe('lib/share-card-server：底色與快取', () => {
-  test('不同底色是不同的成品；B/C 不同底色共用同一張', async (t) => {
+  test('不同底色是不同的成品；非奶油底要 B 拿到 A', async (t) => {
     if (!sc.available()) return t.skip('沒有 @napi-rs/canvas');
     const base = { size: 'portrait', preview: true, verse: { text: '諸行無常，是生滅法。', source: '涅槃經' }, greeting: '早安', date: '2026-11-08', siteName: 's', host: '' };
     const a = await sc.render({ ...base, layout: 'Q', base: 'cream' });
@@ -114,16 +126,20 @@ describe('lib/share-card-server：底色與快取', () => {
     assert.ok(!a.equals(b));
     const plain = await sc.render({ ...base, layout: 'Q' });
     assert.ok(plain.equals(a), '沒給 base = 奶油');
-    await sc.render({ ...base, layout: 'B', base: 'cream' });
+    // B 只給奶油；其他底色要 B 就是 A（同一張，不重畫）
     const timing = {};
-    await sc.render({ ...base, layout: 'B', base: 'night' }, timing);
+    await sc.render({ ...base, layout: 'A', base: 'plain' });
+    await sc.render({ ...base, layout: 'B', base: 'plain' }, timing);
     assert.equal(timing.cache, 'hit');
+    const asA = await sc.render({ ...base, layout: 'A', base: 'moon' });
+    assert.ok((await sc.render({ ...base, layout: 'B', base: 'moon' })).equals(asA));
   });
 });
 
 describe('網址與面板', () => {
   test('伺服器：base／b 參數經過 normalizeBase；奶油不寫進網址，og 圖與分享連結帶上非預設底色', () => {
-    assert.match(serverJs, /base: ShareCard\.normalizeBase\(query\.base \|\| query\.b\)/);
+    assert.match(serverJs, /const base = ShareCard\.normalizeBase\(query\.base \|\| query\.b\)/);
+    assert.match(serverJs, /layout: ShareCard\.layoutFor\(query\.layout \|\| query\.l, base\)/);
     assert.match(serverJs, /p\.base && p\.base !== 'cream' \? `&\$\{key\}=\$\{p\.base\}` : ''/);
     assert.equal((serverJs.match(/shareCardBaseQs\(p, 'base'\)/g) || []).length, 2, 'verse 與 quote 的 og:image');
     assert.equal((serverJs.match(/shareCardBaseQs\(p, 'b'\)/g) || []).length, 2, 'verse 與 quote 的分享連結');
