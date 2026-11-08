@@ -13,7 +13,7 @@ process.env.INDEX_DIR = LOG_DIR;
 process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://reader.example';
 process.env.SCRYPT_LN = process.env.SCRYPT_LN || '10';
 
-const { test, describe, before, after } = require('node:test');
+const { test, describe, before, after, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const zlib = require('zlib');
@@ -45,8 +45,10 @@ function pngSize(buf) {
   return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
 }
 
-before(() => { db.open(); });
+// 日誌清理依真實時鐘「超過 7 天就封存」；固定的測試日期會隨時間過期，所以把 Date 釘在 NOW（只釘 Date，不影響計時器）
+before(() => { db.open(); mock.timers.enable({ apis: ['Date'], now: NOW }); });
 after(async () => {
+  mock.timers.reset();
   reports.stop();
   // 記錄日誌會載入 logger，連帶啟動 worker pool；不關掉測試行程不會結束。
   await require('../lib/worker-pool.js').terminateWorkerPools();
