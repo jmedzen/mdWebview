@@ -1,6 +1,6 @@
 /**
  * 早安圖底色（奶油／月白／杏粉／素紙／墨夜）：share-card.js 的配色表與驗證、紙底版型真的換色、
- * B/C 滿版版型不受影響、伺服器快取鍵、網址參數（奶油不寫，舊連結不變）、面板的底色選擇。
+ * B 滿版不受影響、C 經籤底框跟著換、伺服器快取鍵、網址參數（奶油不寫，舊連結不變）、面板的底色選擇。
  */
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -82,9 +82,25 @@ describe('share-card.js：畫圖時真的換色', () => {
     assert.deepEqual(px('J', undefined, 20, 20), px('J', 'cream', 20, 20));
   });
 
-  test('B/C 滿版版型不受底色影響', () => {
-    for (const layout of ['B', 'C']) {
-      assert.deepEqual(px(layout, 'night', 500, 1200), px(layout, 'cream', 500, 1200), layout);
+  test('B 滿版版型不受底色影響', () => {
+    assert.deepEqual(px('B', 'night', 500, 1200), px('B', 'cream', 500, 1200));
+  });
+
+  test('C 經籤：背景照片不變，中間的經籤底框跟著底色（墨夜是深色）', () => {
+    assert.deepEqual(px('C', 'night', 20, 20), px('C', 'cream', 20, 20), '籤外的照片');
+    const cream = px('C', 'cream', 540, 700);
+    const night = px('C', 'night', 540, 700);
+    assert.notDeepEqual(cream, night);
+    assert.ok(night[0] < cream[0] - 60, `${cream} / ${night}`);
+  });
+
+  test('經籤的字在籤底上夠清楚', () => {
+    for (const id of ShareCard.BASE_IDS) {
+      const t = ShareCard.BASES[id];
+      const tag = '#' + t.tag.split(',').map(n => (+n).toString(16).padStart(2, '0')).join('');
+      assert.ok(contrast(t.tagInk, tag) >= 7, `${id} tagInk`);
+      assert.ok(contrast(t.tagSoft, tag) >= 4.5, `${id} tagSoft`);
+      assert.ok(contrast(t.red, tag) >= 4.5, `${id} red`);
     }
   });
 });

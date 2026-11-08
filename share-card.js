@@ -30,18 +30,23 @@
   // 底色（紙色）：紙底版型（A/I/J/N/P/Q）共用一組配色；B/C 是滿版圖、QR 小籤固定米色，不跟著換。
   // 每組：top/bottom = 紙色上下漸層，rgb = top 的 r,g,b（圖片淡入紙色用），
   // ink = 經句與大字，inkSoft = 日期，source = 出處，muted = 頁尾站名，gold = 細金線，rule = 分隔線，
-  // red = 紅字問候（J），grain = 紙紋細點顏色。紅印（#b8322a）與金箔漸層在每種底色上都清楚，不換。
+  // tag* = 版型 C 經籤（半透明底、經句、日期與出處、金框的 r,g,b），red = 紅字問候（J、C），grain = 紙紋細點顏色。紅印（#b8322a）與金箔漸層在每種底色上都清楚，不換。
   const BASES = {
     cream: { name: '奶油', top: '#f6f0e2', bottom: '#efe6d0', rgb: '246,240,226',
-      ink: '#231e18', inkSoft: '#6b5d46', source: '#8b7248', muted: '#8b7d68', gold: '#b8932f', rule: '#d9ccb2', red: '#9c2f27', grain: '#8a7550' },
+      ink: '#231e18', inkSoft: '#6b5d46', source: '#8b7248', muted: '#8b7d68', gold: '#b8932f', rule: '#d9ccb2', red: '#9c2f27', grain: '#8a7550',
+      tag: '252,248,238', tagInk: '#2a2620', tagSoft: '#7a6a52', tagLine: '176,141,74' },
     moon: { name: '月白', top: '#eef2f2', bottom: '#dfe7e8', rgb: '238,242,242',
-      ink: '#1c2629', inkSoft: '#4c5e63', source: '#5b6f70', muted: '#728186', gold: '#a8893e', rule: '#c5d1d3', red: '#9c2f27', grain: '#56707a' },
+      ink: '#1c2629', inkSoft: '#4c5e63', source: '#5b6f70', muted: '#728186', gold: '#a8893e', rule: '#c5d1d3', red: '#9c2f27', grain: '#56707a',
+      tag: '246,249,249', tagInk: '#1c2629', tagSoft: '#4c5e63', tagLine: '168,137,62' },
     apricot: { name: '杏粉', top: '#f9ede7', bottom: '#f1dcd2', rgb: '249,237,231',
-      ink: '#2e1e1a', inkSoft: '#6f5048', source: '#8a5a48', muted: '#957a70', gold: '#b08048', rule: '#e2c8bc', red: '#9c2f27', grain: '#8a6050' },
+      ink: '#2e1e1a', inkSoft: '#6f5048', source: '#8a5a48', muted: '#957a70', gold: '#b08048', rule: '#e2c8bc', red: '#9c2f27', grain: '#8a6050',
+      tag: '252,244,239', tagInk: '#2e1e1a', tagSoft: '#6f5048', tagLine: '176,128,72' },
     plain: { name: '素紙', top: '#f7f7f4', bottom: '#eaeae5', rgb: '247,247,244',
-      ink: '#1f1f1f', inkSoft: '#57554f', source: '#6e675a', muted: '#86837b', gold: '#a88a48', rule: '#d6d4cc', red: '#9c2f27', grain: '#6e6a60' },
+      ink: '#1f1f1f', inkSoft: '#57554f', source: '#6e675a', muted: '#86837b', gold: '#a88a48', rule: '#d6d4cc', red: '#9c2f27', grain: '#6e6a60',
+      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' },
     night: { name: '墨夜', top: '#1f1c19', bottom: '#141210', rgb: '31,28,25',
-      ink: '#f1e8d4', inkSoft: '#c4b596', source: '#d0ab68', muted: '#9c907a', gold: '#c9a24a', rule: '#4a4237', red: '#e0675a', grain: '#000000' }
+      ink: '#f1e8d4', inkSoft: '#c4b596', source: '#d0ab68', muted: '#9c907a', gold: '#c9a24a', rule: '#4a4237', red: '#e0675a', grain: '#000000',
+      tag: '33,30,27', tagInk: '#f1e8d4', tagSoft: '#c4b596', tagLine: '201,162,74' }
   };
   const BASE_IDS = Object.keys(BASES);
   const BASE_NAMES = Object.fromEntries(BASE_IDS.map(k => [k, BASES[k].name]));
@@ -494,13 +499,13 @@
     ctx.shadowColor = 'rgba(40,30,10,0.28)';
     ctx.shadowBlur = 60;
     ctx.shadowOffsetY = 24;
-    ctx.fillStyle = 'rgba(252,248,238,0.92)';
+    ctx.fillStyle = `rgba(${T.tag},0.92)`;
     ctx.fillRect(sx, sy, sw, sh);
     ctx.restore();
-    ctx.strokeStyle = 'rgba(176,141,74,0.75)';
+    ctx.strokeStyle = `rgba(${T.tagLine},0.75)`;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1);
-    ctx.strokeStyle = 'rgba(176,141,74,0.4)';
+    ctx.strokeStyle = `rgba(${T.tagLine},0.4)`;
     ctx.strokeRect(sx + 14, sy + 14, sw - 28, sh - 28);
 
     const padT = land ? 44 : 72, padB = land ? 40 : 64;
@@ -508,13 +513,13 @@
     let x = sx + sw - (land ? 62 : 86);
     // 問候（紅）
     const gs = land ? 64 : 96;
-    ctx.fillStyle = '#9c2f27';
+    ctx.fillStyle = T.red;
     ctx.font = font(700, gs);
     drawVertical(ctx, o.greeting, x, colTop, gs, gs * 1.12);
     x -= gs * 0.5 + (land ? 26 : 36);
     // 日期
     const ds = land ? 20 : 28;
-    ctx.fillStyle = '#7a6a52';
+    ctx.fillStyle = T.tagSoft;
     ctx.font = font(500, ds);
     drawVertical(ctx, `${o.date.cnFull}　${o.date.week}　${o.date.term}`, x, colTop, ds, ds * 1.18);
     x -= ds * 0.5 + (land ? 26 : 36);
@@ -545,7 +550,7 @@
       size = sz;
     }
     if (!lines) lines = packLines(o.verse.text, Math.max(1, Math.floor((colBottom - vsTop) / (size * 1.25))));
-    ctx.fillStyle = '#2a2620';
+    ctx.fillStyle = T.tagInk;
     ctx.font = font(700, size);
     x -= size / 2;
     for (const line of lines) { drawVertical(ctx, line, x, vsTop, size, size * 1.25); x -= size * 1.6; }
@@ -556,7 +561,7 @@
       const sxCol = sx + (land ? 40 : 56) + srcSize / 2;
       const maxChars = Math.floor((colBottom - colTop - (land ? 60 : 90)) / step);
       const text = Array.from(src).slice(0, Math.max(3, maxChars)).join('');
-      ctx.fillStyle = '#7a6a52';
+      ctx.fillStyle = T.tagSoft;
       ctx.font = font(500, srcSize);
       drawVertical(ctx, text, sxCol, colBottom - (Array.from(text).length - 1) * step - srcSize, srcSize, step);
     }
