@@ -4430,7 +4430,7 @@ function shareCardSite(req) {
 }
 
 /** 卡片參數（日期、問候、版型、尺寸）整理成合法值。 */
-function shareCardParams(query) {
+function shareCardParams(query, req) {
   // 連結沒帶日期時用「網站時區」的今天（不用伺服器的 UTC）；沒帶問候時用不分時間的「吉祥」，
   // 因為這張圖是給不知道在哪個時區的收件人（LINE 預覽的爬蟲）看的。
   // 瀏覽器端畫卡一定會帶上傳送者自己時區的日期與問候。
@@ -4441,6 +4441,8 @@ function shareCardParams(query) {
     size: ShareCard.normalizeSize(query.size),
     // size=preview：分享面板裡的小預覽（直式版面、較小的畫布），傳出去的仍是 size=portrait
     preview: query.size === 'preview',
+    // 預覽圖：瀏覽器的 Accept 有 image/webp 就出 WebP（更小）；其他情況維持 JPEG
+    webp: query.size === 'preview' && /image\/webp/.test(String((req && req.headers.accept) || '')),
     qr: query.qr === '1'
   };
 }
@@ -4507,7 +4509,7 @@ async function handleShareCardImage(req, res, query) {
   try {
     const v = await findCardSubject(query);
     if (!v) return sendJSON(res, 404, { error: 'Verse not found' });
-    const p = shareCardParams(query);
+    const p = shareCardParams(query, req);
     const pics = await shareCardServer.listPics();
     const rel = shareCardServer.pickPic(pics.list, v.id, p.date);
     let picAbs = rel ? shareCardServer.resolvePic(rel) : null;
@@ -4516,10 +4518,12 @@ async function handleShareCardImage(req, res, query) {
     const buf = await shareCardServer.render({ ...p, verse: v, label: cardLabel(v), picAbs, qr: shareCardQrUrl(req, v, p), ...shareCardSite(req) }, timing);
     const etag = `"sc-${crypto.createHash('md5').update(buf).digest('hex').slice(0, 16)}"`;
     const headers = Object.assign({
-      'Content-Type': 'image/jpeg',
+      'Content-Type': p.webp ? 'image/webp' : 'image/jpeg',
       'Content-Length': buf.length,
-      'Cache-Control': 'public, max-age=3600',
+      // 預覽圖網址已含 id／版型／日期／問候，內容固定，瀏覽器可放心久存；其餘維持 1 小時
+      'Cache-Control': p.size === 'preview' || p.preview ? 'public, max-age=86400' : 'public, max-age=3600',
       'ETag': etag,
+      ...(p.preview ? { 'Vary': 'Accept' } : {}),
       // 瀏覽器開發工具「Timing」看得到：解碼背景圖／畫圖／JPEG 編碼各花幾毫秒（快取命中則只有 cache）
       'Server-Timing': shareCardServerTiming(timing)
     }, SECURITY_HEADERS);
