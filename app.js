@@ -2674,8 +2674,9 @@
 
   const SHARE_LAYOUT_KEY = 'mdWebview-share-card-layout';
   const SHARE_QR_KEY = 'mdWebview-share-card-qr';   // '1' = 卡片附 QR 碼（預設不附）
+  const SHARE_BASE_KEY = 'mdWebview-share-card-base';   // 底色（ShareCard.BASE_IDS，預設 cream）
   const shareRt = {
-    open: false, layout: 'A', mode: 'image', verse: null, date: '', greeting: '早安', greetingMode: 'time', qr: false,
+    open: false, layout: 'A', base: 'cream', mode: 'image', verse: null, date: '', greeting: '早安', greetingMode: 'time', qr: false,
     blobs: new Map(),      // `${layout}|${size}` → Promise<Blob>
     urls: [],              // 要回收的 blob: 網址
     meta: null, serverOk: true
@@ -2760,7 +2761,9 @@
     if (!id) return;
     const l = params.get('l');
     if (l && window.ShareCard) storage.set(SHARE_LAYOUT_KEY, window.ShareCard.normalizeLayout(l));
-    for (const k of ['d', 'g', 'l']) params.delete(k);
+    const b = params.get('b');
+    if (b && window.ShareCard && window.ShareCard.normalizeBase) storage.set(SHARE_BASE_KEY, window.ShareCard.normalizeBase(b));
+    for (const k of ['d', 'g', 'l', 'b']) params.delete(k);
     const qs = params.toString();
     history.replaceState(history.state, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
     try {
@@ -2776,7 +2779,12 @@
     const v = shareRt.verse;
     const key = v.kind === 'quote' ? 'q' : 'id';
     const qr = shareRt.qr && size !== 'og' ? '&qr=1' : '';
-    return `${key}=${encodeURIComponent(v.id)}&layout=${layout}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}${qr}`;
+    return `${key}=${encodeURIComponent(v.id)}&layout=${layout}${shareBaseParam('base')}&size=${size}&d=${shareRt.date}&g=${encodeURIComponent(shareRt.greeting)}${qr}`;
+  }
+
+  /** 網址上的底色：奶油（預設）不帶，和以前的網址一樣。 */
+  function shareBaseParam(key) {
+    return shareRt.base && shareRt.base !== 'cream' ? `&${key}=${shareRt.base}` : '';
   }
 
   /** 連結帶的問候：只有不分時間的（法安／自在／吉祥）才帶；「時間問候」不帶，預覽圖用「吉祥」，
@@ -2790,9 +2798,9 @@
     if (v.kind === 'quote') {
       // 選句：朋友點開直接到那一篇的那一行；quote= 讓預覽圖換成這張早安圖
       return `${window.location.origin}/?file=${encodeURIComponent(v.path)}${v.line ? `&line=${v.line}` : ''}` +
-        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}`;
+        `&quote=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}${shareBaseParam('b')}`;
     }
-    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}`;
+    return `${window.location.origin}/?verse=${encodeURIComponent(v.id)}&d=${shareRt.date}${shareLinkGreeting()}&l=${shareRt.layout}${shareBaseParam('b')}`;
   }
 
   /** QR 產生器（vendor/qrcode，MIT）只有瀏覽器自己畫、又要附 QR 時才載入。 */
@@ -2842,7 +2850,7 @@
     canvas.width = w;
     canvas.height = h;
     SC.draw(canvas.getContext('2d'), {
-      layout, size: drawSize, image: img, verse: meta.verse, greeting: shareRt.greeting,
+      layout, base: shareRt.base, size: drawSize, image: img, verse: meta.verse, greeting: shareRt.greeting,
       date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host,
       label: meta.label, qr: withQr ? meta.qrUrl : ''
     });
@@ -2851,7 +2859,7 @@
 
   /** 取得某版型、某尺寸（preview｜portrait｜og）的卡片（Blob），同一次開面板內快取。 */
   function getShareCardBlob(layout, size) {
-    const key = `${layout}|${size}|${shareRt.greeting}|${shareRt.qr && size !== 'og' ? 'qr' : ''}`;
+    const key = `${layout}|${shareRt.base}|${size}|${shareRt.greeting}|${shareRt.qr && size !== 'og' ? 'qr' : ''}`;
     if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
     const job = (async () => {
       if (shareRt.serverOk) {
@@ -2869,7 +2877,7 @@
 
   function shareCardFileName() {
     const site = String(state.siteName || 'mdWebview').replace(/[\\/:*?"<>|\s]+/g, '');
-    return `${site}-${shareRt.greeting}圖-${shareRt.date}-${shareRt.layout}.jpg`;
+    return `${site}-${shareRt.greeting}圖-${shareRt.date}-${shareRt.layout}${shareRt.base !== 'cream' ? `-${shareRt.base}` : ''}.jpg`;
   }
 
   // 問候語開關：時間問候（依傳送者本機時間，預設）／法安／自在／吉祥（後三者不分時間，適合跨時區）
@@ -2909,6 +2917,48 @@
     const verse = shareRt.verse;
     $('shareCardTitle').textContent = verse && verse.kind === 'quote' ? `用這段經文做${shareRt.greeting}圖` : `分享${shareRt.greeting}圖`;
     renderShareGreetings();
+    renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
+  }
+
+  // 底色選擇：一排色票（只影響紙底版型；B/C 滿版圖不變）。記在本機，和版型一樣。
+  function renderShareBases() {
+    const wrap = $('shareCardBases');
+    const SC = window.ShareCard;
+    if (!wrap || !SC || !SC.BASE_IDS) return;
+    wrap.textContent = '';
+    for (const id of SC.BASE_IDS) {
+      const t = SC.BASES[id];
+      const b = document.createElement('button');
+      b.type = 'button';
+      const on = id === shareRt.base;
+      b.className = 'share-card-base' + (on ? ' is-selected' : '');
+      b.dataset.base = id;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.title = `${t.name}底`;
+      const sw = document.createElement('span');
+      sw.className = 'share-card-base-swatch';
+      sw.style.background = `linear-gradient(${t.top}, ${t.bottom})`;
+      sw.style.color = t.ink;
+      sw.textContent = '字';
+      sw.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span');
+      name.className = 'share-card-base-name';
+      name.textContent = t.name;
+      b.append(sw, name);
+      b.addEventListener('click', () => selectShareBase(id));
+      wrap.appendChild(b);
+    }
+  }
+
+  function selectShareBase(id) {
+    const base = window.ShareCard.normalizeBase(id);
+    storage.set(SHARE_BASE_KEY, base);
+    if (!shareRt.open || base === shareRt.base) return;
+    shareRt.base = base;
+    for (const u of shareRt.urls) URL.revokeObjectURL(u);
+    shareRt.urls = [];
+    renderShareBases();
     renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
   }
 
@@ -3084,6 +3134,7 @@
       shareRt.greeting = shareGreetingFor(shareRt.greetingMode, now);
     }
     shareRt.layout = window.ShareCard.normalizeLayout(storage.get(SHARE_LAYOUT_KEY, 'A'));
+    shareRt.base = window.ShareCard.normalizeBase ? window.ShareCard.normalizeBase(storage.get(SHARE_BASE_KEY, 'cream')) : 'cream';
     shareRt.qr = storage.get(SHARE_QR_KEY, '0') === '1';
     const qrBox = $('shareCardQr');
     if (qrBox) qrBox.checked = shareRt.qr;
@@ -3096,6 +3147,7 @@
     document.body.classList.add('modal-open');
     $('shareCardCopyImg').hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
     renderShareGreetings();
+    renderShareBases();
     renderShareSlides();   // 選中那張的預覽出來後會自己預取全尺寸
     sendShareEvent('open');
     const card = ov.querySelector('.share-card-card');
