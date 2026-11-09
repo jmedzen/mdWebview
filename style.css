@@ -6612,6 +6612,54 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   box-shadow: 0 4px 18px var(--accent-dim);
 }
 
+/* ── §30a 新版本提示橫幅（app.js §16.4）─────────────────────────
+   常駐、可點擊；位置在 toast 之上，避免被短暫的 toast 蓋住。顏色一律用主題變數；
+   強調色底的文字用 --bg-primary（見 mdwebview-css-accent-text-color）。 */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: 92vw;
+  padding: 8px 10px 8px 18px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 24px;
+  box-shadow: 0 4px 18px var(--accent-dim);
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 550;
+}
+
+.update-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.update-banner-btn {
+  flex: none;
+  border: 0;
+  border-radius: 16px;
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.update-banner-reload {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.update-banner-later {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
 /* ── §31a 後台外框（v4.4.0）：全頁、左側分組導覽、右側一頁一件事 ──────────
    桌機：左欄固定導覽＋右側頁面；手機（≤768px）：先看分組清單，點進去才看頁面，
    左上「‹ 後台」回清單。顏色一律用主題變數。 */

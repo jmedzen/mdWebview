@@ -47,10 +47,16 @@ describe('版本號單一來源 (package.json)', () => {
     assert.equal(APP_VERSION, version);
   });
 
-  test('server 會把 __APP_VERSION__ 換成實際版本（index.html 與 sw.js）', () => {
+  test('server 會替換 __APP_VERSION__：?v= 與 sw.js 換成資源指紋，畫面上的版本顯示仍是純版本號', () => {
     const src = read('lib/static-cache.js');
+    // 畫面上顯示的版本（v__APP_VERSION__）是給人看的，維持 package.json 版本。
     assert.ok(/replace\(\/__APP_VERSION__\/g, APP_VERSION\)/.test(src));
-    assert.ok((src.match(/__APP_VERSION__/g) || []).length >= 2, 'index.html 與 sw.js 兩處都要替換');
+    // 資源網址的 ?v= 是破快取用，必須帶內容指紋，否則 dev 不升版時使用者永遠拿舊檔（見 lib/asset-version.js）。
+    assert.ok(/replace\(\/\\\?v=__APP_VERSION__\/g, \(\) => `\?v=\$\{assetVersion\}`\)/.test(src),
+      'index.html 的 ?v=__APP_VERSION__ 應換成資源指紋');
+    // sw.js 的 CACHE_VERSION 同樣取資源指紋，指紋變 → sw.js 位元組變 → 瀏覽器安裝新 SW。
+    assert.ok(/replace\(\/__APP_VERSION__\/g, \(\) => assetVersion\)/.test(src),
+      'sw.js 的 __APP_VERSION__ 應換成資源指紋');
   });
 
   test('app.js 的 appVersion fallback 不寫死版本', () => {
