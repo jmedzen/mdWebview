@@ -101,6 +101,7 @@ const shareCardServer = require('./lib/share-card-server');
 const ShareCard = require('./share-card.js');
 const shareQuotes = require('./lib/share-quotes');
 const shareQr = require('./lib/share-qr');
+const shareLink = require('./lib/share-link');
 const shareStats = require('./lib/share-stats');
 
 const {
@@ -4728,6 +4729,32 @@ async function handleShareQrRedirect(req, res, parsed) {
   res.end();
 }
 
+/**
+ * GET /F<14 碼>[L<行>]：經文某一行的短分享連結（lib/share-link.js）。
+ * 用經文清單反查路徑，302 轉到 /?file=…&line=…；找不到（改名、刪除、辭典）回首頁。
+ * 用 302 不用 301：檔案改名後換個碼，舊連結不會被瀏覽器永久記成錯的。
+ * 爬蟲（LINE、Google Chat 預覽）跟著轉址後，拿到的是原本那一頁的預覽。
+ */
+async function handleShortFileRedirect(req, res, parsed) {
+  let location = '/';
+  let found = null;
+  try {
+    const files = await listMdFilesForQr();
+    found = shareLink.resolve(files, parsed.code);
+    if (found) {
+      location = shareQr.fileUrl(found.path, parsed.line);
+      if (found.ambiguous) Logger.warn('ShareLink', `Short link code ${parsed.code} matches several files; using ${found.path}`, req);
+    }
+  } catch (err) {
+    Logger.warn('ShareLink', `Short link lookup failed: ${err && err.message ? err.message : err}`, req);
+  }
+  if (req.method === 'GET') {
+    Logger.info('ShareLink', `Short link ${parsed.code}${parsed.line ? ` line ${parsed.line}` : ''} -> ${found ? found.path : 'home (not found)'}`, req, { path: found ? found.path : null, code: parsed.code });
+  }
+  res.writeHead(302, Object.assign({ Location: location, 'Cache-Control': 'no-store' }, SECURITY_HEADERS));
+  res.end();
+}
+
 /** 首頁 HTML，og／twitter 標籤換成早安圖（og 為 null 時原樣送出）。 */
 function sendIndexWithShareOg(req, res, og) {
   const nonce = crypto.randomBytes(16).toString('base64');
@@ -5753,6 +5780,8 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     const qrPath = shareQr.parseQrPath(pathname);
     if (qrPath) return handleShareQrRedirect(req, res, qrPath);
+    const shortFile = shareLink.parsePath(pathname);
+    if (shortFile) return handleShortFileRedirect(req, res, shortFile);
   }
 
   // Log share link access if present, and handle Crawler Dynamic SSR for Homepage or Specific Markdown File

@@ -784,6 +784,7 @@ flowchart TD
 | `lib/library-store.js` | 書籤與閱讀歷程的伺服器端同步（`POST /api/me/sync`）：以使用者遞增 `seq` 當游標（不受裝置時鐘影響）、墓碑、配額與列數上限 | `syncLibrary` |
 | `lib/share-quotes.js` | 選字製作的早安圖（選句）純函式：到原檔核對選取的字（只比 `\p{L}\p{N}`、簡繁 fold）、卡片文字一律取自原檔、代號產生 | `MAX_CHARS`, `MIN_CHARS`, `MAX_INPUT_CHARS`, `QUOTA_PER_HOUR`, `QUOTA_PER_DAY`, `ID_RE`, `cleanMarkdownLine`, `buildKey`, `cardLength`, `tidyCardText`, `locate`, `extractQuote`, `textKey` |
 | `lib/share-qr.js` | 早安圖 QR 碼的短網址：`/V<7碼><版型>`（每日經句）、`/Q<7碼><版型>`（經文選句），全大寫英數以縮小 QR 密度；掃描後 302 轉到原文那一行並記 `qrScan` | `CODE_LEN`, `shortCode`, `qrUrl`, `parseQrPath`, `findLine`, `candidateFiles`, `locateVerse`, `fileUrl` |
+| `lib/share-link.js` | 經文某一行的短分享連結：`/F<14碼>[L<行>]`，14 碼 = 經文路徑（NFC）的 53 位元 cyrb53 雜湊（小寫十六進位），整條只有英數字，貼進 LINE、Google Chat 都不會斷；伺服器用經文清單反查，無需資料庫。雜湊必須與 `app.js` 的 `shareHash53()` 逐字相同 | `hash53`, `pathCode`, `parsePath`, `indexFor`, `resolve` |
 | `lib/share-card-draw.js` | 早安圖真正畫圖的那一段（v4.24.0）：背景圖解碼快取、`bg` 變體縮圖（第一次用到就縮成剛好蓋滿 1620×2025 存到 `bgDir`，重開機後沿用）、畫圖＋JPEG 編碼。給 Worker 與主執行緒備援共用 | `createDrawer`, `bgVariantSize`, `bgVariantName`, `writeAtomic`, `lruGet`, `lruSet` |
 | `lib/share-card-render-worker.js` | 早安圖的畫圖工作執行緒（v4.24.0）：`ShareCard.draw` 是同步的，8 張壓在主執行緒會讓全站卡 0.4–1.6 秒，搬到這裡後主執行緒只收發訊息；v4.30.0 起 Worker 是按需開的執行緒池（`SHARE_CARD_WORKERS`，預設可用核心數 − 1、上限 4，Docker 有 CPU 限制時跟著縮），8 張預覽可多條並行；每條各留一份背景圖解碼快取（約 100MB） | （Worker 入口，無具名導出） |
 | `lib/share-card-server.js` | 早安圖伺服器端：`pic-card/` 背景圖庫遞迴掃描（每分鐘最多重掃一次）、依「經句＋日期」雜湊挑圖、`@napi-rs/canvas` 延遲載入（失敗＝不能畫，回 503）、字型註冊、成品磁碟快取與 Worker 管理 | `picDir`, `fontDirs`, `listPics`, `pickPic`, `resolvePic`, `isRealPicPath`, `available`, `status`, `render`, `cacheDir`, `cacheStatus`, `shutdown`, `decodeCount` |
@@ -857,6 +858,7 @@ flowchart TD
 | `/api/share-card/event` | POST | `handleShareCardEvent()` | ❌ | 早安圖動作回報 `{ev, verse, layout, d, stage}`（v4.15.0，見下方「早安圖記錄與統計」） |
 | `/api/admin/share-card` | GET | `handleAdminShareCard()` | ✅ | 圖庫張數與位置、畫圖套件與字型狀態 |
 | `/V<7碼><版型>`、`/Q<7碼><版型>` | GET | `handleShareQrRedirect()` | ❌ | 早安圖 QR 碼的短網址（大小寫通用）：記 `qrScan`，302 轉到原文那一行；找不到回首頁（v4.18.0） |
+| `/F<14碼>[L<行>]` | GET／HEAD | `handleShortFileRedirect()` | ❌ | 經文某一行的短分享連結（選字分享、頁首「連結」鈕、點行號複製都用它）：反查路徑後 302 轉到 `/?file=…&line=…`；找不到（改名、刪除）回首頁。辭典與帶 `q` 參數的頁面仍用純 ASCII 的長連結 `?file=` |
 | `/api/share-card/quote` | POST | `handleCreateShareQuote()` | 登入 | 選字製作早安圖：`{path, line, text}` → 伺服器核對原文、建立選句 `{quote}`（v4.17.0） |
 | `/api/share-card/quote` | GET | `handleGetShareQuote()` | ❌ | `?id=` 選句內容（已隱藏回 404） |
 | `/api/admin/share-quotes` | GET | `handleAdminShareQuotes()` | ✅ | 選句清單（最新 50 筆，`q`、`offset`） |

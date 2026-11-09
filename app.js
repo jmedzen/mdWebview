@@ -520,30 +520,62 @@
   const LOOSE_TRANSPARENT_RE = /[\p{P}\s\u0085]/u;
 
   /**
-   * 把經文路徑編成可安全貼進聊天軟體／文字訊息的 ?file= 值。
-   *
-   * 以前的分享連結只把 & 和 # 轉義，其餘（空格、《》「」、＋、％…）原樣輸出，還在複製前
-   * 再 decodeURIComponent 一次。結果：
-   *   - 空格、《》會讓 LINE／Telegram 等的自動連結在該處截斷（點開就找不到檔案）；
-   *   - 複製前的 decode 把 %26／%23 還原成 & 和 #，等於白轉義；
-   *   - 檔名含 % 時 decodeURIComponent 直接丟 URIError，按鈕毫無反應；
-   *   - 檔名含 + 時，伺服器的 URLSearchParams 會把它讀成空格。
-   *
-   * 規則：字母、數字、組合記號（含漢字，保持可讀）與 - _ . ~ / 原樣保留，
-   * 其餘（空格、各種標點與括號、符號）一律百分比編碼。
+   * 分享連結的百分比編碼：只留 A-Z a-z 0-9 - _ . ~（RFC 3986 unreserved），其餘一律 %XX；
+   * encodeURIComponent 放過的 ! ' ( ) * 也編碼——括號、引號是聊天軟體自動連結最常斷的地方。
    */
-  function encodeSharePath(filePath) {
-    return String(filePath || '').replace(/[^\p{L}\p{N}\p{M}\-_.~/]/gu, (ch) => encodeURIComponent(ch));
+  function encodeShareComponent(str) {
+    return encodeURIComponent(String(str == null ? '' : str))
+      .replace(/[!\x27()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   }
 
-  /** 檔案（可帶行號）的分享查詢字串：?file=<path>&line=<n> */
+  /** 經文路徑 → ?file= 的值：整串純 ASCII，/ 保留為路徑分隔。 */
+  function encodeSharePath(filePath) {
+    return encodeShareComponent(filePath).replace(/%2F/g, '/');
+  }
+
+  /** 檔案（可帶行號）的長連結查詢字串：?file=<path>&line=<n>（純 ASCII） */
   function fileShareQuery(filePath, line) {
     return `?file=${encodeSharePath(filePath)}${line ? `&line=${line}` : ''}`;
   }
 
   /**
+   * cyrb53：53 位元字串雜湊。必須與 lib/share-link.js 的 hash53() 逐字相同，
+   * 前端算出的碼才對得上伺服器的反查（tests/test-share-link-short.test.js 會對照兩份）。
+   */
+  function shareHash53(str) {
+    let h1 = 0xdeadbeef;
+    let h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  }
+
+  /** 經文路徑 → 14 碼（小寫十六進位，路徑先 NFC 正規化；對應 lib/share-link.js pathCode）。 */
+  function sharePathCode(filePath) {
+    return shareHash53(String(filePath == null ? '' : filePath).normalize('NFC')).toString(16).padStart(14, '0');
+  }
+
+  /**
+   * 某一頁（可帶行）的分享連結。
+   *   經文：<base>F<14 碼>[L<行>]，整條只有英數字（貼進 LINE、Google Chat 都不會斷，也不會長）；
+   *   辭典（dict:）不在經文清單裡，伺服器反查不到，退回純 ASCII 的長連結 <base>?file=…。
+   * base 是 origin + pathname（結尾有 /）。
+   */
+  function shareFileUrl(base, filePath, line) {
+    const p = String(filePath || '');
+    if (!p || p.startsWith('dict:')) return base + fileShareQuery(p, line);
+    return `${base}F${sharePathCode(p)}${line ? `L${line}` : ''}`;
+  }
+
+  /**
    * 目前這一頁的分享連結（頁首「連結」鈕複製的內容）。
-   * file 走 fileShareQuery、行號沿用網址列，其餘參數（例如 q 關鍵字）保留並編碼。
+   * 行號沿用網址列。網址列若還帶有 file、line 以外的參數（例如 q 關鍵字），短連結帶不走，
+   * 這時用純 ASCII 的長連結把它們一併保留。
    * 以前直接複製 decodeURIComponent(location.href)：空格、《》會讓聊天軟體截斷連結，
    * 檔名含 % 還會丟 URIError。
    *
@@ -555,11 +587,13 @@
     const file = filePath || params.get('file');
     if (!file) return loc.href;
     const line = parseInt(params.get('line'), 10) || null;
-    let url = loc.origin + loc.pathname + fileShareQuery(file, line);
+    const base = loc.origin + loc.pathname;
+    const extra = [];
     params.forEach((v, k) => {
-      if (k !== 'file' && k !== 'line') url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+      if (k !== 'file' && k !== 'line') extra.push(`${encodeShareComponent(k)}=${encodeShareComponent(v)}`);
     });
-    return url;
+    if (!extra.length) return shareFileUrl(base, file, line);
+    return base + fileShareQuery(file, line) + '&' + extra.join('&');
   }
 
   function safeDecodeURIComponent(str) {
@@ -11126,7 +11160,7 @@
           const newUrl = window.location.pathname + lineSearch;
           history.pushState(null, '', newUrl);
 
-          const fullLineUrl = window.location.origin + window.location.pathname + lineSearch;
+          const fullLineUrl = shareFileUrl(window.location.origin + window.location.pathname, state.currentFile, lineNum);
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(fullLineUrl).then(
               () => showToast(`✓ 已複製第 ${lineNum} 行分享連結`, 'success'),
@@ -18314,9 +18348,9 @@
       popup.classList.add('visible');
       placePopupNear(range);
 
-      // 分享連結：漢字保持可讀，空格、《》等其餘符號百分比編碼（貼進聊天軟體不會被截斷）
+      // 分享連結：經文用英數短連結 /F<碼>L<行>（任何聊天軟體都不會斷）；辭典退回純 ASCII 長連結
       const baseUrl = window.location.origin + window.location.pathname;
-      currentShareUrl = baseUrl + fileShareQuery(state.currentFile, lineNum);
+      currentShareUrl = shareFileUrl(baseUrl, state.currentFile, lineNum);
 
     }
 
