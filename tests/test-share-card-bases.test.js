@@ -27,8 +27,8 @@ function contrast(a, b) {
 }
 
 describe('share-card.js：底色配色表', () => {
-  test('四種底色，奶油是第一個也是預設；不認得的值一律奶油', () => {
-    assert.deepEqual(ShareCard.BASE_IDS, ['cream', 'moon', 'bamboo', 'plain']);
+  test('五種底色，奶油是第一個也是預設；不認得的值一律奶油', () => {
+    assert.deepEqual(ShareCard.BASE_IDS, ['cream', 'moon', 'bamboo', 'plain', 'sakura']);
     assert.equal(ShareCard.normalizeBase(''), 'cream');
     assert.equal(ShareCard.normalizeBase(undefined), 'cream');
     assert.equal(ShareCard.normalizeBase('<script>'), 'cream');
@@ -37,6 +37,7 @@ describe('share-card.js：底色配色表', () => {
     assert.equal(ShareCard.normalizeBase('MOON'), 'moon');
     assert.equal(ShareCard.normalizeBase('apricot'), 'bamboo', '舊名杏粉對到竹青');
     assert.equal(ShareCard.BASE_NAMES.moon, '月白');
+    assert.equal(ShareCard.BASE_NAMES.sakura, '粉櫻');
   });
 
   test('奶油底維持原本的紙色（#f6f0e2 → #efe6d0）', () => {
@@ -98,6 +99,8 @@ describe('share-card.js：畫圖時真的換色', () => {
     assert.equal(L('M', 'plain'), 'M'); assert.equal(L('M', 'bamboo'), 'A');
     assert.deepEqual(ShareCard.layoutsFor('cream'), ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q']);
     assert.equal(ShareCard.layoutsFor('moon').length, 8);
+    assert.deepEqual(ShareCard.layoutsFor('sakura'), ['A', 'C', 'I', 'J', 'N', 'P', 'Q'], '粉櫻只有共用版型');
+    for (const l of ['B', 'K', 'L', 'M']) assert.equal(L(l, 'sakura'), 'A', l);
     assert.deepEqual(px('K', 'cream', 300, 300), px('A', 'cream', 300, 300), '不能用的版型畫成 A');
   });
 

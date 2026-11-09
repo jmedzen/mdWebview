@@ -43,7 +43,10 @@
       tag: '250,252,247', tagInk: '#1b2614', tagSoft: '#46563a', tagLine: '150,160,70' },
     plain: { name: '素紙', top: '#f7f7f4', bottom: '#eaeae5', rgb: '247,247,244',
       ink: '#1f1f1f', inkSoft: '#57554f', source: '#6e675a', muted: '#86837b', gold: '#a88a48', rule: '#d6d4cc', red: '#9c2f27', grain: '#6e6a60',
-      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' }
+      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' },
+    sakura: { name: '粉櫻', top: '#fdf5f5', bottom: '#faeaec', rgb: '253,245,245',
+      ink: '#2e1a1c', inkSoft: '#6a4a4e', source: '#865a5e', muted: '#8f7478', gold: '#b08648', rule: '#f5dde0', red: '#9c2f27', grain: '#8a5a60',
+      tag: '254,251,251', tagInk: '#2e1a1c', tagSoft: '#6a4a4e', tagLine: '176,134,72' }
   };
   const BASE_IDS = Object.keys(BASES);
   const BASE_NAMES = Object.fromEntries(BASE_IDS.map(k => [k, BASES[k].name]));
@@ -53,7 +56,8 @@
     cream: ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'],
     moon: COMMON_LAYOUTS.concat('K'),
     bamboo: COMMON_LAYOUTS.concat('L'),
-    plain: COMMON_LAYOUTS.concat('M')
+    plain: COMMON_LAYOUTS.concat('M'),
+    sakura: COMMON_LAYOUTS.slice()
   };
   function layoutsFor(base) { return BASE_LAYOUTS[normalizeBase(base)].slice(); }
   /** 該底色不能用的版型（例如月白底的 B）退回 A。 */
@@ -1347,7 +1351,7 @@
   /**
    * 畫一張卡。ctx 是 2D context（瀏覽器或 @napi-rs/canvas 都可以），畫布大小要先設好。
    * opts: { layout, base, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host, label, qr }
-   * base = 底色（BASE_IDS：cream 奶油〔預設〕、moon 月白、bamboo 竹青、plain 素紙），只影響紙底版型；B 只給奶油，K/L/M 各是月白/竹青/素紙專屬。
+   * base = 底色（BASE_IDS：cream 奶油〔預設〕、moon 月白、bamboo 竹青、plain 素紙、sakura 粉櫻），只影響紙底版型；B 只給奶油，K/L/M 各是月白/竹青/素紙專屬。
    * qr = 原文連結網址（短網址），只畫在直式；不給就不畫。畫布請用 PIXEL_SIZES 的大小。
    * label = 頁尾站名後的字：每日經句（預設）或 經文選句（選字製作的卡片）。
    */
