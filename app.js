@@ -2942,7 +2942,7 @@
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', on ? 'true' : 'false');
       const own = SC.layoutsFor(id).filter(l => !['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'].includes(l));
-      b.title = `${t.name}底${own.length ? `（專屬版型：${own.map(l => SC.LAYOUT_NAMES[l]).join('、')}）` : '（可用全部版型）'}`;
+      b.title = `${t.name}底${own.length ? `（專屬版型：${own.map(l => SC.LAYOUT_NAMES[l]).join('、')}）` : id === 'cream' ? '（可用全部版型）' : '（共用版型）'}`;
       b.setAttribute('aria-label', b.title);
       const sw = document.createElement('span');
       sw.className = 'share-card-base-swatch';

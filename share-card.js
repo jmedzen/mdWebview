@@ -43,17 +43,21 @@
       tag: '250,252,247', tagInk: '#1b2614', tagSoft: '#46563a', tagLine: '150,160,70' },
     plain: { name: '素紙', top: '#f7f7f4', bottom: '#eaeae5', rgb: '247,247,244',
       ink: '#1f1f1f', inkSoft: '#57554f', source: '#6e675a', muted: '#86837b', gold: '#a88a48', rule: '#d6d4cc', red: '#9c2f27', grain: '#6e6a60',
-      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' }
+      tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' },
+    sakura: { name: '粉櫻', top: '#fdf5f5', bottom: '#faeaec', rgb: '253,245,245',
+      ink: '#2e1a1c', inkSoft: '#6a4a4e', source: '#865a5e', muted: '#8f7478', gold: '#b08648', rule: '#f5dde0', red: '#9c2f27', grain: '#8a5a60',
+      tag: '254,251,251', tagInk: '#2e1a1c', tagSoft: '#6a4a4e', tagLine: '176,134,72' }
   };
   const BASE_IDS = Object.keys(BASES);
   const BASE_NAMES = Object.fromEntries(BASE_IDS.map(k => [k, BASES[k].name]));
-  // 每種底色可用的版型：B（沉浸全幅）只給奶油；K 圓月＝月白、L 卷軸＝竹青、M 裱框＝素紙 各自專屬。
+  // 每種底色可用的版型：B（沉浸全幅）只給奶油；K 圓月＝月白、L 卷軸＝竹青、M 裱框＝素紙、S 花箋＝粉櫻 各自專屬。
   const COMMON_LAYOUTS = ['A', 'C', 'I', 'J', 'N', 'P', 'Q'];
   const BASE_LAYOUTS = {
     cream: ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q'],
     moon: COMMON_LAYOUTS.concat('K'),
     bamboo: COMMON_LAYOUTS.concat('L'),
-    plain: COMMON_LAYOUTS.concat('M')
+    plain: COMMON_LAYOUTS.concat('M'),
+    sakura: COMMON_LAYOUTS.concat('S')
   };
   function layoutsFor(base) { return BASE_LAYOUTS[normalizeBase(base)].slice(); }
   /** 該底色不能用的版型（例如月白底的 B）退回 A。 */
@@ -66,8 +70,8 @@
   // 目前這張卡的配色（draw() 開頭設定、結束還原；畫圖是同步的，不會互相干擾）
   let T = BASES.cream;
 
-  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q', 'K', 'L', 'M'];
-  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式', K: '圓月', L: '卷軸', M: '裱框' };
+  const LAYOUTS = ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q', 'K', 'L', 'M', 'S'];
+  const LAYOUT_NAMES = { A: '晨光留白', B: '沉浸全幅', C: '經籤直書', I: '晨鐘大字', J: '象牙拱門', N: '上圖下文', P: '左右分割', Q: '三段式', K: '圓月', L: '卷軸', M: '裱框', S: '花箋' };
   const SIZES = { portrait: [1080, 1350], og: [1200, 630] };          // 版面座標
   const PIXEL_SIZES = { portrait: [1620, 2025], og: [1200, 630] };    // 實際輸出的像素
   // 分享面板裡的小預覽（直式版面縮成 0.8 倍）：手機上一格只有約 260 CSS px 寬，
@@ -1287,6 +1291,68 @@
     tailBlock(ctx, w, h, o, 1085, 190, 54);
   }
 
+  // ── 版型 S：花箋（粉櫻底）──────────────────────────────────────────
+  // 一張微斜的白色花箋釘在粉色紙上：圖片在箋上滿幅展開、不加遮罩，經句寫在箋下緣；
+  // 箋頂一條粉色紙膠帶，紙面與箋上零落幾片櫻瓣。
+  /** 飄落的櫻瓣：淡粉小瓣，同一張卡每次位置一樣。 */
+  function petals(ctx, x, y, w, h, count, seed) {
+    const r = rng(seed);
+    ctx.save();
+    for (let i = 0; i < count; i++) {
+      const px = x + r() * w, py = y + r() * h, sz = 11 + r() * 12, ang = r() * Math.PI * 2;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(ang);
+      const g = ctx.createLinearGradient(0, -sz, 0, sz);
+      g.addColorStop(0, 'rgba(232,140,156,0.85)'); g.addColorStop(1, 'rgba(250,206,214,0.65)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(0, -sz);
+      ctx.bezierCurveTo(sz * 0.9, -sz * 0.55, sz * 0.75, sz * 0.6, 0, sz);
+      ctx.bezierCurveTo(-sz * 0.75, sz * 0.6, -sz * 0.9, -sz * 0.55, 0, -sz);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawS(ctx, w, h, o) {
+    if (w > h) return drawA(ctx, w, h, o);
+    paperBg(ctx, 0, 0, w, h, T.top, T.bottom);
+    grain(ctx, w, h, 15, 0.04, false);
+    petals(ctx, 30, 60, w - 60, h - 120, 9, 31);
+    // 花箋（整張微斜）
+    const cw = 860, ch = 1010, cx = w / 2, cy = 700;
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(-0.022); ctx.translate(-cw / 2, -ch / 2);
+    ctx.save();
+    ctx.shadowColor = 'rgba(150,70,86,0.28)'; ctx.shadowBlur = 44; ctx.shadowOffsetY = 18;
+    ctx.fillStyle = '#fffdfc'; ctx.fillRect(0, 0, cw, ch);
+    ctx.restore();
+    const pad = 28, iw = cw - pad * 2, ih = 690;
+    drawCover(ctx, o.image, pad, pad, iw, ih, 0.5, 0.5);
+    ctx.strokeStyle = 'rgba(176,134,72,0.55)'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(pad + 0.5, pad + 0.5, iw - 1, ih - 1);
+    // 箋下緣：經句、出處
+    ctx.fillStyle = T.ink;
+    const r = centerVerse(ctx, o, cw / 2, pad + ih + 150, cw - 140, 150, { maxSize: 46, minSize: 28, lead: 1.6, maxLines: 3 });
+    sourceLine(ctx, o, cw / 2, Math.min(r.bottom + 40, ch - 28), T.source, 23);
+    // 紙膠帶
+    ctx.save();
+    ctx.translate(cw / 2, 4); ctx.rotate(0.05);
+    ctx.fillStyle = 'rgba(238,168,184,0.72)'; ctx.fillRect(-100, -24, 200, 48);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    for (let i = -100; i < 100; i += 16) ctx.fillRect(i, -24, 6, 48);
+    ctx.restore();
+    ctx.restore();
+    // 箋上的幾片櫻瓣（在箋之上）
+    petals(ctx, cx - 380, cy - 480, 760, 360, 4, 32);
+    // 紙面：紅印問候、日期、站名
+    redSeal(ctx, o.greeting, 72, 64, 96);
+    ctx.fillStyle = T.inkSoft; ctx.font = font(500, 24);
+    drawSpaced(ctx, `${o.date.cnFull}　${o.date.week} · ${o.date.term}`, w / 2, h - 82, 4, 'center');
+    ctx.fillStyle = T.muted; ctx.font = font(500, 20);
+    drawSpaced(ctx, `${o.siteName} · ${o.label}`, w / 2, h - 48, 5, 'center');
+    if (o.qr) { const b = qrBadgeSize(); drawQrBadge(ctx, o, w - 64 - b.w, h - 40 - b.h); }
+  }
+
   // ── QR 碼小籤（原文連結）────────────────────────────────────────────
   // o.qr = { modules: boolean[][] }。一律畫在不透明的米色籤上（深色格子＋淺色底），
   // 背景圖亮或暗都掃得到；不寫字。籤與「吉祥」印同大（版面座標 64），
@@ -1347,7 +1413,7 @@
   /**
    * 畫一張卡。ctx 是 2D context（瀏覽器或 @napi-rs/canvas 都可以），畫布大小要先設好。
    * opts: { layout, base, size, image, verse: { text, source }, greeting, date: 'YYYY-MM-DD', siteName, host, label, qr }
-   * base = 底色（BASE_IDS：cream 奶油〔預設〕、moon 月白、bamboo 竹青、plain 素紙），只影響紙底版型；B 只給奶油，K/L/M 各是月白/竹青/素紙專屬。
+   * base = 底色（BASE_IDS：cream 奶油〔預設〕、moon 月白、bamboo 竹青、plain 素紙、sakura 粉櫻），只影響紙底版型；B 只給奶油，K/L/M 各是月白/竹青/素紙專屬。
    * qr = 原文連結網址（短網址），只畫在直式；不給就不畫。畫布請用 PIXEL_SIZES 的大小。
    * label = 頁尾站名後的字：每日經句（預設）或 經文選句（選字製作的卡片）。
    */
@@ -1381,6 +1447,7 @@
     else if (layout === 'K') drawK(ctx, w, h, o);
     else if (layout === 'L') drawL(ctx, w, h, o);
     else if (layout === 'M') drawM(ctx, w, h, o);
+    else if (layout === 'S') drawS(ctx, w, h, o);
     else drawA(ctx, w, h, o);
     ctx.restore();
     T = BASES.cream;
