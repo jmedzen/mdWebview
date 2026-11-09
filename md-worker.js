@@ -4,7 +4,9 @@
    ================================================================ */
 
 /* global importScripts, marked, self */
-importScripts('marked.min.js');
+// 沿用建立 Worker 時帶的 ?v=<資源指紋>：marked.min.js 與頁面用同一個網址，快取鍵一致，
+// 升版後也不會讓舊 Service Worker 以無版本網址供應過期的 marked。
+importScripts('marked.min.js' + ((self.location && self.location.search) || ''));
 
 // ── Per-document scan gates (O(n²) defense) ──────────────────────────────────
 // Mirrors render-worker.js: marked invokes start(src) at every tokenization step

@@ -128,6 +128,8 @@ const {
   safeJsonForScript, getIndexHtml, serveStatic, staticCache
 } = require('./lib/static-cache');
 
+const { getAssetVersion } = require('./lib/asset-version');
+
 const {
   extractBigramsFromText, normalizeLooseTerm
 } = require('./lib/text');
@@ -489,6 +491,24 @@ let cachedManifestRaw = null;
  * @param {http.IncomingMessage} req - HTTP 請求物件
  * @param {http.ServerResponse} res - HTTP 回應物件
  */
+/**
+ * GET /api/version — 目前伺服器送出的前端資源指紋。
+ *
+ * 長時間開著的分頁（手機 PWA、整天不關的閱讀視窗）不會重新載入 index.html，
+ * 也就拿不到新程式。前端把頁面載入當下的指紋（window.__APP_CONFIG__.assetVersion）
+ * 定期與這裡比對，不同就提示使用者重新載入。回應永遠 no-store，且不需登入：
+ * 內容只有公開的版本字串，與 index.html 內已經公開的 ?v= 相同。
+ */
+function handleVersion(req, res) {
+  const body = JSON.stringify({ version: APP_VERSION, assetVersion: getAssetVersion() });
+  res.writeHead(200, Object.assign({
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Length': Buffer.byteLength(body)
+  }, SECURITY_HEADERS));
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
+
 function handleManifestJson(req, res) {
   const manifestPath = path.join(APP_ROOT, 'manifest.json');
   const generateAndSend = (rawStr) => {
@@ -5847,6 +5867,9 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/manifest.json' && (req.method === 'GET' || req.method === 'HEAD')) {
     return handleManifestJson(req, res);
+  }
+  if (pathname === '/api/version' && (req.method === 'GET' || req.method === 'HEAD')) {
+    return handleVersion(req, res);
   }
 
   // API routes

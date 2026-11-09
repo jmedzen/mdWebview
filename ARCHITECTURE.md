@@ -235,13 +235,24 @@ sequenceDiagram
     S->>S: getIndexHtml(nonce, req)<br/>注入：siteName、theme、fontSize、<br/>announcement、configScript
     S-->>SW: 200 text/html (動態注入後的 HTML)
     SW-->>B: 快取並回傳 HTML
-    B->>S: GET /app.js?v=3.4.5
+    B->>S: GET /app.js?v=3.4.5-1a2b3c4d5e
     B->>S: GET /api/tree
     S-->>B: JSON 檔案樹
     B->>S: GET /api/suggest-list
     S-->>B: JSON 推薦清單 + 公告資料
     Note over B: DOMContentLoaded → init()<br/>→ renderTree() → fetchSuggestList()<br/>→ renderHome()
 ```
+
+### 前端快取與新版本推送（讓瀏覽器自動拿到新程式）
+
+| 層 | 做法 | 位置 |
+|----|------|------|
+| **資源指紋** | `index.html` 的每個 `?v=` 與 `sw.js` 的 `CACHE_VERSION` 都換成 `<package 版本>-<前端檔案內容雜湊>`（例：`4.31.8-94a269be93`）。內容有任何變動指紋就變，**不必記得升版號**。掃描範圍＝根目錄的 `.js/.css/.html/.json/.svg/.png/.ico/字型`（排除 `server.js`、`render-worker.js`、`index-worker.js`、`package*.json`、`config.json`）＋ `i18n/` ＋ `vendor/`；文件與 `lib/` 不納入。每 5 秒最多 stat 一次，size／mtime 簽章不變就不重讀。 | `lib/asset-version.js` |
+| **HTML** | `Cache-Control: no-cache`，不送 ETag（每次回應的 CSP nonce 不同）。 | `lib/static-cache.js` |
+| **帶 `?v=` 的資源** | `?v=` **等於目前指紋** → `public, max-age=31536000, immutable`；`?v=` 與目前指紋不同（舊頁面、手打網址）→ `no-cache`，避免舊網址把新內容永久釘在瀏覽器；沒有 `?v=` → `no-cache`（圖片 1 天）。Cache-Control 在**每次請求**依網址計算，不存進記憶體快取項目（否則先到的網址決定所有人的政策）。 | `staticCacheControl()` |
+| **ETag** | 內容雜湊（`W/"<sha1 前 20 碼>"`），不再用 `size-mtime`——同大小的修改搭配被正規化的 mtime 會被誤回 304。 | `contentEtag()` |
+| **Service Worker** | `sw.js` 不進記憶體快取，每次現讀現換 `CACHE_VERSION`（否則只改 `app.js` 時 sw.js 位元組不變，SW 永遠不更新）。請求的 `?v=` 與 SW 版本不同 → network-first，不會供應過期 JS／CSS。`md-worker.js` 也帶 `?v=`（其 `importScripts` 沿用同一個查詢字串）。 | `sw.js`、`md-worker.js` |
+| **不重新整理的分頁** | `GET /api/version` 回 `{ version, assetVersion }`（`no-store`）。前端把載入當下的 `__APP_CONFIG__.assetVersion` 與它比對：分頁回前景、網路恢復、bfcache 還原、前景每 15 分鐘，不同就顯示常駐橫幅「重新載入／稍後」；SW 裝好新版時也走同一條比對（頁面本來就是新的就不顯示）。不自動重新整理，以免打斷閱讀。 | `app.js` §16.4 |
 
 ### 搜尋引擎爬蟲（SSR）
 
@@ -775,7 +786,8 @@ flowchart TD
 | `lib/worker-pool.js` | 背景 Worker Thread 池生命週期調度：Render Pool 與 Index Pool 管理、Backpressure 佇列上限、逾時熔斷重生、指數退避防 Crash Loop | `workerPool`, `indexWorkerPool`, `initWorkerPool`, `initIndexWorkerPool`, `renderWithWorker`, `executeIndexJob`, `runIndexWorkerPool`, `terminateWorkerPools` |
 | `lib/analytics.js` | 訪客統計與行為日誌：90 天持久化存取紀錄、7 天自動修剪排程、動態指標即時聚合、時區校正查詢、CSV/JSON 匯出 | `analyticsStore`（**getter**，見 §13.1）, `getLogFilePath`, `appendToPersistentLog`, `getAnalyticsEventId`, `assignAnalyticsEventSeq`, `updateAnalyticsStoreEntry`, `saveAnalyticsStore`, `queueAnalyticsStoreEntry`, `initializeAnalyticsStore`, `cleanOldLogsJob`, `pruneAnalyticsLogEntry`, `buildAggregateAnalyticsData`, `getAnalyticsData`, `parseAnalyticsRange`, `setInMemoryLogBufferRef` |
 | `lib/logger.js` | 記憶體結構化系統日誌：600 筆環狀緩衝（Ring Buffer）、後台 API 輸出、標準控制台日誌封裝、**唯一 URL 解碼點** | `systemLogBuffer`, `pushToLogBuffer`, `Logger` (`info`, `warn`, `error`, `debug`) |
-| `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、If-None-Match 304 快速協商、Gzip 壓縮、首頁動態 SSR 注入、**I/O 失敗記錄** | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
+| `lib/static-cache.js` | 靜態資產快取與 SSR 注入：記憶體 LRU 快取（5s TTL）、內容雜湊 ETag 與 If-None-Match 304 快速協商、依請求網址決定的 Cache-Control（`?v=` 等於目前指紋才 immutable）、sw.js 現讀現換、Gzip 壓縮、首頁動態 SSR 注入、**I/O 失敗記錄** | `serveStatic`, `staticCache`, `sendCompressed`, `sendJSON`, `indexHtmlHeaders`, `escapeHtmlString`, `safeJsonForScript`, `getIndexHtml` |
+| `lib/asset-version.js` | 前端資源內容指紋（`<版本>-<雜湊>`）：破快取用 `?v=` 與 `sw.js` `CACHE_VERSION` 的唯一來源；5s TTL 重新 stat、簽章改變才重算 | `getAssetVersion`, `createAssetVersioner`, `listClientFiles` |
 | `lib/markdown.js` | Markdown 與 Frontmatter 文本處理：YAML 標頭剝離、metadata 解析與行號偏移 (lineOffset) 計算 | `stripFrontmatter` |
 | `lib/text.js` | 索引與搜尋共用的文本正規化層：CJK 判定、標點/換行透明集合判定、Bigram 抽取、寬鬆模式比對與文本掃描（Index/Render Worker 皆引用，確保索引抽取透明集 ⊇ 掃描透明集） | `isCJKIdeograph`, `isTransparent`, `extractBigramsFromText`, `normalizeLooseTerm`, `SNIPPET_RADIUS`, `localLineAt`, `findLoose`, `matchLooseSequence`, `scanText` |
 | `lib/home.js` | 首頁內容的伺服器端純函式：每日經文預設清單與解析、時段輪換（同一時段所有讀者看到同一句）、經句代號 `verseId`、辭典釋義摘要 | `DEFAULT_DAILY_VERSES`, `MAX_VERSES`, `parseVerses`, `versesToText`, `resolveVerses`, `verseKey`, `verseId`, `parseQuoteMarkdown`, `mergeVerses`, `DEFAULT_VERSE_ROTATE_HOURS`, `normalizeRotateHours`, `timezoneOffsetMs`, `verseSlot`, `verseIndexForSlot`, `pickRotatingVerse`, `excerptFromMarkdown` |
@@ -827,6 +839,7 @@ flowchart TD
 |------|--------|-------------------|-----------|------|
 | `/` | GET | `getIndexHtml()` (`lib/static-cache.js`) | ❌ | SPA 首頁（SSR 動態注入 siteName、主題、設定） |
 | `/manifest.json` | GET | `handleManifestJson()` | ❌ | PWA Web App Manifest（動態站名） |
+| `/api/version` | GET / HEAD | `handleVersion()` | ❌ | 目前前端資源指紋 `{ version, assetVersion }`，`no-store`；前端比對後提示重新載入 |
 | `/robots.txt` | GET | `handleRobotsTxt()` | ❌ | SEO 搜尋引擎檢索指令 |
 | `/sitemap.xml` | GET | `handleSitemapXml()` | ❌ | SEO 站點地圖（20s 沉降防抖 + Stale 快取） |
 | `/api/tree` | GET | `handleTree()` | ❌ | 取得經論 Markdown 目錄樹（支援快取與熱失效） |

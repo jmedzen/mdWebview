@@ -660,7 +660,9 @@
 
   function getMdWorker() {
     if (_mdWorker) return _mdWorker;
-    _mdWorker = new Worker('/md-worker.js');
+    // ?v=<資源指紋>：沒有版本參數的網址不會被 Service Worker 判定為「頁面比 SW 新」，
+    // 升版當下可能拿到舊的 worker 程式碼而與新的 app.js 不相容。
+    _mdWorker = new Worker('/md-worker.js' + assetVersionQuery());
     _mdWorker.onmessage = (e) => {
       const { id, ok, html, error } = e.data;
       const cb = _workerCallbacks[id];
@@ -873,6 +875,7 @@
   }
 
   function initPwaServiceWorker() {
+    initUpdateWatcher();
     if ('serviceWorker' in navigator) {
       // `init()` 由 DOMContentLoaded 觸發，且在抵達這裡之前已有多個 await
       // （checkAdminStatus、loadTree、可能還有 openFile）。在 localhost 或
@@ -890,7 +893,11 @@
                 newWorker.addEventListener('statechange', () => {
                   if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                     try { newWorker.postMessage({ action: 'SKIP_WAITING' }); } catch (_) {}
-                    showToast('🎉 發現新版本！已在背景準備就緒，重新載入即可生效', 'info', 5000);
+                    // 過去只閃一個 5 秒的 toast，沒看到就不知道有新版；改為常駐橫幅＋按鈕。
+                    // 不能直接顯示：重新整理後頁面本來就是新的，只是舊 SW 還在控制頁面、
+                    // 新 SW 剛裝好，這時顯示會變成「剛更新完又叫你更新」。
+                    // 所以改問伺服器，與「此頁載入時的指紋」比對後才決定。
+                    checkForNewVersion(true);
                   }
                 });
               }
@@ -915,6 +922,122 @@
     window.addEventListener('online', () => {
       showToast('🌐 網路連線已恢復', 'success', 3000);
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §16.4 新版本偵測：長時間開著的分頁也要拿到新程式
+  // ═══════════════════════════════════════════════════════════
+  //
+  // 新頁面載入時，瀏覽器會重新向伺服器要 index.html，並依其中帶內容指紋的
+  // ?v= 抓新的 JS／CSS（見 lib/asset-version.js），所以「重新整理」一定拿到新版。
+  // 問題在「沒有重新整理」的人：手機 PWA、整天不關的閱讀分頁、從背景切回來的 App。
+  // 他們手上的 app.js 是幾小時甚至幾天前的，新功能與修正對他們不存在。
+  //
+  // 作法：頁面載入當下的資源指紋由伺服器寫進 __APP_CONFIG__.assetVersion；
+  // 分頁回到前景、網路恢復、從 bfcache 還原、以及每隔一陣子，就問 /api/version，
+  // 指紋不同就顯示常駐橫幅，由使用者決定何時重新載入。不自動重新整理——
+  // 讀到一半的經文被突然刷新，比用舊版更糟。
+
+  /** 兩次檢查之間至少相隔多久（切換分頁很頻繁，不能每次都打 API）。 */
+  const UPDATE_CHECK_MIN_GAP_MS = 60 * 1000;
+  /** 分頁一直停在前景時的輪詢間隔。 */
+  const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+
+  let _updateLastCheckAt = 0;
+  let _updateBanner = null;
+  /** 使用者按「稍後」時記下的伺服器指紋；同一版不再煩他，更新一版才再提示。 */
+  let _updateDismissedFor = null;
+
+  /** 此頁面載入時伺服器給的資源指紋（舊伺服器沒有則為空字串，整個功能停用）。 */
+  function loadedAssetVersion() {
+    const cfg = window.__APP_CONFIG__ || {};
+    return cfg.assetVersion ? String(cfg.assetVersion) : '';
+  }
+
+  function reloadForNewVersion() {
+    // 導覽請求由 sw.js 走 network-first、index.html 為 no-cache，
+    // 重新載入會拿到新的 HTML 與新的 ?v= 資源網址。
+    window.location.reload();
+  }
+
+  function dismissUpdateBanner() {
+    if (_updateBanner && _updateBanner.parentNode) _updateBanner.parentNode.removeChild(_updateBanner);
+    _updateBanner = null;
+  }
+
+  /**
+   * 顯示「有新版本」橫幅。可重複呼叫：已在畫面上就不會疊第二個。
+   * @param {string} serverVersion 伺服器目前的資源指紋（用來記住使用者按過「稍後」的是哪一版）
+   */
+  function announceNewVersion(serverVersion) {
+    if (_updateBanner) return;
+    if (_updateDismissedFor !== null && _updateDismissedFor === serverVersion) return;
+
+    const bar = document.createElement('div');
+    bar.className = 'update-banner';
+    bar.setAttribute('role', 'status');
+
+    const text = document.createElement('span');
+    text.className = 'update-banner-text';
+    text.textContent = '🎉 有新版本可用，重新載入即可使用最新功能';
+
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.className = 'update-banner-btn update-banner-reload';
+    reload.textContent = '重新載入';
+    reload.addEventListener('click', reloadForNewVersion);
+
+    const later = document.createElement('button');
+    later.type = 'button';
+    later.className = 'update-banner-btn update-banner-later';
+    later.textContent = '稍後';
+    later.addEventListener('click', () => {
+      _updateDismissedFor = serverVersion;
+      dismissUpdateBanner();
+    });
+
+    bar.append(text, reload, later);
+    document.body.appendChild(bar);
+    _updateBanner = bar;
+  }
+
+  /**
+   * 問伺服器目前的資源指紋，與此頁載入時的比對；不同就顯示橫幅。
+   * 離線、伺服器較舊（沒有 /api/version）或任何錯誤都靜默略過——這只是提示，不能影響閱讀。
+   *
+   * @param {boolean} [force=false] 略過最短間隔（網路剛恢復時）
+   * @returns {Promise<boolean>} 是否發現新版本
+   */
+  async function checkForNewVersion(force = false) {
+    const loaded = loadedAssetVersion();
+    if (!loaded) return false;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    const now = Date.now();
+    if (!force && now - _updateLastCheckAt < UPDATE_CHECK_MIN_GAP_MS) return false;
+    _updateLastCheckAt = now;
+    try {
+      const res = await fetch('/api/version', { cache: 'no-store', credentials: 'same-origin' });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data && typeof data.assetVersion === 'string' && data.assetVersion && data.assetVersion !== loaded) {
+        announceNewVersion(data.assetVersion);
+        return true;
+      }
+    } catch (_) { /* 離線或暫時性錯誤：下次再問 */ }
+    return false;
+  }
+
+  function initUpdateWatcher() {
+    if (!loadedAssetVersion()) return;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForNewVersion(false);
+    });
+    window.addEventListener('online', () => { checkForNewVersion(true); });
+    // 從上一頁／背景還原（bfcache）時頁面不會重新載入，程式碼還是舊的。
+    window.addEventListener('pageshow', (e) => { if (e && e.persisted) checkForNewVersion(true); });
+    setInterval(() => {
+      if (document.visibilityState === 'visible') checkForNewVersion(false);
+    }, UPDATE_CHECK_INTERVAL_MS);
   }
 
   // ═══════════════════════════════════════════════════════════
