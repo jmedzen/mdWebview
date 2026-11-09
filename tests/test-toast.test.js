@@ -302,7 +302,7 @@ describe('Toast 訊息/型別一致性 (app.js 來源契約)', () => {
     const lineCopies = src.match(/showToast\(`✓ 已複製第 \$\{lineNum\} 行分享連結`, 'success'\)/g) || [];
     assert.equal(lineCopies.length, 2, '兩處行分享連結 Toast 皆須為 success');
     // 選字彈窗「複製本行連結」經 writeClipboard 送出，成功時一律 success
-    assert.match(src, /writeClipboard\(rawUrl, `✓ 已複製第 \$\{shareLineNum\} 行分享連結`\)/);
+    assert.match(src, /writeClipboard\(shareUrl, `✓ 已複製第 \$\{shareLineNum\} 行分享連結`\)/);
     assert.match(src, /function writeClipboard\(text, okMsg\) \{\s*const ok = \(\) => showToast\(okMsg, 'success'\);/);
     // 經文連結複製已為 success
     assert.match(src, /showToast\('🔗 已複製經文連結至剪貼簿', 'success'\)/);
