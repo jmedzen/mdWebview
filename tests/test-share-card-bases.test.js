@@ -90,7 +90,7 @@ describe('share-card.js：畫圖時真的換色', () => {
     assert.notDeepEqual(px('C', 'moon', 540, 700), px('C', 'cream', 540, 700));
   });
 
-  test('B 只給奶油；K／L／M 各自專屬一種底色，其他底色退回 A', () => {
+  test('B 只給奶油；K／L／M／S 各自專屬一種底色，其他底色退回 A', () => {
     const L = ShareCard.layoutFor;
     assert.equal(L('B', 'cream'), 'B');
     for (const b of ['moon', 'bamboo', 'plain']) assert.equal(L('B', b), 'A', b);
@@ -99,13 +99,15 @@ describe('share-card.js：畫圖時真的換色', () => {
     assert.equal(L('M', 'plain'), 'M'); assert.equal(L('M', 'bamboo'), 'A');
     assert.deepEqual(ShareCard.layoutsFor('cream'), ['A', 'B', 'C', 'I', 'J', 'N', 'P', 'Q']);
     assert.equal(ShareCard.layoutsFor('moon').length, 8);
-    assert.deepEqual(ShareCard.layoutsFor('sakura'), ['A', 'C', 'I', 'J', 'N', 'P', 'Q'], '粉櫻只有共用版型');
+    assert.deepEqual(ShareCard.layoutsFor('sakura'), ['A', 'C', 'I', 'J', 'N', 'P', 'Q', 'S'], '粉櫻：共用版型加專屬的 S 花箋');
     for (const l of ['B', 'K', 'L', 'M']) assert.equal(L(l, 'sakura'), 'A', l);
+    assert.equal(L('S', 'sakura'), 'S');
+    for (const b of ['cream', 'moon', 'bamboo', 'plain']) assert.equal(L('S', b), 'A', `S 在 ${b}`);
     assert.deepEqual(px('K', 'cream', 300, 300), px('A', 'cream', 300, 300), '不能用的版型畫成 A');
   });
 
-  test('K／L／M 畫得出來，和 A 不一樣，頁面中央有圖', () => {
-    for (const [layout, base] of [['K', 'moon'], ['L', 'bamboo'], ['M', 'plain']]) {
+  test('K／L／M／S 畫得出來，和 A 不一樣，頁面中央有圖', () => {
+    for (const [layout, base] of [['K', 'moon'], ['L', 'bamboo'], ['M', 'plain'], ['S', 'sakura']]) {
       assert.notDeepEqual(px(layout, base, 540, 1085), px('A', base, 540, 1085), layout);
     }
   });
