@@ -11,7 +11,8 @@
  *   1. 純函式測試：以 vm 實際執行 app.js 的 encodeSharePath / fileShareQuery。
  *   2. 往返測試：產出的連結經 URL／parseUrlParams 還原後必須等於原檔名。
  *   3. 伺服器整合測試：以真實 http 請求驗證編碼後的連結能開到對應檔案。
- *   4. 原始碼契約測試：複製連結的路徑不得再 decode 或自行拼 ?file=。
+ *   4. 頁首「連結」鈕：currentPageShareUrl 以目前頁面產生同樣安全的連結。
+ *   5. 原始碼契約測試：複製連結的路徑不得再 decode 或自行拼 ?file=。
  */
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -81,6 +82,7 @@ function loadShareHelpers() {
   const sigs = [
     'function encodeSharePath(filePath)',
     'function fileShareQuery(filePath, line)',
+    'function currentPageShareUrl(loc, filePath)',
     'function safeDecodeURIComponent(str)',
     'function parseUrlParams(search, hash)'
   ];
@@ -90,7 +92,7 @@ function loadShareHelpers() {
     assert.ok(body, `app.js 應包含 ${sig}`);
     code += `${sig} ${body}\n`;
   }
-  code += 'globalThis.__h = { encodeSharePath, fileShareQuery, parseUrlParams };';
+  code += 'globalThis.__h = { encodeSharePath, fileShareQuery, currentPageShareUrl, parseUrlParams };';
   const sandbox = { URLSearchParams, console };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
@@ -165,6 +167,59 @@ describe('分享連結 2：往返還原', () => {
     // 瀏覽器把 pushState 的網址正規化後再給 location.search；用 URL 模擬
     const search = new URL(BASE + H.fileShareQuery(REPORTED_FILE, REPORTED_LINE)).search;
     assert.equal(H.parseUrlParams(search, '').file, REPORTED_FILE);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 頁首「連結」鈕（#copyLinkBtn）：以前複製 decodeURIComponent(location.href)
+// ─────────────────────────────────────────────────────────────────────────
+describe('分享連結 3a：頁首「連結」鈕複製的連結', () => {
+  /** 模擬瀏覽器的 window.location：網址列的 search 已被瀏覽器正規化成 %XX。 */
+  const locOf = (rawUrl) => {
+    const u = new URL(rawUrl);
+    return { origin: u.origin, pathname: u.pathname, search: u.search, href: u.href };
+  };
+
+  test('實際回報的檔名：複製出來的連結不含空白或《》，聊天軟體不會截斷', () => {
+    const loc = locOf(`${BASE}?file=${encodeURIComponent(REPORTED_FILE)}&line=${REPORTED_LINE}`);
+    const url = H.currentPageShareUrl(loc, REPORTED_FILE);
+    assert.equal(url, BASE.replace(/\/$/, '') + '/' + H.fileShareQuery(REPORTED_FILE, REPORTED_LINE));
+    assert.ok(!/\s/.test(url), '連結不得含空白字元');
+    assert.ok(!/[《》「」、]/.test(url), '連結不得含《》「」、等標點');
+    assert.equal(linkify(`第 ${REPORTED_LINE} 行\n${url}\n`), url, '自動連結應涵蓋整條連結');
+  });
+
+  test('舊寫法 decodeURIComponent(location.href) 會產生含空白、《》的連結（回歸對照）', () => {
+    const loc = locOf(`${BASE}?file=${encodeURIComponent(REPORTED_FILE)}&line=${REPORTED_LINE}`);
+    const old = decodeURIComponent(loc.href);
+    assert.ok(/\s/.test(old), '舊寫法的輸出含空白，這就是被截斷的原因');
+  });
+
+  for (const file of NASTY_FILES) {
+    test(`「${file}」：複製出來的連結還原後等於原檔名，行號保留`, () => {
+      const loc = locOf(`${BASE}?file=${encodeURIComponent(file)}&line=12`);
+      const url = H.currentPageShareUrl(loc, file);
+      assert.ok(!/\s/.test(url));
+      assert.equal(new URL(url).searchParams.get('file'), file);
+      assert.equal(new URL(url).searchParams.get('line'), '12');
+    });
+  }
+
+  test('沒有行號的頁面不附 line；其他參數（q 關鍵字）保留並編碼', () => {
+    const loc = locOf(`${BASE}?file=${encodeURIComponent('a/b c.md')}&q=${encodeURIComponent('如 是&我 聞')}`);
+    const url = H.currentPageShareUrl(loc, 'a/b c.md');
+    assert.ok(!/line=/.test(url));
+    assert.ok(!/\s/.test(url));
+    const params = new URL(url).searchParams;
+    assert.equal(params.get('file'), 'a/b c.md');
+    assert.equal(params.get('q'), '如 是&我 聞');
+  });
+
+  test('以目前開啟的檔案為準；沒有檔案時退回原網址', () => {
+    const loc = locOf(`${BASE}?file=stale.md&line=3`);
+    assert.equal(new URL(H.currentPageShareUrl(loc, 'a/new.md')).searchParams.get('file'), 'a/new.md');
+    const home = locOf(`${BASE}?home=1`);
+    assert.equal(H.currentPageShareUrl(home, ''), home.href);
   });
 });
 
@@ -272,6 +327,11 @@ describe('分享連結 3：伺服器開得到含特殊符號的檔案', () => {
 // ─────────────────────────────────────────────────────────────────────────
 describe('分享連結 4：原始碼契約', () => {
   const source = fs.readFileSync(APP_JS, 'utf8');
+
+  test('頁首「連結」鈕不得再複製 decodeURIComponent(location.href)，一律走 currentPageShareUrl', () => {
+    assert.ok(!/decodeURIComponent\(\s*window\.location\.href/.test(source));
+    assert.match(source, /const copyBtn = e\.target\.closest\('#copyLinkBtn'\);[\s\S]{0,400}currentPageShareUrl\(window\.location, state\.currentFile\)/);
+  });
 
   test('不得對分享連結再 decodeURIComponent（會還原 %20 %26 %23，遇 % 還會丟例外）', () => {
     assert.ok(!/decodeURIComponent\(\s*currentShareUrl/.test(source));

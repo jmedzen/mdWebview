@@ -541,6 +541,27 @@
     return `?file=${encodeSharePath(filePath)}${line ? `&line=${line}` : ''}`;
   }
 
+  /**
+   * 目前這一頁的分享連結（頁首「連結」鈕複製的內容）。
+   * file 走 fileShareQuery、行號沿用網址列，其餘參數（例如 q 關鍵字）保留並編碼。
+   * 以前直接複製 decodeURIComponent(location.href)：空格、《》會讓聊天軟體截斷連結，
+   * 檔名含 % 還會丟 URIError。
+   *
+   * @param {{origin:string,pathname:string,search:string,href:string}} loc - window.location
+   * @param {string} [filePath] - 目前開啟的檔案（缺省時取網址列的 file 參數）
+   */
+  function currentPageShareUrl(loc, filePath) {
+    const params = new URLSearchParams(loc.search || '');
+    const file = filePath || params.get('file');
+    if (!file) return loc.href;
+    const line = parseInt(params.get('line'), 10) || null;
+    let url = loc.origin + loc.pathname + fileShareQuery(file, line);
+    params.forEach((v, k) => {
+      if (k !== 'file' && k !== 'line') url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+    });
+    return url;
+  }
+
   function safeDecodeURIComponent(str) {
     if (!str) return '';
     try {
@@ -11553,7 +11574,7 @@
         if (copyBtn) {
           e.preventDefault();
           const lbl = copyBtn.querySelector('#copyLinkLabel');
-          const url = decodeURIComponent(window.location.href);
+          const url = currentPageShareUrl(window.location, state.currentFile);
           const doConfirm = () => {
             if (lbl) lbl.textContent = '✓ 已複製';
             copyBtn.classList.add('copied');
