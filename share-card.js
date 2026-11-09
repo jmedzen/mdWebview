@@ -38,9 +38,9 @@
     moon: { name: '月白', top: '#eef2f2', bottom: '#dfe7e8', rgb: '238,242,242',
       ink: '#1c2629', inkSoft: '#4c5e63', source: '#5b6f70', muted: '#728186', gold: '#a8893e', rule: '#c5d1d3', red: '#9c2f27', grain: '#56707a',
       tag: '246,249,249', tagInk: '#1c2629', tagSoft: '#4c5e63', tagLine: '168,137,62' },
-    bamboo: { name: '竹青', top: '#eaf1de', bottom: '#dbe6cb', rgb: '234,241,222',
-      ink: '#1b2614', inkSoft: '#46563a', source: '#566a43', muted: '#687a55', gold: '#a8903c', rule: '#c4d3ae', red: '#9c2f27', grain: '#4f6a3a',
-      tag: '245,250,238', tagInk: '#1b2614', tagSoft: '#46563a', tagLine: '150,160,70' },
+    bamboo: { name: '竹青', top: '#f4f8ee', bottom: '#e9f0de', rgb: '244,248,238',
+      ink: '#1b2614', inkSoft: '#46563a', source: '#566a43', muted: '#687a55', gold: '#a8903c', rule: '#d8e3c8', red: '#9c2f27', grain: '#4f6a3a',
+      tag: '250,252,247', tagInk: '#1b2614', tagSoft: '#46563a', tagLine: '150,160,70' },
     plain: { name: '素紙', top: '#f7f7f4', bottom: '#eaeae5', rgb: '247,247,244',
       ink: '#1f1f1f', inkSoft: '#57554f', source: '#6e675a', muted: '#86837b', gold: '#a88a48', rule: '#d6d4cc', red: '#9c2f27', grain: '#6e6a60',
       tag: '252,252,250', tagInk: '#1f1f1f', tagSoft: '#57554f', tagLine: '168,138,72' }

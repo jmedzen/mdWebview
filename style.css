@@ -12156,7 +12156,7 @@ a.small-btn {
   transition: opacity 0.2s, background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 .share-card-pill.is-on {
-  opacity: 1; background: var(--accent); border-color: var(--accent); color: #fff;
+  opacity: 1; background: var(--accent); border-color: var(--accent); color: var(--bg-primary);
   box-shadow: 0 0 10px var(--accent-dim, rgba(120, 160, 255, 0.35));
 }
 .share-card-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
