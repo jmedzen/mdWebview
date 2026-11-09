@@ -4669,11 +4669,22 @@ async function handleShareCardEvent(req, res) {
   return sendJSON(res, 200, { ok: true });
 }
 
-/** GET /api/admin/share-card：後台看畫圖引擎、字型、圖庫狀態。 */
-async function handleAdminShareCard(req, res) {
+/**
+ * GET /api/admin/share-card：後台看畫圖引擎、字型、圖庫狀態。
+ * ?pics=1 另附 gallery（每張圖的大小、寬高、修改時間、可用與否，與被略過的檔案）；
+ * ?rescan=1 先立刻重掃圖庫（平常最多每分鐘重掃一次），上傳或改檔後想馬上確認時用。
+ */
+async function handleAdminShareCard(req, res, query = {}) {
   if (!requireAdmin(req, res, sendJSON)) return;
-  await shareCardServer.listPics().catch(() => {});
-  sendJSON(res, 200, shareCardServer.status());
+  try {
+    await shareCardServer.listPics(undefined, { force: query.rescan === '1' });
+    const out = shareCardServer.status();
+    if (query.pics === '1') out.gallery = await shareCardServer.describePics();
+    sendJSON(res, 200, out);
+  } catch (err) {
+    Logger.error('ShareCard', 'Failed to read share card gallery', err, req);
+    sendJSON(res, 500, { error: 'Failed to read gallery' });
+  }
 }
 
 // ── 早安圖 QR 碼的短網址（/V…、/Q…，見 lib/share-qr.js） ─────────────────
@@ -6335,7 +6346,7 @@ const server = http.createServer((req, res) => {
     return handleShareCardEvent(req, res);
   }
   if (pathname === '/api/admin/share-card' && req.method === 'GET') {
-    return handleAdminShareCard(req, res);
+    return handleAdminShareCard(req, res, query);
   }
   if (pathname === '/api/share-card/quote' && req.method === 'POST') {
     return handleCreateShareQuote(req, res);
