@@ -170,7 +170,7 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 背景圖放在 `./data/pic-card/`（容器內 `/data/pic-card`，可用環境變數 `PIC_CARD_DIR` 改位置），**所有子資料夾**的 jpg／png／webp 都會讀進來，約一分鐘內生效；同一天同一句會固定用同一張圖。沒有圖時用預設的天空漸層。
 
-卡片由伺服器畫（套件 `@napi-rs/canvas`，宋體 Noto Serif TC 在建置 Docker 映像時下載；也可以自己把 .ttf／.otf 放到 `./data/fonts/`）。伺服器不能畫時改由讀者的瀏覽器畫，但 LINE 連結預覽就只能用網站預設的分享圖。後台「每日經文」區塊會顯示圖庫張數與畫圖狀態。
+卡片由伺服器畫（套件 `@napi-rs/canvas`，宋體 Noto Serif TC 在建置 Docker 映像時下載；也可以自己把 .ttf／.otf 放到 `./data/fonts/`）。伺服器不能畫時改由讀者的瀏覽器畫，但 LINE 連結預覽就只能用網站預設的分享圖。後台「推薦閱讀 → 每日經文」區塊會顯示圖庫張數與畫圖狀態，展開「早安圖圖庫明細」可看到每張圖的大小、寬高、修改時間與可不可用（由新到舊，剛上傳或改過的標「新」），伺服器不收的檔案（heic、avif、gif、捷徑等）也會列出來；上傳或改圖後按「重新掃描」就能立刻確認。
 
 畫好的卡片和縮小過的背景圖會存在索引資料夾的 `share-card/`（容器內 `/data/index/share-card`），重開機後同一張不必重畫；背景圖可以放大圖，伺服器第一次用到時會自動縮一份剛好夠用的。成品快取上限預設 200 MB（環境變數 `SHARE_CARD_CACHE_MB`），超過時刪最久沒用的；`SHARE_CARD_CACHE_DIR` 可改位置（設 `off` 關掉）。
 

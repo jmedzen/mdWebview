@@ -15296,6 +15296,7 @@
       }
     });
 
+    setupShareCardGalleryEvents();
     setupAdminSeoEvents();
   }
 
@@ -15331,6 +15332,92 @@
       countEl.textContent = '無法讀取';
       engineEl.textContent = '無法讀取';
     }
+  }
+
+  /** 圖庫明細：問題代碼 → 白話。 */
+  const SHARE_PIC_PROBLEMS = {
+    path: '路徑不合法',
+    missing: '檔案不見了（剛被刪掉？）',
+    empty: '0 位元組（上傳還沒完成？）',
+    'too-large': '超過 30 MB，伺服器不用這張（會變成漸層背景）',
+    outside: '捷徑指到圖庫外面，不給讀',
+    header: '讀不出圖片資訊（檔案不完整，或不是真的圖片）'
+  };
+  const SHARE_PIC_SKIPS = {
+    format: '格式不收（只收 jpg／jpeg／png／webp）',
+    symlink: '是捷徑（symlink），伺服器不跟，請放真的檔案',
+    depth: '資料夾太深（最多 8 層），裡面的圖沒讀'
+  };
+
+  /** 「3 小時前」「2026/10/30 11:05」。 */
+  function sharePicAge(ms) {
+    const diff = Date.now() - ms;
+    if (diff >= 0 && diff < 3600000) return `${Math.max(1, Math.round(diff / 60000))} 分鐘前`;
+    if (diff >= 0 && diff < 48 * 3600000) return `${Math.round(diff / 3600000)} 小時前`;
+    return '';
+  }
+
+  /** 後台：早安圖圖庫明細（每張圖的大小、寬高、修改時間、可用與否）。rescan = 先立刻重掃。 */
+  async function loadShareCardGallery(rescan) {
+    const meta = $('shareCardPicsMeta');
+    const body = $('shareCardPicsBody');
+    const warn = $('shareCardPicsWarn');
+    const btn = $('shareCardPicsRescan');
+    if (!meta || !body || !warn) return;
+    if (btn) btn.disabled = true;
+    meta.textContent = rescan ? '重新掃描中…' : '讀取中…';
+    try {
+      const r = await fetch(`/api/admin/share-card?pics=1${rescan ? '&rescan=1' : ''}`);
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      const g = d.gallery;
+      if (!g) throw new Error('no gallery');
+      const when = g.scannedAt ? new Date(g.scannedAt).toLocaleTimeString('zh-TW', { hour12: false }) : '—';
+      meta.textContent = !g.exists
+        ? `資料夾不存在：${g.dir}`
+        : `${g.count} 張，共 ${formatBytes(g.totalBytes)}${g.badCount ? `，其中 ${g.badCount} 張有問題` : '，全部可用'}；掃描時間 ${when}`;
+
+      const notes = [];
+      if (g.truncated) notes.push(`圖庫超過 ${g.maxPics} 張，後面的沒讀`);
+      for (const sk of g.skipped || []) {
+        notes.push(`${escHtml(sk.path)}：${escHtml(SHARE_PIC_SKIPS[sk.reason] || sk.reason)}`);
+      }
+      warn.innerHTML = notes.map(n => `<li>⚠ ${n}</li>`).join('');
+      warn.hidden = notes.length === 0;
+
+      const items = (g.items || []).slice().sort((a, b) => (b.mtimeMs - a.mtimeMs) || (a.path < b.path ? -1 : 1));
+      if (!items.length) {
+        body.innerHTML = '<tr><td colspan="5" class="share-pics-empty">圖庫裡沒有圖（早安圖會用預設漸層背景）</td></tr>';
+        return;
+      }
+      body.innerHTML = items.map(it => {
+        const age = it.mtimeMs ? sharePicAge(it.mtimeMs) : '';
+        const time = it.mtimeMs ? new Date(it.mtimeMs).toLocaleString('zh-TW', { hour12: false }) : '—';
+        const status = it.problem
+          ? `<span class="share-pics-bad">⚠ ${escHtml(SHARE_PIC_PROBLEMS[it.problem] || it.problem)}</span>`
+          : '<span class="share-pics-ok">✓ 可用</span>';
+        return `<tr class="${it.problem ? 'is-bad' : ''}">
+          <td class="share-pics-path"><a href="/api/pic-card?p=${encodeURIComponent(it.path)}" target="_blank" rel="noopener">${escHtml(it.path)}</a>${age ? ` <span class="share-pics-new" title="最近 48 小時內新增或修改">新</span>` : ''}</td>
+          <td class="share-pics-num">${it.mtimeMs ? escHtml(formatBytes(it.size)) : '—'}</td>
+          <td class="share-pics-num">${it.width ? `${it.width}×${it.height}` : '—'}</td>
+          <td>${escHtml(time)}${age ? `<br><span class="share-pics-age">${escHtml(age)}</span>` : ''}</td>
+          <td>${status}</td>
+        </tr>`;
+      }).join('');
+    } catch (_) {
+      meta.textContent = '無法讀取圖庫明細';
+      body.innerHTML = '<tr><td colspan="5" class="share-pics-empty">無法讀取</td></tr>';
+      warn.hidden = true;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function setupShareCardGalleryEvents() {
+    const panel = $('shareCardPics');
+    const btn = $('shareCardPicsRescan');
+    if (panel) panel.addEventListener('toggle', () => { if (panel.open) loadShareCardGallery(false); });
+    if (btn) btn.addEventListener('click', () => loadShareCardGallery(true));
   }
 
   async function loadDailyVerseStatus() {

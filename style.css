@@ -3721,6 +3721,65 @@ body.focus-mode .focus-mode-pill {
 }
 .verse-source-dir:empty { display: none; }
 
+/* 早安圖圖庫明細（後台 → 推薦閱讀 → 每日經文） */
+.share-pics {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  min-width: 0;
+  max-width: 100%;
+}
+.share-pics > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.share-pics-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 10px; }
+.share-pics-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.share-pics-meta { font-variant-numeric: tabular-nums; }
+.share-pics-warn {
+  margin: 0;
+  padding: 6px 10px 6px 24px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.share-pics-scroll {
+  max-height: 360px;
+  max-width: 100%;
+  overflow: auto;
+  contain: inline-size;   /* 表格再寬也不撐開外層（手機上改成左右捲動） */
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.share-pics-table { width: 100%; border-collapse: collapse; }
+.share-pics-table th,
+.share-pics-table td { padding: 4px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.share-pics-table th { position: sticky; top: 0; background: var(--bg-secondary); color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+.share-pics-table tr:last-child td { border-bottom: 0; }
+.share-pics-path { word-break: break-all; min-width: 11em; }
+.share-pics-table td:last-child { min-width: 9em; }
+.share-pics-path a { color: var(--text-primary); }
+.share-pics-num { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.share-pics-age { font-size: 0.92em; opacity: 0.8; }
+.share-pics-new {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+.share-pics-ok { color: var(--text-secondary); white-space: nowrap; }
+.share-pics-bad { color: var(--text-primary); font-weight: 600; }
+.share-pics-table tr.is-bad td { background: var(--bg-secondary); }
+.share-pics-empty { text-align: center !important; padding: 12px 8px !important; }
+
 /* ── §15 Daily Word Admin UI ─────────────────────────────────── */
 .suggest-section-daily-word {
   gap: 8px;
