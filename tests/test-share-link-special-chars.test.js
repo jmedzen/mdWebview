@@ -7,6 +7,10 @@
  * 貼進 LINE 等聊天軟體後，自動連結在第一個空格處截斷，點開就找不到檔案；
  * 檔名含 % 時 decodeURIComponent 會丟 URIError，含 & 或 # 時 decode 把轉義還原而解析錯誤。
  *
+ * 之後連結改為經文短連結 /F<碼>L<行>（見 test-share-link-short.test.js）；本檔守住
+ * 「長連結」這一條路：辭典、帶 q 參數的頁面仍用 ?file=…，而且整串必須是純 ASCII
+ * （Google Chat 連漢字也會斷），檔名裡任何符號都不能破壞它。
+ *
  * 本檔包含：
  *   1. 純函式測試：以 vm 實際執行 app.js 的 encodeSharePath / fileShareQuery。
  *   2. 往返測試：產出的連結經 URL／parseUrlParams 還原後必須等於原檔名。
@@ -80,8 +84,12 @@ function extractFunctionBody(source, signature) {
 function loadShareHelpers() {
   const source = fs.readFileSync(APP_JS, 'utf8');
   const sigs = [
+    'function encodeShareComponent(str)',
     'function encodeSharePath(filePath)',
     'function fileShareQuery(filePath, line)',
+    'function shareHash53(str)',
+    'function sharePathCode(filePath)',
+    'function shareFileUrl(base, filePath, line)',
     'function currentPageShareUrl(loc, filePath)',
     'function safeDecodeURIComponent(str)',
     'function parseUrlParams(search, hash)'
@@ -92,7 +100,7 @@ function loadShareHelpers() {
     assert.ok(body, `app.js 應包含 ${sig}`);
     code += `${sig} ${body}\n`;
   }
-  code += 'globalThis.__h = { encodeSharePath, fileShareQuery, currentPageShareUrl, parseUrlParams };';
+  code += 'globalThis.__h = { encodeSharePath, fileShareQuery, sharePathCode, shareFileUrl, currentPageShareUrl, parseUrlParams };';
   const sandbox = { URLSearchParams, console };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
@@ -104,31 +112,36 @@ const H = loadShareHelpers();
 /** 模擬聊天軟體的自動連結：從 http 開始，到第一個空白字元為止。 */
 const linkify = (text) => (text.match(/https?:\/\/\S+/) || [''])[0];
 
-describe('分享連結 1：檔名編碼（純函式）', () => {
-  test('實際回報的檔名：連結不含空白或《》，聊天軟體自動連結不會截斷', () => {
-    const url = BASE + H.fileShareQuery(REPORTED_FILE, REPORTED_LINE);
-    assert.ok(!/\s/.test(url), '連結不得含空白字元');
-    assert.ok(!/[《》「」、]/.test(url), '連結不得含《》「」、等標點');
-    assert.equal(linkify(`第 ${REPORTED_LINE} 行\n${url}\n`), url, '自動連結應涵蓋整條連結');
-  });
+/** 整串只有可見的 ASCII 字元（沒有空白、漢字、書名號）。 */
+const isPlainAscii = (str) => /^[\x21-\x7e]+$/.test(str);
 
-  test('漢字保持可讀，/ 保留為路徑分隔，空格編為 %20', () => {
-    const q = H.fileShareQuery(REPORTED_FILE, REPORTED_LINE);
+describe('分享連結 1：長連結的檔名編碼（純函式）', () => {
+  test('實際回報的檔名：整條連結是純 ASCII，聊天軟體自動連結不會截斷', () => {
+    const url = BASE + H.fileShareQuery(REPORTED_FILE, REPORTED_LINE);
+    assert.ok(isPlainAscii(url), '連結只能有可見 ASCII 字元（漢字、書名號、空白都要編碼）');
+    assert.equal(linkify(`第 ${REPORTED_LINE} 行\n${url}\n`), url, '自動連結應涵蓋整條連結');
     assert.equal(
-      q,
-      '?file=06-菩薩藏/045-049%E3%80%8A唯識宗必修論疏%E3%80%8B/047%20能顯中邊慧日論%20疏文斷句.md&line=738'
+      H.fileShareQuery(REPORTED_FILE, REPORTED_LINE),
+      `?file=${encodeURIComponent(REPORTED_FILE).replace(/%2F/g, '/')}&line=738`
     );
   });
 
-  test('& # % + ? 都被編碼，不會破壞查詢字串', () => {
-    assert.equal(H.encodeSharePath('甲&乙 #1.md'), '甲%26乙%20%231.md');
-    assert.equal(H.encodeSharePath('50%測試.md'), '50%25測試.md');
-    assert.equal(H.encodeSharePath('C++導論.md'), 'C%2B%2B導論.md');
-    assert.equal(H.encodeSharePath('問?答.md'), '問%3F答.md');
+  test('/ 保留為路徑分隔，空格編為 %20，書名號編為 %E3%80%8A／%E3%80%8B', () => {
+    assert.equal(H.fileShareQuery('a/《甲》 乙.md', 7), '?file=a/%E3%80%8A%E7%94%B2%E3%80%8B%20%E4%B9%99.md&line=7');
   });
 
-  test('帶變音符號的拉丁字母（梵文）與數字保持原樣', () => {
-    assert.equal(H.encodeSharePath('Śūraṅgama-01.md'), 'Śūraṅgama-01.md');
+  test('& # % + ? 與 ( ) \' * ! 都被編碼，不會破壞查詢字串，也不會讓連結在括號、引號處斷開', () => {
+    assert.equal(H.encodeSharePath('a&b #1.md'), 'a%26b%20%231.md');
+    assert.equal(H.encodeSharePath('50%.md'), '50%25.md');
+    assert.equal(H.encodeSharePath('C++.md'), 'C%2B%2B.md');
+    assert.equal(H.encodeSharePath('q?.md'), 'q%3F.md');
+    assert.equal(H.encodeSharePath("a(1)'*!.md"), 'a%281%29%27%2A%21.md');
+  });
+
+  test('帶變音符號的拉丁字母（梵文）也編成純 ASCII', () => {
+    const e = H.encodeSharePath('Śūraṅgama-01.md');
+    assert.ok(isPlainAscii(e));
+    assert.equal(decodeURIComponent(e), 'Śūraṅgama-01.md');
   });
 
   test('沒有行號時不附 &line=', () => {
@@ -149,7 +162,7 @@ describe('分享連結 2：往返還原', () => {
     test(`「${file}」：產出的連結還原後等於原檔名（伺服器解析與前端解析皆然）`, () => {
       const search = H.fileShareQuery(file, 7);
       const url = BASE + search;
-      assert.ok(!/\s/.test(url), '連結不得含空白字元');
+      assert.ok(isPlainAscii(url), '連結須為純 ASCII');
       assert.equal(linkify(`「引文」\n${url}`), url, '自動連結不得截斷');
 
       // 伺服器端：new URL(...).searchParams
@@ -179,13 +192,13 @@ describe('分享連結 3a：頁首「連結」鈕複製的連結', () => {
     const u = new URL(rawUrl);
     return { origin: u.origin, pathname: u.pathname, search: u.search, href: u.href };
   };
+  const SHORT_RE = /^https:\/\/mbt\.mahabodhi\.co\/F[0-9a-f]{14}(?:L\d+)?$/;
 
-  test('實際回報的檔名：複製出來的連結不含空白或《》，聊天軟體不會截斷', () => {
+  test('實際回報的檔名：複製出來的是英數短連結，行號保留', () => {
     const loc = locOf(`${BASE}?file=${encodeURIComponent(REPORTED_FILE)}&line=${REPORTED_LINE}`);
     const url = H.currentPageShareUrl(loc, REPORTED_FILE);
-    assert.equal(url, BASE.replace(/\/$/, '') + '/' + H.fileShareQuery(REPORTED_FILE, REPORTED_LINE));
-    assert.ok(!/\s/.test(url), '連結不得含空白字元');
-    assert.ok(!/[《》「」、]/.test(url), '連結不得含《》「」、等標點');
+    assert.equal(url, `${BASE}F${H.sharePathCode(REPORTED_FILE)}L${REPORTED_LINE}`);
+    assert.match(url, SHORT_RE);
     assert.equal(linkify(`第 ${REPORTED_LINE} 行\n${url}\n`), url, '自動連結應涵蓋整條連結');
   });
 
@@ -196,28 +209,36 @@ describe('分享連結 3a：頁首「連結」鈕複製的連結', () => {
   });
 
   for (const file of NASTY_FILES) {
-    test(`「${file}」：複製出來的連結還原後等於原檔名，行號保留`, () => {
-      const loc = locOf(`${BASE}?file=${encodeURIComponent(file)}&line=12`);
-      const url = H.currentPageShareUrl(loc, file);
-      assert.ok(!/\s/.test(url));
-      assert.equal(new URL(url).searchParams.get('file'), file);
-      assert.equal(new URL(url).searchParams.get('line'), '12');
+    test(`「${file}」：複製出來的是短連結，沒有行號就不附 L`, () => {
+      const withLine = H.currentPageShareUrl(locOf(`${BASE}?file=${encodeURIComponent(file)}&line=12`), file);
+      assert.match(withLine, SHORT_RE);
+      assert.ok(withLine.endsWith('L12'));
+      const noLine = H.currentPageShareUrl(locOf(`${BASE}?file=${encodeURIComponent(file)}`), file);
+      assert.match(noLine, SHORT_RE);
+      assert.ok(!/L\d+$/.test(noLine));
     });
   }
 
-  test('沒有行號的頁面不附 line；其他參數（q 關鍵字）保留並編碼', () => {
-    const loc = locOf(`${BASE}?file=${encodeURIComponent('a/b c.md')}&q=${encodeURIComponent('如 是&我 聞')}`);
+  test('網址列帶有 q 關鍵字：退回純 ASCII 長連結，file、line、q 全部保留', () => {
+    const loc = locOf(`${BASE}?file=${encodeURIComponent('a/b c.md')}&line=5&q=${encodeURIComponent('如 是&我 聞')}`);
     const url = H.currentPageShareUrl(loc, 'a/b c.md');
-    assert.ok(!/line=/.test(url));
-    assert.ok(!/\s/.test(url));
+    assert.ok(isPlainAscii(url), '長連結也必須是純 ASCII');
     const params = new URL(url).searchParams;
     assert.equal(params.get('file'), 'a/b c.md');
+    assert.equal(params.get('line'), '5');
     assert.equal(params.get('q'), '如 是&我 聞');
+  });
+
+  test('辭典（dict:）不在經文清單裡：退回純 ASCII 長連結', () => {
+    const url = H.shareFileUrl(BASE, 'dict:佛學 辭典/甲.md', 3);
+    assert.ok(isPlainAscii(url));
+    assert.equal(new URL(url).searchParams.get('file'), 'dict:佛學 辭典/甲.md');
+    assert.equal(new URL(url).searchParams.get('line'), '3');
   });
 
   test('以目前開啟的檔案為準；沒有檔案時退回原網址', () => {
     const loc = locOf(`${BASE}?file=stale.md&line=3`);
-    assert.equal(new URL(H.currentPageShareUrl(loc, 'a/new.md')).searchParams.get('file'), 'a/new.md');
+    assert.equal(H.currentPageShareUrl(loc, 'a/new.md'), `${BASE}F${H.sharePathCode('a/new.md')}L3`);
     const home = locOf(`${BASE}?home=1`);
     assert.equal(H.currentPageShareUrl(home, ''), home.href);
   });
@@ -340,7 +361,13 @@ describe('分享連結 4：原始碼契約', () => {
   test('不得自行以 split(&)/split(#) 拼 ?file=，一律走 fileShareQuery', () => {
     assert.ok(!/split\('&'\)\.join\('%26'\)/.test(source), '應移除手工轉義 & 的寫法');
     const uses = source.match(/fileShareQuery\(/g) || [];
-    // 定義 1 次 + 選取分享連結、分享鈕（網址列）、點行號複製
-    assert.ok(uses.length >= 4, `fileShareQuery 應被選取分享、分享鈕、點行號等處使用（目前 ${uses.length} 處）`);
+    // 定義 1 次 + 長連結退路、頁首連結鈕、分享鈕與點行號的網址列
+    assert.ok(uses.length >= 4, `fileShareQuery 應被長連結退路、頁首連結鈕、網址列等處使用（目前 ${uses.length} 處）`);
+  });
+
+  test('選字分享連結、點行號複製、頁首連結鈕都走 shareFileUrl（經文短連結）', () => {
+    assert.match(source, /currentShareUrl = shareFileUrl\(baseUrl, state\.currentFile, lineNum\)/);
+    assert.match(source, /const fullLineUrl = shareFileUrl\(window\.location\.origin \+ window\.location\.pathname, state\.currentFile, lineNum\)/);
+    assert.match(source, /if \(!extra\.length\) return shareFileUrl\(base, file, line\)/);
   });
 });
