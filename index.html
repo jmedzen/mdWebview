@@ -2764,6 +2764,29 @@
                   </div>
                 </div>
 
+                <!-- 早安圖圖庫明細：上傳或改圖後，在這裡確認伺服器真的讀到了 -->
+                <details class="share-pics" id="shareCardPics">
+                  <summary>🖼 早安圖圖庫明細（確認上傳與修改有沒有生效）</summary>
+                  <div class="share-pics-body">
+                    <div class="share-pics-toolbar">
+                      <button type="button" class="modal-btn secondary-btn" id="shareCardPicsRescan">重新掃描</button>
+                      <span class="share-pics-meta" id="shareCardPicsMeta" role="status">展開後讀取…</span>
+                    </div>
+                    <ul class="share-pics-warn" id="shareCardPicsWarn" hidden></ul>
+                    <div class="share-pics-scroll">
+                      <table class="share-pics-table">
+                        <thead>
+                          <tr><th>檔案（點開看原圖）</th><th>大小</th><th>寬×高</th><th>修改時間</th><th>狀態</th></tr>
+                        </thead>
+                        <tbody id="shareCardPicsBody">
+                          <tr><td colspan="5" class="share-pics-empty">—</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <span class="suggest-hint">依修改時間由新到舊。圖庫清單平常最多每分鐘更新一次，剛上傳或改過就按「重新掃描」。新放進來的圖，每一次做早安圖被挑中的機率和其他圖一樣（1／張數）；同一句經句在同一天永遠配同一張圖，所以想看某張新圖，請換幾句再看。</span>
+                  </div>
+                </details>
+
                 <textarea id="suggestDailyVerses" class="suggest-textarea" rows="7" spellcheck="false" placeholder="每行一句：經句｜出處｜經文路徑（出處與路徑可省略），例如：&#10;應無所住，而生其心。｜金剛般若波羅蜜經&#10;色即是空，空即是色。｜般若波羅蜜多心經｜01-大正藏/03般若部類/T0251《般若波羅蜜多心經》.md"></textarea>
 
                 <div class="suggest-rotate-row">
