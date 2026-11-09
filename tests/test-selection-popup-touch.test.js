@@ -67,7 +67,7 @@ describe('選字彈窗 v4.10.0：兩排圖示、更多選單、新動作', () =>
   test('3. 附出處格式含經名、行號與連結；分享直接複製帶行號的連結，不呼叫系統分享', () => {
     assert.match(src, /——\$\{name\}\$\{currentLineNum \? `第 \$\{currentLineNum\} 行` : ''\}/);
     assert.doesNotMatch(src, /navigator\.share/, '分享不叫系統分享面板');
-    assert.match(src, /shareBtn\.addEventListener\('click'[\s\S]{0,900}writeClipboard\(rawUrl, `✓ 已複製第 \$\{shareLineNum\} 行分享連結`\)/);
+    assert.match(src, /shareBtn\.addEventListener\('click'[\s\S]{0,900}writeClipboard\(shareUrl, `✓ 已複製第 \$\{shareLineNum\} 行分享連結`\)/);
     assert.doesNotMatch(src, /selectionLinkBtn/, '「複製本行連結」已併入分享');
   });
 

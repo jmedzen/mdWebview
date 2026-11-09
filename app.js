@@ -519,6 +519,28 @@
   // 前端透明集合鏡像：此處為 lib/text.js 透明集合 T (TRANSPARENT_RE / isTransparent) 的前端鏡像，任何變更必須兩邊同步保持一致
   const LOOSE_TRANSPARENT_RE = /[\p{P}\s\u0085]/u;
 
+  /**
+   * 把經文路徑編成可安全貼進聊天軟體／文字訊息的 ?file= 值。
+   *
+   * 以前的分享連結只把 & 和 # 轉義，其餘（空格、《》「」、＋、％…）原樣輸出，還在複製前
+   * 再 decodeURIComponent 一次。結果：
+   *   - 空格、《》會讓 LINE／Telegram 等的自動連結在該處截斷（點開就找不到檔案）；
+   *   - 複製前的 decode 把 %26／%23 還原成 & 和 #，等於白轉義；
+   *   - 檔名含 % 時 decodeURIComponent 直接丟 URIError，按鈕毫無反應；
+   *   - 檔名含 + 時，伺服器的 URLSearchParams 會把它讀成空格。
+   *
+   * 規則：字母、數字、組合記號（含漢字，保持可讀）與 - _ . ~ / 原樣保留，
+   * 其餘（空格、各種標點與括號、符號）一律百分比編碼。
+   */
+  function encodeSharePath(filePath) {
+    return String(filePath || '').replace(/[^\p{L}\p{N}\p{M}\-_.~/]/gu, (ch) => encodeURIComponent(ch));
+  }
+
+  /** 檔案（可帶行號）的分享查詢字串：?file=<path>&line=<n> */
+  function fileShareQuery(filePath, line) {
+    return `?file=${encodeSharePath(filePath)}${line ? `&line=${line}` : ''}`;
+  }
+
   function safeDecodeURIComponent(str) {
     if (!str) return '';
     try {
@@ -11079,8 +11101,7 @@
         const lineVal = lineEl.getAttribute('data-line') || (lineEl.id && lineEl.id.replace(/^L/, ''));
         const lineNum = lineVal ? parseInt(lineVal, 10) : null;
         if (lineNum && state.currentFile) {
-          const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-          const lineSearch = `?file=${cleanFile}&line=${lineNum}`;
+          const lineSearch = fileShareQuery(state.currentFile, lineNum);
           const newUrl = window.location.pathname + lineSearch;
           history.pushState(null, '', newUrl);
 
@@ -18272,10 +18293,9 @@
       popup.classList.add('visible');
       placePopupNear(range);
 
-      // Update share link using unencoded Chinese URL
+      // 分享連結：漢字保持可讀，空格、《》等其餘符號百分比編碼（貼進聊天軟體不會被截斷）
       const baseUrl = window.location.origin + window.location.pathname;
-      const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-      currentShareUrl = `${baseUrl}?file=${cleanFile}&line=${lineNum}`;
+      currentShareUrl = baseUrl + fileShareQuery(state.currentFile, lineNum);
 
     }
 
@@ -18420,7 +18440,7 @@
       if (name && !/[《〈]/.test(name)) name = `《${name}》`;
       const quote = `「${(currentDisplayText || '').trim()}」`;
       const source = `——${name}${currentLineNum ? `第 ${currentLineNum} 行` : ''}`;
-      return { name, quote, source, url: decodeURIComponent(currentShareUrl || '') };
+      return { name, quote, source, url: currentShareUrl || '' };
     }
     const citationText = () => {
       const c = citationParts();
@@ -18474,20 +18494,19 @@
     // 分享：直接複製帶行號的連結（不叫系統分享面板），並把網址列與畫面定位到那一行
     shareBtn.addEventListener('click', () => {
       if (!currentShareUrl) return;
-      const rawUrl = decodeURIComponent(currentShareUrl);
+      // 不能再 decode：decode 會把 %20、%26、%23 還原，貼到聊天軟體就被截斷或解析錯誤
+      const shareUrl = currentShareUrl;
       // Capture now: the async clipboard path below runs after the user may have
       // selected another line, and the toast must name the line actually copied.
       const shareLineNum = currentLineNum;
       hidePopup();
 
-      // Update address bar to unencoded Chinese URL with line number
+      // Update address bar with the line number
       if (state.currentFile && shareLineNum) {
-        const cleanFile = state.currentFile.split('&').join('%26').split('#').join('%23');
-        const searchStr = `?file=${cleanFile}&line=${shareLineNum}`;
-        history.pushState(null, '', window.location.pathname + searchStr);
+        history.pushState(null, '', window.location.pathname + fileShareQuery(state.currentFile, shareLineNum));
         scrollToLine(shareLineNum);
       }
-      writeClipboard(rawUrl, `✓ 已複製第 ${shareLineNum} 行分享連結`);
+      writeClipboard(shareUrl, `✓ 已複製第 ${shareLineNum} 行分享連結`);
     });
 
     $('selectionFindBtn').addEventListener('click', () => {
