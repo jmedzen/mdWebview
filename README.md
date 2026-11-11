@@ -119,6 +119,7 @@ docker-compose up -d
 | `./data`（`/data`） | 網站設定 `config.json`、帳號 `users.db`、`backups/`、`secrets.key` | ✅ 一定要 |
 | `./data/logs`（`/data/logs`，可用 `LOG_DIR` 改） | 存取日誌與流量統計（保留 90 天） | 想留統計就備份 |
 | `./index`（`/data/index`，可用 `INDEX_DIR` 改） | 全文搜尋、辭典、章節的索引快取（`*.bin`） | 不用，刪掉會自動重建 |
+| `./data/tts-cache`（`/data/tts-cache`，可用 `TTS_CACHE_DIR` 改） | 朗讀（TTS）生成的音檔，全站共用；另有讀音字典 `./data/tts-lexicon.txt` | 建議備份：刪掉可以重新生成，但每小時的音檔要花 GPU 半小時以上 |
 
 > 🔄 **從 v4.18 以前升級**：以前索引放在 `logs/` 裡。v4.19.0 第一次啟動時會自動把 `logs/` 裡的索引檔搬到 `index/`，不必重建；`logs/` 和 `index/` 是不同掛載點時改用複製，幾 GB 以內大約幾秒到幾十秒。沒有加 `./index` 掛載也能跑，索引會存在 `./data/index`。
 
@@ -417,6 +418,7 @@ docker-compose up -d
 | `./data` (`/data`) | Site settings `config.json`, accounts `users.db`, `backups/`, `secrets.key` | ✅ Yes |
 | `./data/logs` (`/data/logs`, override with `LOG_DIR`) | Access logs and traffic statistics (kept 90 days) | If you want the statistics |
 | `./index` (`/data/index`, override with `INDEX_DIR`) | Full-text, dictionary and section index caches (`*.bin`) | No — deleted files are rebuilt automatically |
+| `./data/tts-cache` (`/data/tts-cache`, override with `TTS_CACHE_DIR`) | Read-aloud (TTS) audio shared by all readers, plus the pronunciation lexicon `./data/tts-lexicon.txt` | Recommended — it can be regenerated, but an hour of audio costs over half an hour of GPU time |
 
 > 🔄 **Upgrading from v4.18 or earlier**: indexes used to live in `logs/`. On its first start, v4.19.0 moves the index files from `logs/` into `index/` so nothing has to be rebuilt; when `logs/` and `index/` are separate mounts it copies them instead (seconds to a few tens of seconds). Without the `./index` mount it still works and keeps the index in `./data/index`.
 

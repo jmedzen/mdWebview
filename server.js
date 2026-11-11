@@ -103,6 +103,8 @@ const shareQuotes = require('./lib/share-quotes');
 const shareQr = require('./lib/share-qr');
 const shareLink = require('./lib/share-link');
 const shareStats = require('./lib/share-stats');
+const tts = require('./lib/tts');
+tts.init({ resolveMdPath }); // resolveMdPath 是下方的函式宣告（已提升）
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -5939,6 +5941,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // 朗讀（TTS）：/api/tts/* 與 /api/admin/tts/*（lib/tts.js）
+  if (tts.isTtsRoute(pathname)) {
+    tts.handle(req, res, pathname, query).then(handled => {
+      if (!handled && !res.headersSent) sendJSON(res, 404, { error: 'Not found' });
+    }).catch(err => {
+      if (err && err.status === 413) { if (!res.headersSent) sendPayloadTooLarge(res); return; }
+      Logger.error('TTS', `TTS route failed: ${req.method} ${pathname}`, err, req);
+      if (!res.headersSent) sendJSON(res, 500, { error: 'Internal Server Error' });
+    });
+    return;
+  }
+
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
     // Redact the absolute vault path (and any other filesystem-layout detail) from
@@ -5946,6 +5960,7 @@ const server = http.createServer((req, res) => {
     const safeSettings = Object.assign({}, config.settings);
     delete safeSettings.mdRoot;
     delete safeSettings.dictionaryPath;
+    delete safeSettings.tts; // 朗讀伺服器的區域網路位址與音色對照不給匿名訪客（讀者用 /api/tts/status）
     // `authMode` tells the client which kind of deployment it is talking to:
     //   'single-user' — no login exists; a loopback caller is already the owner
     //   'admin'       — the historical web behaviour, administrator login required
@@ -6485,6 +6500,7 @@ function setupGracefulShutdown() {
         .catch(err => Logger.error('Boot', 'Error terminating worker pools during shutdown', err))
         .finally(() => {
           try { accountsDb.close(); } catch (err) { Logger.error('Boot', 'Error closing account database during shutdown', err); }
+          try { tts.stop(); } catch (err) { Logger.error('Boot', 'Error closing read-aloud cache during shutdown', err); }
           Logger.info('Boot', `Shutdown complete (${signal}).`);
           process.exit(0);
         });
@@ -6600,6 +6616,7 @@ if (require.main === module) {
     // Emitted on stdout for launchers to parse. Keep this format stable.
     console.log(`MDWEBVIEW_READY port=${actualPort}`);
     announceSetupTokenIfNeeded();
+    tts.start(); // 朗讀：audio.cpp 健康檢查與每日維護
 
     // Eagerly build Bigram Inverted Index & Sitemap in background on boot.
     // The search index is required in every mode; the sitemap only exists to be
