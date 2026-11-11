@@ -5,7 +5,8 @@ WORKDIR /app
 # Copy package files and install exactly the locked production dependencies
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force \
- && apk add --no-cache su-exec
+ && apk add --no-cache su-exec ffmpeg
+# ffmpeg：朗讀（TTS）把 audio.cpp 回傳的 WAV 轉成 AAC（約十分之一大小）並做響度正規化；沒有它時改存 WAV。
 
 # 早安圖（每日經句分享卡）由伺服器畫，需要宋體：建置時從 Google Fonts 下載 Noto Serif TC（SIL OFL）。
 # 下載失敗不讓建置失敗——之後也可以把字型放到 /data/fonts/。
@@ -16,7 +17,7 @@ RUN mkdir -p /app/fonts && for w in 500 700 900; do \
     done
 
 # Copy all essential application files
-COPY server.js app.js library-sync.js highlights.js kepan-sidebar.js share-card.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
+COPY server.js app.js library-sync.js highlights.js kepan-sidebar.js share-card.js tts-segment.js index.html style.css render-worker.js index-worker.js md-worker.js marked.min.js ./
 COPY lib/ ./lib/
 COPY i18n/ ./i18n/
 COPY vendor/ ./vendor/
@@ -29,8 +30,8 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # /data/index 放搜尋索引快取（全庫約 650MB，可重建、不必備份）；建議用獨立的
 # volume／bind mount（docker-compose.yml 的 ./index），重建容器時才不必重新建索引。
 RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
- && mkdir -p /data /data/logs /data/index /data/md /data/dicts \
- && chown node:node /data /data/logs /data/index
+ && mkdir -p /data /data/logs /data/index /data/md /data/dicts /data/tts-cache \
+ && chown node:node /data /data/logs /data/index /data/tts-cache
 
 # Default environment variables
 # Note: Full vault bigram index .bin is ~650MB; index build peak RAM requires >= 2x index size.
@@ -43,6 +44,7 @@ ENV PORT=8330 \
     CONFIG_PATH=/data/config.json \
     LOG_DIR=/data/logs \
     INDEX_DIR=/data/index \
+    TTS_CACHE_DIR=/data/tts-cache \
     MD_ROOT=/data/md \
     DICTIONARY_PATH=/data/dicts \
     TRUST_PROXY=true \
