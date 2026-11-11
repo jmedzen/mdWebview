@@ -115,7 +115,7 @@ function session(token, role) {
 
 const P = 'sub/a.md';
 const baseSettings = () => ({
-  enabled: true, baseUrl: fake.url, model: 'drama3', defaultVoice: 'v1', seed: 1234, guestGenerate: true, warmup: false,
+  enabled: true, baseUrl: fake.url, model: 'drama3', defaultVoice: 'v1', seed: 1234, guestGenerate: true, warmup: false, keepWarm: false,
   voices: [{ id: 'v1', voice: 'demo_3_woman', name: '慧音', tags: ['女聲'], rate: 1, enabled: true },
     { id: 'v2', voice: 'demo_1_man', name: '法音', tags: ['男聲'], rate: 1, enabled: true },
     { id: 'v9', voice: 'hidden_voice', name: '未開放', tags: [], rate: 1, enabled: false }]
@@ -451,6 +451,49 @@ describe('朗讀（TTS）後端', () => {
       assert.equal(fake.speech[fake.speech.length - 1].input, '波惹波羅蜜多甚深微妙，諸菩薩摩訶薩應如是學。');
       fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true });
       lexicon.resetCache(); tts._internals.docCache.clear();
+    });
+  });
+
+  describe('保溫與音色版本', () => {
+    const warmInputs = () => fake.speech.filter((b) => b.input === '南無阿彌陀佛').length;
+
+    test('有人在聽且已閒置：送一句短句，結果不進快取；剛生成過或沒人在聽就不送', async () => {
+      config.settings.tts = Object.assign(baseSettings(), { keepWarm: true });
+      tts._internals.setClock({ lastGenerationAt: 0, lastReaderActivityAt: Date.now() });
+      const n = store.isAvailable() ? store.usage().blobs : 0;
+      assert.equal(await tts._internals.keepWarmTick(false), true);
+      assert.equal(warmInputs(), 1);
+      assert.equal(fake.speech[0].voice, 'demo_3_woman');
+      assert.equal(store.usage().blobs, n, '保溫的音檔不進快取');
+      assert.equal(tts._internals.keepWarmTick(false), null, '剛生成過：不送');
+      tts._internals.setClock({ lastGenerationAt: 0, lastReaderActivityAt: Date.now() - 31 * 60 * 1000 });
+      assert.equal(tts._internals.keepWarmTick(false), null, '超過 30 分鐘沒人聽：不送');
+      assert.equal(warmInputs(), 1);
+    });
+
+    test('關閉保溫或服務不可用時不送；讀者開啟朗讀時先暖機', async () => {
+      tts._internals.setClock({ lastGenerationAt: 0, lastReaderActivityAt: Date.now() });
+      assert.equal(tts._internals.keepWarmTick(false), null, 'keepWarm 關閉');
+      config.settings.tts = Object.assign(baseSettings(), { keepWarm: true });
+      tts._internals.setHealth({ ok: false });
+      assert.equal(tts._internals.keepWarmTick(false), null, '服務不可用');
+      tts._internals.setHealth({ ok: true });
+      tts._internals.setClock({ lastGenerationAt: 0, lastReaderActivityAt: 0 });
+      await request(`/api/tts/doc?path=${encodeURIComponent(P)}`);
+      await new Promise((r) => setTimeout(r, 50));
+      assert.equal(warmInputs(), 1, '開啟朗讀就暖機');
+      await request(`/api/tts/doc?path=${encodeURIComponent(P)}`);
+      await new Promise((r) => setTimeout(r, 50));
+      assert.equal(warmInputs(), 1, '已經熱了就不再送');
+    });
+
+    test('音色版本（rev）：換了參考錄音後加一，sha 全部改變；audio.cpp 收到的 voice 名稱不變', async () => {
+      const a = (await sentences('v1'))[2].sha;
+      const st = baseSettings(); st.voices[0].rev = 2; config.settings.tts = st;
+      const b = (await sentences('v1'))[2].sha;
+      assert.notEqual(a, b);
+      await speak([2]);
+      assert.equal(fake.speech[fake.speech.length - 1].voice, 'demo_3_woman');
     });
   });
 

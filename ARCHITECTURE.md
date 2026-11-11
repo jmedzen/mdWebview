@@ -2008,7 +2008,7 @@ flowchart TD
 | 串流 | `drama3` 是 offline 模式，不支援 → 逐句生成＋預取 |
 | 輸入長度 | 模型自行每 128 字切塊，HTTP body 上限 2 GiB；我們自己限制每句 ≤ `maxSentenceChars` |
 | 延遲 | 10 字 2.3 秒音檔／生成 2.1–2.4 秒；50 字 11.9 秒／7.1 秒；116 字 31.2 秒／16.8 秒。約「1 秒固定開銷＋音檔長度 × 0.5」，每字約 0.25 秒 |
-| 冷啟動 | 閒置數分鐘後的第一個請求要 35–45 秒（之後恢復每句 2–4 秒），與音色無關；超過 `speak` 的 25 秒長輪詢時該句回 `pending`，前端再問一次即可。是否加「保溫」機制待定 |
+| 冷啟動 | 閒置數分鐘後的第一個請求要 35–45 秒（之後恢復每句 2–4 秒），與音色無關；超過 `speak` 的 25 秒長輪詢時該句回 `pending`，前端再問一次即可。閒置 3 分鐘內仍是熱的（實測 90 秒後 3.0 秒、180 秒後 4.9 秒）→ 保溫機制見 §24.6 `keepWarm` |
 | 音訊特性 | 開頭靜音 60–70 ms、結尾 140–215 ms；各句響度落差約 10 dB（RMS -29 到 -19 dBFS）→ 後製裁靜音並正規化到 -18 LUFS（實測落差降到 0.9 dB） |
 | 轉檔後大小 | AAC 64 kbps 約為 WAV 的 9.5%（每秒約 8.3 KB）；轉檔每句 0.06–0.5 秒 |
 
@@ -2046,7 +2046,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 └── tts.db                  blobs 索引與每日統計（node:sqlite，WAL）
 ```
 
-- **快取鍵** `sha256("v1\n" + 口語化文字 + "\n" + 模型 + "\n" + audio.cpp voice + "\n" + seed + "\n" + 後製版本)`。後製版本是 `aac64-ln18-1`（有 ffmpeg）或 `wav-1`。**讀音字典版本、斷句規則版本、語速都不進鍵**。
+- **快取鍵** `sha256("v1\n" + 口語化文字 + "\n" + 模型 + "\n" + audio.cpp voice（`rev` > 1 時加 `#rev`）+ "\n" + seed + "\n" + 後製版本)`。後製版本是 `aac64-ln18-1`（有 ffmpeg）或 `wav-1`。**讀音字典版本、斷句規則版本、語速都不進鍵**。
 - **不寫文件清單到磁碟**（與第一階段設計不同）：斷句每 MB 約 100 ms，結果以 `path＋mtime＋size＋全站設定` 為鍵放在記憶體 LRU（最多 12 篇、80 萬個單位）；「這一句是否已快取」直接用 sha 查 `tts.db`。因此文件改版、搬移、改名都不需要任何對帳。
 - `blobs` 表：`sha`、`ext`、`bytes`、`duration_ms`、`chars`、`voice`、`flags`（1＝試聽檔，GC 不刪；2＝臨時檔，GC 優先刪、24 小時後清）、`created_at`、`last_played_at`（每小時最多更新一次）、`plays`。`stats` 表：每日 `hits`、`misses`、`generated`、`failed`、`gen_ms`。
 - **GC**：每次寫入後，用量超過 `cacheMb` 就刪到 95%：先刪臨時檔，再刪最久沒播的。
@@ -2058,7 +2058,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | :--- | :--- | :--- |
 | `enabled` | `false` | 總開關 |
 | `baseUrl`、`model` | — | audio.cpp 位址（只存 origin）與模型代號；環境變數 `TTS_BASE_URL`、`TTS_MODEL` 優先，後台顯示鎖定 |
-| `voices` | `[]` | `[{ id, voice, name, tags, rate, enabled }]`：`id` 是給讀者的代號（`v` 開頭），`voice` 是 audio.cpp 的名稱（不可含路徑） |
+| `voices` | `[]` | `[{ id, voice, rev, name, tags, rate, enabled }]`：`id` 是給讀者的代號（`v` 開頭），`voice` 是 audio.cpp 的名稱（不可含路徑），`rev` 是參考錄音的版本（預設 1，見 §24.10） |
 | `defaultVoice` | — | 預設音色代號 |
 | `seed` | `1234` | 固定 seed（進快取鍵） |
 | `concurrency` | `1` | 同時送往 audio.cpp 的請求數（1–4） |
@@ -2070,6 +2070,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | `warmup` | `true` | 即時請求之後，以較低優先序先生成後面 5 句 |
 | `maxSelectionChars` | `3000` | 一次選取朗讀回傳的上限，其餘由前端沿句子序號續取 |
 | `busyTimeoutMs` | `30000` | 傳給 audio.cpp 的 `busy_timeout_ms` |
+| `keepWarm`、`keepWarmMinutes` | `true`、`30` | 保溫：最後一次朗讀活動後的 N 分鐘內，每次健康檢查（2 分鐘）若已閒置 100 秒且佇列是空的，就送一句「南無阿彌陀佛」給 audio.cpp（結果丟棄、不進快取）。讀者一開啟朗讀（`/api/tts/doc`）也會先暖機一次 |
 
 匿名的 `GET /api/admin/status` 會把 `settings.tts` 拿掉（不洩漏區網位址）。讀音字典在 `TTS_LEXICON_PATH`（預設 `config.json` 旁的 `tts-lexicon.txt`），一行一條「詞｜替換」，只寫詞＝只保護不切開；10 秒內熱重載。
 
@@ -2099,3 +2100,13 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 ### 24.9 尚未實作（後續階段）
 
 前端播放列與誦經模式、Service Worker 音檔快取、後台頁面、預先生成工作佇列與釘選、最近朗讀與收藏（`users.db`）、科判節點的「朗讀本節」。
+
+### 24.10 音色管理（參考錄音）
+
+`drama3`（Fish Audio Drama 3）是聲音複製模型：每個音色就是 audio.cpp 那一側的一段**參考錄音＋逐字稿**，mdWebview 只認名稱。
+
+- audio.cpp 的音色庫是一個資料夾（`--voice-dir <資料夾>` 或設定檔的 `voice_dir`；沒指定時用內建的 `webui/native/demo_voices/`）：每個音色一個 `<名稱>.wav`，加上一個檔名就叫 `prompt_text`（沒有副檔名）的對照檔，一行一個 `<名稱>|<錄音的逐字稿>`。`GET /v1/audio/voices` 列出的就是這些名稱。
+- mdWebview 這一側：後台從 audio.cpp 抓回名稱，管理員勾選要開放的，填中文顯示名、標籤、預設語速，並產生試聽。讀者只看得到代號（`v…`）與顯示名。
+- **參考錄音不要原地覆蓋**：快取鍵只含名稱，同名換了錄音，舊快取仍會被當成同一個音色播出來，同一篇裡會忽然換聲音。換錄音時用新檔名（如 `huiyin_v2.wav`），或把該音色的 `rev` 加一（舊音檔會隨 LRU 自然淘汰）。
+- 音色從白名單移除或停用：已快取的音檔保留，但不再提供新生成。
+- 讀者端不能上傳或指定參考錄音（`voice_ref` 不開放）。
