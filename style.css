@@ -12605,3 +12605,175 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
   .kepan-path { max-height: 5.2em; }
   .kepan-progress { width: 72px; }
 }
+
+/* ================================================================
+   §27c 朗讀（TTS）播放器 — app.js §17c
+   以「素紙」為設計基準：紙色底、墨色字、朱色強調。強調色走 --tts-* 變數，
+   亮色與暗色主題各一組；朱色只上在圖形（進度、底線、播放鍵），文字用較深的
+   --tts-accent-text（在各亮色主題的 --bg-secondary 上對比 ≥ 4.5:1）。
+   ================================================================ */
+:root {
+  --tts-accent: #c8442b;
+  --tts-accent-text: #a63a2b;
+  --tts-accent-bg: rgba(200, 68, 43, 0.14);
+  --tts-padded-bg: rgba(200, 68, 43, 0.07);
+  --tts-on-accent: #ffffff;
+  --tts-bar-h: 60px;
+}
+[data-theme="obsidian-dark"],
+[data-theme="solarized"],
+[data-theme="gruvbox"] {
+  --tts-accent: #f08a78;
+  --tts-accent-text: #f08a78;
+  --tts-accent-bg: rgba(240, 138, 120, 0.22);
+  --tts-padded-bg: rgba(240, 138, 120, 0.1);
+  --tts-on-accent: #1b1410;
+}
+
+/* 跟讀高亮：目前句＝淡朱底色＋朱筆底線；補讀的句子＝更淡的底色。和劃重點（mdw-hl-*）可疊加 */
+::highlight(mdw-tts-padded) { background-color: var(--tts-padded-bg); }
+::highlight(mdw-tts-current) {
+  background-color: var(--tts-accent-bg);
+  text-decoration: underline 2px var(--tts-accent);
+}
+/* 不支援 Custom Highlight 的瀏覽器：在那一行的區塊上標示 */
+.markdown-body .tts-line-current {
+  background: var(--tts-accent-bg);
+  box-shadow: inset 3px 0 0 var(--tts-accent);
+}
+
+/* 入口：網站沒有啟用朗讀時全部藏起 */
+.tts-start-btn, #selectionReadBtn, .tts-head-btn { display: none; }
+body.tts-enabled .tts-start-btn { display: flex; }
+body.tts-enabled #selectionReadBtn { display: inline-flex; }
+body.tts-enabled:not(.tts-has-file):not(.tts-active) .tts-start-btn { display: none; }
+body.tts-active .tts-start-btn { color: var(--tts-accent-text); }
+
+/* 標題後的「朗讀本節」：實體按鈕，鍵盤與 VoiceOver 都能聚焦；桌機平時淡、hover／focus 才明顯 */
+body.tts-enabled .markdown-body .tts-head-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.7em; height: 1.7em; min-width: 28px; min-height: 28px;
+  margin-left: 0.35em; padding: 0; vertical-align: middle;
+  border: 1px solid transparent; border-radius: 999px;
+  background: transparent; color: var(--text-muted);
+  font-size: 0.62em; cursor: pointer; opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  user-select: none; -webkit-user-select: none;
+}
+body.tts-enabled .markdown-body :is(h1, h2, h3, h4, h5, h6):hover > .tts-head-btn,
+body.tts-enabled .markdown-body .tts-head-btn:hover,
+body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
+  opacity: 1; color: var(--tts-accent-text); background: var(--tts-accent-bg);
+}
+@media (hover: none) {
+  /* 觸控沒有 hover：按鈕一直清楚可見，點擊範圍至少 44pt */
+  body.tts-enabled .markdown-body .tts-head-btn { opacity: 0.9; min-width: 44px; min-height: 44px; color: var(--tts-accent-text); }
+}
+
+.tts-sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.tts-skip-link {
+  position: fixed; top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px; z-index: 10001;
+  padding: 8px 14px; border-radius: 8px;
+  background: var(--bg-secondary); color: var(--text-primary); border: 2px solid var(--tts-accent);
+  font-size: 14px; text-decoration: none;
+  transform: translateY(-200%);
+}
+.tts-skip-link:focus { transform: none; }
+
+/* 播放列：貼齊底部 safe-area，對齊閱讀區中線（--reading-center 由 app.js syncFloatingNavCenter 提供） */
+.tts-bar {
+  position: fixed; left: var(--reading-center, 50%); bottom: 0; transform: translateX(-50%);
+  width: min(760px, calc(var(--reading-width, 100vw) - 24px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); border-bottom: 0; border-radius: 14px 14px 0 0;
+  box-shadow: 0 -4px 20px var(--shadow-color);
+  font: -apple-system-body; font-family: inherit; font-size: 0.875rem;
+  z-index: 60;
+}
+.tts-bar[hidden] { display: none; }
+.tts-bar:focus { outline: none; }
+.tts-progress { height: 3px; background: var(--border-subtle); border-radius: 14px 14px 0 0; overflow: hidden; }
+.tts-progress-fill { height: 100%; width: 0; background: var(--tts-accent); transition: width 0.25s ease; }
+.tts-mini { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
+.tts-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0;
+  border: 1px solid transparent; border-radius: 999px;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tts-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.tts-btn.tts-play { background: var(--tts-accent); color: var(--tts-on-accent); border-color: var(--tts-accent); }
+.tts-btn.tts-play:hover { background: var(--tts-accent); color: var(--tts-on-accent); filter: brightness(0.94); }
+.tts-bar.is-waiting .tts-play { animation: tts-pulse 1.2s ease-in-out infinite; }
+@keyframes tts-pulse { 50% { opacity: 0.55; } }
+.tts-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 0 6px; line-height: 1.3; }
+.tts-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.tts-pos { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.86em; font-variant-numeric: tabular-nums; }
+.tts-bar.is-error .tts-pos { color: var(--danger, var(--tts-accent-text)); }
+.tts-chip {
+  flex: none; min-height: 32px; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-primary); color: var(--text-secondary);
+  font: inherit; font-size: 0.86em; cursor: pointer; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tts-chip:hover { border-color: var(--tts-accent); color: var(--text-primary); }
+.tts-chip-accent { border-color: var(--tts-accent); color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+.tts-chip[hidden] { display: none; }
+.tts-voice-chip { max-width: 8em; overflow: hidden; text-overflow: ellipsis; }
+.tts-bar.is-open #ttsExpandBtn svg { transform: rotate(180deg); }
+.tts-bar :is(button, select, input):focus-visible { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+
+.tts-panel { padding: 6px 16px 14px; border-top: 1px solid var(--border-subtle); display: grid; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.tts-panel[hidden] { display: none; }
+.tts-notice { margin: 4px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--tts-accent-bg); color: var(--text-primary); font-size: 0.92em; }
+.tts-notice[hidden] { display: none; }
+.tts-field { display: grid; grid-template-columns: 3em 1fr auto; align-items: center; gap: 10px; min-height: 44px; color: var(--text-secondary); }
+.tts-field input[type="range"] { width: 100%; accent-color: var(--tts-accent); min-height: 28px; }
+.tts-field select {
+  width: 100%; min-height: 36px; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--input-bg, var(--bg-primary)); color: var(--text-primary); font: inherit;
+}
+.tts-field output { min-width: 3.6em; text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.tts-check { display: flex; align-items: flex-start; gap: 10px; min-height: 32px; color: var(--text-secondary); cursor: pointer; }
+.tts-check input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--tts-accent); }
+
+/* 播放列出現時：內文留白，其他浮動元件（前後科、前後條、回到頂部、Toast）往上讓 */
+body.tts-active #markdownBody { padding-bottom: calc(var(--tts-bar-h) + 40px); }
+body.tts-active .entry-nav,
+body.tts-active .toast-container { bottom: calc(var(--tts-bar-h) + 20px + env(safe-area-inset-bottom, 0px)); }
+body.tts-active .back-to-top { bottom: calc(var(--tts-bar-h) + 20px + env(safe-area-inset-bottom, 0px)); }
+body.focus-mode .tts-start-btn { display: none; }
+
+@media (max-width: 768px) {
+  .tts-bar { left: 0; right: 0; transform: none; width: auto; border-left: 0; border-right: 0; border-radius: 12px 12px 0 0; }
+  .tts-mini { gap: 2px; padding: 6px 4px; }
+  .tts-title { font-size: 0.95em; }
+  .tts-chip { min-height: 44px; padding: 4px 8px; }
+  /* 窄螢幕：音色改在展開的面板裡選，迷你列留給進度與語速 */
+  .tts-voice-chip { display: none; }
+  body.tts-active.has-kepan .back-to-top { bottom: calc(var(--tts-bar-h) + 76px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 380px) {
+  #ttsRateBtn { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tts-progress-fill, .tts-head-btn { transition: none; }
+  .tts-bar.is-waiting .tts-play { animation: none; opacity: 0.7; }
+}
+@media (prefers-contrast: more) {
+  .tts-bar { border-color: var(--text-primary); }
+  .tts-chip, .tts-btn { border-color: var(--text-secondary); }
+  ::highlight(mdw-tts-current) { text-decoration: underline 3px var(--tts-accent); }
+}
+@media (forced-colors: active) {
+  .tts-btn.tts-play { border: 2px solid ButtonText; }
+  .tts-progress-fill { background: Highlight; }
+  ::highlight(mdw-tts-current) { background-color: Highlight; color: HighlightText; }
+}
+@media print { .tts-bar, .tts-head-btn, .tts-skip-link { display: none !important; } }

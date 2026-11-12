@@ -2069,7 +2069,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | `readNotes`、`readMantra`、`readNonScripture` | `false`、`true`、`false` | 全站口語化設定（夾注、咒語、非經文區段） |
 | `warmup` | `true` | 即時請求之後，以較低優先序先生成後面 5 句 |
 | `maxSelectionChars` | `3000` | 一次選取朗讀回傳的上限，其餘由前端沿句子序號續取 |
-| `busyTimeoutMs` | `30000` | 傳給 audio.cpp 的 `busy_timeout_ms` |
+| `busyTimeoutMs` | `120000` | 傳給 audio.cpp 的 `busy_timeout_ms`。要比冷啟動（35–45 秒）長：推論時間超過這個值時，audio.cpp 會把排在後面的請求以「前一個請求疑似卡住」立刻回 503 |
 | `keepWarm`、`keepWarmMinutes` | `true`、`30` | 保溫：最後一次朗讀活動後的 N 分鐘內，每次健康檢查（2 分鐘）若已閒置 100 秒且佇列是空的，就送一句「南無阿彌陀佛」給 audio.cpp（結果丟棄、不進快取）。讀者一開啟朗讀（`/api/tts/doc`）也會先暖機一次 |
 
 匿名的 `GET /api/admin/status` 會把 `settings.tts` 拿掉（不洩漏區網位址）。讀音字典在 `TTS_LEXICON_PATH`（預設 `config.json` 旁的 `tts-lexicon.txt`），一行一條「詞｜替換」，只寫詞＝只保護不切開；10 秒內熱重載。

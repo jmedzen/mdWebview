@@ -110,6 +110,12 @@
             <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/>
           </svg>
         </button>
+        <!-- 朗讀：沒有選取時從畫面上第一個可見的句子開始（網站啟用朗讀且開著經文時才顯示） -->
+        <button id="ttsStartBtn" class="control-btn tts-start-btn" type="button" title="從目前位置朗讀（Alt+R）" aria-label="從目前位置朗讀">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/>
+          </svg>
+        </button>
         <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
@@ -2963,6 +2969,56 @@
   </div>
 
   <!-- ── §TOAST ─────────────────────────────────────────── -->
+  <!--
+    朗讀播放器（app.js §17c）。底部迷你列：上一句、播放／暫停、下一句、第 N／M 句、語速、音色、展開；
+    展開後是設定面板。是一個地標（VoiceOver 轉輪「地標」找得到），播放／暫停是同一顆按鈕切換 aria-label。
+  -->
+  <a class="tts-skip-link" id="ttsSkipLink" href="#ttsBar" hidden>跳到朗讀播放器</a>
+  <section class="tts-bar" id="ttsBar" aria-label="朗讀播放器" tabindex="-1" hidden>
+    <div class="tts-progress" aria-hidden="true"><div class="tts-progress-fill" id="ttsProgressFill"></div></div>
+    <div class="tts-mini">
+      <button type="button" class="tts-btn" id="ttsPrevBtn" aria-label="上一句" title="上一句（Alt+←）">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2.5" y="3" width="1.8" height="10" rx=".8"/><path d="M13.2 3.4v9.2a.5.5 0 01-.78.42L5.6 8.4a.5.5 0 010-.82l6.82-4.6a.5.5 0 01.78.42z"/></svg>
+      </button>
+      <button type="button" class="tts-btn tts-play" id="ttsPlayBtn" aria-label="播放"></button>
+      <button type="button" class="tts-btn" id="ttsNextBtn" aria-label="下一句" title="下一句（Alt+→）">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="11.7" y="3" width="1.8" height="10" rx=".8"/><path d="M2.8 3.4v9.2a.5.5 0 00.78.42L10.4 8.4a.5.5 0 000-.82L3.58 2.98a.5.5 0 00-.78.42z"/></svg>
+      </button>
+      <div class="tts-info">
+        <span class="tts-title" id="ttsTitle"></span>
+        <span class="tts-pos" id="ttsPos"></span>
+      </div>
+      <button type="button" class="tts-chip tts-chip-accent" id="ttsRetryBtn" hidden>重試</button>
+      <button type="button" class="tts-chip" id="ttsSkipBtn" hidden>略過</button>
+      <button type="button" class="tts-chip tts-chip-accent" id="ttsBackBtn" hidden>回到朗讀位置</button>
+      <button type="button" class="tts-chip" id="ttsRateBtn">1×</button>
+      <button type="button" class="tts-chip tts-voice-chip" id="ttsVoiceBtn">音色</button>
+      <button type="button" class="tts-btn" id="ttsExpandBtn" aria-expanded="false" aria-controls="ttsPanel" aria-label="展開朗讀設定">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10l4.5-4.5L12.5 10"/></svg>
+      </button>
+      <button type="button" class="tts-btn" id="ttsCloseBtn" aria-label="停止朗讀並關閉播放器" title="停止朗讀">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="tts-panel" id="ttsPanel" hidden>
+      <p class="tts-notice" id="ttsNotice" hidden></p>
+      <label class="tts-field"><span>進度</span>
+        <input type="range" id="ttsSeek" min="1" max="1" step="1" value="1" aria-label="朗讀進度">
+      </label>
+      <label class="tts-field"><span>音色</span>
+        <select id="ttsVoiceSelect" aria-label="音色"></select>
+      </label>
+      <label class="tts-field"><span>語速</span>
+        <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
+        <output id="ttsRateOut" for="ttsRate">1 倍</output>
+      </label>
+      <label class="tts-check"><input type="checkbox" id="ttsFollow"><span>畫面跟著朗讀位置捲動</span></label>
+      <label class="tts-check"><input type="checkbox" id="ttsExact"><span>朗讀選取時只讀我選的字（不延伸到完整句）</span></label>
+      <label class="tts-check"><input type="checkbox" id="ttsShortcuts"><span>鍵盤快捷鍵：Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></label>
+    </div>
+    <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
+  </section>
+
   <div id="toastContainer" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->

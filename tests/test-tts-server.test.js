@@ -262,7 +262,8 @@ describe('朗讀（TTS）後端', () => {
         assert.ok(r.json.items[0].error);
         assert.equal(before(), n);
         assert.equal((await request(r.json.items[0].sha ? `/api/tts/audio/${r.json.items[0].sha}` : '/api/tts/audio/x')).status, 404);
-        if (mode === '500' || mode === 'busy') assert.equal(fake.speech.length, 2, '5xx 與忙碌重試一次');
+        if (mode === '500') assert.equal(fake.speech.length, 2, '5xx 重試一次');
+        if (mode === 'busy') assert.equal(fake.speech.length, 3, '忙碌時多等一下、重試兩次');
       });
     }
 
@@ -334,6 +335,13 @@ describe('朗讀（TTS）後端', () => {
       assert.equal(h.status, 200); assert.equal(h.body.length, 0); assert.equal(Number(h.headers['content-length']), size);
     });
 
+    test('靜音檔（解鎖 <audio> 用）：合法的 WAV，可長期快取', async () => {
+      const r = await request('/api/tts/silence.wav');
+      assert.equal(r.status, 200); assert.equal(r.headers['content-type'], 'audio/wav');
+      assert.equal(r.body.toString('latin1', 0, 4), 'RIFF');
+      assert.equal(tts._internals.parseWav(r.body).ms, 100);
+    });
+
     test('只服務快取裡的檔：不存在的 sha、路徑、非 hex 一律 404', async () => {
       for (const bad of ['0'.repeat(64), '..%2f..%2fconfig.json', 'abc', 'A'.repeat(64), '0'.repeat(64) + '.wav']) {
         assert.equal((await request(`/api/tts/audio/${bad}`)).status, 404, bad);
@@ -396,6 +404,19 @@ describe('朗讀（TTS）後端', () => {
       const intro = await post('/api/tts/resolve', { path: P, voice: 'v1', start: { line: 3, off: 0 }, end: { line: 3, off: 2 } });
       assert.equal(intro.json.flags.intro, true); assert.equal(intro.json.flags.extended, true);
       assert.equal(intro.json.sentences.length, 2);
+    });
+
+    test('位置也可以用「該行中之前的非空白字數」表示（畫面文字與正規化文字的空白不同）', async () => {
+      // 第 5 行：「一時，佛在…俱。」28 字之後是「爾時，世尊食時…」；選第二句的第 3–5 個字
+      const r = await post('/api/tts/resolve', { path: P, voice: 'v1', start: { line: 5, n: 30 }, end: { line: 5, n: 33 } });
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.json.sentences.map((x) => x.text), ['爾時，世尊食時，著衣持鉢，入舍衛大城乞食。']);
+      const ex = await post('/api/tts/resolve', { path: P, voice: 'v1', exact: true, start: { line: 5, n: 3 }, end: { line: 5, n: 8 } });
+      assert.equal(ex.json.sentences[0].text, '佛在舍衛國');
+      // 偈頌（跨行單位）：選第 13 行的幾個字，回整個偈
+      const v = await post('/api/tts/resolve', { path: P, voice: 'v1', start: { line: 13, n: 1 }, end: { line: 13, n: 4 } });
+      assert.ok(v.json.sentences.some((x) => x.kind === 'verse'));
+      assert.equal((await post('/api/tts/resolve', { path: P, start: { line: 5, n: 8 }, end: { line: 5, n: 3 } })).status, 400);
     });
 
     test('exact（只讀我選的）：頭尾殘句是臨時句子，可生成並標為臨時快取', async () => {
