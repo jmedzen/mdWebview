@@ -3159,6 +3159,21 @@
         <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
         <output id="ttsRateOut" for="ttsRate">1 倍</output>
       </label>
+      <div class="tts-panel-row">
+        <button type="button" class="tts-chip tts-chip-accent" id="ttsChantBtn">誦經模式（大字全螢幕）</button>
+        <label class="tts-inline"><span>睡眠計時</span>
+          <select id="ttsSleep" aria-label="睡眠計時">
+            <option value="">不設定</option><option value="15">15 分鐘</option><option value="30">30 分鐘</option><option value="60">60 分鐘</option><option value="section">讀完本節</option>
+          </select>
+        </label>
+      </div>
+      <div class="tts-offline" id="ttsOffline">
+        <span class="tts-offline-info" id="ttsOfflineInfo"></span>
+        <button type="button" class="tts-chip" id="ttsOfflineBtn">下載整篇以離線收聽</button>
+        <button type="button" class="tts-chip" id="ttsOfflineCancel" hidden>取消下載</button>
+        <button type="button" class="tts-chip" id="ttsOfflineRemove" hidden>移除離線檔</button>
+      </div>
+      <label class="tts-check"><input type="checkbox" id="ttsContinueNext"><span>讀完這一篇，接著讀同一個資料夾的下一篇</span></label>
       <label class="tts-check"><input type="checkbox" id="ttsFollow"><span>畫面跟著朗讀位置捲動</span></label>
       <label class="tts-check"><input type="checkbox" id="ttsExact"><span>朗讀選取時只讀我選的字（不延伸到完整句）</span></label>
       <label class="tts-check"><input type="checkbox" id="ttsShortcuts"><span>鍵盤快捷鍵：Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></label>
@@ -3166,6 +3181,26 @@
     </div>
     <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
   </section>
+
+  <!-- 誦經模式（B 方案）：全螢幕大字跟讀。開啟時背景 inert、焦點移入，Esc 或「離開」回到原處 -->
+  <div class="tts-chant" id="ttsChant" role="dialog" aria-modal="true" aria-labelledby="ttsChantTitle" hidden>
+    <button type="button" class="tts-chant-close" id="ttsChantClose" aria-label="離開誦經模式">離開</button>
+    <div class="tts-chant-stage">
+      <p class="tts-chant-side" id="ttsChantPrev" aria-hidden="true"></p>
+      <p class="tts-chant-current" id="ttsChantCurrent"></p>
+      <p class="tts-chant-side" id="ttsChantNext" aria-hidden="true"></p>
+    </div>
+    <div class="tts-chant-controls">
+      <button type="button" class="tts-chant-btn" id="ttsChantPrevBtn" aria-label="上一句">
+        <svg width="26" height="26" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2.5" y="3" width="1.8" height="10" rx=".8"/><path d="M13.2 3.4v9.2a.5.5 0 01-.78.42L5.6 8.4a.5.5 0 010-.82l6.82-4.6a.5.5 0 01.78.42z"/></svg>
+      </button>
+      <button type="button" class="tts-chant-btn tts-chant-play" id="ttsChantPlay" aria-label="播放"></button>
+      <button type="button" class="tts-chant-btn" id="ttsChantNextBtn" aria-label="下一句">
+        <svg width="26" height="26" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="11.7" y="3" width="1.8" height="10" rx=".8"/><path d="M2.8 3.4v9.2a.5.5 0 00.78.42L10.4 8.4a.5.5 0 000-.82L3.58 2.98a.5.5 0 00-.78.42z"/></svg>
+      </button>
+    </div>
+    <div class="tts-chant-foot"><h2 class="tts-chant-title" id="ttsChantTitle"></h2><span class="tts-chant-meta" id="ttsChantMeta"></span></div>
+  </div>
 
   <div id="toastContainer" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
