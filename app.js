@@ -11405,7 +11405,7 @@
   function localizeTtsShortcutLabels() {
     if (!TTS_IS_APPLE) return;
     for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
-    for (const sel of ['#ttsShortcuts + span', '#ttsSettings .setting-desc']) {
+    for (const sel of ['#ttsShortcutsDesc', '#ttsSettings .setting-desc']) {
       document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
     }
   }
