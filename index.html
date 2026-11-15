@@ -110,8 +110,8 @@
             <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/>
           </svg>
         </button>
-        <!-- 朗讀：沒有選取時從畫面上第一個可見的句子開始（網站啟用朗讀且開著經文時才顯示） -->
-        <button id="ttsStartBtn" class="control-btn tts-start-btn" type="button" title="從目前位置朗讀（Alt+R）" aria-label="從目前位置朗讀">
+        <!-- 朗讀選單：所有朗讀的啟動方式（網站啟用朗讀且開著經文時才顯示）；選單本體 #ttsStartMenu 在 body 末端 -->
+        <button id="ttsStartBtn" class="control-btn tts-start-btn" type="button" title="朗讀" aria-label="朗讀選單" aria-haspopup="menu" aria-expanded="false" aria-controls="ttsStartMenu">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/>
           </svg>
@@ -3277,6 +3277,30 @@
     </div>
     <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
   </section>
+
+  <!-- 朗讀選單（右上角喇叭）：標準 menu button；↑↓ 移動、Enter 執行、Esc 關閉 -->
+  <div class="tts-menu" id="ttsStartMenu" role="menu" aria-label="朗讀" hidden>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="toggle" hidden><span class="tts-menu-title" id="ttsMenuToggleText">暫停</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="here"><span class="tts-menu-title">從這裡讀到結尾</span><span class="tts-menu-sub">從畫面上第一句開始</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="section"><span class="tts-menu-title">朗讀本節</span><span class="tts-menu-sub">讀到下一個同級標題為止</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="sentence"><span class="tts-menu-title">朗讀本句</span><span class="tts-menu-sub" id="ttsMenuSentenceSub">只讀畫面上第一句，讀完就停</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="top"><span class="tts-menu-title">從頭朗讀整篇</span></button>
+    <div class="tts-menu-sep" role="separator"></div>
+    <button type="button" role="menuitemcheckbox" aria-checked="false" class="tts-menu-item tts-menu-check" data-tts-act="next" id="ttsMenuNext"><span class="tts-menu-title">讀完接下一篇</span><span class="tts-menu-sub">同一個資料夾的下一篇</span><span class="tts-menu-tick" aria-hidden="true"></span></button>
+    <div class="tts-menu-group" role="group" aria-labelledby="ttsMenuSleepLabel">
+      <span class="tts-menu-label" id="ttsMenuSleepLabel">睡眠計時</span>
+      <div class="tts-menu-chips">
+        <button type="button" role="menuitemradio" aria-checked="true" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="" aria-label="睡眠計時：不設定">關</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="15" aria-label="睡眠計時：15 分鐘">15 分</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="30" aria-label="睡眠計時：30 分鐘">30 分</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="60" aria-label="睡眠計時：60 分鐘">60 分</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="section" aria-label="睡眠計時：讀完本節">本節</button>
+      </div>
+    </div>
+    <div class="tts-menu-sep" role="separator"></div>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="chant"><span class="tts-menu-title">誦經模式</span><span class="tts-menu-sub">大字全螢幕跟讀</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="panel"><span class="tts-menu-title">播放面板與設定</span><span class="tts-menu-sub">音色、語速、睡眠計時、離線收聽</span></button>
+  </div>
 
   <!-- 誦經模式（B 方案）：全螢幕大字跟讀。開啟時背景 inert、焦點移入，Esc 或「離開」回到原處 -->
   <div class="tts-chant" id="ttsChant" role="dialog" aria-modal="true" aria-labelledby="ttsChantTitle" hidden>

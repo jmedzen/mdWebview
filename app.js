@@ -10370,7 +10370,7 @@
     ttsRt.path = path;
     ttsRt.title = path.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
     ttsRt.items = []; ttsRt.pos = -1; ttsRt.endIndex = -1; ttsRt.stopLevel = null; ttsRt.chapter = null;
-    ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null; ttsRt.error = null; ttsRt.waiting = false;
+    ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null; ttsRt.error = null; ttsRt.waiting = false; ttsRt.selOnly = false;
     ttsRt.userScrollAt = 0; ttsRt.stopAtUnit = undefined; ttsRt.sectionStart = undefined; ttsRt.sectionStartUnit = undefined; ttsRt.lastRange = null;
     return ttsRt.token;
   }
@@ -10415,7 +10415,7 @@
   }
 
   /** 從某一行開始。stopLevel：null 讀到底；數字＝讀到下一個同級或更高級的標題為止（朗讀本節）。 */
-  function ttsStartFromLine(line, section) {
+  function ttsStartFromLine(line, section, opts) {
     return ttsBegin(async (token) => {
       const d = await ttsApi(ttsDocUrl(state.currentFile, `&line=${line}`));
       if (token !== ttsRt.token) return -1;
@@ -10424,6 +10424,7 @@
       let k = ttsRt.items.findIndex(it => it.endLine >= line);
       if (k < 0) k = 0;
       const first = ttsNextPlayable(k, 1);
+      if (opts && opts.one && first >= 0) ttsRt.endIndex = first; // 朗讀本句：只到這一句
       if (section && first >= 0) {
         const head = ttsRt.items[first];
         ttsRt.stopLevel = head.kind === 'heading' ? (head.level || 7) : 7;
@@ -10445,7 +10446,7 @@
   }
 
   /** 朗讀選取的文字：伺服器把範圍吸附到完整句（或依「只讀我選的字」照實切）。 */
-  function ttsStartFromSelection(range) {
+  function ttsStartFromSelection(range, opts) {
     const body = $('markdownBody');
     if (!body || !range) return;
     const idx = buildHighlightTextIndex(body);
@@ -10461,6 +10462,7 @@
       ttsRt.items = d.sentences.slice();
       ttsRt.endIndex = ttsRt.items.length - 1;
       ttsRt.selFrom = d.selFrom; ttsRt.selTo = d.selTo;
+      ttsRt.selOnly = !!(opts && opts.only); // 朗讀本句：讀完選的就停，不接後面
       ttsRt.flags = Object.assign({}, d.flags || {});
       // 選到半句也算延伸（伺服器的 extended 只看有沒有多出整句）
       const played = d.sentences.reduce((n, x) => n + (x.kind === 'skip' ? 0 : (x.text.match(/[^\s\u3000]/g) || []).length), 0);
@@ -10618,7 +10620,7 @@
       if (await ttsLoadMore()) { if (token !== ttsRt.token) return; k = ttsNextPlayable(ttsRt.pos + 1, 1); }
     }
     // 朗讀選取：讀完選的句子後接著往下讀（可在設定關掉）
-    const selDone = ttsRt.selFrom >= 0 && ttsPrefs().selContinue && (k < 0 || (ttsRt.stopAtUnit !== undefined && ttsRt.items[k] && ttsRt.items[k].i > ttsRt.stopAtUnit));
+    const selDone = ttsRt.selFrom >= 0 && !ttsRt.selOnly && ttsPrefs().selContinue && (k < 0 || (ttsRt.stopAtUnit !== undefined && ttsRt.items[k] && ttsRt.items[k].i > ttsRt.stopAtUnit));
     if (selDone && await ttsContinueAfterSelection(token)) {
       if (token !== ttsRt.token) return;
       ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null;
@@ -10758,16 +10760,147 @@
 
   // ── 入口 ──
   /** 沒有選取時：從畫面上第一個可見的行開始（盲人最常用的入口）。 */
-  function ttsStartFromVisible() {
+  /** 畫面上第一個看得到的行號。 */
+  function ttsVisibleLine() {
     const body = $('markdownBody'); const scroller = $('content');
-    if (!body || !state.currentFile) return;
+    if (!body) return 1;
     const top = scroller ? scroller.getBoundingClientRect().top + 4 : 0;
-    let line = 1;
     for (const el of body.querySelectorAll('.line-anchor[data-line]')) {
       const r = (el.parentElement || el).getBoundingClientRect();
-      if (r.bottom > top) { line = parseInt(el.getAttribute('data-line'), 10) || 1; break; }
+      if (r.bottom > top) return parseInt(el.getAttribute('data-line'), 10) || 1;
     }
-    return ttsStartFromLine(line, false);
+    return 1;
+  }
+
+  function ttsStartFromVisible() {
+    if (!$('markdownBody') || !state.currentFile) return;
+    return ttsStartFromLine(ttsVisibleLine(), false);
+  }
+
+  /** 朗讀本節（從選單）：畫面上第一行所在的那一節，從它的標題讀到下一個同級標題。沒有標題就從目前位置讀。 */
+  function ttsStartSectionHere() {
+    const body = $('markdownBody');
+    if (!body || !state.currentFile) return;
+    const line = ttsVisibleLine();
+    let head = 0;
+    for (const h of body.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+      const l = ttsHeadingLine(h);
+      if (l && l <= line) head = l; else if (l > line) break;
+    }
+    return head ? ttsStartFromLine(head, true) : ttsStartFromLine(line, false);
+  }
+
+  /** 朗讀本句：有選取就只讀選取的句子；沒有就讀畫面上第一句。讀完就停，不往下接。 */
+  function ttsStartOneSentence(range) {
+    if (range) return ttsStartFromSelection(range, { only: true });
+    if (!$('markdownBody') || !state.currentFile) return;
+    return ttsStartFromLine(ttsVisibleLine(), false, { one: true });
+  }
+
+  // ── 右上角的朗讀選單（menu button）──
+  // 開選單時先把內文裡的選取存起來：點選單時有些瀏覽器會清掉選取，「朗讀本句」要用。
+  function ttsSelectionRangeInBody() {
+    const sel = window.getSelection(); const body = $('markdownBody');
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !body) return null;
+    const r = sel.getRangeAt(0);
+    return body.contains(r.commonAncestorContainer) && sel.toString().trim() ? r.cloneRange() : null;
+  }
+
+  function ttsMenuItems() { return [...$('ttsStartMenu').querySelectorAll('.tts-menu-item:not([hidden])')]; }
+
+  function openTtsStartMenu(focusLast) {
+    const menu = $('ttsStartMenu'); const btn = $('ttsStartBtn');
+    if (!menu || !btn) return;
+    ttsRt.menuRange = ttsSelectionRangeInBody();
+    const toggle = menu.querySelector('[data-tts-act="toggle"]');
+    toggle.hidden = !ttsRt.active;
+    $('ttsMenuToggleText').textContent = ttsRt.playing ? '暫停朗讀' : '繼續朗讀';
+    $('ttsMenuNext').setAttribute('aria-checked', ttsPrefs().continueNext ? 'true' : 'false');
+    syncTtsMenuSleep();
+    $('ttsMenuSentenceSub').textContent = ttsRt.menuRange ? '只讀選取的句子，讀完就停' : '只讀畫面上第一句，讀完就停';
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    const r = btn.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    menu.style.top = `${Math.round(r.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)))}px`;
+    const items = ttsMenuItems();
+    (focusLast ? items[items.length - 1] : items[0]).focus();
+  }
+
+  function ttsSleepValue() {
+    if (!ttsRt.sleep) return '';
+    if (ttsRt.sleep.section) return 'section';
+    const sl = $('ttsSleep'); return sl && sl.value ? sl.value : '';
+  }
+  function syncTtsMenuSleep() {
+    const v = ttsSleepValue();
+    $('ttsStartMenu').querySelectorAll('[data-tts-act="sleep"]').forEach(b => b.setAttribute('aria-checked', b.dataset.sleep === v ? 'true' : 'false'));
+  }
+
+  function closeTtsStartMenu(refocus) {
+    const menu = $('ttsStartMenu'); const btn = $('ttsStartBtn');
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    if (refocus) btn.focus();
+  }
+
+  async function runTtsMenuAction(act, item) {
+    // 勾選類的項目：改設定、選單不關（像系統選單的勾選項）
+    if (act === 'next') {
+      const p = ttsPrefs(); p.continueNext = !p.continueNext; saveTtsPrefs();
+      item.setAttribute('aria-checked', p.continueNext ? 'true' : 'false');
+      const c = $('ttsContinueNext'); if (c) c.checked = p.continueNext;
+      ttsAnnounce(p.continueNext ? '讀完會接著讀下一篇' : '讀完這一篇就停');
+      return;
+    }
+    if (act === 'sleep') {
+      const v = item.dataset.sleep;
+      const sl = $('ttsSleep'); if (sl) sl.value = v;
+      ttsSetSleep(v); syncTtsMenuSleep();
+      return;
+    }
+    const range = ttsRt.menuRange; ttsRt.menuRange = null;
+    closeTtsStartMenu(act === 'toggle');
+    if (act === 'toggle') return ttsTogglePlay();
+    if (act === 'here') return ttsStartFromVisible();
+    if (act === 'section') return ttsStartSectionHere();
+    if (act === 'sentence') return ttsStartOneSentence(range);
+    if (act === 'top') return ttsStartFromLine(1, false);
+    if (act === 'chant') { if (!ttsRt.active) await ttsStartFromVisible(); return openTtsChant(); }
+    if (act === 'panel') {
+      if (!ttsRt.active) { const p = ttsStartFromVisible(); ttsTogglePlayAfter(p); }
+      setTtsPanelOpen(true);
+      const b = $('ttsExpandBtn'); if (b) b.focus();
+    }
+  }
+
+  /** 「播放面板與設定」在還沒開始朗讀時：開播放列但先不出聲（使用者在面板裡調好再按播放）。 */
+  function ttsTogglePlayAfter(p) {
+    Promise.resolve(p).then(() => { if (ttsRt.active && ttsRt.playing) ttsTogglePlay(); });
+  }
+
+  function setupTtsStartMenu() {
+    const btn = $('ttsStartBtn'); const menu = $('ttsStartMenu');
+    if (!btn || !menu) return;
+    btn.addEventListener('pointerdown', () => { ttsRt.menuRange = ttsSelectionRangeInBody(); });
+    btn.addEventListener('click', () => { if (menu.hidden) { const keep = ttsRt.menuRange; openTtsStartMenu(false); ttsRt.menuRange = ttsRt.menuRange || keep; } else closeTtsStartMenu(true); });
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openTtsStartMenu(e.key === 'ArrowUp'); }
+    });
+    menu.addEventListener('click', (e) => { const it = e.target.closest('.tts-menu-item'); if (it) runTtsMenuAction(it.dataset.ttsAct, it); });
+    menu.addEventListener('keydown', (e) => {
+      const items = ttsMenuItems(); const i = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTtsStartMenu(true); }
+      else if (e.key === 'Tab') closeTtsStartMenu(false);
+    });
+    document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) closeTtsStartMenu(false); }, true);
+    window.addEventListener('resize', () => closeTtsStartMenu(false));
   }
 
   function ttsHeadingLine(h) {
@@ -11477,7 +11610,7 @@
     on('ttsFollow', 'change', (e) => { ttsPrefs().follow = e.target.checked; saveTtsPrefs(); if (e.target.checked) ttsBackToPosition(); });
     on('ttsShortcuts', 'change', (e) => { ttsPrefs().shortcuts = e.target.checked; saveTtsPrefs(); });
     on('ttsExact', 'change', (e) => { ttsPrefs().exact = e.target.checked; saveTtsPrefs(); });
-    on('ttsStartBtn', 'click', () => { if (ttsRt.active) { $('ttsPlayBtn').focus(); ttsTogglePlay(); } else ttsStartFromVisible(); });
+    setupTtsStartMenu();
 
     // 標題旁的「朗讀本節」
     const body = $('markdownBody');

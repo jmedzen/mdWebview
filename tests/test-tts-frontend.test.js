@@ -124,6 +124,25 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.match(cont, /ttsRt\.endIndex = -1/);
   });
 
+  test('右上角喇叭是朗讀選單（menu button）：所有啟動方式＋朗讀本句（讀完就停）', () => {
+    assert.match(html, /id="ttsStartBtn"[^>]*aria-label="朗讀選單" aria-haspopup="menu" aria-expanded="false" aria-controls="ttsStartMenu"/);
+    assert.match(html, /<div class="tts-menu" id="ttsStartMenu" role="menu" aria-label="朗讀" hidden>/);
+    for (const act of ['here', 'section', 'sentence', 'top', 'chant', 'panel', 'next', 'sleep', 'toggle']) {
+      assert.match(html, new RegExp(`data-tts-act="${act}"`), act);
+    }
+    assert.match(html, /role="menuitemcheckbox"[^>]*data-tts-act="next"/);
+    assert.match(html, /role="menuitemradio"[^>]*data-sleep="section"/);
+    // 朗讀本句：選取＝只讀選取（selOnly，不接後面）；沒選取＝畫面上第一句（endIndex＝那一句）
+    assert.match(ttsSection, /ttsStartFromSelection\(range, \{ only: true \}\)/);
+    assert.match(ttsSection, /if \(opts && opts\.one && first >= 0\) ttsRt\.endIndex = first;/);
+    assert.match(ttsSection, /ttsRt\.selFrom >= 0 && !ttsRt\.selOnly && ttsPrefs\(\)\.selContinue/);
+    // 鍵盤：↑↓／Home／End／Esc；Esc 把焦點還給按鈕
+    const setup = ttsSection.slice(ttsSection.indexOf('function setupTtsStartMenu'), ttsSection.indexOf('function ttsHeadingLine'));
+    for (const k of ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape']) assert.ok(setup.includes(`'${k}'`), k);
+    assert.match(css, /\.tts-menu-item \{[^}]*min-height: 44px;/);
+    assert.match(css, /\.tts-menu-chip \{[^}]*min-height: 44px;/);
+  });
+
   test('播放列的按鈕至少 44×44，播放列尊重 safe-area', () => {
     assert.match(css, /\.tts-btn \{[\s\S]*?width: 44px; height: 44px;/);
     assert.match(css, /\.tts-bar \{[\s\S]*?padding-bottom: env\(safe-area-inset-bottom, 0px\);/);
