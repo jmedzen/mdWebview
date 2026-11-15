@@ -189,7 +189,24 @@ describe('朗讀的鍵盤快捷鍵', () => {
     assert.match(handler, /isTtsTypingTarget\(e\.target\)/);
     assert.match(handler, /ttsPrefs\(\)\.shortcuts/);
     const fn = ttsSection.slice(ttsSection.indexOf('function isTtsTypingTarget'), ttsSection.indexOf('function setupTts()'));
-    for (const t of ['INPUT', 'TEXTAREA', 'SELECT', 'isContentEditable']) assert.ok(fn.includes(t), t);
+    for (const t of ['INPUT', 'TEXTAREA', 'isContentEditable']) assert.ok(fn.includes(t), t);
+  });
+
+  test('勾選框、滑桿不算打字欄位（剛按完面板裡的勾選框也要能用快捷鍵）；Mac 顯示 ⌥', () => {
+    const src = ttsSection.slice(ttsSection.indexOf('const TTS_TEXT_INPUT'), ttsSection.indexOf('function localizeTtsShortcutLabels'));
+    // Chromium 的 userAgentData.platform 是小寫開頭的「macOS」
+    const ctx = { navigator: { userAgentData: { platform: 'macOS' } }, String }; vm.createContext(ctx);
+    vm.runInContext(src.replace(/const /g, 'var ') + '\nthis.f = isTtsTypingTarget; this.l = ttsKeyLabel;', ctx);
+    const el = (tagName, type, extra) => Object.assign({ tagName, type }, extra || {});
+    assert.equal(ctx.f(el('INPUT', 'checkbox')), false);
+    assert.equal(ctx.f(el('INPUT', 'range')), false);
+    assert.equal(ctx.f(el('SELECT')), false);
+    assert.equal(ctx.f(el('BUTTON')), false);
+    assert.equal(ctx.f(el('INPUT', 'text')), true);
+    assert.equal(ctx.f(el('INPUT', 'search')), true);
+    assert.equal(ctx.f(el('TEXTAREA')), true);
+    assert.equal(ctx.f(el('DIV', undefined, { isContentEditable: true })), true);
+    assert.equal(ctx.l('播放（Alt+R）'), '播放（⌥R）');
   });
 
   test('用 e.code 判斷（Mac 的 Option+R 會打出 ®）', () => {

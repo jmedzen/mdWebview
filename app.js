@@ -10958,7 +10958,7 @@
     const playBtn = $('ttsPlayBtn');
     playBtn.innerHTML = ttsRt.playing ? TTS_ICON.pause : TTS_ICON.play;
     playBtn.setAttribute('aria-label', ttsRt.playing ? '暫停' : '播放');
-    playBtn.title = ttsRt.playing ? '暫停（Alt+R）' : '播放（Alt+R）';
+    playBtn.title = ttsKeyLabel(ttsRt.playing ? '暫停（Alt+R）' : '播放（Alt+R）');
     bar.classList.toggle('is-waiting', !!ttsRt.waiting && ttsRt.playing);
     bar.classList.toggle('is-error', !!ttsRt.error);
     $('ttsTitle').textContent = ttsRt.title;
@@ -11305,9 +11305,25 @@
     });
   }
 
+  // 只有「打字用」的欄位才讓出快捷鍵。勾選框、滑桿、按鈕不算：剛按完面板裡的
+  // 「鍵盤快捷鍵」勾選框，焦點還留在那個勾選框上，快捷鍵也要能用。
+  const TTS_TEXT_INPUT = /^(?:text|search|email|url|tel|password|number|date|datetime-local|month|time|week)$/i;
   function isTtsTypingTarget(t) {
     if (!t || !t.tagName) return false;
-    return t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+    if (t.isContentEditable || t.tagName === 'TEXTAREA') return true;
+    if (t.tagName === 'INPUT') return TTS_TEXT_INPUT.test(t.type || 'text');
+    return false;
+  }
+
+  /** Mac 與 iPad 的鍵盤上沒有 Alt，寫成 ⌥ Option。 */
+  const TTS_IS_APPLE = /mac|iphone|ipad|ipod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
+  function ttsKeyLabel(text) { return TTS_IS_APPLE ? String(text).replace(/Alt（Option）\+|Alt\+/g, '⌥') : text; }
+  function localizeTtsShortcutLabels() {
+    if (!TTS_IS_APPLE) return;
+    for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
+    for (const sel of ['#ttsShortcuts + span', '#ttsSettings .setting-desc']) {
+      document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
+    }
   }
 
   function setupTts() {
@@ -11324,6 +11340,7 @@
     on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; const it = ttsRt.items[ttsRt.pos]; if (it) it.retried = false; ttsPlayAt(ttsRt.pos); });
     on('ttsSkipBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsStep(1); });
     on('ttsExpandBtn', 'click', () => setTtsPanelOpen($('ttsPanel').hidden));
+    localizeTtsShortcutLabels();
     setupTtsPhase5();
     on('ttsRateBtn', 'click', () => { setTtsPanelOpen(true); $('ttsRate').focus(); });
     on('ttsVoiceBtn', 'click', () => { setTtsPanelOpen(true); const r = document.querySelector('#ttsVoiceCards input:checked') || document.querySelector('#ttsVoiceCards input'); if (r) r.focus(); });
