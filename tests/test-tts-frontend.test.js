@@ -84,6 +84,41 @@ describe('朗讀播放器的無障礙語意', () => {
   });
 });
 
+describe('誦經模式、睡眠計時、離線下載', () => {
+  const chantHtml = html.slice(html.indexOf('<div class="tts-chant"'), html.indexOf('<div class="tts-chant-foot"'));
+  test('誦經模式是 aria-modal 的對話框；開啟時背景 inert、關閉時焦點回原處', () => {
+    assert.match(html, /<div class="tts-chant" id="ttsChant" role="dialog" aria-modal="true" aria-labelledby="ttsChantTitle" hidden>/);
+    const open = ttsSection.slice(ttsSection.indexOf('function openTtsChant'), ttsSection.indexOf('function closeTtsChant'));
+    const close = ttsSection.slice(ttsSection.indexOf('function closeTtsChant'), ttsSection.indexOf('function renderTtsChant'));
+    assert.match(open, /\.inert = true/); assert.match(open, /chantReturn = document\.activeElement/); assert.match(open, /\.focus\(\)/);
+    assert.match(close, /\.inert = false/); assert.match(close, /back[\s\S]*\.focus\(\)/);
+  });
+  test('誦經模式的按鈕：播放 ≥ 64pt，其餘 ≥ 44pt，都有名稱；前後句不給 VoiceOver 重複讀', () => {
+    assert.match(css, /\.tts-chant-btn\.tts-chant-play \{ width: 76px; height: 76px;/);
+    assert.match(css, /\.tts-chant-btn \{\s*width: 56px; height: 56px;/);
+    for (const id of ['ttsChantClose', 'ttsChantPrevBtn', 'ttsChantPlay', 'ttsChantNextBtn']) assert.match(chantHtml, new RegExp(`id="${id}"[^>]*aria-label="[^"]+"`));
+    assert.match(chantHtml, /id="ttsChantPrev" aria-hidden="true"/);
+    assert.match(chantHtml, /id="ttsChantNext" aria-hidden="true"/);
+  });
+  test('Esc 關閉誦經模式；焦點留在對話框內', () => {
+    assert.match(ttsSection, /if \(e\.key === 'Escape' && ttsChantOpen\(\)\) \{ e\.preventDefault\(\); closeTtsChant\(\);/);
+    assert.match(ttsSection, /if \(e\.key !== 'Tab'\) return; \/\/ 焦點留在對話框裡/);
+  });
+  test('睡眠計時：15／30／60 分與讀完本節；在換句時也檢查（背景時計時器會被凍結）', () => {
+    for (const v of ['15', '30', '60', 'section']) assert.match(html, new RegExp(`<option value="${v}">`));
+    const ended = ttsSection.slice(ttsSection.indexOf('async function onTtsEnded'), ttsSection.indexOf('function ttsFinish'));
+    assert.match(ended, /ttsSleepCheck\(false\)/);
+    assert.match(ended, /ttsRt\.sleep\.section && nx\.kind === 'heading'/);
+  });
+  test('離線下載存在獨立、不綁版本、不自動清理的快取；SW 先從那裡找', () => {
+    assert.match(ttsSection, /const TTS_OFFLINE_CACHE = 'mdwebview-tts-offline-v1'/);
+    assert.match(sw, /const TTS_OFFLINE_CACHE = 'mdwebview-tts-offline-v1'/);
+    const handler = sw.slice(sw.indexOf('async function handleTtsAudio'));
+    assert.ok(handler.indexOf('TTS_OFFLINE_CACHE') < handler.indexOf('cache.match(key)'));
+    assert.ok(!/trimCache\(TTS_OFFLINE_CACHE/.test(sw));
+  });
+});
+
 describe('朗讀的配色對比（WCAG AA）', () => {
   const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
     .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)))
@@ -127,7 +162,7 @@ describe('朗讀的鍵盤快捷鍵', () => {
   test('在輸入框內不生效；可在偏好中關閉', () => {
     assert.match(handler, /isTtsTypingTarget\(e\.target\)/);
     assert.match(handler, /ttsPrefs\(\)\.shortcuts/);
-    const fn = ttsSection.slice(ttsSection.indexOf('function isTtsTypingTarget'), ttsSection.indexOf('function setupTts'));
+    const fn = ttsSection.slice(ttsSection.indexOf('function isTtsTypingTarget'), ttsSection.indexOf('function setupTts()'));
     for (const t of ['INPUT', 'TEXTAREA', 'SELECT', 'isContentEditable']) assert.ok(fn.includes(t), t);
   });
 

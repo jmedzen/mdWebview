@@ -12809,3 +12809,55 @@ body.focus-mode .tts-start-btn { display: none; }
 .admin-shell .tts-job progress { width: 100%; height: 6px; accent-color: var(--tts-accent); }
 .admin-shell #adminTtsLexicon { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .hw-tts-status { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+
+/* §27c 朗讀：面板的列、離線下載、誦經模式（B 方案） */
+.tts-panel-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.tts-panel-row .tts-chip { min-height: 44px; }
+.tts-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.tts-inline select { min-height: 36px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--input-bg, var(--bg-primary)); color: var(--text-primary); font: inherit; }
+.tts-offline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; }
+.tts-offline-info { flex: 1 1 14em; color: var(--text-secondary); font-size: 0.92em; }
+.tts-offline .tts-chip { min-height: 40px; }
+
+.tts-chant {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; flex-direction: column;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
+  background: var(--bg-primary); color: var(--text-primary);
+}
+.tts-chant[hidden] { display: none; }
+body.tts-chant-open { overflow: hidden; }
+.tts-chant-close {
+  align-self: flex-end; min-width: 64px; min-height: 44px; padding: 6px 18px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font: inherit; cursor: pointer;
+}
+.tts-chant-stage {
+  flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.6em;
+  width: min(900px, 100%); margin: 0 auto; text-align: center;
+  font-family: var(--cjk-serif, serif);
+}
+.tts-chant-side { margin: 0; font-size: clamp(16px, 2.2vw, 22px); line-height: 1.7; color: var(--text-muted); opacity: 0.55; max-height: 3.4em; overflow: hidden; }
+.tts-chant-current {
+  margin: 0; font-size: clamp(26px, 4.6vw, 46px); line-height: 1.75; font-weight: 500;
+  padding: 0.3em 0.5em; border-radius: 14px; background: var(--tts-accent-bg);
+  text-decoration: underline 2px var(--tts-accent); text-underline-offset: 0.3em;
+}
+.tts-chant-current.is-verse { white-space: pre-wrap; word-spacing: 0.6em; }
+.tts-chant-current.is-heading { color: var(--heading-color, var(--text-primary)); font-weight: 700; }
+.tts-chant-current.tts-fade { animation: tts-chant-in 0.45s ease; }
+@keyframes tts-chant-in { from { opacity: 0.2; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.tts-chant-controls { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 12px 0; }
+.tts-chant-btn {
+  width: 56px; height: 56px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.tts-chant-btn.tts-chant-play { width: 76px; height: 76px; background: var(--tts-accent); color: var(--tts-on-accent); border-color: var(--tts-accent); }
+.tts-chant-btn.tts-chant-play svg { width: 30px; height: 30px; }
+.tts-chant :is(button):focus-visible { outline: 3px solid var(--tts-accent); outline-offset: 3px; }
+.tts-chant-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--text-muted); font-size: 0.95rem; }
+.tts-chant-title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
+.tts-chant-meta { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .tts-chant-current.tts-fade { animation: none; } }
+@media (forced-colors: active) { .tts-chant-current { background: Canvas; border: 2px solid Highlight; } }
+@media (max-height: 500px) { .tts-chant-side { display: none; } .tts-chant-current { font-size: clamp(20px, 4vw, 30px); } }

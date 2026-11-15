@@ -54,6 +54,7 @@ const MAX_CONTENT_CACHE_ITEMS = 150;
 // 不放進 CONTENT_CACHE（那裡只留 150 筆）。播放過與預取的句子都會留在這裡，離線也能重聽。
 const TTS_CACHE = 'mdwebview-tts-v1';
 const TTS_AUDIO_PREFIX = '/api/tts/audio/';
+const TTS_OFFLINE_CACHE = 'mdwebview-tts-offline-v1'; // 使用者按「下載整篇」存的，不自動清理
 const MAX_TTS_CACHE_ITEMS = 6000; // 每句約 40 KB（AAC 64k），約 240 MB
 
 // Which /api/ endpoints may be stored for offline reading. Everything else
@@ -342,7 +343,8 @@ async function handleTtsAudio(event, req, url) {
   let cache = null;
   try {
     cache = await caches.open(TTS_CACHE);
-    const cached = await cache.match(key);
+    // 先找「下載以離線收聽」的快取（mdwebview-tts-offline-v1，不會被自動清理），再找一般播放留下的
+    const cached = (await caches.open(TTS_OFFLINE_CACHE).then(c => c.match(key)).catch(() => null)) || await cache.match(key);
     if (cached) return ttsRangeResponse(cached, rangeHeader);
   } catch (_) { /* Cache Storage 不可用：直接走網路 */ }
   // 快取沒有：向伺服器要完整的檔（不帶 Range），存起來再依原請求回應
