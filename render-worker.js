@@ -413,11 +413,11 @@ function renderMarkdownSSR(body, filePath, lineOffset) {
       const safeLabel = escapeHtml(id);
       let fnRendered = (fnRenderedArray[idx] || '').trim();
       const count = refCounter[id] || 0;
-      let bl = count === 1 ? ` <a href="#fn-ref-${safeId}-1" class="footnote-backlink" title="返回">↩</a>` : '';
+      let bl = count === 1 ? ` <a href="#fn-ref-${safeId}-1" class="footnote-backlink" title="返回" aria-label="返回正文">↩</a>` : '';
       if (count > 1) {
         bl = ' ';
         for (let r = 1; r <= count; r++)
-          bl += `<a href="#fn-ref-${safeId}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
+          bl += `<a href="#fn-ref-${safeId}-${r}" class="footnote-backlink" title="返回至第 ${r} 處" aria-label="返回正文第 ${r} 處">↩<sup>${r}</sup></a> `;
       }
       if (fnRendered.includes('</p>')) {
         const li = fnRendered.lastIndexOf('</p>');

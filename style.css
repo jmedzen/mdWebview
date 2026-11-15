@@ -739,6 +739,8 @@ body,
   min-width: 0;
   border-right: none;
   overflow: hidden;
+  /* 收起後寬度為 0，但裡面的按鈕仍可 Tab 到、VoiceOver 也會念；藏起來讓輔助科技跳過 */
+  visibility: hidden;
 }
 
 /* ── Sidebar Tabs ──────────────────────────────────────────── */
@@ -3974,12 +3976,17 @@ kbd {
   right: calc(20px + env(safe-area-inset-right, 0px));
   z-index: 200;
   opacity: 0;
+  /* 只用 opacity 隱藏時，輸入框仍可 Tab 到、VoiceOver 也會念出「在本頁搜尋」；
+     關閉時等淡出結束才隱藏，打開時立刻可見、可聚焦 */
+  visibility: hidden;
   transform: translateY(-10px) scale(0.97);
   pointer-events: none;
-  transition: all 0.2s ease;
+  transition: all 0.2s ease, visibility 0s linear 0.2s;
 }
 
 .page-search-bar.visible {
+  visibility: visible;
+  transition: all 0.2s ease, visibility 0s;
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: all;
@@ -9089,6 +9096,8 @@ details.callout[open] > summary .callout-fold-icon {
   width: 0;
   border-left: none;
   overflow: hidden;
+  /* 同左側欄：收起時不讓 Tab 與 VoiceOver 進到看不見的辭典 */
+  visibility: hidden;
 }
 
 /* ── Dictionary Resize Handle (left edge of the right panel) ── */

@@ -88,7 +88,7 @@
     <!-- ── §HEADER ──────────────────────────────────────── -->
     <header class="app-header" id="appHeader">
       <div class="header-left">
-        <button class="sidebar-toggle" id="sidebarToggle" title="切換側邊欄">
+        <button class="sidebar-toggle" id="sidebarToggle" title="切換側邊欄" aria-label="切換側邊欄" aria-controls="sidebar" aria-expanded="true">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
             <rect y="2" width="18" height="2" rx="1" fill="currentColor"/>
             <rect y="8" width="18" height="2" rx="1" fill="currentColor"/>
@@ -500,7 +500,7 @@
             <span class="kepan-nav-sep" aria-hidden="true"></span>
             <button type="button" class="entry-nav-btn kepan-nav-btn" id="kepanNext" title="後一科"><span class="kepan-nav-name">後一科</span><span class="kepan-nav-arrow" aria-hidden="true">→</span></button>
           </nav>
-          <button class="back-to-top" id="backToTop" title="回到頂部">↑</button>
+          <button class="back-to-top" id="backToTop" title="回到頂部" aria-label="回到頂部">↑</button>
           <div class="entry-nav" id="entryNav" style="display:none">
             <button class="entry-nav-btn" id="entryNavPrev" title="前一條">← 前一條</button>
             <span class="entry-nav-label" id="entryNavLabel"></span>
@@ -529,7 +529,7 @@
               </svg>
             </button>
           </div>
-          <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉">✕</button>
+          <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉" aria-label="關閉辭典">✕</button>
         </div>
         <div class="dict-tabs" id="dictTabs">
           <button class="dict-tab active" data-mode="prefix">詞條</button>
@@ -570,11 +570,11 @@
   <!-- ── §MODALS ───────────────────────────────────────── -->
   
   <!-- 1. Admin Setup Overlay (Full screen) -->
-  <div class="modal-overlay" id="adminSetupOverlay" style="display: none;">
+  <div class="modal-overlay" id="adminSetupOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="adminSetupTitle">
     <div class="modal-card">
       <div class="modal-header">
         <span class="modal-icon">🪷</span>
-        <h2>設定管理員帳戶</h2>
+        <h2 id="adminSetupTitle">設定管理員帳戶</h2>
       </div>
       <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與網站網址。Email 與帳號名稱至少填一個。</p>
       <form id="adminSetupForm" class="modal-form">
@@ -641,12 +641,12 @@
   </aside>
 
   <!-- User Settings & Preferences Menu Modal -->
-  <div class="modal-overlay" id="userSettingsOverlay" style="display: none;">
+  <div class="modal-overlay" id="userSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="userSettingsTitle">
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理</h2>
-        <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
+        <h2 id="userSettingsTitle">偏好設定與閱讀管理</h2>
+        <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉" aria-label="關閉偏好設定">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
           </svg>
@@ -669,7 +669,7 @@
               <span class="setting-title">閱讀主題</span>
               <span class="setting-desc">切換專屬配色風格 </span>
             </div>
-            <select id="settingThemeSelect" class="setting-select">
+            <select id="settingThemeSelect" class="setting-select" aria-label="閱讀主題">
               <option value="obsidian-dark">🌌 夜藍 Night</option>
               <option value="obsidian-light">🌫️ 霧灰 Mist</option>
               <option value="paper">📜 素紙 Paper</option>
@@ -753,7 +753,7 @@
               <span class="setting-desc">全文搜尋時忽略標點、空白與換行，如搜尋「佛法僧」也能找到「佛法，僧」、「佛法　僧」。關閉為精確比對（完全照原文字面）；與搜尋面板的 ≈／= 按鈕同步</span>
             </div>
             <label class="toggle-switch" for="settingLooseSearchCheck" title="寬鬆比對">
-              <input type="checkbox" id="settingLooseSearchCheck">
+              <input type="checkbox" id="settingLooseSearchCheck" aria-label="寬鬆比對">
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -765,7 +765,7 @@
               <span class="setting-desc">搜尋、辭典與本頁搜尋時，簡體與繁體字形互相命中（如 后／後、发／發／髮）；簡體顯示時一律開啟</span>
             </div>
             <label class="toggle-switch" for="settingAutoS2TCheck" title="簡繁字形一併比對">
-              <input type="checkbox" id="settingAutoS2TCheck">
+              <input type="checkbox" id="settingAutoS2TCheck" aria-label="簡繁字形一併比對">
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -1216,7 +1216,7 @@
   </div>
 
   <!-- 3. Admin Settings Overlay：全頁後台（左側分組導覽、右側一頁一件事；手機先看清單再進頁面） -->
-  <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;">
+  <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-label="後台">
     <div class="admin-shell" id="adminShell" data-view="page">
       <aside class="admin-side" aria-label="後台導覽">
         <div class="admin-side-top">
