@@ -10231,6 +10231,7 @@
         shortcuts: p.shortcuts !== false,
         exact: p.exact === true,
         continueNext: p.continueNext === true, // 讀完這一篇接著讀同資料夾的下一篇
+        selContinue: p.selContinue !== false,  // 朗讀選取的文字之後，接著往下讀到整篇結束（預設開）
         focusFollow: p.focusFollow === true,   // 朗讀時讓螢幕閱讀器的焦點跟著目前的句子（預設關）
         sleepDefault: ['15', '30', '60', 'section'].includes(String(p.sleepDefault)) ? String(p.sleepDefault) : '',
         byPath: p.byPath && typeof p.byPath === 'object' && !Array.isArray(p.byPath) ? p.byPath : {} // 「這部經固定用這個音色」
@@ -10587,6 +10588,26 @@
     ttsFail(navigator.onLine === false ? '網路中斷' : '這一句無法播放', 'failed');
   }
 
+  /**
+   * 選取的句子讀完了：接著從下一句往下讀（「朗讀選取後繼續往下讀」）。
+   * 用最後一句的行號向伺服器要那一章的句子，只接上序號比它大的；之後照一般朗讀接下一批／下一章。
+   */
+  async function ttsContinueAfterSelection(token) {
+    const last = ttsRt.items[ttsRt.endIndex >= 0 ? ttsRt.endIndex : ttsRt.items.length - 1];
+    if (!last || !ttsRt.path) return false;
+    try {
+      const d = await ttsApi(ttsDocUrl(ttsRt.path, `&line=${last.endLine || last.line}`));
+      if (token !== ttsRt.token) return false;
+      const rest = d.sentences.filter(x => x.i > last.i);
+      ttsRt.items.length = ttsRt.endIndex >= 0 ? ttsRt.endIndex + 1 : ttsRt.items.length;
+      for (const x of rest) ttsRt.items.push(x);
+      ttsRt.endIndex = -1; ttsRt.stopAtUnit = undefined;
+      ttsRt.chapter = { i: d.chapter.i, count: d.chapter.count, more: d.more, nextOffset: d.to - d.chapter.from, title: d.chapter.title };
+      if (!rest.length) return ttsLoadMore();
+      return true;
+    } catch (_) { return false; }
+  }
+
   async function onTtsEnded() {
     const a = ttsRt.audio;
     if (!a || !a.dataset.ttsSha || !ttsRt.active) return; // 解鎖用的靜音檔
@@ -10595,6 +10616,13 @@
     let k = ttsNextPlayable(ttsRt.pos + 1, 1);
     if (k < 0 && ttsRt.endIndex < 0) {
       if (await ttsLoadMore()) { if (token !== ttsRt.token) return; k = ttsNextPlayable(ttsRt.pos + 1, 1); }
+    }
+    // 朗讀選取：讀完選的句子後接著往下讀（可在設定關掉）
+    const selDone = ttsRt.selFrom >= 0 && ttsPrefs().selContinue && (k < 0 || (ttsRt.stopAtUnit !== undefined && ttsRt.items[k] && ttsRt.items[k].i > ttsRt.stopAtUnit));
+    if (selDone && await ttsContinueAfterSelection(token)) {
+      if (token !== ttsRt.token) return;
+      ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null;
+      k = ttsNextPlayable(ttsRt.pos + 1, 1);
     }
     if (token !== ttsRt.token) return;
     if (ttsRt.sleep && (ttsRt.sleep.due || ttsSleepCheck(false))) { ttsRt.sleep = null; ttsFinish('睡眠計時到了，已停止'); return; }
@@ -11061,7 +11089,7 @@
     $('ttsRateOut').textContent = `${rate} 倍`;
     const p = ttsPrefs();
     $('ttsFollow').checked = p.follow; $('ttsShortcuts').checked = p.shortcuts; $('ttsExact').checked = p.exact;
-    $('ttsContinueNext').checked = p.continueNext;
+    $('ttsContinueNext').checked = p.continueNext; $('ttsSelContinue').checked = p.selContinue;
     const sl = $('ttsSleep'); if (sl && document.activeElement !== sl) sl.value = !ttsRt.sleep ? '' : ttsRt.sleep.section ? 'section' : sl.value || '';
     if (!$('ttsPanel').hidden && !ttsRt.offlineBusy) renderTtsOffline();
     renderTtsChant();
@@ -11361,6 +11389,7 @@
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
     on('ttsSleep', 'change', (e) => ttsSetSleep(e.target.value));
     on('ttsContinueNext', 'change', (e) => { ttsPrefs().continueNext = e.target.checked; saveTtsPrefs(); });
+    on('ttsSelContinue', 'change', (e) => { ttsPrefs().selContinue = e.target.checked; saveTtsPrefs(); });
     on('ttsChantBtn', 'click', () => openTtsChant());
     // 偏好設定視窗的朗讀區（與面板同步）
     const prefSel = (id, key, cast) => on(id, 'change', (e) => { ttsPrefs()[key] = cast(e.target.value); saveTtsPrefs(); syncTtsSettings(); renderTtsBar(); });
