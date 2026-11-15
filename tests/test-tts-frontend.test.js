@@ -44,8 +44,10 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.match(ttsSection, /rs\.setAttribute\('aria-valuetext', `\$\{rate\} 倍`\)/);
   });
 
-  test('音色用原生 <select>；展開鈕有 aria-expanded／aria-controls', () => {
-    assert.match(playerHtml, /<select id="ttsVoiceSelect" aria-label="音色">/);
+  test('音色用原生 radio 組成的卡片（有試聽鈕）；展開鈕有 aria-expanded／aria-controls', () => {
+    assert.match(playerHtml, /<div class="tts-voice-cards" id="ttsVoiceCards" role="radiogroup" aria-label="音色">/);
+    assert.match(ttsSection, /<input type="radio" name="ttsVoice"/);
+    assert.match(ttsSection, /aria-label="試聽\$\{escHtml\(v\.name\)\}"/);
     assert.match(playerHtml, /id="ttsExpandBtn" aria-expanded="false" aria-controls="ttsPanel"/);
   });
 

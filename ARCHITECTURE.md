@@ -1853,6 +1853,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 外部服務 ※ | 🚀 開站設定 `setup` | `accountsys` | `setup` | — | 引導寄信與 Turnstile |
 | 外部服務 ※ | ✉️ 寄信 `mail` | `accountsys` | `mail`、`maildns`、`mailtest` | `mail` | `/api/admin/mail…` |
 | 外部服務 ※ | 🛡️ Turnstile 人機驗證 `turnstile` | `accountsys` | `turnstile`、`turnstiletest` | `turnstile` | `/api/admin/turnstile…` |
+| 外部服務 | 🔊 朗讀（TTS）`tts` | `tts` | 整頁（`tts`、`ttsvoices`、`ttsrules`、`ttslexicon`、`ttscache`、`ttsjobs`） | `tts` | `/api/admin/tts/*`（§24.7） |
 | 營運 ※ | 📊 數據分析 `analytics` | `analytics` | 整頁 | — | `/api/admin/analytics`、`/api/admin/analytics/export` |
 | 營運 ※ | 📬 報表信 `reports` | `reports` | 整頁 | `reports` | `/api/admin/reports…` |
 | 系統 | 🖥️ 系統狀態 `hardware` | `hardware` | 整頁（含重建索引等維護動作） | — | `/api/admin/hardware`、`/api/admin/rebuild-*`、`/api/admin/clear-cache` |
@@ -1860,7 +1861,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 系統 | 📜 日誌 `logs` | `logs` | 整頁 | — | `/api/admin/logs` |
 | 系統 | 💾 備份與還原 `backup` | `backup` | `cfgbackup`、`db` | — | 設定匯出入、`/api/admin/db-backups…` |
 
-※ 帶 `data-web-only`，單機模式（`MDW_DEPLOY_TARGET` 非 `web`）不顯示。
+※ 帶 `data-web-only`，單機模式（`MDW_DEPLOY_TARGET` 非 `web`）不顯示。「外部服務」分組的 `data-web-only` 改標在開站設定、寄信、Turnstile 三個項目上，因為朗讀頁單機版也要用（單機版只藏起訪客與限額的欄位）。
 
 ### 21.3 新增後台頁面或卡片時
 
@@ -2088,7 +2089,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | `POST /api/tts/speak` `{ path, voice, ids: [句子序號或臨時 id…], priority: 'now'\|'prefetch' }` | 一次最多 8 句，長輪詢最多 25 秒。每句 `state`：`ready`（附 `url`、`ms`）、`pending`（再問一次）、`failed`、`skip`、`gone`、`login`、`quota`、`unavailable` |
 | `GET\|HEAD /api/tts/audio/<sha>` | 只服務快取裡的檔。強 ETag、`Cache-Control: public, max-age=31536000, immutable`、`Accept-Ranges`、Range 206／416（`parseByteRange`） |
 
-後台（需管理員）：`GET|POST /api/admin/tts/settings`（`check:true` 時回 `probe`：健康狀態、TTS 模型、音色名稱；不回模型路徑）、`GET /api/admin/tts/health`、`POST /api/admin/tts/sample {voice}`（生成固定經句「應無所住，而生其心。」的試聽檔）、`GET|POST /api/admin/tts/lexicon`、`POST /api/admin/tts/preview {voice, text}`（套字典後試聽一句）、`GET /api/admin/tts/cache`（用量、每日命中與生成、佇列、ffmpeg 狀態）、`POST /api/admin/tts/cache/clear {scope:'all'|'path', path}`。
+後台（需管理員）：`GET|POST /api/admin/tts/jobs`（預先生成工作：`{ scope, voice, pin }`）與 `POST /api/admin/tts/jobs/<id>` `{ action: pause|resume|cancel|delete }`、`GET|POST /api/admin/tts/settings`（`check:true` 時回 `probe`：健康狀態、TTS 模型、音色名稱；不回模型路徑）、`GET /api/admin/tts/health`、`POST /api/admin/tts/sample {voice}`（生成固定經句「應無所住，而生其心。」的試聽檔）、`GET|POST /api/admin/tts/lexicon`、`POST /api/admin/tts/preview {voice, text}`（套字典後試聽一句）、`GET /api/admin/tts/cache`（用量、每日命中與生成、佇列、ffmpeg 狀態）、`POST /api/admin/tts/cache/clear {scope:'all'|'path', path}`。
 
 ### 24.8 安全
 
@@ -2100,7 +2101,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 ### 24.9 尚未實作（後續階段）
 
-誦經模式、睡眠計時、離線下載整篇、跨科連讀（第五階段）；後台頁面、預先生成工作佇列與釘選（第四階段）；最近朗讀與收藏（`users.db`）；大綱與科判樹節點的「朗讀本節」（目前只有內文標題後的按鈕）；VoiceOver 實機檢核（第六階段）。
+誦經模式、睡眠計時、離線下載整篇、跨科連讀（第五階段）；最近朗讀與收藏（`users.db`）；大綱與科判樹節點的「朗讀本節」（目前只有內文標題後的按鈕）；VoiceOver 實機檢核（第六階段）。
 
 ### 24.10 音色管理（參考錄音）
 
@@ -2124,3 +2125,10 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - **個人偏好**：`STORAGE_KEYS.TTS_PREFS`＝`{ voice, rate, follow, shortcuts, exact }`，納入偏好匯出入（`preferences.tts`）。語速 0.7–2 倍，0＝用音色的預設語速。
 - **Service Worker**：`/api/tts/audio/<sha>` 走 Cache-First，快取名 `mdwebview-tts-v1` 不綁 app 版本（`activate` 只清 `mdwebview-shell-`／`mdwebview-content-` 開頭的舊快取），最多 6000 筆（約 240 MB）。快取裡存完整的 200，`<audio>` 的 Range 請求由 SW 切出 206／416（`parseTtsRange` 與伺服器的 `parseByteRange` 有對照測試）。
 - **介面字串**：照本專案慣例直接寫在 `index.html`／`app.js`，簡體顯示由 `display-script.js` 即時轉換；沒有需要依語系改寫措辭的字串，所以沒有加進 `i18n/zh-TW.js`、`zh-CN.js`。
+
+### 24.12 後台頁與預先生成（第四階段）
+
+- **後台「朗讀（TTS）」頁**（`app.js` §21.8，`#adminPaneTts`，`#admin/tts`）：朗讀服務（開關、伺服器網址、模型下拉、連線與 ffmpeg 狀態、「重新檢查連線」）、音色（audio.cpp 回報的名稱＋已存的白名單：開放、預設、中文名、標籤、預設語速、版本 `rev`、試聽）、朗讀規則與限額、讀音字典（編輯、存檔、套字典試聽一句）、音檔快取（用量、近 7 天命中率、清除單篇或全部、上限）、預先生成。前三張卡片走底部儲存列（`data-save="tts"`，「儲存並檢查」）；字典、清除、預先生成是立即動作（`data-no-dirty`）。開後台時各頁一起載入容易撞到每秒 30 次的 API 限流，這一頁的請求依序送出並在 429 時重試（`ttsAdminApi`）。
+- **狀態燈**：開放朗讀但連不上、或模型不在 audio.cpp 上 → 紅燈；沒有開放音色、沒有 ffmpeg → 黃燈。總覽載入時一併查詢，列入「待處理」；系統狀態頁標題列有朗讀服務的小燈（`#hwTtsStatus`）。健康檢查除了 `/health` 也比對 `/v1/models`：audio.cpp 換成別的模型時（`max_loaded_models` 會把舊的卸載），`available:false`，讀者端顯示「朗讀服務暫時無法使用」，已快取的照常播。
+- **預先生成**（`lib/tts.js` `runJobs`）：工作存在 `tts.db` 的 `jobs` 表（`scope`、`voice`、`pin`、`state`：queued／running／paused／done／cancelled、檔案清單、進度）。同時只跑一個工作，逐句以最低的 `bulk` 優先序排入佇列，讀者的請求永遠排在前面；但並行數為 1 時，讀者最多要等正在生成的那一句（幾秒）。已快取的句子直接略過；服務中斷時每 30 秒重試、不把句子算失敗；暫停／取消每一句都檢查；重開機後從斷點接著做。資料夾最多 5000 篇。`pin` 的工作把生成與已存在的音檔都加上 `FLAG_PIN`（4），LRU 清理不刪。
+- **讀者端音色卡片**：面板裡的音色是原生 radio 組成的卡片（`role="radiogroup"`），有管理員產生過的試聽檔就附試聽鈕（另一個 `Audio`，會先暫停朗讀）。「這部經固定用這個音色」存在 `TTS_PREFS.byPath`（最多 300 篇），開這部經時優先於一般偏好。

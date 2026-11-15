@@ -1209,11 +1209,12 @@
             <button type="button" class="admin-nav-item" data-page="sso" data-save="sso" data-pane="accountsys" data-cards="sso"><span class="admin-nav-icon" aria-hidden="true">🔑</span><span class="admin-nav-label">登入方式</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="legal" data-save="legal" data-pane="accountsys" data-cards="legal"><span class="admin-nav-icon" aria-hidden="true">📄</span><span class="admin-nav-label">條款與隱私</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
-          <div class="admin-nav-group" data-web-only>
+          <div class="admin-nav-group">
             <div class="admin-nav-group-title">外部服務</div>
-            <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="mail" data-save="mail" data-pane="accountsys" data-cards="mail,maildns,mailtest"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="turnstile" data-save="turnstile" data-pane="accountsys" data-cards="turnstile,turnstiletest"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-web-only data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="mail" data-save="mail" data-pane="accountsys" data-web-only data-cards="mail,maildns,mailtest"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="turnstile" data-save="turnstile" data-pane="accountsys" data-web-only data-cards="turnstile,turnstiletest"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="tts" data-save="tts" data-pane="tts" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🔊</span><span class="admin-nav-label">朗讀（TTS）</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
             <div class="admin-nav-group-title">營運</div>
@@ -1658,6 +1659,7 @@
           <div class="hardware-title-group">
             <span class="hardware-badge-docker" id="hwDockerBadge">🐳 Docker 容器環境</span>
             <span class="hardware-title-hint" id="hwUptimeText">系統已運作: 載入中…</span>
+            <button type="button" class="ov-link hw-tts-status" id="hwTtsStatus" data-goto-page="tts" hidden><span class="admin-nav-light" aria-hidden="true"></span><span class="hw-tts-status-text">朗讀服務</span></button>
           </div>
           <div class="hardware-refresh-controls">
             <button type="button" class="action-btn text-action-btn" id="hwClearCacheBtn" title="清空記憶體靜態檔案快取、搜尋快取與 Sitemap 快取">🧹 清除快取</button>
@@ -2363,6 +2365,149 @@
         </div>
       </div>
 
+      <!-- 朗讀（TTS）：audio.cpp 連線、音色白名單、朗讀規則、讀音字典、快取與預先生成（app.js §21.8，ARCHITECTURE §24） -->
+      <div class="admin-tab-pane" id="adminPaneTts" style="display: none;">
+        <div class="admin-config-grid">
+          <div data-card="tts" class="config-card full-width" id="adminTtsCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🔊</span>
+              <h3 class="config-card-title">朗讀服務</h3>
+              <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">讀者的瀏覽器不會直接連 audio.cpp：一律由本站代理，伺服器網址與音色名稱不會給讀者看到。</p>
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsEnabled">
+                  <input type="checkbox" id="adminTtsEnabled">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">開放朗讀</span>
+              </div>
+              <p class="field-hint">關閉時讀者看不到任何朗讀入口；已生成的音檔保留。</p>
+              <label class="field-hint" for="adminTtsBaseUrl">audio.cpp 伺服器網址</label>
+              <input type="url" id="adminTtsBaseUrl" placeholder="http://192.168.1.10:8301" spellcheck="false" autocomplete="off">
+              <p class="field-hint" id="adminTtsBaseUrlLock" hidden></p>
+              <label class="field-hint" for="adminTtsModel">模型（只列出朗讀用的模型）</label>
+              <select id="adminTtsModel"></select>
+              <p class="field-hint" id="adminTtsModelLock" hidden></p>
+              <div id="adminTtsHealth" class="account-list"></div>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsCheckBtn" data-no-dirty>重新檢查連線</button>
+                <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminTtsSaveBtn">儲存並檢查</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="ttsvoices" class="config-card full-width" id="adminTtsVoicesCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🎙️</span>
+              <h3 class="config-card-title">音色</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">勾選要開放給讀者的音色，填上中文名與標籤。音色就是 audio.cpp 音色資料夾（<code>--voice-dir</code>）裡的參考錄音；換了錄音請用新檔名，或把「版本」加一，舊的音檔才不會混進來。每多開放一個音色，快取與生成時間都會多一倍。</p>
+              <div class="tts-admin-table-wrap"><table class="tts-admin-table" id="adminTtsVoices">
+                <thead><tr><th scope="col">開放</th><th scope="col">預設</th><th scope="col">audio.cpp 名稱</th><th scope="col">中文名</th><th scope="col">標籤（以頓號分隔）</th><th scope="col">預設語速</th><th scope="col">版本</th><th scope="col">試聽</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsAddVoice" data-no-dirty placeholder="手動加入音色名稱（模型內建、清單沒列出的）" aria-label="手動加入音色名稱" spellcheck="false">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsAddVoiceBtn" data-no-dirty>加入</button>
+              </div>
+              <p class="field-hint">試聽句：「<span id="adminTtsSampleText">應無所住，而生其心。</span>」。新加的音色要先儲存才能試聽；試聽檔會給讀者的音色卡片使用。</p>
+            </div>
+          </div>
+
+          <div data-card="ttsrules" class="config-card full-width" id="adminTtsRulesCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">📏</span>
+              <h3 class="config-card-title">朗讀規則與限額</h3>
+            </div>
+            <div class="config-card-body">
+              <div class="setup-form-row">
+                <div><label class="field-hint" for="adminTtsMaxChars">每句最多幾個字（40–200）</label><input type="number" id="adminTtsMaxChars" min="40" max="200" step="1"></div>
+                <div><label class="field-hint" for="adminTtsConcurrency">同時送往 audio.cpp 的句數（1–4）</label><input type="number" id="adminTtsConcurrency" min="1" max="4" step="1"></div>
+              </div>
+              <p class="field-hint">句子越長，第一句要等越久（實測 120 字約 17 秒）。調整後只有超過新上限的長句會重新切、重新生成。</p>
+              <label class="account-consent"><input type="checkbox" id="adminTtsReadNotes"><span>朗讀夾注（括號裡的小字）</span></label>
+              <label class="account-consent"><input type="checkbox" id="adminTtsReadMantra"><span>朗讀咒語與陀羅尼</span></label>
+              <label class="account-consent"><input type="checkbox" id="adminTtsReadNonScripture"><span>朗讀「版權說明」「目錄」等非經文段落</span></label>
+              <p class="field-hint">以上三項會改變朗讀的文字，所以是全站設定：改了之後受影響的句子要重新生成。</p>
+              <div data-web-only>
+                <label class="account-consent"><input type="checkbox" id="adminTtsGuestGenerate"><span>訪客也能生成新的朗讀音檔（關閉時訪客只能聽已經生成過的）</span></label>
+                <div class="setup-form-row">
+                  <div><label class="field-hint" for="adminTtsPerUser">每位使用者每小時最多生成幾句</label><input type="number" id="adminTtsPerUser" min="10" step="10"></div>
+                  <div><label class="field-hint" for="adminTtsPerIp">每個 IP 每小時最多生成幾句</label><input type="number" id="adminTtsPerIp" min="10" step="10"></div>
+                </div>
+              </div>
+              <label class="account-consent"><input type="checkbox" id="adminTtsWarmup"><span>讀者開始朗讀後，順便把後面 5 句先生成</span></label>
+              <div class="setup-form-row">
+                <div><label class="account-consent"><input type="checkbox" id="adminTtsKeepWarm"><span>保溫：有人在聽時，避免 audio.cpp 閒置變慢</span></label></div>
+                <div><label class="field-hint" for="adminTtsKeepWarmMinutes">最後一次朗讀後保溫幾分鐘</label><input type="number" id="adminTtsKeepWarmMinutes" min="5" max="240" step="5"></div>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="ttslexicon" class="config-card full-width" id="adminTtsLexiconCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">📖</span>
+              <h3 class="config-card-title">讀音字典</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">一行一條「詞｜讀法」，例如「般若｜波惹」；只寫詞表示朗讀時不在這個詞中間斷句。以 # 開頭是註解。存檔後只有真的被替換到的句子會重新生成。</p>
+              <textarea id="adminTtsLexicon" rows="10" spellcheck="false" data-no-dirty aria-label="讀音字典"></textarea>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsLexiconSaveBtn" data-no-dirty>儲存字典</button>
+                <span class="field-hint" id="adminTtsLexiconInfo"></span>
+              </div>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsPreviewText" data-no-dirty placeholder="輸入一句試聽，例如：般若波羅蜜多" aria-label="試聽句子">
+                <select id="adminTtsPreviewVoice" data-no-dirty aria-label="試聽音色"></select>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewBtn" data-no-dirty>試聽</button>
+              </div>
+              <p class="field-hint" id="adminTtsPreviewSpoken"></p>
+            </div>
+          </div>
+
+          <div data-card="ttscache" class="config-card full-width" id="adminTtsCacheCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🗄️</span>
+              <h3 class="config-card-title">音檔快取</h3>
+              <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
+            </div>
+            <div class="config-card-body">
+              <div id="adminTtsCacheStats" class="account-list"></div>
+              <label class="field-hint" for="adminTtsCacheMb">快取上限（MB，20480 = 20 GB）</label>
+              <input type="number" id="adminTtsCacheMb" min="64" step="1024">
+              <p class="field-hint" id="adminTtsCacheMbLock" hidden></p>
+              <p class="field-hint">超過上限時，先刪「只讀我選的字」產生的臨時檔，再刪最久沒播的；試聽檔與預先生成時「釘選」的不刪。音檔是很花時間生成的成果，建議備份快取資料夾。</p>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsClearPath" data-no-dirty list="adminTtsPathList" placeholder="經文路徑，例如 01-大正藏/…/T0235….md" aria-label="要清除快取的經文路徑">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsClearPathBtn" data-no-dirty>清除這一篇</button>
+                <button type="button" class="modal-btn cancel-btn small-btn" id="adminTtsClearAllBtn" data-no-dirty>清除全部</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="ttsjobs" class="config-card full-width" id="adminTtsJobsCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">⏳</span>
+              <h3 class="config-card-title">預先生成</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">選一篇經文或一個資料夾，在背景依序生成。讀者的朗讀永遠優先；服務中斷時會等它恢復再繼續，重開機後也會接著做。</p>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsJobScope" data-no-dirty list="adminTtsPathList" placeholder="資料夾或經文路徑，例如 01-大正藏/03般若部類" aria-label="要預先生成的資料夾或經文">
+                <select id="adminTtsJobVoice" data-no-dirty aria-label="預先生成的音色"></select>
+                <label class="account-consent"><input type="checkbox" id="adminTtsJobPin" data-no-dirty><span>釘選（不被自動清除）</span></label>
+                <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsJobAddBtn" data-no-dirty>開始</button>
+              </div>
+              <datalist id="adminTtsPathList"></datalist>
+              <div id="adminTtsJobs" class="account-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tab 2: System Logs -->
       <div class="admin-tab-pane" id="adminPaneLogs" style="display: none;">
         <div class="admin-logs-header">
@@ -3005,17 +3150,19 @@
       <label class="tts-field"><span>進度</span>
         <input type="range" id="ttsSeek" min="1" max="1" step="1" value="1" aria-label="朗讀進度">
       </label>
-      <label class="tts-field"><span>音色</span>
-        <select id="ttsVoiceSelect" aria-label="音色"></select>
-      </label>
+      <fieldset class="tts-voices">
+        <legend>音色</legend>
+        <div class="tts-voice-cards" id="ttsVoiceCards" role="radiogroup" aria-label="音色"></div>
+        <label class="tts-check"><input type="checkbox" id="ttsPinVoice"><span>這部經固定用這個音色</span></label>
+      </fieldset>
       <label class="tts-field"><span>語速</span>
         <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
         <output id="ttsRateOut" for="ttsRate">1 倍</output>
       </label>
       <label class="tts-check"><input type="checkbox" id="ttsFollow"><span>畫面跟著朗讀位置捲動</span></label>
       <label class="tts-check"><input type="checkbox" id="ttsExact"><span>朗讀選取時只讀我選的字（不延伸到完整句）</span></label>
-      <button type="button" class="tts-stop-btn" id="ttsStopBtn">停止朗讀</button>
       <label class="tts-check"><input type="checkbox" id="ttsShortcuts"><span>鍵盤快捷鍵：Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></label>
+      <button type="button" class="tts-stop-btn" id="ttsStopBtn">停止朗讀</button>
     </div>
     <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
   </section>

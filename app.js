@@ -35,6 +35,7 @@
        §21.5 日誌與流量報表          fetchAdminLogs, renderAdminAnalytics
        §21.6 設定表單與 SEO          setupAdminTabEvents, loadSeoSettings
        §21.7 使用者帳號              initAccounts, 登入／註冊、我的帳號、後台使用者與帳號系統
+       §21.8 朗讀（TTS）後台         loadAdminTtsPane, saveTtsAdmin, 預先生成工作
    §22 Utilities                 escHtml, formatDate, helpers
    §23 Boot Entry                DOMContentLoaded → init()
    ================================================================ */
@@ -10226,7 +10227,8 @@
         rate: TTS_RATES.includes(Number(p.rate)) ? Number(p.rate) : 0,   // 0＝用音色的預設語速
         follow: p.follow !== false,
         shortcuts: p.shortcuts !== false,
-        exact: p.exact === true
+        exact: p.exact === true,
+        byPath: p.byPath && typeof p.byPath === 'object' && !Array.isArray(p.byPath) ? p.byPath : {} // 「這部經固定用這個音色」
       };
     }
     return ttsRt.prefs;
@@ -10238,7 +10240,8 @@
 
   function ttsVoice() {
     const list = ttsVoices(); const p = ttsPrefs();
-    return list.find(v => v.id === p.voice) || list.find(v => v.id === (ttsRt.status && ttsRt.status.defaultVoice)) || list[0] || null;
+    const fixed = p.byPath[ttsRt.path || state.currentFile || ''];
+    return list.find(v => v.id === fixed) || list.find(v => v.id === p.voice) || list.find(v => v.id === (ttsRt.status && ttsRt.status.defaultVoice)) || list[0] || null;
   }
 
   function ttsRate() {
@@ -10636,7 +10639,10 @@
   async function ttsSetVoice(id) {
     const p = ttsPrefs();
     if (!ttsVoices().some(v => v.id === id)) return;
-    p.voice = id; saveTtsPrefs();
+    p.voice = id;
+    const path = ttsRt.path || state.currentFile;
+    if (path && p.byPath[path]) p.byPath[path] = id; // 這部經固定音色時，換音色就是換固定的那一個
+    saveTtsPrefs();
     const v = ttsVoice();
     ttsAnnounce(`${v.name}，${ttsRate()} 倍`);
     renderTtsBar();
@@ -10888,12 +10894,32 @@
     return { n, m, open: !sectionEnded && ttsRt.endIndex < 0 && !!ttsRt.chapter && (ttsRt.chapter.more || ttsRt.chapter.i + 1 < ttsRt.chapter.count) };
   }
 
+  /** 音色卡片：原生 radio（VoiceOver 讀得出「第 2 個，共 3 個」），有試聽檔的另附試聽鈕。 */
   function renderTtsVoiceOptions() {
-    const sel = $('ttsVoiceSelect');
-    if (!sel) return;
+    const box = $('ttsVoiceCards');
+    if (!box) return;
     const list = ttsVoices(); const cur = ttsVoice();
-    sel.innerHTML = list.map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}${v.tags && v.tags.length ? `（${escHtml(v.tags.join('、'))}）` : ''}</option>`).join('');
-    if (cur) sel.value = cur.id;
+    box.innerHTML = list.map(v => `
+      <div class="tts-voice-card">
+        <label><input type="radio" name="ttsVoice" value="${escHtml(v.id)}" ${cur && cur.id === v.id ? 'checked' : ''}>
+          <span class="tts-voice-name">${escHtml(v.name)}</span>${v.tags && v.tags.length ? `<span class="tts-voice-tags">${escHtml(v.tags.join('・'))}</span>` : ''}</label>
+        ${v.sample ? `<button type="button" class="tts-voice-sample" data-sample="${escHtml(v.sample)}" aria-label="試聽${escHtml(v.name)}">${TTS_ICON.play}</button>` : ''}
+      </div>`).join('');
+  }
+
+  function syncTtsVoiceCards() {
+    const cur = ttsVoice();
+    document.querySelectorAll('#ttsVoiceCards input[name="ttsVoice"]').forEach(r => { r.checked = !!cur && r.value === cur.id; });
+    const pin = $('ttsPinVoice'); const path = ttsRt.path || state.currentFile;
+    if (pin) { pin.checked = !!(path && ttsPrefs().byPath[path]); pin.disabled = !path; }
+  }
+
+  /** 試聽音色：另用一個 Audio，播完不影響朗讀；朗讀中會先暫停。 */
+  function ttsPlaySample(url) {
+    if (ttsRt.playing) ttsTogglePlay();
+    if (!ttsRt.sampleAudio) ttsRt.sampleAudio = new Audio();
+    ttsRt.sampleAudio.src = url;
+    ttsRt.sampleAudio.play().catch(() => {});
   }
 
   function renderTtsBar() {
@@ -10935,7 +10961,7 @@
     $('ttsRateOut').textContent = `${rate} 倍`;
     const p = ttsPrefs();
     $('ttsFollow').checked = p.follow; $('ttsShortcuts').checked = p.shortcuts; $('ttsExact').checked = p.exact;
-    const sel = $('ttsVoiceSelect'); if (v && sel.value !== v.id) sel.value = v.id;
+    syncTtsVoiceCards();
     const notice = $('ttsNotice'); const f = ttsRt.flags;
     let msg = '';
     if (ttsRt.endIndex >= 0 && f) msg = f.incomplete ? '引文太長，只朗讀所選的句子（未完整補全）。' : f.padded ? '選取太短，已補讀前後文。' : f.extended ? '已延伸至完整句：較淡底色的是補讀的部分。' : '';
@@ -10971,8 +10997,17 @@
     on('ttsSkipBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsStep(1); });
     on('ttsExpandBtn', 'click', () => setTtsPanelOpen($('ttsPanel').hidden));
     on('ttsRateBtn', 'click', () => { setTtsPanelOpen(true); $('ttsRate').focus(); });
-    on('ttsVoiceBtn', 'click', () => { setTtsPanelOpen(true); $('ttsVoiceSelect').focus(); });
-    on('ttsVoiceSelect', 'change', (e) => ttsSetVoice(e.target.value));
+    on('ttsVoiceBtn', 'click', () => { setTtsPanelOpen(true); const r = document.querySelector('#ttsVoiceCards input:checked') || document.querySelector('#ttsVoiceCards input'); if (r) r.focus(); });
+    on('ttsVoiceCards', 'change', (e) => { if (e.target.name === 'ttsVoice') ttsSetVoice(e.target.value); });
+    on('ttsVoiceCards', 'click', (e) => { const b = e.target.closest && e.target.closest('.tts-voice-sample'); if (b) ttsPlaySample(b.dataset.sample); });
+    on('ttsPinVoice', 'change', (e) => {
+      const p = ttsPrefs(); const path = ttsRt.path || state.currentFile; const v = ttsVoice();
+      if (!path) return;
+      if (e.target.checked && v) p.byPath[path] = v.id; else delete p.byPath[path];
+      const keys = Object.keys(p.byPath); if (keys.length > 300) delete p.byPath[keys[0]];
+      saveTtsPrefs();
+      ttsAnnounce(e.target.checked ? `這部經固定用${v ? v.name : ''}` : '這部經不再固定音色');
+    });
     on('ttsRate', 'input', (e) => ttsSetRate(TTS_RATES[Number(e.target.value)] || 1));
     on('ttsSeek', 'change', (e) => { // 第 N 句（只算可朗讀的）
       let want = Number(e.target.value), k = -1;
@@ -13322,11 +13357,11 @@
   // 也走這條列（按鈕寫「儲存並檢查」），驗證結果仍顯示在卡片裡。
   // 「寄測試信」「移除金鑰」這類立即動作留在卡片裡，不算未儲存。
   const adminDirtyFields = new Map(); // element → { orig, save }
-  const ADMIN_SAVE_LABEL = { legal: '發布', mail: '儲存並檢查', turnstile: '儲存並檢查', sso: '儲存並檢查' };
+  const ADMIN_SAVE_LABEL = { legal: '發布', mail: '儲存並檢查', turnstile: '儲存並檢查', sso: '儲存並檢查', tts: '儲存並檢查' };
   const ADMIN_SAVE_FORMS = { config: 'adminSettingsForm', seo: 'adminSeoForm', suggest: 'adminSuggestForm' };
   const ADMIN_SAVE_BUTTONS = {
     registration: 'adminRegSaveBtn', legal: 'adminLegalSaveBtn', reports: 'adminReportsSaveBtn',
-    mail: 'adminMailSaveBtn', turnstile: 'adminTurnstileSaveBtn'
+    mail: 'adminMailSaveBtn', turnstile: 'adminTurnstileSaveBtn', tts: 'adminTtsSaveBtn'
   };
   // 登入方式一頁有好幾家，各自存檔：只存有改過欄位的那幾家
   const ADMIN_SAVE_ACTIONS = {
@@ -14102,6 +14137,7 @@
   // 含索引重建按鈕與自動刷新計時器；計時器握把宣告在 §21 開頭。
 
   async function loadHardwareStats() {
+    if (!ttsAdmin.hwChecked) { ttsAdmin.hwChecked = true; refreshTtsAdminLight(); }
     try {
       const res = await fetch('/api/admin/hardware', {
         headers: {}
@@ -15201,7 +15237,7 @@
     config: 'adminPaneConfig', seo: 'adminPaneSeo', hardware: 'adminPaneHardware',
     logs: 'adminPaneLogs', analytics: 'adminPaneAnalytics', suggest: 'adminPaneSuggest',
     users: 'adminPaneUsers', accountsys: 'adminPaneAccountSystem', reports: 'adminPaneReports',
-    backup: 'adminPaneBackup', overview: 'adminPaneOverview'
+    backup: 'adminPaneBackup', overview: 'adminPaneOverview', tts: 'adminPaneTts'
   };
   const ADMIN_HASH_PREFIX = '#admin';
   let adminCurrentPane = null;
@@ -15254,6 +15290,7 @@
       case 'accountsys': setupAdminAccountEvents(); loadAdminAccountSystemTab(); break;
       case 'backup': setupAdminAccountEvents(); loadAdminBackupPane(); break;
       case 'overview': loadAdminOverview(); break;
+      case 'tts': loadAdminTtsPane(); break;
       default: break;
     }
   }
@@ -15500,6 +15537,7 @@
 
   async function loadAdminOverview() {
     renderAdminOverviewStatus();
+    refreshTtsAdminLight().then(renderAdminOverviewStatus); // 朗讀服務連不上時列入待處理
     const web = !state.isSingleUser;
     const get = async (url) => {
       try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (_) { return null; }
@@ -16636,6 +16674,341 @@
         }
       });
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §21.8 朗讀（TTS）後台：連線、音色白名單、規則、讀音字典、快取、預先生成
+  // API 見 lib/tts.js 與 ARCHITECTURE §24.7；這一頁的設定走底部儲存列（data-save="tts"）。
+  // ═══════════════════════════════════════════════════════════
+  const TTS_ADMIN_RATES = [0.8, 0.9, 1, 1.1, 1.2, 1.3];
+  const ttsAdmin = { data: null, probe: null, wired: false, jobsTimer: null, previewAudio: null };
+
+  /** accountApi 加上限流重試：開啟後台時各頁一起載入，常撞到每秒 30 次的 API 限流（429）。 */
+  async function ttsAdminApi(url, opts) {
+    for (let n = 0; ; n++) {
+      const r = await accountApi(url, opts);
+      if (r.status !== 429 || n >= 3) return r;
+      await new Promise(res => setTimeout(res, 1100 + n * 500));
+    }
+  }
+
+  function ttsAdminPlay(url) {
+    if (!ttsAdmin.previewAudio) ttsAdmin.previewAudio = new Audio();
+    const a = ttsAdmin.previewAudio;
+    a.src = url; a.play().catch(() => showToast('瀏覽器擋下了播放，請再按一次', 'info'));
+  }
+
+  function fmtTtsBytes(n) {
+    if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${Math.round(n / 1024)} KB`;
+  }
+
+  function fmtTtsDuration(ms) {
+    const m = Math.round(ms / 60000);
+    return m >= 60 ? `${Math.floor(m / 60)} 小時 ${m % 60} 分` : `${m} 分`;
+  }
+
+  /** 卡片狀態燈；總覽的「待處理」與導覽燈號從這裡來。 */
+  function updateTtsAdminLights(d) {
+    if (!d) return;
+    const s = d.settings;
+    if (!s.enabled) setAdminCardLight('tts', 'off', '');
+    else if (!s.baseUrl || !s.model) setAdminCardLight('tts', 'warn', '朗讀已開放，但還沒設定伺服器網址或模型');
+    else if (!d.health.ok) setAdminCardLight('tts', 'bad', `朗讀服務無法使用：${d.health.error || '未知原因'}`);
+    else if (!s.voices.some(v => v.enabled)) setAdminCardLight('tts', 'warn', '還沒有開放任何音色');
+    else if (!d.ffmpeg.ok) setAdminCardLight('tts', 'warn', '找不到 ffmpeg：音檔存成 WAV，約大十倍');
+    else setAdminCardLight('tts', 'ok', `audio.cpp ${d.health.info && d.health.info.backend ? `（${d.health.info.backend}）` : ''}連線正常`);
+    const chip = $('hwTtsStatus');
+    if (chip) {
+      chip.hidden = !s.enabled;
+      const light = chip.querySelector('.admin-nav-light');
+      const level = !d.health.ok ? 'bad' : 'ok';
+      if (light) light.className = `admin-nav-light ${level}`;
+      chip.querySelector('.hw-tts-status-text').textContent = d.health.ok ? '朗讀服務正常' : '朗讀服務無法使用';
+    }
+  }
+
+  /** 只更新燈號（總覽、系統狀態頁用）。 */
+  async function refreshTtsAdminLight() {
+    const r = await ttsAdminApi('/api/admin/tts/settings');
+    if (r.ok) { ttsAdmin.data = r.data; updateTtsAdminLights(r.data); }
+  }
+
+  function ttsAdminVoiceRow(v, saved, isDefault) {
+    const id = saved ? v.id : '';
+    const rate = Number(v.rate) || 1;
+    return `<tr data-voice="${escHtml(v.voice)}" data-id="${escHtml(id)}">
+      <td><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
+      <td><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
+      <td><code>${escHtml(v.voice)}</code>${saved || !ttsAdmin.probe || (ttsAdmin.probe.voices || []).includes(v.voice) ? '' : ' <small class="field-hint">（audio.cpp 沒有列出）</small>'}</td>
+      <td><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
+      <td><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
+      <td><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
+      <td><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
+      <td><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id ? '' : 'disabled title="先儲存才能試聽"'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
+    </tr>`;
+  }
+
+  function renderTtsAdminVoices() {
+    const d = ttsAdmin.data; if (!d) return;
+    const s = d.settings;
+    const saved = s.voices.slice();
+    const names = new Set(saved.map(v => v.voice));
+    const extra = ((ttsAdmin.probe && ttsAdmin.probe.voices) || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: '', tags: [], rate: 1, rev: 1, enabled: false }));
+    const body = $('adminTtsVoices').querySelector('tbody');
+    body.innerHTML = saved.map(v => ttsAdminVoiceRow(v, true, v.id === s.defaultVoice)).join('') + extra.map(v => ttsAdminVoiceRow(v, false, false)).join('')
+      || '<tr><td colspan="8" class="field-hint">還沒有音色。按「重新檢查連線」從 audio.cpp 抓回音色清單。</td></tr>';
+    const opts = s.voices.filter(v => v.enabled).map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('');
+    $('adminTtsJobVoice').innerHTML = opts; $('adminTtsPreviewVoice').innerHTML = opts;
+  }
+
+  function renderTtsAdminHealth() {
+    const d = ttsAdmin.data; const p = ttsAdmin.probe; const el = $('adminTtsHealth');
+    if (!d) return;
+    const rows = [];
+    const h = d.health;
+    rows.push(`<div class="field-hint">${h.ok ? '✅ 連線正常' : `❌ ${escHtml(h.error || '尚未檢查')}`}${h.info ? `　後端 ${escHtml(h.info.backend || '?')}、版本 ${escHtml(h.info.version || '?')}（${escHtml(h.info.git || '')}）` : ''}</div>`);
+    rows.push(`<div class="field-hint">${d.ffmpeg.ok ? `✅ ffmpeg：${escHtml(d.ffmpeg.path)}（音檔轉成 AAC）` : '⚠️ 找不到 ffmpeg：音檔會存成 WAV（約大十倍）。可安裝 ffmpeg 或用環境變數 TTS_FFMPEG 指定路徑。'}</div>`);
+    if (p && p.error) rows.push(`<div class="field-hint">❌ ${escHtml(p.error)}</div>`);
+    el.innerHTML = rows.join('');
+    const sel = $('adminTtsModel'); const cur = d.settings.model;
+    const models = (p && p.models) || [];
+    const list = models.map(m => m.id);
+    if (cur && !list.includes(cur)) list.unshift(cur);
+    sel.innerHTML = list.length ? list.map(id => {
+      const m = models.find(x => x.id === id);
+      return `<option value="${escHtml(id)}">${escHtml(id)}${m ? `（${escHtml(m.family)}${m.loaded ? '' : '，未載入'}）` : '（audio.cpp 沒有列出）'}</option>`;
+    }).join('') : '<option value="">（先填網址並檢查連線）</option>';
+    sel.value = cur || (list[0] || '');
+  }
+
+  function renderTtsAdmin() {
+    const d = ttsAdmin.data; if (!d) return;
+    const s = d.settings; const lock = d.locked || {};
+    $('adminTtsEnabled').checked = !!s.enabled;
+    const base = $('adminTtsBaseUrl'); base.value = s.baseUrl || ''; base.disabled = !!lock.baseUrl;
+    $('adminTtsBaseUrlLock').hidden = !lock.baseUrl; $('adminTtsBaseUrlLock').textContent = '由環境變數 TTS_BASE_URL 設定，這裡不能改。';
+    $('adminTtsModel').disabled = !!lock.model;
+    $('adminTtsModelLock').hidden = !lock.model; $('adminTtsModelLock').textContent = '由環境變數 TTS_MODEL 設定，這裡不能改。';
+    $('adminTtsMaxChars').value = s.maxSentenceChars; $('adminTtsConcurrency').value = s.concurrency;
+    $('adminTtsReadNotes').checked = !!s.readNotes; $('adminTtsReadMantra').checked = !!s.readMantra; $('adminTtsReadNonScripture').checked = !!s.readNonScripture;
+    $('adminTtsGuestGenerate').checked = !!s.guestGenerate; $('adminTtsPerUser').value = s.perUserHour; $('adminTtsPerIp').value = s.perIpHour;
+    $('adminTtsWarmup').checked = !!s.warmup; $('adminTtsKeepWarm').checked = !!s.keepWarm; $('adminTtsKeepWarmMinutes').value = s.keepWarmMinutes;
+    const mb = $('adminTtsCacheMb'); mb.value = s.cacheMb; mb.disabled = !!lock.cacheMb;
+    $('adminTtsCacheMbLock').hidden = !lock.cacheMb; $('adminTtsCacheMbLock').textContent = '由環境變數 TTS_CACHE_MB 設定，這裡不能改。';
+    $('adminTtsSampleText').textContent = d.sampleText;
+    renderTtsAdminHealth(); renderTtsAdminVoices(); updateTtsAdminLights(d);
+    // 路徑提示：資料夾與經文（從目錄樹）
+    const dl = $('adminTtsPathList');
+    if (dl && !dl.childElementCount && Array.isArray(state.treeData)) {
+      const out = [];
+      const walk = (nodes, depth) => { for (const n of nodes || []) { if (out.length > 3000) return; if (n.type === 'folder' || n.children) { out.push(n.path); if (depth < 3) walk(n.children, depth + 1); } } };
+      walk(state.treeData, 0);
+      if (state.currentFile && !state.currentFile.startsWith('dict:')) out.unshift(state.currentFile);
+      dl.innerHTML = out.filter(Boolean).map(p => `<option value="${escHtml(p)}"></option>`).join('');
+    }
+  }
+
+  function collectTtsAdminSettings() {
+    const num = (id) => Number($(id).value);
+    const voices = [];
+    let defaultVoice = '';
+    $('adminTtsVoices').querySelectorAll('tbody tr[data-voice]').forEach(tr => {
+      const on = tr.querySelector('.tts-v-on').checked;
+      const id = tr.dataset.id;
+      if (!on && !id) return; // 沒開放、也沒存過：不必記
+      const v = {
+        voice: tr.dataset.voice, enabled: on,
+        name: tr.querySelector('.tts-v-name').value.trim() || tr.dataset.voice,
+        tags: tr.querySelector('.tts-v-tags').value.split(/[、,，\s]+/).map(x => x.trim()).filter(Boolean),
+        rate: Number(tr.querySelector('.tts-v-rate').value) || 1,
+        rev: Number(tr.querySelector('.tts-v-rev').value) || 1
+      };
+      if (id) v.id = id;
+      voices.push(v);
+      if (tr.querySelector('.tts-v-def').checked) defaultVoice = id || `__new:${v.voice}`;
+    });
+    const out = {
+      enabled: $('adminTtsEnabled').checked, voices,
+      maxSentenceChars: num('adminTtsMaxChars'), concurrency: num('adminTtsConcurrency'),
+      readNotes: $('adminTtsReadNotes').checked, readMantra: $('adminTtsReadMantra').checked, readNonScripture: $('adminTtsReadNonScripture').checked,
+      guestGenerate: $('adminTtsGuestGenerate').checked, perUserHour: num('adminTtsPerUser'), perIpHour: num('adminTtsPerIp'),
+      warmup: $('adminTtsWarmup').checked, keepWarm: $('adminTtsKeepWarm').checked, keepWarmMinutes: num('adminTtsKeepWarmMinutes')
+    };
+    if (defaultVoice && !defaultVoice.startsWith('__new:')) out.defaultVoice = defaultVoice;
+    const lock = (ttsAdmin.data && ttsAdmin.data.locked) || {};
+    if (!lock.baseUrl) out.baseUrl = $('adminTtsBaseUrl').value.trim();
+    if (!lock.model && $('adminTtsModel').value) out.model = $('adminTtsModel').value;
+    if (!lock.cacheMb) out.cacheMb = num('adminTtsCacheMb');
+    return { settings: out, newDefault: defaultVoice.startsWith('__new:') ? defaultVoice.slice(6) : '' };
+  }
+
+  async function saveTtsAdmin() {
+    const btn = $('adminTtsSaveBtn'); btn.disabled = true;
+    const { settings, newDefault } = collectTtsAdminSettings();
+    let r = await ttsAdminApi('/api/admin/tts/settings', { method: 'POST', body: { settings, check: true } });
+    // 新加入的音色被設成預設：存檔後才有代號，再存一次預設值
+    if (r.ok && newDefault) {
+      const v = r.data.settings.voices.find(x => x.voice === newDefault);
+      if (v) r = await ttsAdminApi('/api/admin/tts/settings', { method: 'POST', body: { settings: { defaultVoice: v.id } } });
+    }
+    btn.disabled = false;
+    if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error', 5000); return; }
+    ttsAdmin.data = r.data; if (r.data.probe) ttsAdmin.probe = r.data.probe;
+    markAdminSaved('tts');
+    renderTtsAdmin();
+    refreshTtsStatus(true).then(() => ttsScheduleRepaint());
+    showToast(r.data.probe && !r.data.probe.ok ? `⚠️ 已儲存，但連不上 audio.cpp：${r.data.probe.error}` : '✅ 朗讀設定已儲存', r.data.probe && !r.data.probe.ok ? 'warn' : 'success', 4000);
+  }
+
+  async function loadTtsAdminCache() {
+    const r = await ttsAdminApi('/api/admin/tts/cache');
+    const el = $('adminTtsCacheStats');
+    if (!r.ok) { el.innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法讀取快取')}</div>`; return; }
+    const c = r.data;
+    if (!c.available) { el.innerHTML = '<div class="field-hint">快取還沒有建立（開放朗讀並生成過音檔後才會出現）。</div>'; setAdminCardLight('ttscache', 'off', ''); return; }
+    const pct = c.limitBytes ? Math.round(c.bytes / c.limitBytes * 100) : 0;
+    const sum = (k) => (c.days || []).slice(0, 7).reduce((n, d) => n + (d[k] || 0), 0);
+    const hits = sum('hits'), misses = sum('misses');
+    const rate = hits + misses ? Math.round(hits / (hits + misses) * 100) : null;
+    el.innerHTML = `
+      <div class="field-hint">用量 <strong>${fmtTtsBytes(c.bytes)}</strong>／${fmtTtsBytes(c.limitBytes)}（${pct}%），${c.blobs.toLocaleString()} 個音檔，共 ${fmtTtsDuration(c.durationMs)}</div>
+      <div class="field-hint">近 7 天：命中率 ${rate === null ? '—' : `${rate}%`}（${hits.toLocaleString()}／${(hits + misses).toLocaleString()} 句）、新生成 ${sum('generated').toLocaleString()} 句、失敗 ${sum('failed').toLocaleString()} 句</div>
+      <div class="field-hint">生成佇列：處理中 ${c.queue.running}、排隊 ${c.queue.queued}　快取位置：<code>${escHtml(c.dir || '')}</code></div>`;
+    setAdminCardLight('ttscache', pct >= 95 ? 'warn' : 'ok', pct >= 95 ? '快取將滿，最久沒播的音檔會被自動清除' : '');
+  }
+
+  const TTS_JOB_STATE = { queued: '排隊中', running: '生成中', paused: '已暫停', done: '完成', cancelled: '已取消' };
+
+  function renderTtsAdminJobs(d) {
+    const el = $('adminTtsJobs');
+    const voices = (ttsAdmin.data && ttsAdmin.data.settings.voices) || [];
+    const vname = (id) => (voices.find(v => v.id === id) || {}).name || id;
+    el.innerHTML = d.jobs.length ? d.jobs.map(j => {
+      const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
+      const acts = [];
+      if (j.state === 'running' || j.state === 'queued') acts.push(['pause', '暫停']);
+      if (j.state === 'paused') acts.push(['resume', '繼續']);
+      if (j.state !== 'done' && j.state !== 'cancelled') acts.push(['cancel', '取消']);
+      if (j.state !== 'running') acts.push(['delete', '移除紀錄']);
+      return `<div class="account-row tts-job" data-job="${j.id}">
+        <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
+          <div class="field-hint">${TTS_JOB_STATE[j.state] || j.state}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
+        </div>
+        <div class="account-inline-form">${acts.map(([a, label]) => `<button type="button" class="modal-btn ${a === 'cancel' ? 'cancel-btn' : 'secondary-btn'} small-btn" data-job-action="${a}" data-no-dirty>${label}</button>`).join('')}</div>
+      </div>`;
+    }).join('') : '<div class="field-hint">還沒有預先生成的工作。</div>';
+    clearTimeout(ttsAdmin.jobsTimer);
+    if (d.jobs.some(j => j.state === 'running' || j.state === 'queued') && adminCurrentPage === 'tts') {
+      ttsAdmin.jobsTimer = setTimeout(() => { if (adminCurrentPage === 'tts') loadTtsAdminJobs(); }, 4000);
+    }
+  }
+
+  async function loadTtsAdminJobs() {
+    const r = await ttsAdminApi('/api/admin/tts/jobs');
+    if (r.ok) renderTtsAdminJobs(r.data);
+    else $('adminTtsJobs').innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法讀取預先生成工作')}</div>`;
+  }
+
+  async function loadAdminTtsPane() {
+    setupAdminTtsEvents();
+    const r = await ttsAdminApi('/api/admin/tts/settings');
+    if (!r.ok) { setAdminCardLight('tts', 'bad', r.data.error || '無法載入'); return; }
+    ttsAdmin.data = r.data;
+    renderTtsAdmin();
+    const lx = await ttsAdminApi('/api/admin/tts/lexicon');
+    if (lx.ok) { $('adminTtsLexicon').value = lx.data.text; $('adminTtsLexiconInfo').textContent = `${lx.data.count} 條，其中 ${lx.data.replacements} 條改讀音${lx.data.exists ? '' : '（目前是預設內容，尚未存檔）'}`; }
+    // 依序載入，不要一次湧出一批請求（API 有每秒 30 次的限流，後台開啟時其他頁也在載入）
+    await loadTtsAdminCache();
+    await loadTtsAdminJobs();
+    if (r.data.settings.baseUrl) { // 最後才抓模型與音色清單（要連 audio.cpp，比較慢）
+      const p = await ttsAdminApi('/api/admin/tts/health');
+      if (p.ok) { ttsAdmin.probe = p.data; refreshTtsAdminAfterProbe(); }
+    }
+  }
+
+  /** 抓回模型與音色清單後重畫，但不蓋掉使用者已經改過、還沒儲存的欄位。 */
+  function refreshTtsAdminAfterProbe() {
+    const dirty = adminDirtyEntries().some(([el]) => el.closest && el.closest('#adminPaneTts'));
+    renderTtsAdminHealth();
+    if (!dirty) renderTtsAdminVoices();
+  }
+
+  function setupAdminTtsEvents() {
+    if (ttsAdmin.wired) return;
+    ttsAdmin.wired = true;
+    $('adminTtsSaveBtn').addEventListener('click', saveTtsAdmin);
+    $('adminTtsCheckBtn').addEventListener('click', async () => {
+      const btn = $('adminTtsCheckBtn'); btn.disabled = true;
+      const p = await ttsAdminApi('/api/admin/tts/health');
+      btn.disabled = false;
+      if (p.ok) { ttsAdmin.probe = p.data; const s = await ttsAdminApi('/api/admin/tts/settings'); if (s.ok) ttsAdmin.data = s.data; refreshTtsAdminAfterProbe(); updateTtsAdminLights(ttsAdmin.data); }
+      showToast(p.ok && p.data.ok ? `✅ 連線正常：${p.data.models.length} 個朗讀模型、${p.data.voices.length} 個音色` : `❌ ${(p.data && p.data.error) || '連不上 audio.cpp'}`, p.ok && p.data.ok ? 'success' : 'error', 4000);
+    });
+    $('adminTtsAddVoiceBtn').addEventListener('click', () => {
+      const name = $('adminTtsAddVoice').value.trim();
+      if (!name || /[\/\\]|\.\./.test(name)) { showToast('音色名稱不可空白，也不可含路徑', 'error'); return; }
+      const body = $('adminTtsVoices').querySelector('tbody');
+      if (body.querySelector(`tr[data-voice="${CSS.escape(name)}"]`)) { showToast('這個音色已經在清單裡', 'info'); return; }
+      if (!body.querySelector('tr[data-voice]')) body.innerHTML = '';
+      body.insertAdjacentHTML('beforeend', ttsAdminVoiceRow({ voice: name, name: '', tags: [], rate: 1, rev: 1, enabled: true }, false, false));
+      const cb = body.querySelector('tr[data-voice]:last-child .tts-v-on');
+      rememberAdminField(cb, false); refreshAdminSaveBar(); // 新加的一列算作未儲存
+      $('adminTtsAddVoice').value = '';
+    });
+    $('adminTtsVoices').addEventListener('click', async (e) => {
+      const b = e.target.closest('.tts-v-sample');
+      if (!b) return;
+      const id = b.closest('tr').dataset.id;
+      b.disabled = true; const old = b.textContent; b.textContent = '…';
+      const r = await ttsAdminApi('/api/admin/tts/sample', { method: 'POST', body: { voice: id } });
+      b.disabled = false; b.textContent = old;
+      if (r.ok) ttsAdminPlay(r.data.url); else showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', 5000);
+    });
+    $('adminTtsLexiconSaveBtn').addEventListener('click', async () => {
+      const r = await ttsAdminApi('/api/admin/tts/lexicon', { method: 'POST', body: { text: $('adminTtsLexicon').value } });
+      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
+      $('adminTtsLexiconInfo').textContent = `${r.data.count} 條，其中 ${r.data.replacements} 條改讀音`;
+      showToast('✅ 讀音字典已儲存', 'success');
+    });
+    $('adminTtsPreviewBtn').addEventListener('click', async () => {
+      const text = $('adminTtsPreviewText').value.trim();
+      if (!text) { $('adminTtsPreviewText').focus(); return; }
+      const btn = $('adminTtsPreviewBtn'); btn.disabled = true;
+      const r = await ttsAdminApi('/api/admin/tts/preview', { method: 'POST', body: { voice: $('adminTtsPreviewVoice').value, text } });
+      btn.disabled = false;
+      if (!r.ok) { showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', 5000); return; }
+      $('adminTtsPreviewSpoken').textContent = `實際送去朗讀的文字：${r.data.spoken}（試聽用目前已儲存的字典）`;
+      ttsAdminPlay(r.data.url);
+    });
+    $('adminTtsClearAllBtn').addEventListener('click', async () => {
+      if (!confirm('確定要清除全部的朗讀音檔嗎？清除後要重新生成（很花時間），無法復原。')) return;
+      const r = await ttsAdminApi('/api/admin/tts/cache/clear', { method: 'POST', body: { scope: 'all' } });
+      if (r.ok) { showToast(`已清除 ${r.data.removed} 個音檔`, 'success'); loadTtsAdminCache(); } else showToast(`❌ ${r.data.error || '清除失敗'}`, 'error');
+    });
+    $('adminTtsClearPathBtn').addEventListener('click', async () => {
+      const p = $('adminTtsClearPath').value.trim();
+      if (!p) { $('adminTtsClearPath').focus(); return; }
+      const r = await ttsAdminApi('/api/admin/tts/cache/clear', { method: 'POST', body: { scope: 'path', path: p } });
+      if (r.ok) { showToast(`已清除這一篇的 ${r.data.removed} 個音檔`, 'success'); loadTtsAdminCache(); } else showToast(`❌ ${r.data.error || '清除失敗'}`, 'error');
+    });
+    $('adminTtsJobAddBtn').addEventListener('click', async () => {
+      const scope = $('adminTtsJobScope').value.trim();
+      if (!scope && !confirm('沒有填範圍，要預先生成整個經文庫嗎？這可能要好幾個月。')) return;
+      const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope, voice: $('adminTtsJobVoice').value, pin: $('adminTtsJobPin').checked } });
+      if (!r.ok) { showToast(`❌ ${r.data.error || '無法建立工作'}`, 'error', 5000); return; }
+      $('adminTtsJobScope').value = '';
+      renderTtsAdminJobs(r.data);
+    });
+    $('adminTtsJobs').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-job-action]');
+      if (!b) return;
+      const id = b.closest('[data-job]').dataset.job;
+      const r = await ttsAdminApi(`/api/admin/tts/jobs/${id}`, { method: 'POST', body: { action: b.dataset.jobAction } });
+      if (r.ok) renderTtsAdminJobs(r.data); else showToast(`❌ ${r.data.error || '操作失敗'}`, 'error');
+    });
   }
 
   // ═══════════════════════════════════════════════════════════

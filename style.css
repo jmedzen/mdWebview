@@ -12748,6 +12748,18 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
   justify-self: start; min-height: 44px; padding: 6px 16px; border-radius: 999px;
   border: 1px solid var(--tts-accent); background: transparent; color: var(--tts-accent-text); font: inherit; cursor: pointer;
 }
+.tts-voices { border: 0; margin: 0; padding: 0; min-width: 0; }
+.tts-voices legend { padding: 0; margin-bottom: 6px; color: var(--text-secondary); }
+.tts-voice-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 6px; }
+.tts-voice-card { position: relative; display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); }
+.tts-voice-card:has(input:checked) { border-color: var(--tts-accent); background: var(--tts-accent-bg); }
+.tts-voice-card label { flex: 1; display: flex; flex-direction: column; gap: 2px; min-height: 44px; padding: 8px 10px 8px 34px; cursor: pointer; position: relative; }
+.tts-voice-card input[type="radio"] { position: absolute; left: 10px; top: 12px; margin: 0; width: 16px; height: 16px; accent-color: var(--tts-accent); }
+.tts-voice-name { font-weight: 600; color: var(--text-primary); }
+.tts-voice-tags { font-size: 0.82em; color: var(--text-muted); }
+.tts-voice-sample { flex: none; width: 44px; border: 0; border-left: 1px solid var(--border-subtle); background: transparent; color: var(--tts-accent-text); cursor: pointer; border-radius: 0 10px 10px 0; }
+.tts-voice-sample svg { width: 16px; height: 16px; }
+.tts-voice-sample:hover { background: var(--hover-bg); }
 .tts-check { display: flex; align-items: flex-start; gap: 10px; min-height: 32px; color: var(--text-secondary); cursor: pointer; }
 .tts-check input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--tts-accent); }
 
@@ -12786,3 +12798,14 @@ body.focus-mode .tts-start-btn { display: none; }
   ::highlight(mdw-tts-current) { background-color: Highlight; color: HighlightText; }
 }
 @media print { .tts-bar, .tts-head-btn, .tts-skip-link { display: none !important; } }
+
+/* §27c 朗讀後台（#adminPaneTts） */
+.admin-shell .tts-admin-table-wrap { overflow-x: auto; margin: 8px 0; }
+.admin-shell .tts-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-shell .tts-admin-table th, .admin-shell .tts-admin-table td { padding: 6px 6px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; white-space: nowrap; }
+.admin-shell .tts-admin-table th { color: var(--text-muted); font-weight: 600; }
+.admin-shell .tts-admin-table input[type="text"] { min-width: 8em; width: 100%; }
+.admin-shell .tts-admin-table input[type="number"] { width: 4.5em; }
+.admin-shell .tts-job progress { width: 100%; height: 6px; accent-color: var(--tts-accent); }
+.admin-shell #adminTtsLexicon { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.hw-tts-status { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
