@@ -104,6 +104,7 @@ describe('朗讀播放器的無障礙語意', () => {
     vm.runInContext(src + '\nthis.t = tidyTtsVoiceNames;', ctx);
     const run = (names) => { const l = names.map(name => ({ name })); ctx.t(l); return l.map(x => x.name); };
     assert.deepEqual(run(['Ref-Audio-male-都A1', 'Ref-Audio-male-馬克思1']), ['都A1', '馬克思1']);
+    assert.deepEqual(run(['RA-male-都A1', 'RA-male-雙子男']), ['都A1', '雙子男']);
     assert.deepEqual(run(['男聲・都', '男聲・馬']), ['男聲・都', '男聲・馬']);
     assert.deepEqual(run(['demo_1_man', 'demo_3_woman']), ['demo_1_man', 'demo_3_woman']);
   });

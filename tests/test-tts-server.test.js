@@ -708,19 +708,55 @@ describe('lib/tts.js 純函式', () => {
     assert.equal(I.validateSettings({ voiceDir: '/v' }, {}).settings.voiceDir, '/v');
   });
 
-  test('inspectVoiceDir：列出參考錄音、對照 prompt_text 找缺逐字稿的', () => {
+  test('inspectVoiceDir：列出參考錄音，逐字稿看 .txt 或 prompt_text；inPrompt 只看 prompt_text', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
     for (const f of ['甲.wav', '乙.wav', '丙.mp3', '.hidden.wav', 'notes.md']) fs.writeFileSync(path.join(d, f), 'x');
     fs.writeFileSync(path.join(d, '乙.txt'), '逐字稿');
     fs.writeFileSync(path.join(d, 'prompt_text'), '甲|你好。\n丙|\n丁|沒有錄音\n');
     const r = I.inspectVoiceDir(d);
     assert.equal(r.exists, true); assert.equal(r.promptText, true);
-    assert.deepEqual(r.voices.map(v => [v.name, v.transcript, v.txtFile]).sort(), [['丙', false, false], ['乙', false, true], ['甲', true, false]].sort());
+    assert.deepEqual(r.voices.map(v => [v.name, v.transcript, v.inPrompt, v.txtFile]).sort(),
+      [['丙', false, false, false], ['乙', true, false, true], ['甲', true, true, false]].sort());
     assert.deepEqual(r.extraTranscripts, ['丁']);
     assert.equal(I.inspectVoiceDir(path.join(d, 'nope')).exists, false);
     assert.equal(I.inspectVoiceDir(path.join(d, 'notes.md')).notDir, true);
     assert.deepEqual(I.inspectVoiceDir(''), { configured: false });
     fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('缺逐字稿的 WAV 用 ASR 補成 .txt（不覆蓋），再重建 prompt_text（留 .bak、去掉沒有錄音的舊名）', async () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+    fs.writeFileSync(path.join(d, 'RA-甲.wav'), 'RIFFfake');
+    fs.writeFileSync(path.join(d, 'RA-乙.wav'), 'RIFFfake');
+    fs.writeFileSync(path.join(d, 'RA-丙.mp3'), 'x');
+    fs.writeFileSync(path.join(d, 'RA-乙.txt'), '乙的稿子\n');
+    fs.writeFileSync(path.join(d, 'prompt_text'), 'Old-Name|舊的\n');
+    const calls = [];
+    I.setFetch(async (url, opt) => {
+      calls.push({ url, model: opt.body.get('model') });
+      return new Response(JSON.stringify({ text: '如是我聞。\n一時|佛在' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    try {
+      const s = { voiceDir: d, baseUrl: 'http://asr.test', asrModel: 'qwen3-asr' };
+      assert.equal(I.startVoiceTranscribe(s, { force: true }), true);
+      for (let i = 0; i < 100 && I.voiceAsrState().running; i++) await new Promise(r => setTimeout(r, 10));
+      assert.equal(calls.length, 1, '只有缺稿的 WAV 送 ASR');
+      assert.equal(calls[0].url, 'http://asr.test/v1/audio/transcriptions');
+      assert.equal(calls[0].model, 'qwen3-asr');
+      assert.equal(fs.readFileSync(path.join(d, 'RA-甲.txt'), 'utf8'), '如是我聞。 一時 佛在\n');
+      assert.equal(fs.readFileSync(path.join(d, 'prompt_text'), 'utf8'), 'RA-乙|乙的稿子\nRA-甲|如是我聞。 一時 佛在\n');
+      assert.equal(fs.readFileSync(path.join(d, 'prompt_text.bak'), 'utf8'), 'Old-Name|舊的\n');
+      const st = I.voiceAsrState();
+      assert.deepEqual(st.done.map(x => x.name), ['RA-甲']);
+      assert.deepEqual(st.errors.map(x => x.name), ['RA-丙']); // 不是 WAV
+      // 什麼都不缺之後不再啟動
+      fs.writeFileSync(path.join(d, 'RA-丙.txt'), '丙');
+      I.rebuildPromptText(d);
+      assert.equal(I.startVoiceTranscribe(s, { force: true }), false);
+    } finally {
+      I.setFetch(null);
+      fs.rmSync(d, { recursive: true, force: true });
+    }
   });
 
   test('parseWav 拒絕不是音訊的內容', () => {

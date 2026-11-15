@@ -2093,7 +2093,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 ### 24.8 安全
 
-- **SSRF**：對外只連 `baseUrl` 的四條寫死路徑（`/health`、`/v1/models`、`/v1/audio/voices`、`/v1/audio/speech`），不跟隨轉址；`baseUrl` 只接受 http／https、不含帳密。模型管理端點不碰。
+- **SSRF**：對外只連 `baseUrl` 的五條寫死路徑（`/health`、`/v1/models`、`/v1/audio/voices`、`/v1/audio/speech`，以及只有管理員觸發的 `/v1/audio/transcriptions`），不跟隨轉址；`baseUrl` 只接受 http／https、不含帳密。模型管理端點不碰。
 - **任意文字**：`speak` 只接受「已存在於該檔的句子序號」或伺服器自己發的臨時 id；`text`、`input`、`voice_ref`、`model`、`seed` 等欄位一律忽略。
 - **路徑**：走 `resolveMdPath()`（只服務 `.md`、禁隱藏路徑、禁庫外、symlink 檢查）；音檔路由的 `<sha>` 必須是 64 個小寫 hex。
 - **錯誤內容不進快取**：必須是 200、`Content-Type: audio/*`、合法 PCM WAV、時長在「每字 40–1500 ms」的合理範圍；轉檔後檢查是合法的 m4a。
@@ -2111,6 +2111,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - mdWebview 這一側：後台從 audio.cpp 抓回名稱，管理員勾選要開放的，填中文顯示名、標籤、預設語速，並產生試聽。讀者只看得到代號（`v…`）與顯示名。
 - **參考錄音不要原地覆蓋**：快取鍵只含名稱，同名換了錄音，舊快取仍會被當成同一個音色播出來，同一篇裡會忽然換聲音。換錄音時用新檔名（如 `huiyin_v2.wav`），或把該音色的 `rev` 加一（舊音檔會隨 LRU 自然淘汰）。
 - **音色資料夾設定**（`settings.tts.voiceDir`，後台「朗讀服務」卡在伺服器網址下方）：只是記錄與檢查，mdWebview 不能改 audio.cpp 的啟動參數，換資料夾要自己重啟 audio.cpp。`inspectVoiceDir()` 在路徑於本機存在時列出參考錄音（wav／mp3／flac／ogg／opus／m4a），對照 `prompt_text`（`名稱|逐字稿`）標出缺逐字稿的音色（同名 `.txt` 存在但沒寫進 `prompt_text` 也會提示），以及 `prompt_text` 裡有但沒有錄音檔的名稱；後台再和 audio.cpp `/v1/audio/voices` 比對，標出還沒被 audio.cpp 列出的。只讀檔名與 `prompt_text`、最多 500 項；路徑必須是絕對路徑，只有管理員看得到。audio.cpp 在別台機器或容器內時看不到路徑是正常的。
+- **缺逐字稿自動補（ASR）**（`settings.tts.autoTranscribe`，預設開；`asrModel` 預設 `qwen3-asr`）：打開後台朗讀頁（`GET /api/admin/tts/settings`）或按「立即補逐字稿」（`POST /api/admin/tts/voicedir/transcribe`）時，`startVoiceTranscribe()` 在背景把沒有同名 `.txt`、也不在 `prompt_text` 的 WAV 以 multipart 送 audio.cpp `POST /v1/audio/transcriptions`，結果寫成 `<名稱>.txt`（`wx`，不覆蓋），再由 `rebuildPromptText()` 依各 `.txt`（沒有就沿用舊行）重建 `prompt_text`：每個錄音一行、去掉已無錄音的舊名、舊檔留 `prompt_text.bak`、內容沒變不寫。單一工作、60 秒內不重跑；後台每 3 秒只更新資料夾那一塊。audio.cpp 會即時讀新的 `prompt_text`（實測不用重啟）。ASR 模型要在 audio.cpp 註冊（本機 `server-8301.json` 已設 lazy）。逐字稿可能有錯字或簡體字，後台提醒校對。
 - 音色從白名單移除或停用：已快取的音檔保留，但不再提供新生成。
 - 讀者端不能上傳或指定參考錄音（`voice_ref` 不開放）。
 

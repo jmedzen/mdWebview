@@ -10273,10 +10273,10 @@
   /** 向伺服器問朗讀是否可用（60 秒內不重問）；據此顯示或隱藏所有入口。 */
   /**
    * 後台沒填中文名時，顯示名就是 audio.cpp 的檔名（如 Ref-Audio-male-都A1）。
-   * 給讀者看時去掉「Ref-Audio-」「male-」這類前綴，以及所有音色共同的前綴；去完是空的就保留原名。
+   * 給讀者看時去掉「Ref-Audio-」「RA-」「male-」這類前綴，以及所有音色共同的前綴；去完是空的就保留原名。
    */
   function tidyTtsVoiceName(name) {
-    const t = String(name || '').replace(/^ref[-_ ]*audio[-_ ]*/i, '').replace(/^(?:male|female|man|woman|voice)[-_ ]+/i, '');
+    const t = String(name || '').replace(/^(?:ref[-_ ]*audio|ra)[-_ ]+/i, '').replace(/^(?:male|female|man|woman|voice)[-_ ]+/i, '');
     return t.trim() || String(name || '');
   }
   function tidyTtsVoiceNames(list) {
@@ -17236,20 +17236,36 @@
       rows.push(`<div class="field-hint">⚠️ ${info.notDir ? '這個路徑不是資料夾' : '這台主機上找不到這個資料夾'}。如果 audio.cpp 在別台機器或容器裡，這是正常的，這裡只做記錄。</div>`);
     } else {
       const up = new Set(((ttsAdmin.probe && ttsAdmin.probe.voices) || []).map(String));
+      const asr = info.asr || {};
       const missing = info.voices.filter(v => !v.transcript);
       rows.push(`<div class="field-hint">✅ 找到 ${info.voices.length} 個參考錄音${info.promptText ? '' : '；⚠️ 沒有 <code>prompt_text</code>（逐字稿檔）'}${missing.length ? `；⚠️ ${missing.length} 個缺逐字稿` : ''}</div>`);
       if (info.voices.length) {
         rows.push('<ul class="tts-voicedir-list">' + info.voices.map(v => {
           const notes = [];
-          if (!v.transcript) notes.push(v.txtFile ? `有 ${escHtml(v.name)}.txt，但 prompt_text 裡沒有這一行` : '缺逐字稿');
+          if (!v.transcript) notes.push(asr.running && asr.current === v.name ? '正在用 ASR 轉寫…' : '缺逐字稿');
+          else if (!v.inPrompt) notes.push('prompt_text 還沒有這一行（audio.cpp 讀不到）');
           if (up.size && !up.has(v.name)) notes.push('audio.cpp 沒有列出（可能要重新啟動）');
           return `<li><span class="tts-voicedir-mark" aria-hidden="true">${notes.length ? '⚠️' : '✅'}</span><code>${escHtml(v.name)}</code>${notes.length ? `<span class="field-hint">　${notes.join('；')}</span>` : ''}</li>`;
         }).join('') + '</ul>');
       }
+      if (asr.running) rows.push(`<div class="field-hint">⏳ 正在用 audio.cpp ASR 補逐字稿${asr.current ? `：<code>${escHtml(asr.current)}</code>` : ''}…</div>`);
+      if (asr.done && asr.done.length) rows.push(`<div class="field-hint">✏️ 剛用 ASR 補上：${asr.done.map(x => `<code>${escHtml(x.name)}</code>（${escHtml(x.text)}${x.text.length >= 120 ? '…' : ''}）`).join('、')}。請打開 .txt 校對。</div>`);
+      if (asr.errors && asr.errors.length) rows.push(`<div class="field-hint">❌ ${asr.errors.map(x => `<code>${escHtml(x.name)}</code>：${escHtml(x.error)}`).join('；')}</div>`);
       if (info.extraTranscripts && info.extraTranscripts.length) rows.push(`<div class="field-hint">prompt_text 裡有、但找不到錄音檔：${info.extraTranscripts.map(n => `<code>${escHtml(n)}</code>`).join('、')}</div>`);
     }
+    clearTimeout(ttsAdmin.asrPoll);
+    if (info.asr && info.asr.running) ttsAdmin.asrPoll = setTimeout(refreshTtsAdminVoiceDir, 3000);
     if (info.configured) rows.push(`<div class="field-hint">audio.cpp 啟動參數：<code>--voice-dir "${escHtml(info.path)}"</code></div>`);
     el.innerHTML = rows.join('');
+  }
+
+  /** ASR 補逐字稿進行中：只更新資料夾那一塊，不動表單上還沒存的修改。 */
+  async function refreshTtsAdminVoiceDir() {
+    if (!ttsAdmin.data || !$('adminTtsVoiceDirStatus') || !$('adminTtsVoiceDirStatus').isConnected) return;
+    const r = await ttsAdminApi('/api/admin/tts/settings');
+    if (!r.ok || !ttsAdmin.data) return;
+    ttsAdmin.data.voiceDir = r.data.voiceDir;
+    renderTtsAdminVoiceDir();
   }
 
   function renderTtsAdmin() {
@@ -17259,6 +17275,8 @@
     const base = $('adminTtsBaseUrl'); base.value = s.baseUrl || ''; base.disabled = !!lock.baseUrl;
     $('adminTtsBaseUrlLock').hidden = !lock.baseUrl; $('adminTtsBaseUrlLock').textContent = '由環境變數 TTS_BASE_URL 設定，這裡不能改。';
     $('adminTtsVoiceDir').value = s.voiceDir || '';
+    $('adminTtsAutoTranscribe').checked = s.autoTranscribe !== false;
+    $('adminTtsAsrModel').value = s.asrModel || '';
     $('adminTtsModel').disabled = !!lock.model;
     $('adminTtsModelLock').hidden = !lock.model; $('adminTtsModelLock').textContent = '由環境變數 TTS_MODEL 設定，這裡不能改。';
     $('adminTtsMaxChars').value = s.maxSentenceChars; $('adminTtsConcurrency').value = s.concurrency;
@@ -17310,6 +17328,8 @@
     const lock = (ttsAdmin.data && ttsAdmin.data.locked) || {};
     if (!lock.baseUrl) out.baseUrl = $('adminTtsBaseUrl').value.trim();
     out.voiceDir = $('adminTtsVoiceDir').value.trim();
+    out.autoTranscribe = $('adminTtsAutoTranscribe').checked;
+    out.asrModel = $('adminTtsAsrModel').value.trim();
     if (!lock.model && $('adminTtsModel').value) out.model = $('adminTtsModel').value;
     if (!lock.cacheMb) out.cacheMb = num('adminTtsCacheMb');
     return { settings: out, newDefault: defaultVoice.startsWith('__new:') ? defaultVoice.slice(6) : '' };
@@ -17411,6 +17431,14 @@
     if (ttsAdmin.wired) return;
     ttsAdmin.wired = true;
     $('adminTtsSaveBtn').addEventListener('click', saveTtsAdmin);
+    $('adminTtsTranscribeBtn').addEventListener('click', async () => {
+      const btn = $('adminTtsTranscribeBtn'); btn.disabled = true;
+      const r = await ttsAdminApi('/api/admin/tts/voicedir/transcribe', { method: 'POST', body: {} });
+      btn.disabled = false;
+      if (!r.ok) { showToast(`❌ ${r.data.error || '無法開始'}`, 'error', 5000); return; }
+      if (ttsAdmin.data) { ttsAdmin.data.voiceDir = r.data.voiceDir; renderTtsAdminVoiceDir(); }
+      showToast(r.data.started ? '已開始補逐字稿' : '沒有缺逐字稿的錄音（或已經在跑）', 'info', 3000);
+    });
     $('adminTtsCheckBtn').addEventListener('click', async () => {
       const btn = $('adminTtsCheckBtn'); btn.disabled = true;
       const p = await ttsAdminApi('/api/admin/tts/health');
