@@ -2115,7 +2115,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 ### 24.11 前端（`app.js` §17c、`index.html` `#ttsBar`、`style.css` §27c、`sw.js`）
 
-- **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題後的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入，只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
+- **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題旁的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入到標題**前面**當兄弟元素，`float: right` 靠右對齊標題第一行（`alignTtsHeadButtons()` 量出 margin-top，`ResizeObserver` 在字級／行寬改變時重算），不另佔一行；不放在標題裡，標題的無障礙名稱保持乾淨，VoiceOver 從標題往前滑一下就是它；只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`；視覺 28px，`::after` 把點擊範圍擴到 46px，不增加版面高度）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
 - **選取的位置**：前端把選取端點換成 `{ line, n }`（`n`＝該行中這一點之前的非空白字數），伺服器在該行的句子上對位（`resolveStrippedPos`）。畫面文字與正規化文字的空白、Markdown 記號不同，但非空白字的順序相同。選到半句時面板顯示「已延伸至完整句」，補讀的句子用較淡的 `mdw-tts-padded` 底色。
 - **播放**：只有一個重複使用的 `Audio`，第一次在使用者手勢的同步呼叫內先播 `/api/tts/silence.wav`（0.1 秒靜音，用 `data:` URI 會被 CSP 擋下）解鎖，之後換 `src`。`ended` 時接下一句；句間停頓只在頁面可見時用計時器插入（背景時計時器會被凍結，直接接）。後 3 句用 `/api/tts/speak` 的 `priority:'prefetch'` 先生成，並 `fetch` 一次讓 Service Worker 存起來。換 `src` 後重設 `playbackRate`（iOS 會重設）並開 `preservesPitch`。
 - **朗讀本節**：遇到同級或更高級的標題就停；本節可能跨好幾章，`ttsFillSection()` 在背景把句子接上來，「第 N／M 句」才算得出本節的總數。從目前位置朗讀則讀到底，自動接下一章。
@@ -2144,7 +2144,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 定位：盲人讀者本來就有 VoiceOver，朗讀對他們的價值是更自然的音色、佛學名詞讀音正確、可長時間背景聽經與鎖屏控制。原則是**不和 VoiceOver 搶話、所有功能都能不看螢幕完成**。
 
-- **入口不依賴選字**：右上角「從目前位置朗讀」、內文每個標題後與大綱每一列的「朗讀本節」（`aria-label="朗讀本節：<標題>"`，觸控時一直可見、44pt）、Alt+R。
+- **入口不依賴選字**：右上角「從目前位置朗讀」、內文每個標題後與大綱每一列的「朗讀本節」（`aria-label="朗讀本節：<標題>"`，觸控時一直可見、點擊範圍 ≥44pt）、Alt+R。
 - **地標與結構**：播放列是有名稱的 `<section>`＋「跳到朗讀播放器」略過連結；誦經模式是 `aria-modal` 對話框（背景 `inert`、焦點圈、Esc、焦點歸還）。
 - **控制元件**：播放／暫停是同一顆按鈕切換名稱；進度與語速是 slider，`aria-valuetext` 用中文；音色是原生 radio 卡片；所有圖示按鈕都有中文名稱。
 - **不打斷音訊**：只有一個 polite 狀態區，只在使用者操作後播報；換句時不播報、不移動焦點。偏好「讓 VoiceOver 焦點跟著目前的句子」（預設關）開啟時才把焦點移到該段落（`preventScroll`）。

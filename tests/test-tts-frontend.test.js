@@ -60,10 +60,20 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.ok(!/ttsAnnounce\(/.test(playAt), '換句時不得用 aria-live 播報');
   });
 
-  test('標題後的「朗讀本節」是實體按鈕，名稱含標題文字；觸控下一直可見且至少 44pt', () => {
+  test('標題旁的「朗讀本節」是實體按鈕，名稱含標題文字；放在標題外面、浮動不佔一行；點擊範圍至少 44pt', () => {
     assert.match(ttsSection, /b\.setAttribute\('aria-label', `朗讀本節：\$\{name\}`\)/);
     assert.match(ttsSection, /b\.type = 'button'/);
-    assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?min-width: 44px; min-height: 44px;/);
+    // 放在標題前面當兄弟元素：標題的無障礙名稱不會混進「朗讀本節」
+    assert.match(ttsSection, /h\.before\(b\)/);
+    assert.ok(!/h\.appendChild\(b\)/.test(ttsSection), '按鈕不可放進標題裡');
+    assert.match(ttsSection, /ttsHeadingLine\(b\.nextElementSibling\)/);
+    const rule = css.match(/body\.tts-enabled \.markdown-body \.tts-head-btn \{[^}]*\}/);
+    assert.ok(rule, '找不到按鈕樣式');
+    assert.match(rule[0], /float: right;/);
+    assert.match(rule[0], /width: 28px; height: 28px;/);
+    // 視覺 28px＋::after 每邊 9px＝46px 點擊範圍
+    assert.match(css, /\.tts-head-btn::after \{\s*content: ''; position: absolute; inset: -9px;/);
+    assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?opacity: 0\.9;/);
   });
 
   test('播放列的按鈕至少 44×44，播放列尊重 safe-area', () => {
