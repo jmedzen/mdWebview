@@ -145,15 +145,6 @@ describe('第六階段：無障礙打磨', () => {
   });
 });
 
-describe('上一句／下一句', () => {
-  test('暫停中或已讀完時按上一句／下一句也會開始播那一句；到頭時有看得到的提示', () => {
-    const fn = ttsSection.slice(ttsSection.indexOf('async function ttsStep'), ttsSection.indexOf('function ttsStop'));
-    assert.match(fn, /ttsUnlock\(\);\s*let k = /, '解鎖要在第一個 await 之前');
-    assert.match(fn, /ttsRt\.playing = true;/);
-    assert.match(fn, /showToast\(msg/);
-  });
-});
-
 describe('朗讀的配色對比（WCAG AA）', () => {
   const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
     .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)))
@@ -227,5 +218,14 @@ describe('Service Worker 的朗讀音檔快取', () => {
     for (const h of ['bytes=0-99', 'bytes=900-', 'bytes=-100', 'bytes=-5000', 'bytes=990-5000', 'bytes=1000-', 'bytes=-0', 'bytes=5-2', 'garbage', '', 'bytes=0-1,5-9']) {
       assert.deepEqual(JSON.parse(JSON.stringify(ctx.parseTtsRange(h, 1000))), parseByteRange(h, 1000), h);
     }
+  });
+});
+
+describe('上一句／下一句', () => {
+  test('暫停中或已讀完時按上一句／下一句也會開始播那一句；到頭時有看得到的提示', () => {
+    const fn = ttsSection.slice(ttsSection.indexOf('async function ttsStep'), ttsSection.indexOf('function ttsStop'));
+    assert.match(fn, /ttsUnlock\(\);\s*let k = /, '解鎖要在第一個 await 之前');
+    assert.match(fn, /ttsRt\.playing = true;/);
+    assert.match(fn, /showToast\(msg/);
   });
 });
