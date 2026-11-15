@@ -12817,6 +12817,10 @@ body.focus-mode .tts-start-btn { display: none; }
 /* §27c 朗讀後台（#adminPaneTts） */
 .admin-shell .tts-admin-table-wrap { overflow-x: auto; margin: 8px 0; }
 .admin-shell .tts-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-shell .tts-voicedir-list { list-style: none; margin: 4px 0; padding: 0; font-size: 13px; }
+.admin-shell .tts-voicedir-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 3px 0; }
+.admin-shell .tts-voicedir-list code { overflow-wrap: anywhere; }
+.admin-shell .tts-voicedir-mark { flex: none; }
 .admin-shell .tts-admin-table th, .admin-shell .tts-admin-table td { padding: 6px 6px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; white-space: nowrap; }
 .admin-shell .tts-admin-table th { color: var(--text-muted); font-weight: 600; }
 .admin-shell .tts-admin-table input[type="text"] { min-width: 8em; width: 100%; }

@@ -2110,6 +2110,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - audio.cpp 的音色庫是一個資料夾（`--voice-dir <資料夾>` 或設定檔的 `voice_dir`；沒指定時用內建的 `webui/native/demo_voices/`）：每個音色一個 `<名稱>.wav`，加上一個檔名就叫 `prompt_text`（沒有副檔名）的對照檔，一行一個 `<名稱>|<錄音的逐字稿>`。`GET /v1/audio/voices` 列出的就是這些名稱。
 - mdWebview 這一側：後台從 audio.cpp 抓回名稱，管理員勾選要開放的，填中文顯示名、標籤、預設語速，並產生試聽。讀者只看得到代號（`v…`）與顯示名。
 - **參考錄音不要原地覆蓋**：快取鍵只含名稱，同名換了錄音，舊快取仍會被當成同一個音色播出來，同一篇裡會忽然換聲音。換錄音時用新檔名（如 `huiyin_v2.wav`），或把該音色的 `rev` 加一（舊音檔會隨 LRU 自然淘汰）。
+- **音色資料夾設定**（`settings.tts.voiceDir`，後台「朗讀服務」卡在伺服器網址下方）：只是記錄與檢查，mdWebview 不能改 audio.cpp 的啟動參數，換資料夾要自己重啟 audio.cpp。`inspectVoiceDir()` 在路徑於本機存在時列出參考錄音（wav／mp3／flac／ogg／opus／m4a），對照 `prompt_text`（`名稱|逐字稿`）標出缺逐字稿的音色（同名 `.txt` 存在但沒寫進 `prompt_text` 也會提示），以及 `prompt_text` 裡有但沒有錄音檔的名稱；後台再和 audio.cpp `/v1/audio/voices` 比對，標出還沒被 audio.cpp 列出的。只讀檔名與 `prompt_text`、最多 500 項；路徑必須是絕對路徑，只有管理員看得到。audio.cpp 在別台機器或容器內時看不到路徑是正常的。
 - 音色從白名單移除或停用：已快取的音檔保留，但不再提供新生成。
 - 讀者端不能上傳或指定參考錄音（`voice_ref` 不開放）。
 

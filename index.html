@@ -2424,6 +2424,10 @@
               <label class="field-hint" for="adminTtsBaseUrl">audio.cpp 伺服器網址</label>
               <input type="url" id="adminTtsBaseUrl" placeholder="http://192.168.1.10:8301" spellcheck="false" autocomplete="off">
               <p class="field-hint" id="adminTtsBaseUrlLock" hidden></p>
+              <label class="field-hint" for="adminTtsVoiceDir">audio.cpp 音色資料夾（<code>--voice-dir</code>）</label>
+              <input type="text" id="adminTtsVoiceDir" placeholder="/Users/me/voices" spellcheck="false" autocomplete="off" aria-describedby="adminTtsVoiceDirHint">
+              <p class="field-hint" id="adminTtsVoiceDirHint">填 audio.cpp 啟動時 <code>--voice-dir</code> 指向的資料夾。本站<strong>不會</strong>改 audio.cpp 的啟動參數：換資料夾要重新啟動 audio.cpp 才生效。audio.cpp 跟本站在同一台主機時，這裡會檢查資料夾、列出參考錄音，並對照 <code>prompt_text</code> 看哪個音色缺逐字稿（drama3 沒有逐字稿會失敗）。</p>
+              <div id="adminTtsVoiceDirStatus" class="account-list" aria-live="polite"></div>
               <label class="field-hint" for="adminTtsModel">模型（只列出朗讀用的模型）</label>
               <select id="adminTtsModel"></select>
               <p class="field-hint" id="adminTtsModelLock" hidden></p>
