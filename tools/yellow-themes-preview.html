@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>淺黃底方案預覽</title>
+<style>
+body{margin:0;padding:16px;background:#555;font-family:-apple-system,"PingFang TC",sans-serif}
+h1{color:#eee;font-size:16px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.t{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg-primary);color:var(--text-primary);display:flex;flex-direction:column}
+.bar{display:flex;justify-content:space-between;padding:8px 14px;background:var(--header-bg);border-bottom:1px solid var(--border);font-size:13px}
+.bar b{color:var(--heading-color)} .bar span{color:var(--text-muted)}
+.main{display:flex;flex:1}
+.side{width:96px;padding:10px;background:var(--sidebar-bg);border-right:1px solid var(--border);font-size:12px;color:var(--text-secondary)}
+.side div{padding:4px 6px;border-radius:4px}.side .a{background:var(--active-bg);color:var(--accent)}
+.doc{padding:14px 18px;font-size:14px;line-height:1.75;flex:1}
+h2{color:var(--heading-color);font-size:18px;margin:0 0 6px}
+h3{color:var(--h3-color);font-size:15px;margin:10px 0 4px}
+strong{color:var(--bold-color)} a{color:var(--link-color)}
+code{background:var(--code-bg);padding:1px 5px;border-radius:3px;font-size:12.5px}
+blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--blockquote-border);background:var(--blockquote-bg);color:var(--text-secondary)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{background:var(--table-header-bg)}th,td{border:1px solid var(--border);padding:3px 8px;text-align:left}
+tr:nth-child(even) td{background:var(--table-stripe)}
+mark{background:var(--search-highlight)}
+.m{color:var(--text-muted);font-size:12px;margin-top:8px}
+</style></head><body>
+<h1>淺黃底方案（同一段內容，各套變數）</h1>
+<div class="grid" id="g"></div>
+<script>
+const T=[
+{n:'A 杏黃（偏暖）',c:'#fbf1d0 #f3e6bd #e8d9a4 #4a3f24 #66593a #8e8157 #8a5a12 #6b4c10 #8c4a10 #6b5420 #e2d29a'},
+{n:'B 檸檬淡黃（偏亮）',c:'#fffbdc #f7f1c4 #ece4a8 #3b3a20 #5a5836 #86835a #6b6a12 #55540e #7a5a00 #5e5e1a #e3dc9e'},
+{n:'C 奶油黃（低飽和）',c:'#faf3dc #f1e9cc #e5dbb8 #3a342a #5a5242 #8a8068 #7a6a3a #5c4f28 #8a5a24 #6a5a30 #ddd2ae'},
+{n:'D 護眼豆沙黃（微綠）',c:'#f5f0cf #ebe6bf #dedaa8 #33351f #50532f #7d8056 #5a6e2a #475a1f #7a5a14 #556a2a #d3d09c'}];
+const k=['bg-primary','bg-secondary','bg-tertiary','text-primary','text-secondary','text-muted','accent','heading-color','bold-color','link-color','border'];
+g.innerHTML=T.map(t=>{const v=t.c.split(' ');let s=k.map((x,i)=>`--${x}:${v[i]}`).join(';');
+s+=`;--border:${v[10]};--header-bg:${v[1]};--sidebar-bg:${v[1]};--active-bg:${v[2]};--h3-color:${v[6]};--code-bg:${v[2]}99;--blockquote-border:${v[6]};--blockquote-bg:${v[6]}12;--table-header-bg:${v[2]}99;--table-stripe:${v[1]}99;--search-highlight:#e8b94a55`;
+return `<div class="t" style="${s}"><div class="bar"><b>${t.n}</b><span>${v[0]}</span></div><div class="main"><div class="side"><div class="a">大覺藏集</div><div>經典</div><div>筆記</div></div><div class="doc"><h2>一、發菩提心</h2><p>菩提心為<strong>大乘入道之門</strong>，詳見<a href="#">科判圖</a>與<code>sutra.md</code>，並<mark>搜尋高亮</mark>如此。</p><h3>（一）願菩提心</h3><blockquote>一切眾生皆有佛性，如來藏常住不變。</blockquote><table><tr><th>項目</th><th>說明</th></tr><tr><td>願</td><td>願成佛度生</td></tr><tr><td>行</td><td>六度萬行</td></tr></table><div class="m">次要文字 muted：頁尾、時間戳</div></div></div></div>`}).join('');
+</script></body></html>

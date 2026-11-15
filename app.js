@@ -10699,23 +10699,50 @@
   }
 
   function ttsHeadingLine(h) {
+    if (!h || !h.querySelector) return 0;
     const a = h.querySelector('.line-anchor[data-line]');
     return a ? parseInt(a.getAttribute('data-line'), 10) : 0;
   }
 
-  /** 每個標題後面放一顆可聚焦的「朗讀本節」按鈕（只有圖示，沒有文字節點：不影響劃線與大綱）。 */
+  /**
+   * 每個標題放一顆可聚焦的「朗讀本節」按鈕（只有圖示，沒有文字節點：不影響劃線與大綱）。
+   * 按鈕放在標題「前面」當兄弟元素、浮動靠右對齊標題第一行：
+   *   - 不另佔一行（標題文字繞著它排）；
+   *   - 不在標題裡面，VoiceOver 標題轉盤的名稱保持乾淨；往前滑一下就是「朗讀本節：標題」。
+   */
   function decorateTtsHeadings() {
     const body = $('markdownBody');
     if (!body || !ttsEnabled()) return;
     for (const h of body.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
-      if (h.querySelector(':scope > .tts-head-btn') || !ttsHeadingLine(h)) continue;
+      const prev = h.previousElementSibling;
+      if ((prev && prev.classList.contains('tts-head-btn')) || !ttsHeadingLine(h)) continue;
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'tts-head-btn';
       const name = (h.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
       b.setAttribute('aria-label', `朗讀本節：${name}`);
       b.title = '朗讀本節';
       b.innerHTML = TTS_ICON.speak;
-      h.appendChild(b);
+      h.before(b);
+    }
+    alignTtsHeadButtons();
+  }
+
+  /** 浮動按鈕的上緣對齊標題第一行的中線（標題的上邊距、字級、行高都會影響，所以用量的）。 */
+  function alignTtsHeadButtons() {
+    const body = $('markdownBody');
+    if (!body) return;
+    for (const b of body.querySelectorAll('.tts-head-btn')) {
+      const h = b.nextElementSibling;
+      if (!h || !/^H[1-6]$/.test(h.tagName)) { b.remove(); continue; }
+      const br = b.getBoundingClientRect();
+      if (!br.height) continue; // 沒顯示（未啟用、列印、隱藏分頁）
+      const cs = getComputedStyle(h);
+      const fs = parseFloat(cs.fontSize) || 16;
+      const lh = parseFloat(cs.lineHeight) || fs * 1.4;
+      const firstLineMid = h.getBoundingClientRect().top + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.borderTopWidth) || 0) + lh / 2;
+      const cur = parseFloat(b.style.marginTop) || 0;
+      const want = Math.round(cur + firstLineMid - (br.top + br.height / 2));
+      if (Math.abs(want - cur) >= 1) b.style.marginTop = `${want}px`;
     }
   }
 
@@ -11348,13 +11375,21 @@
     on('ttsExact', 'change', (e) => { ttsPrefs().exact = e.target.checked; saveTtsPrefs(); });
     on('ttsStartBtn', 'click', () => { if (ttsRt.active) { $('ttsPlayBtn').focus(); ttsTogglePlay(); } else ttsStartFromVisible(); });
 
-    // 標題後的「朗讀本節」
+    // 標題旁的「朗讀本節」
     const body = $('markdownBody');
+    // 字級、行寬、主題改變都會讓標題換行位置變：重新對齊浮動按鈕
+    if (body && typeof ResizeObserver === 'function') {
+      let alignRaf = 0;
+      new ResizeObserver(() => {
+        if (alignRaf || !ttsEnabled()) return;
+        alignRaf = requestAnimationFrame(() => { alignRaf = 0; alignTtsHeadButtons(); });
+      }).observe(body);
+    }
     if (body) body.addEventListener('click', (e) => {
       const b = e.target.closest && e.target.closest('.tts-head-btn');
       if (!b) return;
       e.preventDefault(); e.stopPropagation();
-      const line = ttsHeadingLine(b.parentElement);
+      const line = ttsHeadingLine(b.nextElementSibling);
       if (line) ttsStartFromLine(line, true);
     });
 
