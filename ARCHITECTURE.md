@@ -956,6 +956,7 @@ flowchart TD
 | `§16` | 9,137 | 97 | Toast Notifications | 全域浮動提示通知（`showToast`） |
 | `§17` | 9,234 | 66 | Bookmarks | 經本書籤收藏管理 |
 | `§17b` | 9,300 | 531 | Highlights | 劃重點（朱筆底線）：CSS Custom Highlight API 著色、錨定與隨書籤同步（見 §19「劃重點」） |
+| `§17c` | — | 約 900 | Read Aloud | 朗讀播放器（v4.33）：句子佇列、單一 `<audio>`、預取、跟讀高亮（`mdw-tts-current`）、Media Session、播放列與設定面板、選字「朗讀」、標題後「朗讀本節」、快捷鍵。狀態在閉包內的 `ttsRt`（不放進 `state`），偏好在 `STORAGE_KEYS.TTS_PREFS`（見 §24.11） |
 | `§18` | 9,831 | 119 | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
 | `§18.5` | 9,950 | 263 | Preferences Backup | 使用者偏好匯出／匯入 JSON |
 | `§19` | 10,213 | 98 | Sidebar Resize | 側邊欄拖曳調整寬度 |
@@ -1964,7 +1965,7 @@ node --test tests/test-admin-shell.test.js   # 只跑一個檔案
 
 ## 24. 朗讀（TTS）
 
-> 狀態：**後端已完成（第二階段）**；前端播放列、誦經模式、後台頁面在後續階段。本章記錄已實作的部分。
+> 狀態：後端（第二階段）與前端基本播放（第三階段）已完成；誦經模式、後台頁面在後續階段。本章記錄已實作的部分。
 
 ### 24.1 定位與原則
 
@@ -2069,7 +2070,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | `readNotes`、`readMantra`、`readNonScripture` | `false`、`true`、`false` | 全站口語化設定（夾注、咒語、非經文區段） |
 | `warmup` | `true` | 即時請求之後，以較低優先序先生成後面 5 句 |
 | `maxSelectionChars` | `3000` | 一次選取朗讀回傳的上限，其餘由前端沿句子序號續取 |
-| `busyTimeoutMs` | `30000` | 傳給 audio.cpp 的 `busy_timeout_ms` |
+| `busyTimeoutMs` | `120000` | 傳給 audio.cpp 的 `busy_timeout_ms`。要比冷啟動（35–45 秒）長：推論時間超過這個值時，audio.cpp 會把排在後面的請求以「前一個請求疑似卡住」立刻回 503 |
 | `keepWarm`、`keepWarmMinutes` | `true`、`30` | 保溫：最後一次朗讀活動後的 N 分鐘內，每次健康檢查（2 分鐘）若已閒置 100 秒且佇列是空的，就送一句「南無阿彌陀佛」給 audio.cpp（結果丟棄、不進快取）。讀者一開啟朗讀（`/api/tts/doc`）也會先暖機一次 |
 
 匿名的 `GET /api/admin/status` 會把 `settings.tts` 拿掉（不洩漏區網位址）。讀音字典在 `TTS_LEXICON_PATH`（預設 `config.json` 旁的 `tts-lexicon.txt`），一行一條「詞｜替換」，只寫詞＝只保護不切開；10 秒內熱重載。
@@ -2099,7 +2100,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 ### 24.9 尚未實作（後續階段）
 
-前端播放列與誦經模式、Service Worker 音檔快取、後台頁面、預先生成工作佇列與釘選、最近朗讀與收藏（`users.db`）、科判節點的「朗讀本節」。
+誦經模式、睡眠計時、離線下載整篇、跨科連讀（第五階段）；後台頁面、預先生成工作佇列與釘選（第四階段）；最近朗讀與收藏（`users.db`）；大綱與科判樹節點的「朗讀本節」（目前只有內文標題後的按鈕）；VoiceOver 實機檢核（第六階段）。
 
 ### 24.10 音色管理（參考錄音）
 
@@ -2110,3 +2111,16 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - **參考錄音不要原地覆蓋**：快取鍵只含名稱，同名換了錄音，舊快取仍會被當成同一個音色播出來，同一篇裡會忽然換聲音。換錄音時用新檔名（如 `huiyin_v2.wav`），或把該音色的 `rev` 加一（舊音檔會隨 LRU 自然淘汰）。
 - 音色從白名單移除或停用：已快取的音檔保留，但不再提供新生成。
 - 讀者端不能上傳或指定參考錄音（`voice_ref` 不開放）。
+
+### 24.11 前端（`app.js` §17c、`index.html` `#ttsBar`、`style.css` §27c、`sw.js`）
+
+- **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題後的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入，只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
+- **選取的位置**：前端把選取端點換成 `{ line, n }`（`n`＝該行中這一點之前的非空白字數），伺服器在該行的句子上對位（`resolveStrippedPos`）。畫面文字與正規化文字的空白、Markdown 記號不同，但非空白字的順序相同。選到半句時面板顯示「已延伸至完整句」，補讀的句子用較淡的 `mdw-tts-padded` 底色。
+- **播放**：只有一個重複使用的 `Audio`，第一次在使用者手勢的同步呼叫內先播 `/api/tts/silence.wav`（0.1 秒靜音，用 `data:` URI 會被 CSP 擋下）解鎖，之後換 `src`。`ended` 時接下一句；句間停頓只在頁面可見時用計時器插入（背景時計時器會被凍結，直接接）。後 3 句用 `/api/tts/speak` 的 `priority:'prefetch'` 先生成，並 `fetch` 一次讓 Service Worker 存起來。換 `src` 後重設 `playbackRate`（iOS 會重設）並開 `preservesPitch`。
+- **朗讀本節**：遇到同級或更高級的標題就停；本節可能跨好幾章，`ttsFillSection()` 在背景把句子接上來，「第 N／M 句」才算得出本節的總數。從目前位置朗讀則讀到底，自動接下一章。
+- **跟讀高亮**：`mdw-tts-current`（淡朱底色＋朱筆底線）。用該句的 `line`／`endLine` 在 `buildHighlightTextIndex()`（與劃重點共用）的文字裡找，去掉空白比對，找不到就退回整行；內文重畫（虛擬捲動、繁簡切換）時由劃重點的 MutationObserver 一併重畫。不支援 Custom Highlight 的瀏覽器在該區塊加 `.tts-line-current`。跟讀捲動只在句子離開視窗中段時才捲；使用者自己捲動（wheel／touchmove）後 4 秒內不跟，播放列出現「回到朗讀位置」。`prefers-reduced-motion` 時不平滑捲動。
+- **無障礙**：播放列 `<section aria-label="朗讀播放器">`（地標）＋略過連結；播放／暫停是同一顆按鈕切換 `aria-label`；進度與語速是 `input[type=range]`，`aria-valuetext`「第 N 句，共 M 句」「1.2 倍」；音色用原生 `<select>`；只有一個 `aria-live="polite"` 的狀態區，只在使用者操作後寫入（已暫停、語速、朗讀範圍已延伸、無法連到朗讀服務），換句時不播報。高亮純視覺，不移動焦點。
+- **Media Session**：`play`／`pause`／`previoustrack`／`nexttrack`／`stop`；`metadata` 是經名、目前章名、站名與音色、網站圖示。
+- **個人偏好**：`STORAGE_KEYS.TTS_PREFS`＝`{ voice, rate, follow, shortcuts, exact }`，納入偏好匯出入（`preferences.tts`）。語速 0.7–2 倍，0＝用音色的預設語速。
+- **Service Worker**：`/api/tts/audio/<sha>` 走 Cache-First，快取名 `mdwebview-tts-v1` 不綁 app 版本（`activate` 只清 `mdwebview-shell-`／`mdwebview-content-` 開頭的舊快取），最多 6000 筆（約 240 MB）。快取裡存完整的 200，`<audio>` 的 Range 請求由 SW 切出 206／416（`parseTtsRange` 與伺服器的 `parseByteRange` 有對照測試）。
+- **介面字串**：照本專案慣例直接寫在 `index.html`／`app.js`，簡體顯示由 `display-script.js` 即時轉換；沒有需要依語系改寫措辭的字串，所以沒有加進 `i18n/zh-TW.js`、`zh-CN.js`。

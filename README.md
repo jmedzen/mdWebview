@@ -28,6 +28,7 @@
   - 經文原文仍是繁體，簡體是在你的瀏覽器裡即時轉換的；簡體顯示時搜尋會一併比對簡繁字形，輸入簡體或繁體都找得到。
 - 🔖 **書籤與歷程**：右上角選單的「書籤與歷程」會從右側滑出一個面板（手機上是全螢幕）。書籤依資料夾分組，可收合、排序、刪除；歷程依今天／昨天／更早分組。兩個分頁都會顯示每篇讀到幾成的進度條，按「繼續閱讀」回到上次的位置。同一個選單也能直接調整字級大小。
 - 🖍️ **劃重點**：選取經文後，選字小選單最前面有朱、黃、綠、藍四個色點，點一下就在字下畫線；點已劃線的地方可改色、複製或取消。劃線會掛在書籤下，在「書籤與歷程」裡逐條展開、跳回原處。經文日後小改時劃線會跟著新文字走，真的找不到時標成「找不到原處」，不會刪掉。
+- 🔊 **朗讀**（網站接上區域網路的 audio.cpp 才有）：從目前位置、從某個標題（「朗讀本節」）或選取的文字開始朗讀，畫面跟著朗讀的句子標示與捲動；底部播放列可換音色、調語速，鎖定畫面與耳機也能控制。選到半句會自動延伸到完整的句子。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句。
 - ✂️ **選字小選單**：同一個選單還能複製（可附出處）、查辭典、全站搜尋、複製這一行的分享連結，登入後也能把選取的句子做成早安圖。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
@@ -327,6 +328,7 @@ npm test       # 執行 tests/ 裡的所有測試
   - The texts themselves stay Traditional; Simplified is converted in your browser on the fly. In Simplified display, searches match Simplified and Traditional forms, so typing either finds the text.
 - 🔖 **Bookmarks & History**: 書籤與歷程 in the top-right menu slides out a panel from the right (full screen on phones). Bookmarks are grouped by folder and can be collapsed, sorted and deleted; recent reading is grouped into today / yesterday / earlier. Both tabs show a progress bar for how far you read each text, and 繼續閱讀 takes you back to where you stopped. The same menu also adjusts the text size.
 - 🖍️ **Highlights**: Select some text and the small selection menu starts with four color dots (vermilion, yellow, green, blue); tap one to underline the passage. Tap a highlight to recolor, copy or remove it. Highlights belong to bookmarks and are listed under each bookmark in Bookmarks & History, where you can jump back to them. When a text is lightly edited later, highlights follow the new wording; if one can no longer be found it is marked as such, never deleted.
+- 🔊 **Read aloud** (when the site is connected to an audio.cpp server on the local network): start from where you are, from a heading ("read this section") or from selected text; the current sentence is marked and followed on screen. The bottom player changes voice and speed, and the lock screen and headphones can control it. Selecting part of a sentence reads the whole sentence. Alt+R plays/pauses, Alt+←/→ moves between sentences.
 - ✂️ **Selection menu**: The same menu copies (optionally with the source), looks up the dictionary, searches the whole library, copies a link to the line, and — when signed in — turns the selected sentence into a greeting card.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
 

@@ -50,6 +50,12 @@ const SHELL_ASSETS = [
 
 const MAX_CONTENT_CACHE_ITEMS = 150;
 
+// 朗讀（TTS）音檔：以內容雜湊為網址、永不改變，所以快取名稱不綁 app 版本——升版時不會被清掉。
+// 不放進 CONTENT_CACHE（那裡只留 150 筆）。播放過與預取的句子都會留在這裡，離線也能重聽。
+const TTS_CACHE = 'mdwebview-tts-v1';
+const TTS_AUDIO_PREFIX = '/api/tts/audio/';
+const MAX_TTS_CACHE_ITEMS = 6000; // 每句約 40 KB（AAC 64k），約 240 MB
+
 // Which /api/ endpoints may be stored for offline reading. Everything else
 // (search, dictionary, admin…) stays network-only: its answers are
 // request-specific and would only bloat the quota.
@@ -161,6 +167,13 @@ self.addEventListener('fetch', event => {
 
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
+
+  // 0. 朗讀音檔 -> Cache-First（內容不可變）。快取裡存完整的 200 回應；
+  //    <audio> 的 Range 請求由這裡切出 206（iOS Safari 沒有 206 會無法播放或拖曳）。
+  if (url.pathname.startsWith(TTS_AUDIO_PREFIX)) {
+    event.respondWith(handleTtsAudio(event, req, url));
+    return;
+  }
 
   // A. Dynamic APIs -> Network-Only (never stale, avoid quota bloat)
   // Everything under /api/ is network-only unless it can be read offline.
@@ -287,3 +300,62 @@ self.addEventListener('message', event => {
     self.skipWaiting();
   }
 });
+
+// ── 朗讀音檔 ─────────────────────────────────────────────────────────
+// 解析單一位元組範圍；無法使用的標頭回 null（回完整內容），超出範圍回 { unsatisfiable: true }。
+function parseTtsRange(header, size) {
+  const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header || '');
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  let start; let end;
+  if (m[1] === '') {
+    const n = Number(m[2]);
+    if (n === 0) return { unsatisfiable: true };
+    start = Math.max(0, size - n); end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+    if (m[2] !== '' && Number(m[2]) < start) return null;
+  }
+  if (size === 0 || start >= size) return { unsatisfiable: true };
+  return { start, end };
+}
+
+async function ttsRangeResponse(cached, rangeHeader) {
+  if (!rangeHeader) return cached;
+  const buf = await cached.arrayBuffer();
+  const range = parseTtsRange(rangeHeader, buf.byteLength);
+  const type = cached.headers.get('Content-Type') || 'audio/mp4';
+  if (!range) return new Response(buf, { status: 200, headers: { 'Content-Type': type, 'Content-Length': String(buf.byteLength), 'Accept-Ranges': 'bytes' } });
+  if (range.unsatisfiable) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${buf.byteLength}` } });
+  return new Response(buf.slice(range.start, range.end + 1), {
+    status: 206,
+    headers: {
+      'Content-Type': type, 'Content-Length': String(range.end - range.start + 1),
+      'Content-Range': `bytes ${range.start}-${range.end}/${buf.byteLength}`, 'Accept-Ranges': 'bytes'
+    }
+  });
+}
+
+async function handleTtsAudio(event, req, url) {
+  const key = url.pathname; // 不含查詢字串與 Range：一個 sha 一筆
+  const rangeHeader = req.headers.get('range');
+  let cache = null;
+  try {
+    cache = await caches.open(TTS_CACHE);
+    const cached = await cache.match(key);
+    if (cached) return ttsRangeResponse(cached, rangeHeader);
+  } catch (_) { /* Cache Storage 不可用：直接走網路 */ }
+  // 快取沒有：向伺服器要完整的檔（不帶 Range），存起來再依原請求回應
+  try {
+    const full = await fetch(key, { credentials: 'same-origin' });
+    if (full.status !== 200 || !/^audio\//i.test(full.headers.get('Content-Type') || '')) return full;
+    if (cache) {
+      const copy = full.clone();
+      // 清理要列出所有鍵，幾千筆時不便宜：大約每 50 次寫入才做一次
+      event.waitUntil(cache.put(key, copy).then(() => (Math.random() < 0.02 ? trimCache(TTS_CACHE, MAX_TTS_CACHE_ITEMS) : null)).catch(() => {}));
+    }
+    return ttsRangeResponse(full, rangeHeader);
+  } catch (err) {
+    return new Response('', { status: 504, statusText: 'TTS audio unavailable offline' });
+  }
+}
