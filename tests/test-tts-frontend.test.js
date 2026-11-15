@@ -66,6 +66,27 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?min-width: 44px; min-height: 44px;/);
   });
 
+  test('展開面板：分組層級；開關是原生 checkbox（role=switch）；進階設定收合；音色名稱不斷字', () => {
+    for (const id of ['ttsPinVoice', 'ttsContinueNext', 'ttsFollow', 'ttsExact', 'ttsShortcuts']) {
+      assert.match(playerHtml, new RegExp(`<input type="checkbox" id="${id}" role="switch">`), id);
+    }
+    assert.match(playerHtml, /<details class="tts-sec tts-more" id="ttsMore">/);
+    assert.match(playerHtml, /<select id="ttsSleep"[^>]*aria-label="睡眠計時"/);
+    assert.match(playerHtml, /id="ttsOfflineBtn" aria-label="下載整篇以離線收聽"/);
+    assert.match(css, /\.tts-voice-name \{[^}]*white-space: nowrap;/);
+    assert.match(css, /\.tts-voice-card \{[^}]*min-height: 44px;/);
+  });
+
+  test('音色顯示名：去掉 Ref-Audio-male- 這類檔名前綴，中文名不動', () => {
+    const src = ttsSection.slice(ttsSection.indexOf('function tidyTtsVoiceName'), ttsSection.indexOf('async function refreshTtsStatus'));
+    const ctx = { String }; vm.createContext(ctx);
+    vm.runInContext(src + '\nthis.t = tidyTtsVoiceNames;', ctx);
+    const run = (names) => { const l = names.map(name => ({ name })); ctx.t(l); return l.map(x => x.name); };
+    assert.deepEqual(run(['Ref-Audio-male-都A1', 'Ref-Audio-male-馬克思1']), ['都A1', '馬克思1']);
+    assert.deepEqual(run(['男聲・都', '男聲・馬']), ['男聲・都', '男聲・馬']);
+    assert.deepEqual(run(['demo_1_man', 'demo_3_woman']), ['demo_1_man', 'demo_3_woman']);
+  });
+
   test('播放列的按鈕至少 44×44，播放列尊重 safe-area', () => {
     assert.match(css, /\.tts-btn \{[\s\S]*?width: 44px; height: 44px;/);
     assert.match(css, /\.tts-bar \{[\s\S]*?padding-bottom: env\(safe-area-inset-bottom, 0px\);/);

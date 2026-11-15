@@ -2126,6 +2126,8 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - **Service Worker**：`/api/tts/audio/<sha>` 走 Cache-First，快取名 `mdwebview-tts-v1` 不綁 app 版本（`activate` 只清 `mdwebview-shell-`／`mdwebview-content-` 開頭的舊快取），最多 6000 筆（約 240 MB）。快取裡存完整的 200，`<audio>` 的 Range 請求由 SW 切出 206／416（`parseTtsRange` 與伺服器的 `parseByteRange` 有對照測試）。
 - **介面字串**：照本專案慣例直接寫在 `index.html`／`app.js`，簡體顯示由 `display-script.js` 即時轉換；沒有需要依語系改寫措辭的字串，所以沒有加進 `i18n/zh-TW.js`、`zh-CN.js`。
 
+- **展開面板（2026-11-15 改版）**：由上而下＝進度（滑桿＋「第 N 句／共 M 句」）→ 音色（原生 radio 疊在膠囊上，名稱單行不斷字、可橫向捲動；`tidyTtsVoiceNames()` 對沒填中文名的音色去掉 `Ref-Audio-`、`male-` 與共同的檔名式前綴）→ 語速 → 「聆聽方式」分組清單（誦經模式、睡眠計時、離線收聽）→ `<details>`「更多設定」（四個開關，原生 checkbox＋`role="switch"`）→ 停止。間距 4／8／12／16／20／24，群組圓角 12，全部走主題變數。
+
 ### 24.12 後台頁與預先生成（第四階段）
 
 - **後台「朗讀（TTS）」頁**（`app.js` §21.8，`#adminPaneTts`，`#admin/tts`）：朗讀服務（開關、伺服器網址、模型下拉、連線與 ffmpeg 狀態、「重新檢查連線」）、音色（audio.cpp 回報的名稱＋已存的白名單：開放、預設、中文名、標籤、預設語速、版本 `rev`、試聽）、朗讀規則與限額、讀音字典（編輯、存檔、套字典試聽一句）、音檔快取（用量、近 7 天命中率、清除單篇或全部、上限）、預先生成。前三張卡片走底部儲存列（`data-save="tts"`，「儲存並檢查」）；字典、清除、預先生成是立即動作（`data-no-dirty`）。開後台時各頁一起載入容易撞到每秒 30 次的 API 限流，這一頁的請求依序送出並在 429 時重試（`ttsAdminApi`）。

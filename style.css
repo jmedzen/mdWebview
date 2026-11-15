@@ -13002,3 +13002,7 @@ body.tts-chant-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .tts-chant-current.tts-fade { animation: none; } }
 @media (forced-colors: active) { .tts-chant-current { background: Canvas; border: 2px solid Highlight; } }
 @media (max-height: 500px) { .tts-chant-side { display: none; } .tts-chant-current { font-size: clamp(20px, 4vw, 30px); } }
+@media (max-width: 480px) {
+  /* 「回到朗讀位置」出現時：語速改在面板裡調，迷你列把位置留給標題 */
+  .tts-mini:has(#ttsBackBtn:not([hidden])) #ttsRateBtn { display: none; }
+}
