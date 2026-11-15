@@ -10606,12 +10606,22 @@
     } else ttsPlayAt(atEnd ? ttsNextPlayable(ttsRt.endIndex >= 0 ? 0 : ttsRt.pos, 1) : Math.max(0, ttsRt.pos));
   }
 
+  /**
+   * 上一句／下一句：一律從那一句開始播（暫停中或已讀完也是），否則只會悄悄移動位置，
+   * 使用者以為按鈕沒有作用。解鎖要在第一個 await 之前（仍在點擊的同步呼叫內）。
+   */
   async function ttsStep(dir) {
     if (!ttsRt.active) return;
+    ttsUnlock();
     let k = ttsNextPlayable(ttsRt.pos + dir, dir);
     if (k < 0 && dir > 0 && await ttsLoadMore()) k = ttsNextPlayable(ttsRt.pos + 1, 1);
-    if (k < 0) { ttsAnnounce(dir > 0 ? '已經是最後一句' : '已經是第一句'); return; }
+    if (k < 0) {
+      const msg = dir > 0 ? '已經是最後一句' : '已經是第一句';
+      ttsAnnounce(msg); showToast(msg, 'info', 1500);
+      return;
+    }
     ttsRt.userScrollAt = 0;
+    ttsRt.playing = true; ttsRt.error = null;
     try { ttsRt.audio && ttsRt.audio.pause(); } catch (_) {}
     ttsPlayAt(k);
   }

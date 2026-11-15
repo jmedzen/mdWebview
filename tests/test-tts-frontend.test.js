@@ -227,3 +227,12 @@ describe('Service Worker 的朗讀音檔快取', () => {
     }
   });
 });
+
+describe('上一句／下一句', () => {
+  test('暫停中或已讀完時按上一句／下一句也會開始播那一句；到頭時有看得到的提示', () => {
+    const fn = ttsSection.slice(ttsSection.indexOf('async function ttsStep'), ttsSection.indexOf('function ttsStop'));
+    assert.match(fn, /ttsUnlock\(\);\s*let k = /, '解鎖要在第一個 await 之前');
+    assert.match(fn, /ttsRt\.playing = true;/);
+    assert.match(fn, /showToast\(msg/);
+  });
+});
