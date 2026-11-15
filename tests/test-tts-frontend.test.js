@@ -70,9 +70,13 @@ describe('朗讀播放器的無障礙語意', () => {
     const rule = css.match(/body\.tts-enabled \.markdown-body \.tts-head-btn \{[^}]*\}/);
     assert.ok(rule, '找不到按鈕樣式');
     assert.match(rule[0], /float: right;/);
-    assert.match(rule[0], /width: 28px; height: 28px;/);
-    // 視覺 28px＋::after 每邊 9px＝46px 點擊範圍
-    assert.match(css, /\.tts-head-btn::after \{\s*content: ''; position: absolute; inset: -9px;/);
+    assert.match(rule[0], /width: var\(--tts-head-size\); height: var\(--tts-head-size\);/);
+    // 大小跟著所在標題的字級
+    for (const [h, em] of [['h1', '1.75'], ['h2', '1.45'], ['h3', '1.2'], ['h4', '1.05']]) {
+      assert.match(css, new RegExp(`\\.tts-head-btn:has\\(\\+ ${h}\\) \\{ font-size: ${em}em; \\}`), h);
+    }
+    // 點擊範圍：::after 補到至少 44px
+    assert.match(css, /\.tts-head-btn::after \{\s*content: ''; position: absolute; inset: min\(-4px, calc\(\(var\(--tts-head-size\) - 44px\) \/ 2\)\);/);
     assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?opacity: 0\.9;/);
   });
 

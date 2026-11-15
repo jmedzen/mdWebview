@@ -12659,19 +12659,26 @@ body.tts-enabled:not(.tts-has-file):not(.tts-active) .tts-start-btn { display: n
 body.tts-active .tts-start-btn { color: var(--tts-accent-text); }
 
 /* 標題旁的「朗讀本節」：放在標題前面、浮動靠右，對齊標題第一行（JS 量 margin-top），不另佔一行。
-   視覺只有約 28px，點擊範圍用 ::after 往外擴到 44px 以上，不增加版面高度。 */
+   大小跟著所在標題：按鈕的 font-size 等於該層標題的字級（同一個父層的 em），
+   圓框 1.35em、喇叭 0.92em（接近標題字高）；點擊範圍用 ::after 補到至少 44px，不增加版面高度。 */
 body.tts-enabled .markdown-body .tts-head-btn {
+  --tts-head-size: 1.35em;
   display: inline-flex; align-items: center; justify-content: center;
   float: right; clear: right; position: relative; z-index: 1;
-  width: 28px; height: 28px; margin: 0 0 0 8px; padding: 0;
+  width: var(--tts-head-size); height: var(--tts-head-size); margin: 0 0 0 0.35em; padding: 0;
   border: 1px solid transparent; border-radius: 999px;
   background: transparent; color: var(--text-muted);
-  font-size: 15px; line-height: 1; cursor: pointer; opacity: 0.55;
+  font-size: 1em; line-height: 1; cursor: pointer; opacity: 0.7;
   transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
   user-select: none; -webkit-user-select: none;
 }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h1) { font-size: 1.75em; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h2) { font-size: 1.45em; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h3) { font-size: 1.2em; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h4) { font-size: 1.05em; }
+body.tts-enabled .markdown-body .tts-head-btn svg { width: 0.92em; height: 0.92em; }
 body.tts-enabled .markdown-body .tts-head-btn::after {
-  content: ''; position: absolute; inset: -9px;
+  content: ''; position: absolute; inset: min(-4px, calc((var(--tts-head-size) - 44px) / 2));
 }
 body.tts-enabled .markdown-body .tts-head-btn + :is(h1, h2, h3, h4, h5, h6) { clear: none; }
 /* 按鈕佔了第一個子元素的位置：原本第一個標題的上邊距歸零規則要跟著過去 */
@@ -12682,10 +12689,10 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
   opacity: 1; color: var(--tts-accent-text); background: var(--tts-accent-bg);
 }
 @media (hover: none) {
-  /* 觸控沒有 hover：按鈕一直清楚可見；視覺 30px，點擊範圍（含 ::after）48px */
+  /* 觸控沒有 hover：按鈕一直清楚可見（大小同桌機，跟著標題；點擊範圍 ≥ 44px） */
   body.tts-enabled .markdown-body .tts-head-btn,
   body.tts-enabled .markdown-body .tts-head-btn:hover {
-    opacity: 0.9; width: 30px; height: 30px; color: var(--tts-accent-text); background: transparent;
+    opacity: 0.9; color: var(--tts-accent-text); background: transparent;
   }
 }
 
