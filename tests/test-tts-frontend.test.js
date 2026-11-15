@@ -66,6 +66,17 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?min-width: 44px; min-height: 44px;/);
   });
 
+  test('朗讀中換一段新的（選字、朗讀本節）：馬上停掉正在播的舊句，ended 不會把新的第一句跳過', () => {
+    const halt = ttsSection.slice(ttsSection.indexOf('function ttsHaltCurrent'), ttsSection.indexOf('async function ttsBegin'));
+    assert.match(halt, /ttsRt\.token\+\+/);
+    assert.match(halt, /clearTimeout\(ttsRt\.gapTimer\)/);
+    assert.match(halt, /a\.dataset\.ttsSha = ''/);
+    assert.match(halt, /a\.pause\(\)/);
+    assert.ok(!/removeAttribute\('src'\)/.test(halt), '不清 src，iOS 解鎖保持有效');
+    const begin = ttsSection.slice(ttsSection.indexOf('async function ttsBegin'));
+    assert.ok(begin.indexOf('ttsHaltCurrent()') >= 0 && begin.indexOf('ttsHaltCurrent()') < begin.indexOf('ttsUnlock()'), '先停舊句再解鎖、再 await');
+  });
+
   test('播放列的按鈕至少 44×44，播放列尊重 safe-area', () => {
     assert.match(css, /\.tts-btn \{[\s\S]*?width: 44px; height: 44px;/);
     assert.match(css, /\.tts-bar \{[\s\S]*?padding-bottom: env\(safe-area-inset-bottom, 0px\);/);
