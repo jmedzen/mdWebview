@@ -10390,8 +10390,32 @@
     }
   }
 
+  // ── 匿名使用統計：只送事件種類與白名單內的值（數據分析用）──
+  function ttsTrack(type, data) {
+    try {
+      const body = JSON.stringify(Object.assign({ type }, data || {}));
+      fetch('/api/tts/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true, credentials: 'same-origin' }).catch(() => {});
+    } catch (_) {}
+  }
+  /** 收聽時間與句數先累積，每分鐘或停止、切到背景時送一次。 */
+  function ttsTrackListen(ms) {
+    const st = ttsRt.listenStat || (ttsRt.listenStat = { ms: 0, n: 0, at: Date.now() });
+    st.ms += Math.max(0, ms || 0); st.n++;
+    if (Date.now() - st.at > 60000) ttsFlushListen();
+  }
+  function ttsFlushListen() {
+    const st = ttsRt.listenStat;
+    if (!st || (!st.ms && !st.n)) return;
+    const v = ttsVoice();
+    ttsTrack('listen', { ms: Math.round(st.ms), n: st.n, voice: v ? v.id : '' });
+    ttsRt.listenStat = { ms: 0, n: 0, at: Date.now() };
+  }
+  /** 下一次開始朗讀算哪一種啟動方式（呼叫各個 ttsStart… 之前設定）。 */
+  function ttsSetStartMode(mode) { ttsRt.nextMode = mode; }
+
   async function ttsBegin(loader) {
     if (!state.currentFile) return;
+    const mode = ttsRt.nextMode; ttsRt.nextMode = '';
     ttsHaltCurrent();
     ttsUnlock(); // 先解鎖再做任何 await
     const status = await refreshTtsStatus(false);
@@ -10406,6 +10430,7 @@
       if (token !== ttsRt.token) return;
       if (start < 0) { ttsStop(); showToast('這裡沒有可朗讀的文字', 'info'); return; }
       if (!status.available && !ttsRt.items.some(it => it.cached)) showToast('朗讀服務暫時無法使用', 'warn', 4000);
+      { const v = ttsVoice(); ttsTrack('start', { mode: mode || 'here', voice: v ? v.id : '', path: ttsRt.path }); }
       ttsPlayAt(start);
     } catch (err) {
       if (token !== ttsRt.token) return;
@@ -10613,6 +10638,7 @@
   async function onTtsEnded() {
     const a = ttsRt.audio;
     if (!a || !a.dataset.ttsSha || !ttsRt.active) return; // 解鎖用的靜音檔
+    ttsTrackListen(Number.isFinite(a.duration) ? a.duration * 1000 / (a.playbackRate || 1) : 0);
     const token = ttsRt.token;
     const cur = ttsRt.items[ttsRt.pos];
     let k = ttsNextPlayable(ttsRt.pos + 1, 1);
@@ -10627,10 +10653,10 @@
       k = ttsNextPlayable(ttsRt.pos + 1, 1);
     }
     if (token !== ttsRt.token) return;
-    if (ttsRt.sleep && (ttsRt.sleep.due || ttsSleepCheck(false))) { ttsRt.sleep = null; ttsFinish('睡眠計時到了，已停止'); return; }
+    if (ttsRt.sleep && (ttsRt.sleep.due || ttsSleepCheck(false))) { ttsRt.sleep = null; ttsFinish('睡眠計時到了，已停止', 'sleep'); return; }
     if (k < 0) { if (await ttsContinueNextDoc()) return; return ttsFinish(); }
     const nx = ttsRt.items[k];
-    if (ttsRt.sleep && ttsRt.sleep.section && nx.kind === 'heading') { ttsRt.sleep = null; ttsFinish('本節讀完，已停止'); return; }
+    if (ttsRt.sleep && ttsRt.sleep.section && nx.kind === 'heading') { ttsRt.sleep = null; ttsFinish('本節讀完，已停止', 'sleep'); return; }
     // 朗讀本節：遇到同級或更高級的標題就結束
     if (ttsRt.stopLevel !== null && nx.kind === 'heading' && k !== ttsRt.sectionStart && (nx.level || 7) <= ttsRt.stopLevel) return ttsFinish();
     if (ttsRt.stopAtUnit !== undefined && nx.i > ttsRt.stopAtUnit) return ttsFinish();
@@ -10640,7 +10666,8 @@
     else ttsPlayAt(k);
   }
 
-  function ttsFinish(msg) {
+  function ttsFinish(msg, why) {
+    if (ttsRt.playing) { ttsFlushListen(); ttsTrack('end', { key: why || 'finished' }); }
     ttsRt.playing = false; ttsRt.waiting = false;
     clearTimeout(ttsRt.sleepTimer);
     renderTtsBar();
@@ -10691,6 +10718,7 @@
   }
 
   function ttsStop() {
+    if (ttsRt.active) { ttsFlushListen(); if (ttsRt.playing) ttsTrack('end', { key: 'stopped' }); }
     ttsRt.token++;
     clearTimeout(ttsRt.gapTimer);
     if (ttsRt.audio) { try { ttsRt.audio.pause(); ttsRt.audio.dataset.ttsSha = ''; ttsRt.audio.removeAttribute('src'); ttsRt.audio.load(); } catch (_) {} }
@@ -10725,6 +10753,7 @@
   async function ttsSetVoice(id) {
     const p = ttsPrefs();
     if (!ttsVoices().some(v => v.id === id)) return;
+    if (ttsRt.active && p.voice !== id) ttsTrack('feature', { key: 'voice-switch' });
     p.voice = id;
     const path = ttsRt.path || state.currentFile;
     if (path && p.byPath[path]) p.byPath[path] = id; // 這部經固定音色時，換音色就是換固定的那一個
@@ -10850,6 +10879,7 @@
     // 勾選類的項目：改設定、選單不關（像系統選單的勾選項）
     if (act === 'next') {
       const p = ttsPrefs(); p.continueNext = !p.continueNext; saveTtsPrefs();
+      if (p.continueNext) ttsTrack('feature', { key: 'continue-next' });
       item.setAttribute('aria-checked', p.continueNext ? 'true' : 'false');
       const c = $('ttsContinueNext'); if (c) c.checked = p.continueNext;
       ttsAnnounce(p.continueNext ? '讀完會接著讀下一篇' : '讀完這一篇就停');
@@ -10864,11 +10894,12 @@
     const range = ttsRt.menuRange; ttsRt.menuRange = null;
     closeTtsStartMenu(act === 'toggle');
     if (act === 'toggle') return ttsTogglePlay();
+    if (['here', 'section', 'sentence', 'top'].includes(act)) ttsSetStartMode(act);
     if (act === 'here') return ttsStartFromVisible();
     if (act === 'section') return ttsStartSectionHere();
     if (act === 'sentence') return ttsStartOneSentence(range);
     if (act === 'top') return ttsStartFromLine(1, false);
-    if (act === 'chant') { if (!ttsRt.active) await ttsStartFromVisible(); return openTtsChant(); }
+    if (act === 'chant') { if (!ttsRt.active) { ttsSetStartMode('chant'); await ttsStartFromVisible(); } return openTtsChant(); }
     if (act === 'panel') {
       if (!ttsRt.active) { const p = ttsStartFromVisible(); ttsTogglePlayAfter(p); }
       setTtsPanelOpen(true);
@@ -11236,6 +11267,7 @@
   function setTtsPanelOpen(open) {
     const panel = $('ttsPanel'); const btn = $('ttsExpandBtn');
     if (!panel || !btn) return;
+    if (open && panel.hidden) ttsTrack('feature', { key: 'panel' });
     panel.hidden = !open;
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     btn.setAttribute('aria-label', open ? '收合朗讀設定' : '展開朗讀設定');
@@ -11250,6 +11282,7 @@
   /** 睡眠計時：{ until: 時間戳 } 或 { section: true }（讀到下一個標題前停）；null＝關閉。 */
   function ttsSetSleep(v) {
     clearTimeout(ttsRt.sleepTimer);
+    if (v) ttsTrack('feature', { key: 'sleep' });
     if (v === 'section') ttsRt.sleep = { section: true };
     else if (Number(v) > 0) {
       ttsRt.sleep = { until: Date.now() + Number(v) * 60000 };
@@ -11300,6 +11333,7 @@
     try { await openFile(next); } catch (_) { return false; }
     if (token !== ttsRt.token || state.currentFile !== next) return false;
     ttsAnnounce(`接著朗讀：${next.split('/').pop().replace(/\.md$/i, '')}`);
+    ttsSetStartMode('next-doc');
     await ttsStartFromLine(1, false);
     return true;
   }
@@ -11310,6 +11344,7 @@
   function openTtsChant() {
     const d = $('ttsChant');
     if (!d || !ttsRt.active) return;
+    ttsTrack('feature', { key: 'chant' });
     ttsRt.chantReturn = document.activeElement;
     d.hidden = false;
     document.body.classList.add('tts-chant-open');
@@ -11398,6 +11433,7 @@
   async function ttsDownloadOffline() {
     const path = ttsRt.path || state.currentFile; const v = ttsVoice();
     if (!path || !v || ttsRt.offlineBusy) return;
+    ttsTrack('feature', { key: 'offline' });
     if (!window.caches) { renderTtsOffline('這個瀏覽器不支援離線儲存。'); return; }
     const token = ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1;
     ttsRt.offlineBusy = true; renderTtsOffline('正在整理這一篇的句子…');
@@ -11513,7 +11549,7 @@
       const name = ((lab || row).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
       b.setAttribute('aria-label', `朗讀本節：${name}`); b.title = '朗讀本節';
       b.innerHTML = TTS_ICON.speak;
-      b.addEventListener('click', (e) => { e.stopPropagation(); ttsStartFromLine(ttsHeadingLine(h), true); });
+      b.addEventListener('click', (e) => { e.stopPropagation(); ttsSetStartMode('toc'); ttsStartFromLine(ttsHeadingLine(h), true); });
       row.appendChild(b);
     });
   }
@@ -11521,7 +11557,7 @@
   function setupTtsPhase5() {
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
     on('ttsSleep', 'change', (e) => ttsSetSleep(e.target.value));
-    on('ttsContinueNext', 'change', (e) => { ttsPrefs().continueNext = e.target.checked; saveTtsPrefs(); });
+    on('ttsContinueNext', 'change', (e) => { ttsPrefs().continueNext = e.target.checked; saveTtsPrefs(); if (e.target.checked) ttsTrack('feature', { key: 'continue-next' }); });
     on('ttsSelContinue', 'change', (e) => { ttsPrefs().selContinue = e.target.checked; saveTtsPrefs(); });
     on('ttsChantBtn', 'click', () => openTtsChant());
     // 偏好設定視窗的朗讀區（與面板同步）
@@ -11593,6 +11629,7 @@
     on('ttsVoiceCards', 'change', (e) => { if (e.target.name === 'ttsVoice') ttsSetVoice(e.target.value); });
     on('ttsVoiceCards', 'click', (e) => { const b = e.target.closest && e.target.closest('.tts-voice-sample'); if (b) ttsPlaySample(b.dataset.sample); });
     on('ttsPinVoice', 'change', (e) => {
+      if (e.target.checked) ttsTrack('feature', { key: 'pin-voice' });
       const p = ttsPrefs(); const path = ttsRt.path || state.currentFile; const v = ttsVoice();
       if (!path) return;
       if (e.target.checked && v) p.byPath[path] = v.id; else delete p.byPath[path];
@@ -11611,6 +11648,7 @@
     on('ttsShortcuts', 'change', (e) => { ttsPrefs().shortcuts = e.target.checked; saveTtsPrefs(); });
     on('ttsExact', 'change', (e) => { ttsPrefs().exact = e.target.checked; saveTtsPrefs(); });
     setupTtsStartMenu();
+    window.addEventListener('pagehide', () => ttsFlushListen());
 
     // 標題旁的「朗讀本節」
     const body = $('markdownBody');
@@ -11627,7 +11665,7 @@
       if (!b) return;
       e.preventDefault(); e.stopPropagation();
       const line = ttsHeadingLine(b.nextElementSibling);
-      if (line) ttsStartFromLine(line, true);
+      if (line) { ttsSetStartMode('heading'); ttsStartFromLine(line, true); }
     });
 
     // 使用者自己捲動：暫停跟讀，播放列出現「回到朗讀位置」
@@ -11658,7 +11696,10 @@
       else if (e.code === 'ArrowDown') { e.preventDefault(); ttsNudgeRate(-1); }
     });
 
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ttsRt.active) ttsPaintCurrent(false); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && ttsRt.active) ttsPaintCurrent(false);
+      if (document.visibilityState === 'hidden') ttsFlushListen(); // 切到背景：把累積的收聽時間送出去
+    });
     refreshTtsStatus(true).then(() => ttsScheduleRepaint());
   }
 
@@ -15471,6 +15512,76 @@
   // Analytics Dashboard Logic
   let stateAnalyticsRange = '1d';
 
+  // ── 數據分析：朗讀（TTS）──
+  const TTS_MODE_LABELS = { here: '從這裡讀到結尾', section: '朗讀本節（選單）', heading: '標題旁的朗讀本節', toc: '大綱的朗讀本節', sentence: '朗讀本句', top: '從頭朗讀整篇', selection: '選字朗讀', chant: '誦經模式', 'next-doc': '讀完接下一篇（自動）', resume: '繼續上次' };
+  const TTS_FEATURE_LABELS = { sleep: '睡眠計時', 'continue-next': '開啟「讀完接下一篇」', chant: '誦經模式', offline: '離線下載整篇', 'pin-voice': '固定這部經的音色', panel: '打開播放面板', 'voice-switch': '朗讀中換音色', rate: '調整語速' };
+  const TTS_END_LABELS = { finished: '讀完', stopped: '使用者停止', sleep: '睡眠計時停止' };
+
+  function ttsAnalyticsTable(title, rows, unit) {
+    const total = rows.reduce((x, r) => x + r[1], 0) || 1;
+    const body = rows.length ? rows.map(([label, n], i) => `<tr><td style="text-align:center">${i + 1}</td><td>${escHtml(label)}</td><td style="text-align:right">${n.toLocaleString()}</td><td style="text-align:right">${Math.round(n / total * 100)}%</td></tr>`).join('')
+      : '<tr><td colspan="4" class="analytics-empty">尚無資料</td></tr>';
+    return `<div class="tts-analytics-block"><h4 class="tts-analytics-sub">${escHtml(title)}</h4><div class="analytics-table-wrapper"><table class="analytics-table"><thead><tr><th style="width:44px;text-align:center">#</th><th>項目</th><th style="width:90px;text-align:right">${escHtml(unit)}</th><th style="width:64px;text-align:right">占比</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+  }
+
+  /** 每日長條：朗讀次數（實心）與收聽人數（外框），標籤寫在 title 與表格摘要裡，螢幕閱讀器讀得到。 */
+  function ttsAnalyticsTrend(daily) {
+    if (!daily.length) return '';
+    const w = 640, h = 140, pad = 24; const n = daily.length;
+    const max = Math.max(1, ...daily.map(d => Math.max(d.starts, d.listeners)));
+    const bw = Math.min(24, Math.max(2, (w - pad * 2) / n * 0.7));
+    const x = (i) => pad + (i + 0.5) * (w - pad * 2) / n - bw / 2;
+    const y = (v) => h - pad - (h - pad * 2) * v / max;
+    const bars = daily.map((d, i) => `<rect class="tts-trend-starts" x="${x(i).toFixed(1)}" y="${y(d.starts).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - pad - y(d.starts)).toFixed(1)}" rx="2"><title>${d.day}：朗讀 ${d.starts} 次、收聽 ${d.listeners} 人</title></rect>`
+      + (d.listeners ? `<circle class="tts-trend-listeners" cx="${(x(i) + bw / 2).toFixed(1)}" cy="${y(d.listeners).toFixed(1)}" r="3"></circle>` : '')).join('');
+    const first = daily[0].day.slice(5); const last = daily[n - 1].day.slice(5);
+    return `<figure class="tts-analytics-trend"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="每日朗讀次數與收聽人數，${daily[0].day} 到 ${daily[n - 1].day}，最高 ${max}">
+      <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" class="tts-trend-axis"/>${bars}
+      <text x="${pad}" y="${h - 6}" class="tts-trend-label">${first}</text><text x="${w - pad}" y="${h - 6}" text-anchor="end" class="tts-trend-label">${last}</text>
+      <text x="${pad}" y="14" class="tts-trend-label">${max}</text></svg>
+      <figcaption class="tts-analytics-legend"><span class="tts-legend-starts"></span>朗讀次數　<span class="tts-legend-listeners"></span>收聽人數</figcaption></figure>`;
+  }
+
+  async function loadTtsAnalytics() {
+    const box = $('analyticsTts'); const body = $('analyticsTtsBody');
+    if (!box || !body) return;
+    let d;
+    try {
+      const res = await fetch(`/api/admin/tts/analytics?range=${encodeURIComponent(stateAnalyticsRange)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      d = await res.json();
+    } catch (_) { box.hidden = true; return; }
+    if (!d.available && !d.enabled) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!d.available) { body.innerHTML = '<p class="field-hint">朗讀快取還沒建立，暫無統計。</p>'; return; }
+    const t = d.totals || {};
+    const lookups = (t.hits || 0) + (t.misses || 0);
+    const ends = d.kinds.end || {};
+    const endTotal = Object.values(ends).reduce((x, n) => x + n, 0);
+    const cards = [
+      ['▶️', (t.starts || 0).toLocaleString(), '朗讀次數'],
+      ['👥', (t.listeners || 0).toLocaleString(), '收聽人數（每日去重加總）'],
+      ['⏱️', (t.listenMs || 0) < 60000 ? `${Math.round((t.listenMs || 0) / 1000)} 秒` : fmtTtsDuration(t.listenMs), '收聽時間'],
+      ['💬', (t.sentences || 0).toLocaleString(), '播放句數'],
+      ['🎯', lookups ? `${Math.round(t.hits / lookups * 100)}%` : '—', '快取命中率'],
+      ['⚙️', t.generated ? `${(t.genMs / t.generated / 1000).toFixed(1)} 秒` : '—', `平均生成時間（${(t.generated || 0).toLocaleString()} 句）`],
+      ['⚠️', (t.failed || 0).toLocaleString(), '生成失敗'],
+      ['✅', endTotal ? `${Math.round((ends.finished || 0) / endTotal * 100)}%` : '—', '讀完率（讀完／結束）']
+    ];
+    const vname = new Map((d.voices || []).map(v => [v.id, v.name || v.voice]));
+    const sortRows = (obj, label) => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => [label(k), n]);
+    const docs = sortRows(d.kinds.doc, k => k.replace(/\.md$/i, '')).slice(0, 20);
+    body.innerHTML = `<div class="analytics-cards-grid tts-analytics-cards">${cards.map(([i, v, l]) => `<div class="analytics-card"><div class="analytics-card-icon" aria-hidden="true">${i}</div><div class="analytics-card-content"><div class="analytics-card-value">${escHtml(v)}</div><div class="analytics-card-label">${escHtml(l)}</div></div></div>`).join('')}</div>
+      ${ttsAnalyticsTrend(d.daily || [])}
+      <div class="tts-analytics-grid">
+        ${ttsAnalyticsTable('啟動方式', sortRows(d.kinds.mode, k => TTS_MODE_LABELS[k] || k), '次')}
+        ${ttsAnalyticsTable('音色（開始朗讀時）', sortRows(d.kinds.voice, k => vname.get(k) || `（已移除 ${k}）`), '次')}
+        ${ttsAnalyticsTable('功能使用', sortRows(d.kinds.feature, k => TTS_FEATURE_LABELS[k] || k), '次')}
+        ${ttsAnalyticsTable('結束方式', sortRows(ends, k => TTS_END_LABELS[k] || k), '次')}
+      </div>
+      ${ttsAnalyticsTable('熱門朗讀文件 Top 20', docs, '次')}`;
+  }
+
   async function loadAdminAnalytics() {
     const tableBody = $('analyticsTopFilesTable');
     if (tableBody) {
@@ -15483,6 +15594,7 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       renderAdminAnalytics(data);
+      loadTtsAnalytics();
     } catch (err) {
       if (tableBody) {
         tableBody.innerHTML = `<tr><td colspan="5" class="analytics-empty">⚠️ 載入失敗: ${escHtml(err.message)}</td></tr>`;
@@ -20707,7 +20819,7 @@
     $('selectionReadBtn').addEventListener('click', () => {
       const r = currentRange;
       hidePopup();
-      if (r) ttsStartFromSelection(r);
+      if (r) { ttsSetStartMode('selection'); ttsStartFromSelection(r); }
     });
 
     $('selectionFindBtn').addEventListener('click', () => {

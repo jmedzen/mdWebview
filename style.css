@@ -13071,3 +13071,17 @@ body.tts-chant-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .tts-menu-tick, .tts-menu-tick::after { transition: none; } }
 @media (forced-colors: active) { .tts-menu { border: 1px solid CanvasText; } .tts-menu-chip[aria-checked="true"] { border: 2px solid Highlight; } }
 @media print { .tts-menu { display: none !important; } }
+
+/* §27c 數據分析：朗讀 */
+.tts-analytics-note { margin: 0 0 12px; }
+.tts-analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
+.tts-analytics-sub { margin: 0 0 8px; font-size: 0.95em; color: var(--text-secondary); }
+.tts-analytics-trend { margin: 16px 0 0; }
+.tts-analytics-trend svg { width: 100%; height: auto; max-height: 180px; display: block; }
+.tts-trend-starts { fill: var(--tts-accent); opacity: 0.85; }
+.tts-trend-listeners { fill: var(--bg-secondary); stroke: var(--text-primary); stroke-width: 1.5; }
+.tts-trend-axis { stroke: var(--border); }
+.tts-trend-label { font-size: 11px; fill: var(--text-muted); }
+.tts-analytics-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.tts-legend-starts, .tts-legend-listeners { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--tts-accent); }
+.tts-legend-listeners { border-radius: 50%; background: var(--bg-secondary); border: 1.5px solid var(--text-primary); margin-left: 8px; }

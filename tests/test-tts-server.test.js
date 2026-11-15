@@ -570,6 +570,34 @@ describe('朗讀（TTS）後端', () => {
     let admin;
     before(() => { admin = session('tok-admin-1', 'admin'); });
 
+    test('匿名使用統計：只收白名單內的事件，後台彙總得到；不存路徑以外的文字', async () => {
+      const ev = (o, h) => post('/api/tts/event', o, h);
+      assert.equal((await ev({ type: 'start', mode: 'here', voice: 'v1', path: P }, { Origin: 'https://evil.example' })).status, 403);
+      for (const o of [
+        { type: 'start', mode: 'section', voice: 'v1', path: P },
+        { type: 'start', mode: 'sentence', voice: 'v2', path: P },
+        { type: 'start', mode: 'bogus', voice: 'v1' },               // 不在白名單：不記
+        { type: 'start', mode: 'here', voice: 'nope', path: '../x.md' }, // 音色、路徑不合法：只記啟動方式
+        { type: 'listen', ms: 65000, n: 12, voice: 'v1' },
+        { type: 'feature', key: 'sleep' }, { type: 'feature', key: '<script>' },
+        { type: 'end', key: 'finished' }, { type: 'end', key: 'stopped' }
+      ]) assert.equal((await ev(o)).status, 200);
+      const r = await request('/api/admin/tts/analytics?range=7d', { headers: admin });
+      assert.equal(r.status, 200);
+      const k = r.json.kinds;
+      assert.deepEqual(k.mode, { section: 1, sentence: 1, here: 1 });
+      assert.deepEqual(k.voice, { v1: 1, v2: 1 });
+      assert.deepEqual(k.doc, { [P]: 2 });
+      assert.deepEqual(k.feature, { sleep: 1 });
+      assert.deepEqual(k.end, { finished: 1, stopped: 1 });
+      assert.equal(r.json.totals.starts, 3);
+      assert.equal(r.json.totals.listeners, 1); // 同一個來源同一天只算一人
+      assert.equal(r.json.totals.listenMs, 65000);
+      assert.equal(r.json.totals.sentences, 12);
+      assert.ok(!JSON.stringify(r.json).includes('127.0.0.1'));
+      assert.equal((await request('/api/admin/tts/analytics')).status, 401);
+    });
+
     test('未登入 401；一般使用者 401', async () => {
       const user = session('tok-user-3', 'user');
       for (const p of ['settings', 'health', 'lexicon', 'cache']) {
