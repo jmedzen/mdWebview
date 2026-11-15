@@ -60,10 +60,31 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.ok(!/ttsAnnounce\(/.test(playAt), '換句時不得用 aria-live 播報');
   });
 
-  test('標題後的「朗讀本節」是實體按鈕，名稱含標題文字；觸控下一直可見且至少 44pt', () => {
+  test('標題旁的「朗讀本節」是實體按鈕，名稱含標題文字；放在標題外面、浮動不佔一行；點擊範圍至少 44pt', () => {
     assert.match(ttsSection, /b\.setAttribute\('aria-label', `朗讀本節：\$\{name\}`\)/);
     assert.match(ttsSection, /b\.type = 'button'/);
-    assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?min-width: 44px; min-height: 44px;/);
+    // 放在標題前面當兄弟元素：標題的無障礙名稱不會混進「朗讀本節」
+    assert.match(ttsSection, /h\.before\(b\)/);
+    assert.ok(!/h\.appendChild\(b\)/.test(ttsSection), '按鈕不可放進標題裡');
+    assert.match(ttsSection, /ttsHeadingLine\(b\.nextElementSibling\)/);
+    const rule = css.match(/body\.tts-enabled \.markdown-body \.tts-head-btn \{[^}]*\}/);
+    assert.ok(rule, '找不到按鈕樣式');
+    assert.match(rule[0], /float: right;/);
+    assert.match(rule[0], /width: 28px; height: 28px;/);
+    // 視覺 28px＋::after 每邊 9px＝46px 點擊範圍
+    assert.match(css, /\.tts-head-btn::after \{\s*content: ''; position: absolute; inset: -9px;/);
+    assert.match(css, /@media \(hover: none\) \{[\s\S]*?\.tts-head-btn[\s\S]*?opacity: 0\.9;/);
+  });
+
+  test('朗讀中換一段新的（選字、朗讀本節）：馬上停掉正在播的舊句，ended 不會把新的第一句跳過', () => {
+    const halt = ttsSection.slice(ttsSection.indexOf('function ttsHaltCurrent'), ttsSection.indexOf('async function ttsBegin'));
+    assert.match(halt, /ttsRt\.token\+\+/);
+    assert.match(halt, /clearTimeout\(ttsRt\.gapTimer\)/);
+    assert.match(halt, /a\.dataset\.ttsSha = ''/);
+    assert.match(halt, /a\.pause\(\)/);
+    assert.ok(!/removeAttribute\('src'\)/.test(halt), '不清 src，iOS 解鎖保持有效');
+    const begin = ttsSection.slice(ttsSection.indexOf('async function ttsBegin'));
+    assert.ok(begin.indexOf('ttsHaltCurrent()') >= 0 && begin.indexOf('ttsHaltCurrent()') < begin.indexOf('ttsUnlock()'), '先停舊句再解鎖、再 await');
   });
 
   test('展開面板：分組層級；開關是原生 checkbox（role=switch）；進階設定收合；音色名稱不斷字', () => {
@@ -166,6 +187,13 @@ describe('第六階段：無障礙打磨', () => {
   });
 });
 
+describe('離線下載的限流重試', () => {
+  test('整篇下載撞到 429 時等一下再試，不直接算失敗', () => {
+    const dl = ttsSection.slice(ttsSection.indexOf('async function ttsDownloadOffline'), ttsSection.indexOf('async function ttsEnsureFor'));
+    assert.match(dl, /if \(res\.status !== 429\) break;/);
+  });
+});
+
 describe('朗讀的配色對比（WCAG AA）', () => {
   const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
     .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)))
@@ -210,7 +238,24 @@ describe('朗讀的鍵盤快捷鍵', () => {
     assert.match(handler, /isTtsTypingTarget\(e\.target\)/);
     assert.match(handler, /ttsPrefs\(\)\.shortcuts/);
     const fn = ttsSection.slice(ttsSection.indexOf('function isTtsTypingTarget'), ttsSection.indexOf('function setupTts()'));
-    for (const t of ['INPUT', 'TEXTAREA', 'SELECT', 'isContentEditable']) assert.ok(fn.includes(t), t);
+    for (const t of ['INPUT', 'TEXTAREA', 'isContentEditable']) assert.ok(fn.includes(t), t);
+  });
+
+  test('勾選框、滑桿不算打字欄位（剛按完面板裡的勾選框也要能用快捷鍵）；Mac 顯示 ⌥', () => {
+    const src = ttsSection.slice(ttsSection.indexOf('const TTS_TEXT_INPUT'), ttsSection.indexOf('function localizeTtsShortcutLabels'));
+    // Chromium 的 userAgentData.platform 是小寫開頭的「macOS」
+    const ctx = { navigator: { userAgentData: { platform: 'macOS' } }, String }; vm.createContext(ctx);
+    vm.runInContext(src.replace(/const /g, 'var ') + '\nthis.f = isTtsTypingTarget; this.l = ttsKeyLabel;', ctx);
+    const el = (tagName, type, extra) => Object.assign({ tagName, type }, extra || {});
+    assert.equal(ctx.f(el('INPUT', 'checkbox')), false);
+    assert.equal(ctx.f(el('INPUT', 'range')), false);
+    assert.equal(ctx.f(el('SELECT')), false);
+    assert.equal(ctx.f(el('BUTTON')), false);
+    assert.equal(ctx.f(el('INPUT', 'text')), true);
+    assert.equal(ctx.f(el('INPUT', 'search')), true);
+    assert.equal(ctx.f(el('TEXTAREA')), true);
+    assert.equal(ctx.f(el('DIV', undefined, { isContentEditable: true })), true);
+    assert.equal(ctx.l('播放（Alt+R）'), '播放（⌥R）');
   });
 
   test('用 e.code 判斷（Mac 的 Option+R 會打出 ®）', () => {
@@ -239,5 +284,14 @@ describe('Service Worker 的朗讀音檔快取', () => {
     for (const h of ['bytes=0-99', 'bytes=900-', 'bytes=-100', 'bytes=-5000', 'bytes=990-5000', 'bytes=1000-', 'bytes=-0', 'bytes=5-2', 'garbage', '', 'bytes=0-1,5-9']) {
       assert.deepEqual(JSON.parse(JSON.stringify(ctx.parseTtsRange(h, 1000))), parseByteRange(h, 1000), h);
     }
+  });
+});
+
+describe('上一句／下一句', () => {
+  test('暫停中或已讀完時按上一句／下一句也會開始播那一句；到頭時有看得到的提示', () => {
+    const fn = ttsSection.slice(ttsSection.indexOf('async function ttsStep'), ttsSection.indexOf('function ttsStop'));
+    assert.match(fn, /ttsUnlock\(\);\s*let k = /, '解鎖要在第一個 await 之前');
+    assert.match(fn, /ttsRt\.playing = true;/);
+    assert.match(fn, /showToast\(msg/);
   });
 });

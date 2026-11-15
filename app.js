@@ -10374,8 +10374,24 @@
     return ttsRt.token;
   }
 
+  /**
+   * 換一段新的朗讀（選字、朗讀本節、從目前位置）：馬上停掉正在播的那句、作廢還在等的生成與換句計時。
+   * 不停的話，新句還在生成時舊句會繼續念完，念完的 ended 還會把新的第一句跳過。
+   * 只暫停、不清 src：iOS 已解鎖的 <audio> 保持可用。
+   */
+  function ttsHaltCurrent() {
+    ttsRt.token++;
+    clearTimeout(ttsRt.gapTimer);
+    const a = ttsRt.audio;
+    if (a && a.dataset.ttsSha) {
+      a.dataset.ttsSha = ''; // ended／error 事件看到空 sha 就不理
+      try { a.pause(); } catch (_) {}
+    }
+  }
+
   async function ttsBegin(loader) {
     if (!state.currentFile) return;
+    ttsHaltCurrent();
     ttsUnlock(); // 先解鎖再做任何 await
     const status = await refreshTtsStatus(false);
     if (!ttsEnabled()) { showToast('這個網站沒有啟用朗讀', 'info'); return; }
@@ -10624,12 +10640,22 @@
     } else ttsPlayAt(atEnd ? ttsNextPlayable(ttsRt.endIndex >= 0 ? 0 : ttsRt.pos, 1) : Math.max(0, ttsRt.pos));
   }
 
+  /**
+   * 上一句／下一句：一律從那一句開始播（暫停中或已讀完也是），否則只會悄悄移動位置，
+   * 使用者以為按鈕沒有作用。解鎖要在第一個 await 之前（仍在點擊的同步呼叫內）。
+   */
   async function ttsStep(dir) {
     if (!ttsRt.active) return;
+    ttsUnlock();
     let k = ttsNextPlayable(ttsRt.pos + dir, dir);
     if (k < 0 && dir > 0 && await ttsLoadMore()) k = ttsNextPlayable(ttsRt.pos + 1, 1);
-    if (k < 0) { ttsAnnounce(dir > 0 ? '已經是最後一句' : '已經是第一句'); return; }
+    if (k < 0) {
+      const msg = dir > 0 ? '已經是最後一句' : '已經是第一句';
+      ttsAnnounce(msg); showToast(msg, 'info', 1500);
+      return;
+    }
     ttsRt.userScrollAt = 0;
+    ttsRt.playing = true; ttsRt.error = null;
     try { ttsRt.audio && ttsRt.audio.pause(); } catch (_) {}
     ttsPlayAt(k);
   }
@@ -10717,23 +10743,50 @@
   }
 
   function ttsHeadingLine(h) {
+    if (!h || !h.querySelector) return 0;
     const a = h.querySelector('.line-anchor[data-line]');
     return a ? parseInt(a.getAttribute('data-line'), 10) : 0;
   }
 
-  /** 每個標題後面放一顆可聚焦的「朗讀本節」按鈕（只有圖示，沒有文字節點：不影響劃線與大綱）。 */
+  /**
+   * 每個標題放一顆可聚焦的「朗讀本節」按鈕（只有圖示，沒有文字節點：不影響劃線與大綱）。
+   * 按鈕放在標題「前面」當兄弟元素、浮動靠右對齊標題第一行：
+   *   - 不另佔一行（標題文字繞著它排）；
+   *   - 不在標題裡面，VoiceOver 標題轉盤的名稱保持乾淨；往前滑一下就是「朗讀本節：標題」。
+   */
   function decorateTtsHeadings() {
     const body = $('markdownBody');
     if (!body || !ttsEnabled()) return;
     for (const h of body.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
-      if (h.querySelector(':scope > .tts-head-btn') || !ttsHeadingLine(h)) continue;
+      const prev = h.previousElementSibling;
+      if ((prev && prev.classList.contains('tts-head-btn')) || !ttsHeadingLine(h)) continue;
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'tts-head-btn';
       const name = (h.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
       b.setAttribute('aria-label', `朗讀本節：${name}`);
       b.title = '朗讀本節';
       b.innerHTML = TTS_ICON.speak;
-      h.appendChild(b);
+      h.before(b);
+    }
+    alignTtsHeadButtons();
+  }
+
+  /** 浮動按鈕的上緣對齊標題第一行的中線（標題的上邊距、字級、行高都會影響，所以用量的）。 */
+  function alignTtsHeadButtons() {
+    const body = $('markdownBody');
+    if (!body) return;
+    for (const b of body.querySelectorAll('.tts-head-btn')) {
+      const h = b.nextElementSibling;
+      if (!h || !/^H[1-6]$/.test(h.tagName)) { b.remove(); continue; }
+      const br = b.getBoundingClientRect();
+      if (!br.height) continue; // 沒顯示（未啟用、列印、隱藏分頁）
+      const cs = getComputedStyle(h);
+      const fs = parseFloat(cs.fontSize) || 16;
+      const lh = parseFloat(cs.lineHeight) || fs * 1.4;
+      const firstLineMid = h.getBoundingClientRect().top + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.borderTopWidth) || 0) + lh / 2;
+      const cur = parseFloat(b.style.marginTop) || 0;
+      const want = Math.round(cur + firstLineMid - (br.top + br.height / 2));
+      if (Math.abs(want - cur) >= 1) b.style.marginTop = `${want}px`;
     }
   }
 
@@ -10976,7 +11029,7 @@
     const playBtn = $('ttsPlayBtn');
     playBtn.innerHTML = ttsRt.playing ? TTS_ICON.pause : TTS_ICON.play;
     playBtn.setAttribute('aria-label', ttsRt.playing ? '暫停' : '播放');
-    playBtn.title = ttsRt.playing ? '暫停（Alt+R）' : '播放（Alt+R）';
+    playBtn.title = ttsKeyLabel(ttsRt.playing ? '暫停（Alt+R）' : '播放（Alt+R）');
     bar.classList.toggle('is-waiting', !!ttsRt.waiting && ttsRt.playing);
     bar.classList.toggle('is-error', !!ttsRt.error);
     $('ttsTitle').textContent = ttsRt.title;
@@ -11214,7 +11267,16 @@
           if (!s.cached || !s.sha) continue;
           const url = `/api/tts/audio/${s.sha}`;
           try {
-            if (!(await cache.match(url))) { const res = await fetch(url); if (res.ok) { bytes += Number(res.headers.get('content-length')) || 0; await cache.put(url, res); } else failed++; }
+            if (!(await cache.match(url))) {
+              // API 每秒限 30 次：整篇下載一下子送出幾十個請求，撞到 429 就等一下再試
+              let res = null;
+              for (let n = 0; n < 4; n++) {
+                res = await fetch(url);
+                if (res.status !== 429) break;
+                await new Promise(r => setTimeout(r, 1100 + n * 600));
+              }
+              if (res && res.ok) { bytes += Number(res.headers.get('content-length')) || 0; await cache.put(url, res); } else failed++;
+            }
             else bytes += Number((await cache.match(url)).headers.get('content-length')) || 0;
           } catch (_) { failed++; }
           done++;
@@ -11327,9 +11389,25 @@
     });
   }
 
+  // 只有「打字用」的欄位才讓出快捷鍵。勾選框、滑桿、按鈕不算：剛按完面板裡的
+  // 「鍵盤快捷鍵」勾選框，焦點還留在那個勾選框上，快捷鍵也要能用。
+  const TTS_TEXT_INPUT = /^(?:text|search|email|url|tel|password|number|date|datetime-local|month|time|week)$/i;
   function isTtsTypingTarget(t) {
     if (!t || !t.tagName) return false;
-    return t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+    if (t.isContentEditable || t.tagName === 'TEXTAREA') return true;
+    if (t.tagName === 'INPUT') return TTS_TEXT_INPUT.test(t.type || 'text');
+    return false;
+  }
+
+  /** Mac 與 iPad 的鍵盤上沒有 Alt，寫成 ⌥ Option。 */
+  const TTS_IS_APPLE = /mac|iphone|ipad|ipod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
+  function ttsKeyLabel(text) { return TTS_IS_APPLE ? String(text).replace(/Alt（Option）\+|Alt\+/g, '⌥') : text; }
+  function localizeTtsShortcutLabels() {
+    if (!TTS_IS_APPLE) return;
+    for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
+    for (const sel of ['#ttsShortcuts + span', '#ttsSettings .setting-desc']) {
+      document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
+    }
   }
 
   function setupTts() {
@@ -11346,6 +11424,7 @@
     on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; const it = ttsRt.items[ttsRt.pos]; if (it) it.retried = false; ttsPlayAt(ttsRt.pos); });
     on('ttsSkipBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsStep(1); });
     on('ttsExpandBtn', 'click', () => setTtsPanelOpen($('ttsPanel').hidden));
+    localizeTtsShortcutLabels();
     setupTtsPhase5();
     on('ttsRateBtn', 'click', () => { setTtsPanelOpen(true); $('ttsRate').focus(); });
     on('ttsVoiceBtn', 'click', () => { setTtsPanelOpen(true); const r = document.querySelector('#ttsVoiceCards input:checked') || document.querySelector('#ttsVoiceCards input'); if (r) r.focus(); });
@@ -11371,13 +11450,21 @@
     on('ttsExact', 'change', (e) => { ttsPrefs().exact = e.target.checked; saveTtsPrefs(); });
     on('ttsStartBtn', 'click', () => { if (ttsRt.active) { $('ttsPlayBtn').focus(); ttsTogglePlay(); } else ttsStartFromVisible(); });
 
-    // 標題後的「朗讀本節」
+    // 標題旁的「朗讀本節」
     const body = $('markdownBody');
+    // 字級、行寬、主題改變都會讓標題換行位置變：重新對齊浮動按鈕
+    if (body && typeof ResizeObserver === 'function') {
+      let alignRaf = 0;
+      new ResizeObserver(() => {
+        if (alignRaf || !ttsEnabled()) return;
+        alignRaf = requestAnimationFrame(() => { alignRaf = 0; alignTtsHeadButtons(); });
+      }).observe(body);
+    }
     if (body) body.addEventListener('click', (e) => {
       const b = e.target.closest && e.target.closest('.tts-head-btn');
       if (!b) return;
       e.preventDefault(); e.stopPropagation();
-      const line = ttsHeadingLine(b.parentElement);
+      const line = ttsHeadingLine(b.nextElementSibling);
       if (line) ttsStartFromLine(line, true);
     });
 
@@ -17134,6 +17221,35 @@
       return `<option value="${escHtml(id)}">${escHtml(id)}${m ? `（${escHtml(m.family)}${m.loaded ? '' : '，未載入'}）` : '（audio.cpp 沒有列出）'}</option>`;
     }).join('') : '<option value="">（先填網址並檢查連線）</option>';
     sel.value = cur || (list[0] || '');
+    renderTtsAdminVoiceDir();
+  }
+
+  /** 音色資料夾的檢查結果：資料夾在不在、有哪些參考錄音、誰缺逐字稿、和 audio.cpp 回報的音色對不對得上。 */
+  function renderTtsAdminVoiceDir() {
+    const el = $('adminTtsVoiceDirStatus'); const d = ttsAdmin.data;
+    if (!el || !d) return;
+    const info = d.voiceDir || {};
+    const rows = [];
+    if (!info.configured) {
+      rows.push('<div class="field-hint">尚未填寫。</div>');
+    } else if (!info.exists) {
+      rows.push(`<div class="field-hint">⚠️ ${info.notDir ? '這個路徑不是資料夾' : '這台主機上找不到這個資料夾'}。如果 audio.cpp 在別台機器或容器裡，這是正常的，這裡只做記錄。</div>`);
+    } else {
+      const up = new Set(((ttsAdmin.probe && ttsAdmin.probe.voices) || []).map(String));
+      const missing = info.voices.filter(v => !v.transcript);
+      rows.push(`<div class="field-hint">✅ 找到 ${info.voices.length} 個參考錄音${info.promptText ? '' : '；⚠️ 沒有 <code>prompt_text</code>（逐字稿檔）'}${missing.length ? `；⚠️ ${missing.length} 個缺逐字稿` : ''}</div>`);
+      if (info.voices.length) {
+        rows.push('<ul class="tts-voicedir-list">' + info.voices.map(v => {
+          const notes = [];
+          if (!v.transcript) notes.push(v.txtFile ? `有 ${escHtml(v.name)}.txt，但 prompt_text 裡沒有這一行` : '缺逐字稿');
+          if (up.size && !up.has(v.name)) notes.push('audio.cpp 沒有列出（可能要重新啟動）');
+          return `<li><span class="tts-voicedir-mark" aria-hidden="true">${notes.length ? '⚠️' : '✅'}</span><code>${escHtml(v.name)}</code>${notes.length ? `<span class="field-hint">　${notes.join('；')}</span>` : ''}</li>`;
+        }).join('') + '</ul>');
+      }
+      if (info.extraTranscripts && info.extraTranscripts.length) rows.push(`<div class="field-hint">prompt_text 裡有、但找不到錄音檔：${info.extraTranscripts.map(n => `<code>${escHtml(n)}</code>`).join('、')}</div>`);
+    }
+    if (info.configured) rows.push(`<div class="field-hint">audio.cpp 啟動參數：<code>--voice-dir "${escHtml(info.path)}"</code></div>`);
+    el.innerHTML = rows.join('');
   }
 
   function renderTtsAdmin() {
@@ -17142,6 +17258,7 @@
     $('adminTtsEnabled').checked = !!s.enabled;
     const base = $('adminTtsBaseUrl'); base.value = s.baseUrl || ''; base.disabled = !!lock.baseUrl;
     $('adminTtsBaseUrlLock').hidden = !lock.baseUrl; $('adminTtsBaseUrlLock').textContent = '由環境變數 TTS_BASE_URL 設定，這裡不能改。';
+    $('adminTtsVoiceDir').value = s.voiceDir || '';
     $('adminTtsModel').disabled = !!lock.model;
     $('adminTtsModelLock').hidden = !lock.model; $('adminTtsModelLock').textContent = '由環境變數 TTS_MODEL 設定，這裡不能改。';
     $('adminTtsMaxChars').value = s.maxSentenceChars; $('adminTtsConcurrency').value = s.concurrency;
@@ -17192,6 +17309,7 @@
     if (defaultVoice && !defaultVoice.startsWith('__new:')) out.defaultVoice = defaultVoice;
     const lock = (ttsAdmin.data && ttsAdmin.data.locked) || {};
     if (!lock.baseUrl) out.baseUrl = $('adminTtsBaseUrl').value.trim();
+    out.voiceDir = $('adminTtsVoiceDir').value.trim();
     if (!lock.model && $('adminTtsModel').value) out.model = $('adminTtsModel').value;
     if (!lock.cacheMb) out.cacheMb = num('adminTtsCacheMb');
     return { settings: out, newDefault: defaultVoice.startsWith('__new:') ? defaultVoice.slice(6) : '' };

@@ -2110,12 +2110,13 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - audio.cpp 的音色庫是一個資料夾（`--voice-dir <資料夾>` 或設定檔的 `voice_dir`；沒指定時用內建的 `webui/native/demo_voices/`）：每個音色一個 `<名稱>.wav`，加上一個檔名就叫 `prompt_text`（沒有副檔名）的對照檔，一行一個 `<名稱>|<錄音的逐字稿>`。`GET /v1/audio/voices` 列出的就是這些名稱。
 - mdWebview 這一側：後台從 audio.cpp 抓回名稱，管理員勾選要開放的，填中文顯示名、標籤、預設語速，並產生試聽。讀者只看得到代號（`v…`）與顯示名。
 - **參考錄音不要原地覆蓋**：快取鍵只含名稱，同名換了錄音，舊快取仍會被當成同一個音色播出來，同一篇裡會忽然換聲音。換錄音時用新檔名（如 `huiyin_v2.wav`），或把該音色的 `rev` 加一（舊音檔會隨 LRU 自然淘汰）。
+- **音色資料夾設定**（`settings.tts.voiceDir`，後台「朗讀服務」卡在伺服器網址下方）：只是記錄與檢查，mdWebview 不能改 audio.cpp 的啟動參數，換資料夾要自己重啟 audio.cpp。`inspectVoiceDir()` 在路徑於本機存在時列出參考錄音（wav／mp3／flac／ogg／opus／m4a），對照 `prompt_text`（`名稱|逐字稿`）標出缺逐字稿的音色（同名 `.txt` 存在但沒寫進 `prompt_text` 也會提示），以及 `prompt_text` 裡有但沒有錄音檔的名稱；後台再和 audio.cpp `/v1/audio/voices` 比對，標出還沒被 audio.cpp 列出的。只讀檔名與 `prompt_text`、最多 500 項；路徑必須是絕對路徑，只有管理員看得到。audio.cpp 在別台機器或容器內時看不到路徑是正常的。
 - 音色從白名單移除或停用：已快取的音檔保留，但不再提供新生成。
 - 讀者端不能上傳或指定參考錄音（`voice_ref` 不開放）。
 
 ### 24.11 前端（`app.js` §17c、`index.html` `#ttsBar`、`style.css` §27c、`sw.js`）
 
-- **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題後的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入，只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
+- **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題旁的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入到標題**前面**當兄弟元素，`float: right` 靠右對齊標題第一行（`alignTtsHeadButtons()` 量出 margin-top，`ResizeObserver` 在字級／行寬改變時重算），不另佔一行；不放在標題裡，標題的無障礙名稱保持乾淨，VoiceOver 從標題往前滑一下就是它；只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`；視覺 28px，`::after` 把點擊範圍擴到 46px，不增加版面高度）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
 - **選取的位置**：前端把選取端點換成 `{ line, n }`（`n`＝該行中這一點之前的非空白字數），伺服器在該行的句子上對位（`resolveStrippedPos`）。畫面文字與正規化文字的空白、Markdown 記號不同，但非空白字的順序相同。選到半句時面板顯示「已延伸至完整句」，補讀的句子用較淡的 `mdw-tts-padded` 底色。
 - **播放**：只有一個重複使用的 `Audio`，第一次在使用者手勢的同步呼叫內先播 `/api/tts/silence.wav`（0.1 秒靜音，用 `data:` URI 會被 CSP 擋下）解鎖，之後換 `src`。`ended` 時接下一句；句間停頓只在頁面可見時用計時器插入（背景時計時器會被凍結，直接接）。後 3 句用 `/api/tts/speak` 的 `priority:'prefetch'` 先生成，並 `fetch` 一次讓 Service Worker 存起來。換 `src` 後重設 `playbackRate`（iOS 會重設）並開 `preservesPitch`。
 - **朗讀本節**：遇到同級或更高級的標題就停；本節可能跨好幾章，`ttsFillSection()` 在背景把句子接上來，「第 N／M 句」才算得出本節的總數。從目前位置朗讀則讀到底，自動接下一章。
@@ -2146,7 +2147,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 定位：盲人讀者本來就有 VoiceOver，朗讀對他們的價值是更自然的音色、佛學名詞讀音正確、可長時間背景聽經與鎖屏控制。原則是**不和 VoiceOver 搶話、所有功能都能不看螢幕完成**。
 
-- **入口不依賴選字**：右上角「從目前位置朗讀」、內文每個標題後與大綱每一列的「朗讀本節」（`aria-label="朗讀本節：<標題>"`，觸控時一直可見、44pt）、Alt+R。
+- **入口不依賴選字**：右上角「從目前位置朗讀」、內文每個標題後與大綱每一列的「朗讀本節」（`aria-label="朗讀本節：<標題>"`，觸控時一直可見、點擊範圍 ≥44pt）、Alt+R。
 - **地標與結構**：播放列是有名稱的 `<section>`＋「跳到朗讀播放器」略過連結；誦經模式是 `aria-modal` 對話框（背景 `inert`、焦點圈、Esc、焦點歸還）。
 - **控制元件**：播放／暫停是同一顆按鈕切換名稱；進度與語速是 slider，`aria-valuetext` 用中文；音色是原生 radio 卡片；所有圖示按鈕都有中文名稱。
 - **不打斷音訊**：只有一個 polite 狀態區，只在使用者操作後播報；換句時不播報、不移動焦點。偏好「讓 VoiceOver 焦點跟著目前的句子」（預設關）開啟時才把焦點移到該段落（`preventScroll`）。
