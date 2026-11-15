@@ -17111,6 +17111,35 @@
       return `<option value="${escHtml(id)}">${escHtml(id)}${m ? `（${escHtml(m.family)}${m.loaded ? '' : '，未載入'}）` : '（audio.cpp 沒有列出）'}</option>`;
     }).join('') : '<option value="">（先填網址並檢查連線）</option>';
     sel.value = cur || (list[0] || '');
+    renderTtsAdminVoiceDir();
+  }
+
+  /** 音色資料夾的檢查結果：資料夾在不在、有哪些參考錄音、誰缺逐字稿、和 audio.cpp 回報的音色對不對得上。 */
+  function renderTtsAdminVoiceDir() {
+    const el = $('adminTtsVoiceDirStatus'); const d = ttsAdmin.data;
+    if (!el || !d) return;
+    const info = d.voiceDir || {};
+    const rows = [];
+    if (!info.configured) {
+      rows.push('<div class="field-hint">尚未填寫。</div>');
+    } else if (!info.exists) {
+      rows.push(`<div class="field-hint">⚠️ ${info.notDir ? '這個路徑不是資料夾' : '這台主機上找不到這個資料夾'}。如果 audio.cpp 在別台機器或容器裡，這是正常的，這裡只做記錄。</div>`);
+    } else {
+      const up = new Set(((ttsAdmin.probe && ttsAdmin.probe.voices) || []).map(String));
+      const missing = info.voices.filter(v => !v.transcript);
+      rows.push(`<div class="field-hint">✅ 找到 ${info.voices.length} 個參考錄音${info.promptText ? '' : '；⚠️ 沒有 <code>prompt_text</code>（逐字稿檔）'}${missing.length ? `；⚠️ ${missing.length} 個缺逐字稿` : ''}</div>`);
+      if (info.voices.length) {
+        rows.push('<ul class="tts-voicedir-list">' + info.voices.map(v => {
+          const notes = [];
+          if (!v.transcript) notes.push(v.txtFile ? `有 ${escHtml(v.name)}.txt，但 prompt_text 裡沒有這一行` : '缺逐字稿');
+          if (up.size && !up.has(v.name)) notes.push('audio.cpp 沒有列出（可能要重新啟動）');
+          return `<li><span class="tts-voicedir-mark" aria-hidden="true">${notes.length ? '⚠️' : '✅'}</span><code>${escHtml(v.name)}</code>${notes.length ? `<span class="field-hint">　${notes.join('；')}</span>` : ''}</li>`;
+        }).join('') + '</ul>');
+      }
+      if (info.extraTranscripts && info.extraTranscripts.length) rows.push(`<div class="field-hint">prompt_text 裡有、但找不到錄音檔：${info.extraTranscripts.map(n => `<code>${escHtml(n)}</code>`).join('、')}</div>`);
+    }
+    if (info.configured) rows.push(`<div class="field-hint">audio.cpp 啟動參數：<code>--voice-dir "${escHtml(info.path)}"</code></div>`);
+    el.innerHTML = rows.join('');
   }
 
   function renderTtsAdmin() {
@@ -17119,6 +17148,7 @@
     $('adminTtsEnabled').checked = !!s.enabled;
     const base = $('adminTtsBaseUrl'); base.value = s.baseUrl || ''; base.disabled = !!lock.baseUrl;
     $('adminTtsBaseUrlLock').hidden = !lock.baseUrl; $('adminTtsBaseUrlLock').textContent = '由環境變數 TTS_BASE_URL 設定，這裡不能改。';
+    $('adminTtsVoiceDir').value = s.voiceDir || '';
     $('adminTtsModel').disabled = !!lock.model;
     $('adminTtsModelLock').hidden = !lock.model; $('adminTtsModelLock').textContent = '由環境變數 TTS_MODEL 設定，這裡不能改。';
     $('adminTtsMaxChars').value = s.maxSentenceChars; $('adminTtsConcurrency').value = s.concurrency;
@@ -17169,6 +17199,7 @@
     if (defaultVoice && !defaultVoice.startsWith('__new:')) out.defaultVoice = defaultVoice;
     const lock = (ttsAdmin.data && ttsAdmin.data.locked) || {};
     if (!lock.baseUrl) out.baseUrl = $('adminTtsBaseUrl').value.trim();
+    out.voiceDir = $('adminTtsVoiceDir').value.trim();
     if (!lock.model && $('adminTtsModel').value) out.model = $('adminTtsModel').value;
     if (!lock.cacheMb) out.cacheMb = num('adminTtsCacheMb');
     return { settings: out, newDefault: defaultVoice.startsWith('__new:') ? defaultVoice.slice(6) : '' };

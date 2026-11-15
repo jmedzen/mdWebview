@@ -698,6 +698,31 @@ describe('lib/tts.js 純函式', () => {
     for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'http://u:p@h', '192.168.2.66:8301', 'gopher://x']) assert.equal(I.normalizeBaseUrl(bad), null, bad);
   });
 
+  test('normalizeVoiceDir：絕對路徑、去引號與結尾斜線；相對路徑不收', () => {
+    assert.equal(I.normalizeVoiceDir('/Users/jm/SyncDev/23-ref Audio/'), '/Users/jm/SyncDev/23-ref Audio');
+    assert.equal(I.normalizeVoiceDir('"/Users/jm/SyncDev/23-ref Audio"'), '/Users/jm/SyncDev/23-ref Audio');
+    assert.equal(I.normalizeVoiceDir('C:\\voices\\'), 'C:\\voices');
+    assert.equal(I.normalizeVoiceDir(''), '');
+    for (const bad of ['voices', './voices', '~/voices', '/a\nb', 'x'.repeat(501)]) assert.equal(I.normalizeVoiceDir(bad), null, bad);
+    assert.equal(I.validateSettings({ voiceDir: 'rel' }, {}).field, 'voiceDir');
+    assert.equal(I.validateSettings({ voiceDir: '/v' }, {}).settings.voiceDir, '/v');
+  });
+
+  test('inspectVoiceDir：列出參考錄音、對照 prompt_text 找缺逐字稿的', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+    for (const f of ['甲.wav', '乙.wav', '丙.mp3', '.hidden.wav', 'notes.md']) fs.writeFileSync(path.join(d, f), 'x');
+    fs.writeFileSync(path.join(d, '乙.txt'), '逐字稿');
+    fs.writeFileSync(path.join(d, 'prompt_text'), '甲|你好。\n丙|\n丁|沒有錄音\n');
+    const r = I.inspectVoiceDir(d);
+    assert.equal(r.exists, true); assert.equal(r.promptText, true);
+    assert.deepEqual(r.voices.map(v => [v.name, v.transcript, v.txtFile]).sort(), [['丙', false, false], ['乙', false, true], ['甲', true, false]].sort());
+    assert.deepEqual(r.extraTranscripts, ['丁']);
+    assert.equal(I.inspectVoiceDir(path.join(d, 'nope')).exists, false);
+    assert.equal(I.inspectVoiceDir(path.join(d, 'notes.md')).notDir, true);
+    assert.deepEqual(I.inspectVoiceDir(''), { configured: false });
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
   test('parseWav 拒絕不是音訊的內容', () => {
     assert.throws(() => I.parseWav(Buffer.from('{"error":{"message":"x"}}')));
     assert.throws(() => I.parseWav(Buffer.from('RIFF....WAVEfmt ')));
