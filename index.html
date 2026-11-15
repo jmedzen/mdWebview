@@ -2428,6 +2428,19 @@
               <input type="text" id="adminTtsVoiceDir" placeholder="/Users/me/voices" spellcheck="false" autocomplete="off" aria-describedby="adminTtsVoiceDirHint">
               <p class="field-hint" id="adminTtsVoiceDirHint">填 audio.cpp 啟動時 <code>--voice-dir</code> 指向的資料夾。本站<strong>不會</strong>改 audio.cpp 的啟動參數：換資料夾要重新啟動 audio.cpp 才生效。audio.cpp 跟本站在同一台主機時，這裡會檢查資料夾、列出參考錄音，並對照 <code>prompt_text</code> 看哪個音色缺逐字稿（drama3 沒有逐字稿會失敗）。</p>
               <div id="adminTtsVoiceDirStatus" class="account-list" aria-live="polite"></div>
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsAutoTranscribe">
+                  <input type="checkbox" id="adminTtsAutoTranscribe">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">缺逐字稿時用 audio.cpp 的 ASR 自動補上</span>
+              </div>
+              <p class="field-hint">打開這一頁時檢查：沒有同名 <code>.txt</code>、也不在 <code>prompt_text</code> 裡的 WAV，送 audio.cpp 轉寫，寫成 <code>&lt;名稱&gt;.txt</code>（不覆蓋已有的），再依各 <code>.txt</code> 重建 <code>prompt_text</code>（舊檔留成 <code>prompt_text.bak</code>）。ASR 結果可能有錯字或簡體字，請打開 .txt 校對。</p>
+              <label class="field-hint" for="adminTtsAsrModel">ASR 模型（audio.cpp 上的代號）</label>
+              <input type="text" id="adminTtsAsrModel" placeholder="qwen3-asr" spellcheck="false" autocomplete="off">
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsTranscribeBtn" data-no-dirty>立即補逐字稿</button>
+              </div>
               <label class="field-hint" for="adminTtsModel">模型（只列出朗讀用的模型）</label>
               <select id="adminTtsModel"></select>
               <p class="field-hint" id="adminTtsModelLock" hidden></p>
