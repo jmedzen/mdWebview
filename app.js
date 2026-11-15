@@ -11192,7 +11192,16 @@
           if (!s.cached || !s.sha) continue;
           const url = `/api/tts/audio/${s.sha}`;
           try {
-            if (!(await cache.match(url))) { const res = await fetch(url); if (res.ok) { bytes += Number(res.headers.get('content-length')) || 0; await cache.put(url, res); } else failed++; }
+            if (!(await cache.match(url))) {
+              // API 每秒限 30 次：整篇下載一下子送出幾十個請求，撞到 429 就等一下再試
+              let res = null;
+              for (let n = 0; n < 4; n++) {
+                res = await fetch(url);
+                if (res.status !== 429) break;
+                await new Promise(r => setTimeout(r, 1100 + n * 600));
+              }
+              if (res && res.ok) { bytes += Number(res.headers.get('content-length')) || 0; await cache.put(url, res); } else failed++;
+            }
             else bytes += Number((await cache.match(url)).headers.get('content-length')) || 0;
           } catch (_) { failed++; }
           done++;

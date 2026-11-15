@@ -145,6 +145,13 @@ describe('第六階段：無障礙打磨', () => {
   });
 });
 
+describe('離線下載的限流重試', () => {
+  test('整篇下載撞到 429 時等一下再試，不直接算失敗', () => {
+    const dl = ttsSection.slice(ttsSection.indexOf('async function ttsDownloadOffline'), ttsSection.indexOf('async function ttsEnsureFor'));
+    assert.match(dl, /if \(res\.status !== 429\) break;/);
+  });
+});
+
 describe('朗讀的配色對比（WCAG AA）', () => {
   const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
     .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)))
