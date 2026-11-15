@@ -109,6 +109,17 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.deepEqual(run(['demo_1_man', 'demo_3_woman']), ['demo_1_man', 'demo_3_woman']);
   });
 
+  test('朗讀選取後預設繼續往下讀（可關）：選的句子讀完就接上後面的句子', () => {
+    assert.match(ttsSection, /selContinue: p\.selContinue !== false/);
+    assert.match(playerHtml, /<input type="checkbox" id="ttsSelContinue" role="switch">/);
+    const ended = ttsSection.slice(ttsSection.indexOf('async function onTtsEnded'), ttsSection.indexOf('function ttsFinish'));
+    assert.match(ended, /ttsPrefs\(\)\.selContinue/);
+    assert.ok(ended.indexOf('ttsContinueAfterSelection(token)') < ended.indexOf('ttsContinueNextDoc()'), '先接本篇後面的句子，才考慮下一篇');
+    const cont = ttsSection.slice(ttsSection.indexOf('async function ttsContinueAfterSelection'), ttsSection.indexOf('async function onTtsEnded'));
+    assert.match(cont, /x\.i > last\.i/);
+    assert.match(cont, /ttsRt\.endIndex = -1/);
+  });
+
   test('播放列的按鈕至少 44×44，播放列尊重 safe-area', () => {
     assert.match(css, /\.tts-btn \{[\s\S]*?width: 44px; height: 44px;/);
     assert.match(css, /\.tts-bar \{[\s\S]*?padding-bottom: env\(safe-area-inset-bottom, 0px\);/);
