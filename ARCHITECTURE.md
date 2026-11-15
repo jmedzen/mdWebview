@@ -2135,6 +2135,8 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 - **右上角朗讀選單**（`#ttsStartBtn` menu button＋`#ttsStartMenu` role=menu，`setupTtsStartMenu()`）：暫停／繼續（朗讀中才出現）、從這裡讀到結尾、朗讀本節（畫面上第一行所在的節，`ttsStartSectionHere()`）、朗讀本句（有選取＝只讀選取，`selOnly` 不往下接；沒選取＝畫面上第一句，`endIndex` 設成那一句）、從頭朗讀整篇、讀完接下一篇（menuitemcheckbox，選單不關）、睡眠計時（menuitemradio：關／15／30／60 分／本節）、誦經模式、播放面板與設定。開選單時先存下內文的選取（點選單時有些瀏覽器會清掉）。↑↓／Home／End 移動、Esc 關閉並把焦點還給按鈕、點外面關閉。標題旁的喇叭仍是一按就朗讀本節。
 
+- **使用統計（數據分析）**：讀者端 `ttsTrack()` 以 `POST /api/tts/event`（同源、每 IP 每分鐘 120 筆）送匿名事件：`start`（啟動方式白名單＋音色代號＋文件路徑，路徑經 `resolveMdPath` 驗證）、`listen`（累積的收聽毫秒與句數，每分鐘或停止／切到背景時送）、`feature`（睡眠計時、讀完接下一篇、誦經、離線下載、固定音色、播放面板、換音色）、`end`（讀完／停止／睡眠計時）。伺服器只按日彙總進 `tts.db` 的 `usage(day, kind, key, n)`；當日收聽人數用「每日隨機鹽（只在記憶體）＋IP＋UA」的雜湊在 `listeners` 去重，雜湊兩天後刪除，彙總保留 400 天。後台 `GET /api/admin/tts/analytics?range=` 合併 `usage` 與既有的 `stats`（快取命中、生成數、生成時間、失敗），數據分析頁的「朗讀」區塊顯示指標卡、每日趨勢、啟動方式／音色／功能／結束方式分布與熱門文件。
+
 ### 24.12 後台頁與預先生成（第四階段）
 
 - **後台「朗讀（TTS）」頁**（`app.js` §21.8，`#adminPaneTts`，`#admin/tts`）：朗讀服務（開關、伺服器網址、模型下拉、連線與 ffmpeg 狀態、「重新檢查連線」）、音色（audio.cpp 回報的名稱＋已存的白名單：開放、預設、中文名、標籤、預設語速、版本 `rev`、試聽）、朗讀規則與限額、讀音字典（編輯、存檔、套字典試聽一句）、音檔快取（用量、近 7 天命中率、清除單篇或全部、上限）、預先生成。前三張卡片走底部儲存列（`data-save="tts"`，「儲存並檢查」）；字典、清除、預先生成是立即動作（`data-no-dirty`）。開後台時各頁一起載入容易撞到每秒 30 次的 API 限流，這一頁的請求依序送出並在 429 時重試（`ttsAdminApi`）。
