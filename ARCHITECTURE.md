@@ -2133,6 +2133,8 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 - **朗讀選取後繼續往下讀**（`prefs.selContinue`，預設開；面板「更多設定」可關）：選取的句子讀完時，`ttsContinueAfterSelection()` 用最後一句的行號向 `/api/tts/doc?line=` 要那一章，接上序號比它大的句子、清掉 `endIndex`／`stopAtUnit`／選取標記，之後照一般朗讀接下一批、下一章，以及「讀完接下一篇」。
 
+- **右上角朗讀選單**（`#ttsStartBtn` menu button＋`#ttsStartMenu` role=menu，`setupTtsStartMenu()`）：暫停／繼續（朗讀中才出現）、從這裡讀到結尾、朗讀本節（畫面上第一行所在的節，`ttsStartSectionHere()`）、朗讀本句（有選取＝只讀選取，`selOnly` 不往下接；沒選取＝畫面上第一句，`endIndex` 設成那一句）、從頭朗讀整篇、讀完接下一篇（menuitemcheckbox，選單不關）、睡眠計時（menuitemradio：關／15／30／60 分／本節）、誦經模式、播放面板與設定。開選單時先存下內文的選取（點選單時有些瀏覽器會清掉）。↑↓／Home／End 移動、Esc 關閉並把焦點還給按鈕、點外面關閉。標題旁的喇叭仍是一按就朗讀本節。
+
 ### 24.12 後台頁與預先生成（第四階段）
 
 - **後台「朗讀（TTS）」頁**（`app.js` §21.8，`#adminPaneTts`，`#admin/tts`）：朗讀服務（開關、伺服器網址、模型下拉、連線與 ffmpeg 狀態、「重新檢查連線」）、音色（audio.cpp 回報的名稱＋已存的白名單：開放、預設、中文名、標籤、預設語速、版本 `rev`、試聽）、朗讀規則與限額、讀音字典（編輯、存檔、套字典試聽一句）、音檔快取（用量、近 7 天命中率、清除單篇或全部、上限）、預先生成。前三張卡片走底部儲存列（`data-save="tts"`，「儲存並檢查」）；字典、清除、預先生成是立即動作（`data-no-dirty`）。開後台時各頁一起載入容易撞到每秒 30 次的 API 限流，這一頁的請求依序送出並在 429 時重試（`ttsAdminApi`）。

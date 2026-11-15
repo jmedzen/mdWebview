@@ -13026,3 +13026,48 @@ body.tts-chant-open { overflow: hidden; }
   /* 「回到朗讀位置」出現時：語速改在面板裡調，迷你列把位置留給標題 */
   .tts-mini:has(#ttsBackBtn:not([hidden])) #ttsRateBtn { display: none; }
 }
+
+/* §27c 朗讀選單（右上角喇叭）：浮在按鈕下方的紙卡；每項 ≥ 44px，標題＋副標 */
+.tts-menu {
+  position: fixed; z-index: 1100; width: min(300px, calc(100vw - 16px));
+  max-height: calc(100vh - 80px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px; border-radius: 14px;
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); box-shadow: 0 12px 32px var(--shadow-color), 0 2px 6px var(--shadow-color);
+  font-size: 0.9rem;
+}
+.tts-menu[hidden] { display: none; }
+.tts-menu-item {
+  position: relative; display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  width: 100%; min-height: 44px; padding: 6px 12px; border: 0; border-radius: 9px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.tts-menu-item[hidden] { display: none; }
+.tts-menu-item:hover, .tts-menu-item:focus-visible { background: var(--tts-accent-bg); outline: none; }
+.tts-menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--tts-accent); }
+.tts-menu-title { font-weight: 600; }
+.tts-menu-sub { font-size: 0.82em; color: var(--text-muted); }
+.tts-menu-sep { height: 1px; margin: 6px 8px; background: var(--border-subtle); }
+.tts-menu-check { padding-right: 52px; }
+.tts-menu-tick {
+  position: absolute; right: 12px; top: 50%; width: 36px; height: 22px; margin-top: -11px; border-radius: 999px;
+  background: var(--border); transition: background 0.18s ease;
+}
+.tts-menu-tick::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.18s ease;
+}
+.tts-menu-check[aria-checked="true"] .tts-menu-tick { background: var(--tts-accent); }
+.tts-menu-check[aria-checked="true"] .tts-menu-tick::after { transform: translateX(14px); }
+.tts-menu-group { padding: 6px 12px 8px; }
+.tts-menu-label { display: block; margin-bottom: 6px; font-weight: 600; }
+.tts-menu-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.tts-menu-chip {
+  align-items: center; min-height: 44px; padding: 4px 0; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 0.86em; text-align: center; font-variant-numeric: tabular-nums;
+}
+.tts-menu-chip[aria-checked="true"] { border-color: var(--tts-accent); background: var(--tts-accent-bg); color: var(--tts-accent-text); font-weight: 600; }
+#ttsStartBtn[aria-expanded="true"] { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+@media (prefers-reduced-motion: reduce) { .tts-menu-tick, .tts-menu-tick::after { transition: none; } }
+@media (forced-colors: active) { .tts-menu { border: 1px solid CanvasText; } .tts-menu-chip[aria-checked="true"] { border: 2px solid Highlight; } }
+@media print { .tts-menu { display: none !important; } }
