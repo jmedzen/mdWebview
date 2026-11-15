@@ -10356,8 +10356,24 @@
     return ttsRt.token;
   }
 
+  /**
+   * 換一段新的朗讀（選字、朗讀本節、從目前位置）：馬上停掉正在播的那句、作廢還在等的生成與換句計時。
+   * 不停的話，新句還在生成時舊句會繼續念完，念完的 ended 還會把新的第一句跳過。
+   * 只暫停、不清 src：iOS 已解鎖的 <audio> 保持可用。
+   */
+  function ttsHaltCurrent() {
+    ttsRt.token++;
+    clearTimeout(ttsRt.gapTimer);
+    const a = ttsRt.audio;
+    if (a && a.dataset.ttsSha) {
+      a.dataset.ttsSha = ''; // ended／error 事件看到空 sha 就不理
+      try { a.pause(); } catch (_) {}
+    }
+  }
+
   async function ttsBegin(loader) {
     if (!state.currentFile) return;
+    ttsHaltCurrent();
     ttsUnlock(); // 先解鎖再做任何 await
     const status = await refreshTtsStatus(false);
     if (!ttsEnabled()) { showToast('這個網站沒有啟用朗讀', 'info'); return; }
