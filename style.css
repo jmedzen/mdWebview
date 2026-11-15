@@ -12667,7 +12667,11 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 }
 @media (hover: none) {
   /* 觸控沒有 hover：按鈕一直清楚可見，點擊範圍至少 44pt */
-  body.tts-enabled .markdown-body .tts-head-btn { opacity: 0.9; min-width: 44px; min-height: 44px; color: var(--tts-accent-text); }
+  body.tts-enabled .markdown-body .tts-head-btn,
+  body.tts-enabled .markdown-body .tts-head-btn:hover,
+  body.tts-enabled .markdown-body :is(h1, h2, h3, h4, h5, h6):hover > .tts-head-btn {
+    opacity: 0.9; min-width: 44px; min-height: 44px; color: var(--tts-accent-text); background: transparent;
+  }
 }
 
 .tts-sr-only {
@@ -12740,6 +12744,10 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
   border: 1px solid var(--border); background: var(--input-bg, var(--bg-primary)); color: var(--text-primary); font: inherit;
 }
 .tts-field output { min-width: 3.6em; text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.tts-stop-btn {
+  justify-self: start; min-height: 44px; padding: 6px 16px; border-radius: 999px;
+  border: 1px solid var(--tts-accent); background: transparent; color: var(--tts-accent-text); font: inherit; cursor: pointer;
+}
 .tts-check { display: flex; align-items: flex-start; gap: 10px; min-height: 32px; color: var(--text-secondary); cursor: pointer; }
 .tts-check input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--tts-accent); }
 
@@ -12760,7 +12768,8 @@ body.focus-mode .tts-start-btn { display: none; }
   body.tts-active.has-kepan .back-to-top { bottom: calc(var(--tts-bar-h) + 76px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
-  #ttsRateBtn { display: none; }
+  .tts-mini .tts-btn:not(.tts-play) { width: 40px; }
+  #ttsCloseBtn { display: none; } /* 窄螢幕：停止改在展開的面板裡（Esc 或面板的「停止朗讀」） */
 }
 @media (prefers-reduced-motion: reduce) {
   .tts-progress-fill, .tts-head-btn { transition: none; }

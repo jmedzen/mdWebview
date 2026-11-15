@@ -10383,9 +10383,20 @@
         const head = ttsRt.items[first];
         ttsRt.stopLevel = head.kind === 'heading' ? (head.level || 7) : 7;
         ttsRt.sectionStart = first; ttsRt.sectionStartUnit = head.i;
+        ttsFillSection(token); // 本節可能跨好幾章：在背景接上來，「第 N／M 句」才算得出本節的總句數
       }
       return first;
     });
+  }
+
+  /** 朗讀本節：一直接下一批句子，直到出現結束本節的標題或全篇結束（最多 20 批）。 */
+  async function ttsFillSection(token) {
+    for (let n = 0; n < 20 && token === ttsRt.token && ttsRt.stopLevel !== null; n++) {
+      const start = ttsRt.sectionStart !== undefined ? ttsRt.sectionStart + 1 : 0;
+      if (ttsRt.items.slice(start).some(o => o.kind === 'heading' && (o.level || 7) <= ttsRt.stopLevel)) break;
+      if (!(await ttsLoadMore())) break;
+    }
+    if (token === ttsRt.token) renderTtsBar();
   }
 
   /** 朗讀選取的文字：伺服器把範圍吸附到完整句（或依「只讀我選的字」照實切）。 */
@@ -10396,6 +10407,7 @@
     const s = hlOffsetOf(idx, range.startContainer, range.startOffset);
     const e = hlOffsetOf(idx, range.endContainer, range.endOffset);
     const a = ttsDomPos(idx, s); const b = ttsDomPos(idx, e);
+    const selChars = (idx.text.slice(s, e).match(/[^\s\u3000]/g) || []).length;
     if (!a || !b) { showToast('這裡沒有可朗讀的文字', 'info'); return; }
     return ttsBegin(async (token) => {
       const v = ttsVoice();
@@ -10404,7 +10416,10 @@
       ttsRt.items = d.sentences.slice();
       ttsRt.endIndex = ttsRt.items.length - 1;
       ttsRt.selFrom = d.selFrom; ttsRt.selTo = d.selTo;
-      ttsRt.flags = d.flags || {};
+      ttsRt.flags = Object.assign({}, d.flags || {});
+      // 選到半句也算延伸（伺服器的 extended 只看有沒有多出整句）
+      const played = d.sentences.reduce((n, x) => n + (x.kind === 'skip' ? 0 : (x.text.match(/[^\s\u3000]/g) || []).length), 0);
+      if (!ttsPrefs().exact && played > selChars) ttsRt.flags.extended = true;
       if (d.truncatedAt !== null && d.truncatedAt !== undefined) { // 很長的選取：之後沿著句子序號繼續要
         ttsRt.endIndex = -1; ttsRt.stopAtUnit = d.to;
         ttsRt.chapter = null;
@@ -10858,12 +10873,19 @@
   // ── 播放列 ──
   function ttsCounts() {
     let n = 0, m = 0;
-    const last = ttsRt.endIndex >= 0 ? ttsRt.endIndex : ttsRt.items.length - 1;
+    let last = ttsRt.endIndex >= 0 ? ttsRt.endIndex : ttsRt.items.length - 1;
+    let sectionEnded = false;
+    if (ttsRt.stopLevel !== null && ttsRt.sectionStart !== undefined) { // 朗讀本節：只算到下一個同級或更高級的標題
+      for (let k = ttsRt.sectionStart + 1; k <= last; k++) {
+        const o = ttsRt.items[k];
+        if (o.kind === 'heading' && (o.level || 7) <= ttsRt.stopLevel) { last = k - 1; sectionEnded = true; break; }
+      }
+    }
     for (let k = 0; k <= last; k++) {
       if (!ttsPlayable(ttsRt.items[k])) continue;
       m++; if (k <= ttsRt.pos) n++;
     }
-    return { n, m, open: ttsRt.endIndex < 0 && !!ttsRt.chapter && (ttsRt.chapter.more || ttsRt.chapter.i + 1 < ttsRt.chapter.count) };
+    return { n, m, open: !sectionEnded && ttsRt.endIndex < 0 && !!ttsRt.chapter && (ttsRt.chapter.more || ttsRt.chapter.i + 1 < ttsRt.chapter.count) };
   }
 
   function renderTtsVoiceOptions() {
@@ -10941,7 +10963,9 @@
     on('ttsPlayBtn', 'click', () => ttsTogglePlay());
     on('ttsPrevBtn', 'click', () => ttsStep(-1));
     on('ttsNextBtn', 'click', () => ttsStep(1));
-    on('ttsCloseBtn', 'click', () => { ttsStop(); const b = $('ttsStartBtn'); if (b) b.focus(); });
+    const stopAndRefocus = () => { ttsStop(); const b = $('ttsStartBtn'); if (b) b.focus(); };
+    on('ttsCloseBtn', 'click', stopAndRefocus);
+    on('ttsStopBtn', 'click', stopAndRefocus);
     on('ttsBackBtn', 'click', () => ttsBackToPosition());
     on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; const it = ttsRt.items[ttsRt.pos]; if (it) it.retried = false; ttsPlayAt(ttsRt.pos); });
     on('ttsSkipBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsStep(1); });
