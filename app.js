@@ -10271,9 +10271,27 @@
   }
 
   /** 向伺服器問朗讀是否可用（60 秒內不重問）；據此顯示或隱藏所有入口。 */
+  /**
+   * 後台沒填中文名時，顯示名就是 audio.cpp 的檔名（如 Ref-Audio-male-都A1）。
+   * 給讀者看時去掉「Ref-Audio-」「male-」這類前綴，以及所有音色共同的前綴；去完是空的就保留原名。
+   */
+  function tidyTtsVoiceName(name) {
+    const t = String(name || '').replace(/^ref[-_ ]*audio[-_ ]*/i, '').replace(/^(?:male|female|man|woman|voice)[-_ ]+/i, '');
+    return t.trim() || String(name || '');
+  }
+  function tidyTtsVoiceNames(list) {
+    if (!Array.isArray(list) || !list.length) return;
+    for (const v of list) v.name = tidyTtsVoiceName(v.name);
+    if (list.length < 2) return;
+    let pre = list[0].name;
+    for (const v of list) while (pre && !v.name.startsWith(pre)) pre = pre.slice(0, -1);
+    const cut = pre.search(/[-_][^-_]*$/); // 只在檔名式的分隔符號（- _）處切；中文名（男聲・都）不動
+    if (cut >= 2 && list.every(v => v.name.length > cut + 1 && !/^\d/.test(v.name.slice(cut + 1)))) for (const v of list) v.name = v.name.slice(cut + 1);
+  }
+
   async function refreshTtsStatus(force) {
     if (!force && ttsRt.status && Date.now() - ttsRt.statusAt < 60000) return ttsRt.status;
-    try { ttsRt.status = await ttsApi('/api/tts/status'); }
+    try { ttsRt.status = await ttsApi('/api/tts/status'); tidyTtsVoiceNames(ttsRt.status.voices); }
     catch (_) { ttsRt.status = ttsRt.status || { enabled: false, available: false, voices: [] }; }
     ttsRt.statusAt = Date.now();
     document.body.classList.toggle('tts-enabled', !!(ttsRt.status.enabled && ttsVoices().length));
@@ -10979,8 +10997,8 @@
     const list = ttsVoices(); const cur = ttsVoice();
     box.innerHTML = list.map(v => `
       <div class="tts-voice-card">
-        <label><input type="radio" name="ttsVoice" value="${escHtml(v.id)}" ${cur && cur.id === v.id ? 'checked' : ''}>
-          <span class="tts-voice-name">${escHtml(v.name)}</span>${v.tags && v.tags.length ? `<span class="tts-voice-tags">${escHtml(v.tags.join('・'))}</span>` : ''}</label>
+        <label title="${escHtml(v.name)}"><input type="radio" name="ttsVoice" value="${escHtml(v.id)}" ${cur && cur.id === v.id ? 'checked' : ''}>
+          <span class="tts-voice-dot" aria-hidden="true"></span><span class="tts-voice-name">${escHtml(v.name)}</span>${v.tags && v.tags.length ? `<span class="tts-voice-tags">${escHtml(v.tags.join('・'))}</span>` : ''}</label>
         ${v.sample ? `<button type="button" class="tts-voice-sample" data-sample="${escHtml(v.sample)}" aria-label="試聽${escHtml(v.name)}">${TTS_ICON.play}</button>` : ''}
       </div>`).join('');
   }
@@ -11033,9 +11051,13 @@
     const seek = $('ttsSeek');
     seek.max = String(Math.max(1, m)); seek.value = String(Math.max(1, n));
     seek.setAttribute('aria-valuetext', `第 ${n} 句，共 ${m}${open ? ' 句以上' : ' 句'}`);
+    seek.style.setProperty('--fill', m > 1 ? `${Math.round((Math.max(1, n) - 1) / (m - 1) * 100)}%` : '0%');
+    $('ttsSeekNow').textContent = n ? `第 ${n} 句` : '';
+    $('ttsSeekTotal').textContent = m ? `共 ${m}${open ? '+' : ''} 句` : '';
     const rs = $('ttsRate');
     rs.max = String(TTS_RATES.length - 1); rs.value = String(Math.max(0, TTS_RATES.findIndex(r => r >= rate - 0.001)));
     rs.setAttribute('aria-valuetext', `${rate} 倍`);
+    rs.style.setProperty('--fill', `${Math.round(Number(rs.value) / Math.max(1, Number(rs.max)) * 100)}%`);
     $('ttsRateOut').textContent = `${rate} 倍`;
     const p = ttsPrefs();
     $('ttsFollow').checked = p.follow; $('ttsShortcuts').checked = p.shortcuts; $('ttsExact').checked = p.exact;
@@ -11207,7 +11229,7 @@
     $('ttsOfflineRemove').hidden = busy || !rec;
     if (msg !== undefined) ttsRt.offlineMsg = msg;
     else if (!busy) ttsRt.offlineMsg = '';
-    $('ttsOfflineInfo').textContent = ttsRt.offlineMsg || (rec ? `已下載 ${fmtTtsSize(rec.bytes)}（${rec.shas.length} 句），沒有網路也能聽` : '下載這一篇在目前音色下的所有朗讀，沒有網路時也能聽。');
+    $('ttsOfflineInfo').textContent = ttsRt.offlineMsg || (rec ? `已下載 ${fmtTtsSize(rec.bytes)}・${rec.shas.length} 句，離線可聽` : '下載整篇（目前音色），沒有網路也能聽');
   }
 
   function fmtTtsSize(bytes) { return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`; }
@@ -11383,7 +11405,7 @@
   function localizeTtsShortcutLabels() {
     if (!TTS_IS_APPLE) return;
     for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
-    for (const sel of ['#ttsShortcuts + span', '#ttsSettings .setting-desc']) {
+    for (const sel of ['#ttsShortcutsDesc', '#ttsSettings .setting-desc']) {
       document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
     }
   }
@@ -11416,6 +11438,7 @@
       saveTtsPrefs();
       ttsAnnounce(e.target.checked ? `這部經固定用${v ? v.name : ''}` : '這部經不再固定音色');
     });
+    on('ttsSeek', 'input', (e) => { const r = e.target; r.style.setProperty('--fill', `${Math.round((Number(r.value) - 1) / Math.max(1, Number(r.max) - 1) * 100)}%`); });
     on('ttsRate', 'input', (e) => ttsSetRate(TTS_RATES[Number(e.target.value)] || 1));
     on('ttsSeek', 'change', (e) => { // 第 N 句（只算可朗讀的）
       let want = Number(e.target.value), k = -1;
