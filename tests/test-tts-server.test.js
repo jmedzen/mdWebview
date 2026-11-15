@@ -393,6 +393,10 @@ describe('朗讀（TTS）後端', () => {
       assert.equal((await tts.checkHealth()).ok, true);
       config.settings.tts = Object.assign(baseSettings(), { baseUrl: 'http://127.0.0.1:9' });
       assert.equal((await tts.checkHealth()).ok, false);
+      config.settings.tts = Object.assign(baseSettings(), { model: 'not-loaded' });
+      const h = await tts.checkHealth();
+      assert.equal(h.ok, false);
+      assert.match(h.error, /沒有模型「not-loaded」/);
     });
   });
 
@@ -634,6 +638,38 @@ describe('朗讀（TTS）後端', () => {
       assert.equal((await post('/api/admin/tts/preview', { voice: 'v1', text: '' }, admin)).status, 400);
       assert.equal((await post('/api/admin/tts/lexicon', { text: 'x'.repeat(300 * 1024) }, admin)).status, 413);
       fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
+    });
+
+    test('預先生成：資料夾工作逐句生成、可暫停與繼續；釘選的音檔不被 LRU 刪；不合法的範圍被拒絕', async () => {
+      fs.writeFileSync(path.join(VAULT, 'sub', 'job2.md'), '一切有為法，如夢幻泡影。如露亦如電，應作如是觀。\n');
+      for (const bad of ['../etc', '.git', 'nope', 'sub/nope.md']) {
+        assert.equal((await post('/api/admin/tts/jobs', { scope: bad, voice: 'v1' }, admin)).status, 400, bad);
+      }
+      assert.equal((await post('/api/admin/tts/jobs', { scope: 'sub', voice: 'v9' }, admin)).status, 400, '未開放的音色');
+      assert.equal((await post('/api/admin/tts/jobs', { scope: 'sub', voice: 'v1' })).status, 401);
+      const r = await post('/api/admin/tts/jobs', { scope: 'sub', voice: 'v2', pin: true }, admin);
+      assert.equal(r.status, 200);
+      const id = r.json.id;
+      for (let i = 0; i < 100 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 30));
+      const done = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((j) => j.id === id);
+      assert.equal(done.state, 'done');
+      assert.ok(done.files >= 2 && done.generated >= 5, JSON.stringify(done));
+      // 讀者端看得到這些句子已快取
+      const ss = (await request('/api/tts/doc?chapter=0&voice=v2&path=sub/job2.md')).json.sentences;
+      assert.ok(ss.every((x) => x.kind === 'skip' || x.cached));
+      // 釘選：GC 到幾乎 0 也不刪
+      store.gc(1);
+      assert.ok(store.get(ss.find((x) => x.sha).sha), '釘選的音檔不能被清掉');
+      // 暫停與繼續
+      const r2 = await post('/api/admin/tts/jobs', { scope: 'sub/job2.md', voice: 'v1' }, admin);
+      await post(`/api/admin/tts/jobs/${r2.json.id}`, { action: 'pause' }, admin);
+      assert.equal((await post(`/api/admin/tts/jobs/${r2.json.id}`, { action: 'nope' }, admin)).status, 400);
+      await post(`/api/admin/tts/jobs/${r2.json.id}`, { action: 'resume' }, admin);
+      for (let i = 0; i < 200 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 30));
+      const j2 = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((j) => j.id === r2.json.id);
+      assert.equal(j2.state, 'done');
+      assert.equal((await post(`/api/admin/tts/jobs/${r2.json.id}`, { action: 'delete' }, admin)).status, 200);
+      store.clear();
     });
 
     test('快取用量與清除單篇', async () => {
