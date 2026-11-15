@@ -119,6 +119,32 @@ describe('誦經模式、睡眠計時、離線下載', () => {
   });
 });
 
+describe('第六階段：無障礙打磨', () => {
+  test('經文區塊標上語言（繁體 zh-Hant、簡體 zh-Hans），誦經模式也是', () => {
+    const fn = ttsSection.slice(ttsSection.indexOf('function syncTtsEntry'), ttsSection.indexOf('function ttsScheduleRepaint'));
+    assert.match(fn, /isHansDisplay\(\) \? 'zh-Hans' : 'zh-Hant'/);
+    assert.match(fn, /\$\('markdownBody'\)/); assert.match(fn, /\$\('ttsChantCurrent'\)/);
+  });
+  test('「讓 VoiceOver 焦點跟著目前的句子」預設關閉，移焦點時不捲動', () => {
+    assert.match(ttsSection, /focusFollow: p\.focusFollow === true/);
+    assert.match(ttsSection, /block\.focus\(\{ preventScroll: true \}\)/);
+    assert.match(html, /id="settingTtsFocusFollow"/);
+  });
+  test('偏好設定視窗有完整的朗讀區，每個欄位都有標籤', () => {
+    const sec = html.slice(html.indexOf('<div class="tts-settings" id="ttsSettings">'), html.indexOf('<!-- Tab 2: 推薦經論'));
+    for (const id of ['settingTtsVoice', 'settingTtsRate', 'settingTtsSleep']) assert.match(sec, new RegExp(`<label class="setting-item-label" for="${id}">`));
+    for (const id of ['settingTtsFollow', 'settingTtsFocusFollow', 'settingTtsContinue', 'settingTtsShortcuts']) assert.match(sec, new RegExp(`for="${id}" title="[^"]+"`));
+  });
+  test('大綱每一列也有「朗讀本節」，名稱用標題文字', () => {
+    assert.match(ttsSection, /b\.className = 'toc-tts-btn'/);
+    assert.match(ttsSection, /row\.querySelector\('\.toc-item-label'\)/);
+    assert.match(css, /@media \(hover: none\) \{ body\.tts-enabled \.toc-tts-btn \{ opacity: 0\.8; width: 44px; height: 44px; \} \}/);
+  });
+  test('Media Session 的播放／暫停（耳機、控制中心、VoiceOver 兩指點兩下）都接上', () => {
+    for (const a of ['play', 'pause', 'previoustrack', 'nexttrack', 'stop']) assert.match(ttsSection, new RegExp(`bind\\('${a}'`));
+  });
+});
+
 describe('朗讀的配色對比（WCAG AA）', () => {
   const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
     .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)))

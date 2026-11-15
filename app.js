@@ -10231,6 +10231,8 @@
         shortcuts: p.shortcuts !== false,
         exact: p.exact === true,
         continueNext: p.continueNext === true, // 讀完這一篇接著讀同資料夾的下一篇
+        focusFollow: p.focusFollow === true,   // 朗讀時讓螢幕閱讀器的焦點跟著目前的句子（預設關）
+        sleepDefault: ['15', '30', '60', 'section'].includes(String(p.sleepDefault)) ? String(p.sleepDefault) : '',
         byPath: p.byPath && typeof p.byPath === 'object' && !Array.isArray(p.byPath) ? p.byPath : {} // 「這部經固定用這個音色」
       };
     }
@@ -10276,6 +10278,7 @@
     ttsRt.statusAt = Date.now();
     document.body.classList.toggle('tts-enabled', !!(ttsRt.status.enabled && ttsVoices().length));
     renderTtsVoiceOptions();
+    syncTtsSettings();
     return ttsRt.status;
   }
 
@@ -10361,6 +10364,7 @@
     const token = ttsResetSession(state.currentFile);
     ttsRt.active = true; ttsRt.playing = true; ttsRt.waiting = true;
     document.body.classList.add('tts-active');
+    if (ttsPrefs().sleepDefault && !ttsRt.sleep) { const v = ttsPrefs().sleepDefault; setTimeout(() => { if (ttsRt.active && !ttsRt.sleep) ttsSetSleep(v); }, 0); }
     renderTtsBar();
     try {
       const start = await loader(token);
@@ -10767,9 +10771,12 @@
     nudgeHighlightRepaint();
   }
 
-  /** 右上角的朗讀鍵只在開著經文時出現。 */
+  /** 右上角的朗讀鍵只在開著經文時出現；經文區塊標上語言，讓 VoiceOver 選對中文語音。 */
   function syncTtsEntry() {
     document.body.classList.toggle('tts-has-file', !!state.currentFile);
+    const lang = isHansDisplay() ? 'zh-Hans' : 'zh-Hant';
+    const body = $('markdownBody'); if (body && body.lang !== lang) body.lang = lang;
+    const chant = $('ttsChantCurrent'); if (chant && chant.lang !== lang) chant.lang = lang;
     if (ttsRt.active) renderTtsBar();
   }
 
@@ -10777,7 +10784,7 @@
     syncTtsEntry();
     if (!ttsEnabled()) return;
     clearTimeout(ttsRt.paintTimer);
-    ttsRt.paintTimer = setTimeout(() => { decorateTtsHeadings(); if (ttsRt.active) ttsPaintCurrent(false); }, 160);
+    ttsRt.paintTimer = setTimeout(() => { decorateTtsHeadings(); decorateTtsToc(); if (ttsRt.active) ttsPaintCurrent(false); }, 160);
   }
 
   /** 畫出目前句（與補讀範圍）的高亮；follow＝換句時視情況捲到那裡。 */
@@ -10816,7 +10823,17 @@
       if (block) block.classList.add('tts-line-current');
     }
     if (follow && ttsShouldFollow()) ttsScrollToRange(range);
+    if (follow && ttsPrefs().focusFollow && !ttsChantOpen()) ttsMoveFocusTo(range);
     renderTtsBar();
+  }
+
+  /** 偏好開啟時：把焦點移到目前句子所在的段落（不捲動；捲動交給跟讀捲動）。 */
+  function ttsMoveFocusTo(range) {
+    const el = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+    const block = el && el.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, pre');
+    if (!block || document.activeElement === block) return;
+    if (!block.hasAttribute('tabindex')) { block.setAttribute('tabindex', '-1'); block.classList.add('tts-focus-target'); }
+    try { block.focus({ preventScroll: true }); } catch (_) {}
   }
 
   function ttsShouldFollow() {
@@ -11225,11 +11242,50 @@
     renderTtsOffline(); ttsAnnounce('已移除離線檔');
   }
 
+  function syncTtsSettings() {
+    const sel = $('settingTtsVoice');
+    if (!sel) return;
+    const p = ttsPrefs(); const list = ttsVoices();
+    sel.innerHTML = list.map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('');
+    const def = list.find(v => v.id === p.voice) || list.find(v => v.id === (ttsRt.status && ttsRt.status.defaultVoice)) || list[0];
+    if (def) sel.value = def.id;
+    $('settingTtsRate').value = String(p.rate || 0);
+    $('settingTtsSleep').value = p.sleepDefault || '';
+    $('settingTtsFollow').checked = p.follow; $('settingTtsFocusFollow').checked = p.focusFollow;
+    $('settingTtsContinue').checked = p.continueNext; $('settingTtsShortcuts').checked = p.shortcuts;
+  }
+
+  /** 大綱每一列加「朗讀本節」（hover／focus 才明顯；觸控一直可見）。 */
+  function decorateTtsToc() {
+    if (!ttsEnabled()) return;
+    document.querySelectorAll('#tocList .toc-item-row[data-target]').forEach(row => {
+      if (row.querySelector('.toc-tts-btn')) return;
+      const h = document.getElementById(row.dataset.target);
+      if (!h || !ttsHeadingLine(h)) return;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'toc-tts-btn';
+      const lab = row.querySelector('.toc-item-label');
+      const name = ((lab || row).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      b.setAttribute('aria-label', `朗讀本節：${name}`); b.title = '朗讀本節';
+      b.innerHTML = TTS_ICON.speak;
+      b.addEventListener('click', (e) => { e.stopPropagation(); ttsStartFromLine(ttsHeadingLine(h), true); });
+      row.appendChild(b);
+    });
+  }
+
   function setupTtsPhase5() {
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
     on('ttsSleep', 'change', (e) => ttsSetSleep(e.target.value));
     on('ttsContinueNext', 'change', (e) => { ttsPrefs().continueNext = e.target.checked; saveTtsPrefs(); });
     on('ttsChantBtn', 'click', () => openTtsChant());
+    // 偏好設定視窗的朗讀區（與面板同步）
+    const prefSel = (id, key, cast) => on(id, 'change', (e) => { ttsPrefs()[key] = cast(e.target.value); saveTtsPrefs(); syncTtsSettings(); renderTtsBar(); });
+    prefSel('settingTtsVoice', 'voice', String);
+    prefSel('settingTtsRate', 'rate', Number);
+    prefSel('settingTtsSleep', 'sleepDefault', String);
+    const prefChk = (id, key) => on(id, 'change', (e) => { ttsPrefs()[key] = e.target.checked; saveTtsPrefs(); renderTtsBar(); });
+    prefChk('settingTtsFollow', 'follow'); prefChk('settingTtsFocusFollow', 'focusFollow');
+    prefChk('settingTtsContinue', 'continueNext'); prefChk('settingTtsShortcuts', 'shortcuts');
     on('ttsChantClose', 'click', () => closeTtsChant());
     on('ttsChantPlay', 'click', () => { ttsTogglePlay(); renderTtsChant(); });
     on('ttsChantPrevBtn', 'click', () => ttsStep(-1));
