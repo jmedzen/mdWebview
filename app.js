@@ -17175,13 +17175,20 @@
     if (r.ok) { ttsAdmin.data = r.data; updateTtsAdminLights(r.data); }
   }
 
-  function ttsAdminVoiceRow(v, saved, isDefault) {
+  /** audio.cpp 目前回報的音色名稱（後台檢查優先，其次是伺服器的健康檢查）；不知道時回傳 null。 */
+  function ttsAdminUpstreamVoices() {
+    const p = ttsAdmin.probe;
+    if (p && p.ok && Array.isArray(p.voices)) return p.voices;
+    return (ttsAdmin.data && Array.isArray(ttsAdmin.data.upstreamVoices)) ? ttsAdmin.data.upstreamVoices : null;
+  }
+
+  function ttsAdminVoiceRow(v, saved, isDefault, gone) {
     const id = saved ? v.id : '';
     const rate = Number(v.rate) || 1;
-    return `<tr data-voice="${escHtml(v.voice)}" data-id="${escHtml(id)}">
+    return `<tr data-voice="${escHtml(v.voice)}" data-id="${escHtml(id)}"${gone ? ' class="is-gone"' : ''}>
       <td><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
       <td><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
-      <td><code>${escHtml(v.voice)}</code>${saved || !ttsAdmin.probe || (ttsAdmin.probe.voices || []).includes(v.voice) ? '' : ' <small class="field-hint">（audio.cpp 沒有列出）</small>'}</td>
+      <td><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
       <td><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
       <td><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
       <td><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
@@ -17193,11 +17200,14 @@
   function renderTtsAdminVoices() {
     const d = ttsAdmin.data; if (!d) return;
     const s = d.settings;
-    const saved = s.voices.slice();
+    const up = ttsAdminUpstreamVoices(); const upSet = up ? new Set(up) : null;
+    // 已存過的音色：audio.cpp 還有的排前面；參考錄音已刪掉的標「已不存在」排最後（讀者端已經看不到）
+    const isGone = (v) => !!upSet && !upSet.has(v.voice);
+    const saved = s.voices.filter(v => !isGone(v)).concat(s.voices.filter(isGone));
     const names = new Set(saved.map(v => v.voice));
-    const extra = ((ttsAdmin.probe && ttsAdmin.probe.voices) || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: '', tags: [], rate: 1, rev: 1, enabled: false }));
+    const extra = (up || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: '', tags: [], rate: 1, rev: 1, enabled: false }));
     const body = $('adminTtsVoices').querySelector('tbody');
-    body.innerHTML = saved.map(v => ttsAdminVoiceRow(v, true, v.id === s.defaultVoice)).join('') + extra.map(v => ttsAdminVoiceRow(v, false, false)).join('')
+    body.innerHTML = saved.map(v => ttsAdminVoiceRow(v, true, v.id === s.defaultVoice, isGone(v))).join('') + extra.map(v => ttsAdminVoiceRow(v, false, false, false)).join('')
       || '<tr><td colspan="8" class="field-hint">還沒有音色。按「重新檢查連線」從 audio.cpp 抓回音色清單。</td></tr>';
     const opts = s.voices.filter(v => v.enabled).map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('');
     $('adminTtsJobVoice').innerHTML = opts; $('adminTtsPreviewVoice').innerHTML = opts;
@@ -17458,6 +17468,18 @@
       $('adminTtsAddVoice').value = '';
     });
     $('adminTtsVoices').addEventListener('click', async (e) => {
+      const rm = e.target.closest('.tts-v-remove');
+      if (rm) { // 參考錄音已刪除的音色：直接從白名單移除並存檔
+        const voice = rm.closest('tr').dataset.voice;
+        const voices = ttsAdmin.data.settings.voices.filter(v => v.voice !== voice);
+        rm.disabled = true;
+        const r = await ttsAdminApi('/api/admin/tts/settings', { method: 'POST', body: { settings: { voices } } });
+        if (!r.ok) { rm.disabled = false; showToast(`❌ ${r.data.error || '移除失敗'}`, 'error', 5000); return; }
+        ttsAdmin.data = r.data; renderTtsAdmin();
+        refreshTtsStatus(true);
+        showToast(`已移除 ${voice}`, 'success', 3000);
+        return;
+      }
       const b = e.target.closest('.tts-v-sample');
       if (!b) return;
       const id = b.closest('tr').dataset.id;

@@ -174,6 +174,24 @@ describe('朗讀（TTS）後端', () => {
       assert.equal(s.json.format, 'wav');
     });
 
+    test('參考錄音已刪除（audio.cpp 不再列出）的音色：讀者看不到，也不能用來生成；預設音色改用第一個還在的', async () => {
+      const { config } = require('../lib/config.js');
+      const tts = require('../lib/tts.js');
+      const before = config.settings.tts;
+      const st = baseSettings();
+      st.voices.unshift({ id: 'v0', voice: 'deleted_voice', name: '已刪', tags: [], rate: 1, enabled: true });
+      st.defaultVoice = 'v0';
+      config.settings.tts = st;
+      try {
+        tts._internals.setUpstreamVoices(fake.url, ['demo_1_man', 'demo_3_woman']);
+        const s = await request('/api/tts/status');
+        assert.deepEqual(s.json.voices.map((v) => v.id), ['v1', 'v2']);
+        assert.equal(s.json.defaultVoice, 'v1');
+        const r = await speak([1], { voice: 'v0' });
+        assert.ok(r.status >= 400, `status ${r.status}`);
+      } finally { config.settings.tts = before; tts._internals.resetUpstreamVoices(); }
+    });
+
     test('匿名的 /api/admin/status 不含 tts 設定', async () => {
       const r = await request('/api/admin/status');
       assert.equal(r.json.settings.tts, undefined);
@@ -757,6 +775,17 @@ describe('lib/tts.js 純函式', () => {
       I.setFetch(null);
       fs.rmSync(d, { recursive: true, force: true });
     }
+  });
+
+  test('audio.cpp 已不再列出的音色算「已不存在」；清單未知或換了伺服器時不算', () => {
+    const s = { baseUrl: 'http://a.test' };
+    I.resetUpstreamVoices();
+    assert.equal(I.voiceGone(s, { voice: 'RA-甲' }), false);
+    I.setUpstreamVoices('http://a.test', ['RA-甲']);
+    assert.equal(I.voiceGone(s, { voice: 'RA-甲' }), false);
+    assert.equal(I.voiceGone(s, { voice: 'Ref-Audio-舊' }), true);
+    assert.equal(I.voiceGone({ baseUrl: 'http://b.test' }, { voice: 'Ref-Audio-舊' }), false);
+    I.resetUpstreamVoices();
   });
 
   test('parseWav 拒絕不是音訊的內容', () => {
