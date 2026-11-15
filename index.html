@@ -3184,36 +3184,77 @@
     </div>
     <div class="tts-panel" id="ttsPanel" hidden>
       <p class="tts-notice" id="ttsNotice" hidden></p>
-      <label class="tts-field"><span>進度</span>
+
+      <!-- 進度：滑桿＋「第 N 句／共 M 句」 -->
+      <div class="tts-sec tts-sec-seek">
         <input type="range" id="ttsSeek" min="1" max="1" step="1" value="1" aria-label="朗讀進度">
-      </label>
-      <fieldset class="tts-voices">
-        <legend>音色</legend>
+        <div class="tts-seek-meta" aria-hidden="true"><span id="ttsSeekNow"></span><span id="ttsSeekTotal"></span></div>
+      </div>
+
+      <!-- 音色：原生 radio 做成的膠囊選擇器，名稱不斷字；可橫向捲動 -->
+      <fieldset class="tts-sec tts-voices">
+        <legend class="tts-sec-title">音色</legend>
         <div class="tts-voice-cards" id="ttsVoiceCards" role="radiogroup" aria-label="音色"></div>
-        <label class="tts-check"><input type="checkbox" id="ttsPinVoice"><span>這部經固定用這個音色</span></label>
-      </fieldset>
-      <label class="tts-field"><span>語速</span>
-        <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
-        <output id="ttsRateOut" for="ttsRate">1 倍</output>
-      </label>
-      <div class="tts-panel-row">
-        <button type="button" class="tts-chip tts-chip-accent" id="ttsChantBtn">誦經模式（大字全螢幕）</button>
-        <label class="tts-inline"><span>睡眠計時</span>
-          <select id="ttsSleep" aria-label="睡眠計時">
-            <option value="">不設定</option><option value="15">15 分鐘</option><option value="30">30 分鐘</option><option value="60">60 分鐘</option><option value="section">讀完本節</option>
-          </select>
+        <label class="tts-switch">
+          <span class="tts-switch-text">這部經固定用這個音色</span>
+          <input type="checkbox" id="ttsPinVoice" role="switch">
+          <span class="tts-switch-ui" aria-hidden="true"></span>
         </label>
+      </fieldset>
+
+      <!-- 語速 -->
+      <div class="tts-sec">
+        <div class="tts-sec-head">
+          <label class="tts-sec-title" for="ttsRate">語速</label>
+          <output class="tts-sec-value" id="ttsRateOut" for="ttsRate">1 倍</output>
+        </div>
+        <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
+        <div class="tts-scale" aria-hidden="true"><span>慢</span><span>快</span></div>
       </div>
-      <div class="tts-offline" id="ttsOffline">
-        <span class="tts-offline-info" id="ttsOfflineInfo"></span>
-        <button type="button" class="tts-chip" id="ttsOfflineBtn">下載整篇以離線收聽</button>
-        <button type="button" class="tts-chip" id="ttsOfflineCancel" hidden>取消下載</button>
-        <button type="button" class="tts-chip" id="ttsOfflineRemove" hidden>移除離線檔</button>
+
+      <!-- 聆聽方式：分組清單（每列 ≥ 52px，標題在左、操作在右） -->
+      <div class="tts-sec">
+        <h3 class="tts-sec-title" id="ttsListenTitle">聆聽方式</h3>
+        <ul class="tts-list" aria-labelledby="ttsListenTitle">
+          <li class="tts-row">
+            <button type="button" class="tts-row-main" id="ttsChantBtn">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M6 8h8M6 12h5"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">誦經模式</span><span class="tts-row-sub">大字全螢幕，跟著念</span></span>
+              <span class="tts-row-chev" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg></span>
+            </button>
+          </li>
+          <li class="tts-row">
+            <label class="tts-row-main" for="ttsSleep">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 12.2A7 7 0 017.8 3.5a7 7 0 108.7 8.7z"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">睡眠計時</span></span>
+            </label>
+            <select id="ttsSleep" class="tts-row-select" aria-label="睡眠計時">
+              <option value="">不設定</option><option value="15">15 分鐘</option><option value="30">30 分鐘</option><option value="60">60 分鐘</option><option value="section">讀完本節</option>
+            </select>
+          </li>
+          <li class="tts-row tts-offline" id="ttsOffline">
+            <div class="tts-row-main">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9M6 8.5l4 4 4-4M4 16.5h12"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">離線收聽</span><span class="tts-row-sub" id="ttsOfflineInfo"></span></span>
+            </div>
+            <button type="button" class="tts-pill" id="ttsOfflineBtn" aria-label="下載整篇以離線收聽">下載</button>
+            <button type="button" class="tts-pill" id="ttsOfflineCancel" aria-label="取消下載" hidden>取消</button>
+            <button type="button" class="tts-pill" id="ttsOfflineRemove" aria-label="移除離線檔" hidden>移除</button>
+          </li>
+        </ul>
       </div>
-      <label class="tts-check"><input type="checkbox" id="ttsContinueNext"><span>讀完這一篇，接著讀同一個資料夾的下一篇</span></label>
-      <label class="tts-check"><input type="checkbox" id="ttsFollow"><span>畫面跟著朗讀位置捲動</span></label>
-      <label class="tts-check"><input type="checkbox" id="ttsExact"><span>朗讀選取時只讀我選的字（不延伸到完整句）</span></label>
-      <label class="tts-check"><input type="checkbox" id="ttsShortcuts"><span>鍵盤快捷鍵：Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></label>
+
+      <!-- 進階：收合，預設關 -->
+      <details class="tts-sec tts-more" id="ttsMore">
+        <summary class="tts-more-sum"><span>更多設定</span><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg></summary>
+        <div class="tts-list">
+          <label class="tts-switch tts-row"><span class="tts-switch-text">讀完這一篇，接著讀同一個資料夾的下一篇</span><input type="checkbox" id="ttsContinueNext" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">畫面跟著朗讀位置捲動</span><input type="checkbox" id="ttsFollow" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">朗讀選取時只讀我選的字<span class="tts-row-sub">不延伸到完整句</span></span><input type="checkbox" id="ttsExact" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">鍵盤快捷鍵<span class="tts-row-sub" id="ttsShortcutsDesc">Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></span><input type="checkbox" id="ttsShortcuts" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+        </div>
+      </details>
+
       <button type="button" class="tts-stop-btn" id="ttsStopBtn">停止朗讀</button>
     </div>
     <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
