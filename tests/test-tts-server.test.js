@@ -843,6 +843,11 @@ describe('lib/tts.js 純函式', () => {
     assert.equal(say('摩訶迦葉', true), '摩呵迦攝');                 // 長詞先換
     assert.equal(say('佛在舍衛國祇樹給孤獨園', true), '佛在社衛國旗樹擠孤獨園');
     assert.equal(say('瑜伽行者', true), '瑜伽行者');                 // 一般「瑜伽」不改
+    // 聽經目錄全面校對補充的條目
+    assert.equal(say('維摩詰稽首佛足', true), '維摩潔啟首佛足');
+    assert.equal(say('發大乘心，說一乘法', true), '發大聖心，說一聖法');
+    assert.equal(say('毘盧遮那佛', true), '皮盧遮那佛');
+    assert.equal(say('優婆塞、優婆夷', true), '優婆色、優婆夷');
     assert.equal(say('般若', false), '般若');                        // 關掉內建
     assert.notEqual(lx.version(true), lx.version(false));            // 開關內建會讓斷句快取重算
   });
