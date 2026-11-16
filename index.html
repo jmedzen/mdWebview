@@ -1256,7 +1256,8 @@
             <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-web-only data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="mail" data-save="mail" data-pane="accountsys" data-web-only data-cards="mail,maildns,mailtest"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="turnstile" data-save="turnstile" data-pane="accountsys" data-web-only data-cards="turnstile,turnstiletest"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="tts" data-save="tts" data-pane="tts" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🔊</span><span class="admin-nav-label">朗讀（TTS）</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="tts" data-save="tts" data-pane="tts" data-cards="tts,ttsvoices,ttsrules,ttscache,ttsjobs"><span class="admin-nav-icon" aria-hidden="true">🔊</span><span class="admin-nav-label">朗讀（TTS）</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="ttslexicon" data-save="tts" data-pane="tts" data-cards="ttslexicon"><span class="admin-nav-icon" aria-hidden="true">📖</span><span class="admin-nav-label">讀音校正</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
             <div class="admin-nav-group-title">營運</div>
@@ -2546,19 +2547,42 @@
           <div data-card="ttslexicon" class="config-card full-width" id="adminTtsLexiconCard">
             <div class="config-card-header">
               <span class="config-card-icon">📖</span>
-              <h3 class="config-card-title">讀音字典</h3>
+              <h3 class="config-card-title">讀音校正</h3>
             </div>
             <div class="config-card-body">
-              <p class="field-hint">一行一條「詞｜讀法」，例如「般若｜波惹」；只寫詞表示朗讀時不在這個詞中間斷句。以 # 開頭是註解。存檔後只有真的被替換到的句子會重新生成。</p>
-              <textarea id="adminTtsLexicon" rows="10" spellcheck="false" data-no-dirty aria-label="讀音字典"></textarea>
+              <p class="field-hint">語音合成常把佛經專有詞念成一般讀音（例如「般若」念成 bān ruò）。朗讀前會把這些詞換成同音、讀音單一的字再送去合成；<strong>讀者畫面上的經文不變</strong>。改了讀法的句子會自動重新生成，其他句子的快取不受影響。</p>
+
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsBuiltinLexicon">
+                  <input type="checkbox" id="adminTtsBuiltinLexicon">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">使用內建佛經讀音表</span>
+              </div>
+              <p class="field-hint">內建表依教育部《重編國語辭典修訂本》與佛門誦讀慣例整理，每條都附注音與依據。要停用某一條，按該列的「停用」（會在下方自訂字典加上「詞｜詞」）。</p>
+              <div class="account-inline-form">
+                <input type="search" id="adminTtsBuiltinFilter" data-no-dirty placeholder="篩選詞條，例如：伽" aria-label="篩選內建讀音表">
+                <span class="field-hint" id="adminTtsBuiltinInfo"></span>
+              </div>
+              <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-lex-table" id="adminTtsBuiltinTable">
+                <thead><tr><th scope="col">詞</th><th scope="col">改讀為</th><th scope="col">注音</th><th scope="col">依據</th><th scope="col">試聽</th><th scope="col">狀態</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+
+              <h4 class="tts-lex-sub">自訂字典</h4>
+              <p class="field-hint">一行一條「詞｜讀法」，例如「般若｜波惹」；寫「詞｜詞」表示照原字念（可用來停用內建的某一條）；只寫詞表示朗讀時不在這個詞中間斷句。以 # 開頭是註解。自訂的讀法優先於內建表。</p>
+              <textarea id="adminTtsLexicon" rows="10" spellcheck="false" data-no-dirty aria-label="自訂讀音字典"></textarea>
               <div class="account-inline-form">
                 <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsLexiconSaveBtn" data-no-dirty>儲存字典</button>
                 <span class="field-hint" id="adminTtsLexiconInfo"></span>
               </div>
+
+              <h4 class="tts-lex-sub">試聽</h4>
               <div class="account-inline-form">
                 <input type="text" id="adminTtsPreviewText" data-no-dirty placeholder="輸入一句試聽，例如：般若波羅蜜多" aria-label="試聽句子">
                 <select id="adminTtsPreviewVoice" data-no-dirty aria-label="試聽音色"></select>
-                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewBtn" data-no-dirty>試聽</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewBtn" data-no-dirty>試聽（校正後）</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewRawBtn" data-no-dirty>原讀法</button>
               </div>
               <p class="field-hint" id="adminTtsPreviewSpoken"></p>
             </div>

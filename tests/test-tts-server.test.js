@@ -116,6 +116,7 @@ function session(token, role) {
 const P = 'sub/a.md';
 const baseSettings = () => ({
   enabled: true, baseUrl: fake.url, model: 'drama3', defaultVoice: 'v1', seed: 1234, guestGenerate: true, warmup: false, keepWarm: false,
+  builtinLexicon: false, // 這些測試比對原文；內建佛經讀音表另有專門的測試
   voices: [{ id: 'v1', voice: 'demo_3_woman', name: '慧音', tags: ['女聲'], rate: 1, enabled: true },
     { id: 'v2', voice: 'demo_1_man', name: '法音', tags: ['男聲'], rate: 1, enabled: true },
     { id: 'v9', voice: 'hidden_voice', name: '未開放', tags: [], rate: 1, enabled: false }]
@@ -682,6 +683,18 @@ describe('朗讀（TTS）後端', () => {
       const p = await post('/api/admin/tts/preview', { voice: 'v1', text: '南無觀世音菩薩' }, admin);
       assert.equal(p.status, 200); assert.equal(p.json.spoken, '拿摩觀世音菩薩');
       assert.equal((await post('/api/admin/tts/preview', { voice: 'v1', text: '' }, admin)).status, 400);
+      // 「原讀法」對照：不套任何字典
+      const raw = await post('/api/admin/tts/preview', { voice: 'v1', text: '南無觀世音菩薩', raw: true }, admin);
+      assert.equal(raw.json.spoken, '南無觀世音菩薩');
+      // 開內建佛經讀音表：試聽與讀取都看得到；描述裡附內建表與覆寫狀態
+      const on = await post('/api/admin/tts/settings', { settings: { builtinLexicon: true } }, admin);
+      assert.equal(on.json.settings.builtinLexicon, true);
+      const p2 = await post('/api/admin/tts/preview', { voice: 'v1', text: '般若波羅蜜多' }, admin);
+      assert.equal(p2.json.spoken, '波惹波羅蜜多');
+      const g2 = await request('/api/admin/tts/lexicon', { headers: admin });
+      const nm = g2.json.builtin.find((r) => r.word === '南無');
+      assert.equal(nm.overridden, true); assert.equal(nm.override, '拿摩'); // 自訂寫了讀法：以自訂為準
+      await post('/api/admin/tts/settings', { settings: { builtinLexicon: false } }, admin);
       assert.equal((await post('/api/admin/tts/lexicon', { text: 'x'.repeat(300 * 1024) }, admin)).status, 413);
       fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
     });
@@ -814,6 +827,24 @@ describe('lib/tts.js 純函式', () => {
     assert.equal(I.voiceGone(s, { voice: 'Ref-Audio-舊' }), true);
     assert.equal(I.voiceGone({ baseUrl: 'http://b.test' }, { voice: 'Ref-Audio-舊' }), false);
     I.resetUpstreamVoices();
+  });
+
+  test('內建佛經讀音表：每條都有讀法、注音與依據；疊在自訂字典下面，自訂有讀法時優先；只寫詞不影響', () => {
+    const lx = require('../lib/tts-lexicon.js');
+    const Seg = require('../tts-segment.js');
+    fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lx.resetCache();
+    const rows = lx.builtinRows();
+    assert.ok(rows.length >= 30);
+    for (const r of rows) { assert.ok(r.word && r.to && r.reading && r.source, r.word); assert.notEqual(r.word, r.to); }
+    const words = new Set(); for (const r of rows) { assert.ok(!words.has(r.word), `重複：${r.word}`); words.add(r.word); }
+    const say = (t, on) => Seg.oralize(t, 'sent', { lexicon: lx.entries(on) });
+    assert.equal(say('南無阿彌陀佛', true), '拿摩阿彌陀佛');          // 預設字典裡「南無」只是斷句保護，不擋內建讀法
+    assert.equal(say('般若波羅蜜多心經', true), '波惹波羅蜜多心經');
+    assert.equal(say('摩訶迦葉', true), '摩呵迦攝');                 // 長詞先換
+    assert.equal(say('佛在舍衛國祇樹給孤獨園', true), '佛在社衛國旗樹擠孤獨園');
+    assert.equal(say('瑜伽行者', true), '瑜伽行者');                 // 一般「瑜伽」不改
+    assert.equal(say('般若', false), '般若');                        // 關掉內建
+    assert.notEqual(lx.version(true), lx.version(false));            // 開關內建會讓斷句快取重算
   });
 
   test('parseWav 拒絕不是音訊的內容', () => {

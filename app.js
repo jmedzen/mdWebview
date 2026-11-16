@@ -17917,6 +17917,7 @@
     const base = $('adminTtsBaseUrl'); base.value = s.baseUrl || ''; base.disabled = !!lock.baseUrl;
     $('adminTtsBaseUrlLock').hidden = !lock.baseUrl; $('adminTtsBaseUrlLock').textContent = '由環境變數 TTS_BASE_URL 設定，這裡不能改。';
     $('adminTtsVoiceDir').value = s.voiceDir || '';
+    $('adminTtsBuiltinLexicon').checked = s.builtinLexicon !== false;
     $('adminTtsAutoTranscribe').checked = s.autoTranscribe !== false;
     $('adminTtsAsrModel').value = s.asrModel || '';
     $('adminTtsModel').disabled = !!lock.model;
@@ -18045,6 +18046,51 @@
     else $('adminTtsJobs').innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法讀取預先生成工作')}</div>`;
   }
 
+  /** 讀音校正：自訂字典的文字框＋內建佛經讀音表。 */
+  function applyTtsLexiconData(d) {
+    ttsAdmin.lexicon = d;
+    $('adminTtsLexicon').value = d.text;
+    $('adminTtsLexiconInfo').textContent = `${d.count} 條，其中 ${d.replacements} 條改讀音${d.exists ? '' : '（目前是預設內容，尚未存檔）'}`;
+    renderTtsBuiltinLexicon();
+  }
+
+  function renderTtsBuiltinLexicon() {
+    const d = ttsAdmin.lexicon; const tb = $('adminTtsBuiltinTable') && $('adminTtsBuiltinTable').querySelector('tbody');
+    if (!d || !tb) return;
+    const on = !ttsAdmin.data || ttsAdmin.data.settings.builtinLexicon !== false;
+    const q = ($('adminTtsBuiltinFilter').value || '').trim();
+    const rows = (d.builtin || []).filter(r => !q || r.word.includes(q) || r.to.includes(q) || r.reading.includes(q) || r.source.includes(q));
+    const active = (d.builtin || []).filter(r => !r.overridden).length;
+    $('adminTtsBuiltinInfo').textContent = `共 ${(d.builtin || []).length} 條${on ? `，生效 ${active} 條` : '（目前關閉）'}`;
+    tb.innerHTML = rows.map(r => {
+      const state = !on ? '<span class="tts-lex-state off">已關閉</span>'
+        : r.overridden ? `<span class="tts-lex-state off">${r.override === r.word ? '已停用' : `自訂：${escHtml(r.override)}`}</span> <button type="button" class="modal-btn secondary-btn small-btn tts-lex-enable" data-no-dirty data-word="${escHtml(r.word)}">恢復</button>`
+        : `<span class="tts-lex-state on">生效</span> <button type="button" class="modal-btn secondary-btn small-btn tts-lex-disable" data-no-dirty data-word="${escHtml(r.word)}">停用</button>`;
+      return `<tr class="${r.overridden || !on ? 'is-off' : ''}"><td><strong>${escHtml(r.word)}</strong></td><td>${escHtml(r.to)}</td><td class="tts-lex-bpmf">${escHtml(r.reading)}</td><td class="tts-lex-src">${escHtml(r.source)}</td>
+        <td class="tts-lex-play"><button type="button" class="modal-btn secondary-btn small-btn tts-lex-try" data-no-dirty data-text="${escHtml(r.word)}" aria-label="試聽「${escHtml(r.word)}」校正後的讀法">校正後</button>
+        <button type="button" class="modal-btn secondary-btn small-btn tts-lex-try" data-no-dirty data-raw="1" data-text="${escHtml(r.word)}" aria-label="試聽「${escHtml(r.word)}」照原字的讀法">原讀法</button></td>
+        <td class="tts-lex-act">${state}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="field-hint">沒有符合的詞條。</td></tr>';
+  }
+
+  async function saveTtsLexiconText(text) {
+    const r = await ttsAdminApi('/api/admin/tts/lexicon', { method: 'POST', body: { text } });
+    if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return false; }
+    applyTtsLexiconData(r.data);
+    return true;
+  }
+
+  async function ttsLexiconPreview(text, raw, btn) {
+    const voice = $('adminTtsPreviewVoice').value;
+    if (!voice) { showToast('請先在「朗讀」頁開放至少一個音色', 'warn', 4000); return; }
+    if (btn) btn.disabled = true;
+    const r = await ttsAdminApi('/api/admin/tts/preview', { method: 'POST', body: { voice, text, raw: !!raw } });
+    if (btn) btn.disabled = false;
+    if (!r.ok) { showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', 5000); return; }
+    $('adminTtsPreviewSpoken').textContent = raw ? `照原字念：${r.data.spoken}` : `實際送去朗讀的文字：${r.data.spoken}（用目前已儲存的字典）`;
+    ttsAdminPlay(r.data.url);
+  }
+
   async function loadAdminTtsPane() {
     setupAdminTtsEvents();
     const r = await ttsAdminApi('/api/admin/tts/settings');
@@ -18052,7 +18098,7 @@
     ttsAdmin.data = r.data;
     renderTtsAdmin();
     const lx = await ttsAdminApi('/api/admin/tts/lexicon');
-    if (lx.ok) { $('adminTtsLexicon').value = lx.data.text; $('adminTtsLexiconInfo').textContent = `${lx.data.count} 條，其中 ${lx.data.replacements} 條改讀音${lx.data.exists ? '' : '（目前是預設內容，尚未存檔）'}`; }
+    if (lx.ok) applyTtsLexiconData(lx.data);
     // 依序載入，不要一次湧出一批請求（API 有每秒 30 次的限流，後台開啟時其他頁也在載入）
     await loadTtsAdminCache();
     await loadTtsAdminJobs();
@@ -18121,20 +18167,37 @@
       if (r.ok) ttsAdminPlay(r.data.url); else showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', 5000);
     });
     $('adminTtsLexiconSaveBtn').addEventListener('click', async () => {
-      const r = await ttsAdminApi('/api/admin/tts/lexicon', { method: 'POST', body: { text: $('adminTtsLexicon').value } });
-      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
-      $('adminTtsLexiconInfo').textContent = `${r.data.count} 條，其中 ${r.data.replacements} 條改讀音`;
-      showToast('✅ 讀音字典已儲存', 'success');
+      if (await saveTtsLexiconText($('adminTtsLexicon').value)) showToast('✅ 讀音字典已儲存', 'success', 2500);
     });
-    $('adminTtsPreviewBtn').addEventListener('click', async () => {
+    $('adminTtsPreviewBtn').addEventListener('click', () => {
       const text = $('adminTtsPreviewText').value.trim();
       if (!text) { $('adminTtsPreviewText').focus(); return; }
-      const btn = $('adminTtsPreviewBtn'); btn.disabled = true;
-      const r = await ttsAdminApi('/api/admin/tts/preview', { method: 'POST', body: { voice: $('adminTtsPreviewVoice').value, text } });
-      btn.disabled = false;
-      if (!r.ok) { showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', 5000); return; }
-      $('adminTtsPreviewSpoken').textContent = `實際送去朗讀的文字：${r.data.spoken}（試聽用目前已儲存的字典）`;
-      ttsAdminPlay(r.data.url);
+      ttsLexiconPreview(text, false, $('adminTtsPreviewBtn'));
+    });
+    $('adminTtsPreviewRawBtn').addEventListener('click', () => {
+      const text = $('adminTtsPreviewText').value.trim();
+      if (!text) { $('adminTtsPreviewText').focus(); return; }
+      ttsLexiconPreview(text, true, $('adminTtsPreviewRawBtn'));
+    });
+    $('adminTtsBuiltinFilter').addEventListener('input', renderTtsBuiltinLexicon);
+    $('adminTtsBuiltinTable').addEventListener('click', async (e) => {
+      const t = e.target.closest('.tts-lex-try');
+      if (t) return ttsLexiconPreview(t.dataset.text, t.dataset.raw === '1', t);
+      const dis = e.target.closest('.tts-lex-disable'); const en = e.target.closest('.tts-lex-enable');
+      const b = dis || en; if (!b) return;
+      const w = b.dataset.word;
+      let text = $('adminTtsLexicon').value.replace(/\s+$/, '');
+      // 先拿掉這個詞原本的自訂行，再依需要加上「詞｜詞」
+      text = text.split('\n').filter(line => { const k = line.trim().split(/[｜|]/)[0].trim(); return k !== w || !/[｜|]/.test(line); }).join('\n');
+      if (dis) text += `\n${w}｜${w}`;
+      b.disabled = true;
+      if (await saveTtsLexiconText(text + '\n')) showToast(dis ? `已停用「${w}」的內建讀法` : `已恢復「${w}」的內建讀法`, 'success', 2500);
+    });
+    $('adminTtsBuiltinLexicon').addEventListener('change', async (e) => {
+      const r = await ttsAdminApi('/api/admin/tts/settings', { method: 'POST', body: { settings: { builtinLexicon: e.target.checked } } });
+      if (!r.ok) { e.target.checked = !e.target.checked; showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
+      ttsAdmin.data = r.data; renderTtsBuiltinLexicon();
+      showToast(e.target.checked ? '已啟用內建佛經讀音表' : '已關閉內建佛經讀音表', 'success', 2500);
     });
     $('adminTtsClearAllBtn').addEventListener('click', async () => {
       if (!confirm('確定要清除全部的朗讀音檔嗎？清除後要重新生成（很花時間），無法復原。')) return;

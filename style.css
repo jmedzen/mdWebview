@@ -13253,3 +13253,14 @@ body.tts-chant-open { overflow: hidden; }
 .lc-list-card .config-card-title { white-space: nowrap; }
 .lc-list-card .status-light-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lc-row.sel .lc-row-name small { color: var(--text-secondary); }
+
+/* §27c 後台：讀音校正 */
+.admin-shell .tts-lex-sub { margin: 18px 0 6px; font-size: 0.95em; }
+.admin-shell .tts-lex-table td { vertical-align: middle; }
+.admin-shell .tts-lex-table tr.is-off td:not(.tts-lex-act) { opacity: 0.55; }
+.admin-shell .tts-lex-bpmf { white-space: nowrap; font-size: 0.92em; }
+.admin-shell .tts-lex-table td.tts-lex-src { font-size: 0.85em; color: var(--text-muted); min-width: 10em; max-width: 16em; white-space: normal; line-height: 1.4; }
+.admin-shell .tts-lex-play, .admin-shell .tts-lex-act { white-space: nowrap; }
+.admin-shell .tts-lex-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+.admin-shell .tts-lex-state.on { background: var(--tts-accent-bg); color: var(--tts-accent-text); }
+.admin-shell .tts-lex-state.off { background: var(--hover-bg); color: var(--text-muted); }
