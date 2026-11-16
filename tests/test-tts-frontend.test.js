@@ -356,3 +356,28 @@ describe('等待與失敗（2026-11-16 體驗審計第一批）', () => {
     assert.match(app, /authUi\.afterLogin === 'tts'[\s\S]{0,80}ttsResumeAfterLogin\(\)/);
   });
 });
+
+describe('長時間聽經（2026-11-16 體驗審計第二批）', () => {
+  test('切到背景時預取擴大到約 2 分鐘，並分批（伺服器一次最多 8 句）', () => {
+    const fn = ttsSection.slice(ttsSection.indexOf('function ttsPrefetch'), ttsSection.indexOf('function ttsItemChars'));
+    assert.match(fn, /document\.visibilityState === 'hidden'/);
+    assert.match(fn, /TTS_BG_AHEAD_MS/);
+    assert.match(fn, /need\.slice\(i, i \+ 8\)/);
+    assert.match(ttsSection, /if \(document\.visibilityState === 'hidden' && ttsRt\.active && ttsRt\.playing && ttsRt\.pos >= 0\) ttsPrefetch\(ttsRt\.pos\);/);
+  });
+
+  test('一般經文記住上次位置：選單「從上次位置繼續」、首頁「繼續聽」；整篇讀完才清掉', () => {
+    assert.match(html, /data-tts-act="resume" hidden>/);
+    assert.match(html, /id="homeResume" hidden>/);
+    assert.match(ttsSection, /if \(ttsRt\.listen\) listenOnPlay\(it\); else ttsSaveResume\(it\);/);
+    assert.match(ttsSection, /ttsClearResume\(ttsRt\.path\)/);
+    const home = ttsSection.slice(ttsSection.indexOf('async function ttsResumeFromHome'));
+    assert.match(home.slice(0, 300), /ttsUnlock\(\);\s*try \{ if \(state\.currentFile/, '解鎖要在 await 之前（iOS）');
+  });
+
+  test('播放列顯示剩下的時間（依語速），總句數未定時不顯示「57+」', () => {
+    assert.match(ttsSection, /function ttsRemainingMs\(\)/);
+    assert.match(ttsSection, /return ms \/ \(ttsRate\(\) \|\| 1\);/);
+    assert.match(ttsSection, /open && remain \? '' :/);
+  });
+});
