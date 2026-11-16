@@ -531,7 +531,9 @@ describe('繁簡顯示 6：搜尋與偏好整合', () => {
 describe('繁簡顯示 7：靜態資源與頁面結構', () => {
   test('右上角選單內的繁簡切換：可及性屬性、不被轉換、位於 header-right', () => {
     const header = indexHtml.slice(indexHtml.indexOf('<div class="header-right">'), indexHtml.indexOf('</header>'));
-    assert.match(header, /id="userMenuBtn"[^>]*aria-haspopup="menu"/);
+    // 選單是展開面板（disclosure），不是 ARIA menu：按鈕報告展開狀態並指向面板
+    assert.match(header, /id="userMenuBtn"[^>]*aria-expanded="false"[^>]*aria-controls="userMenuPanel"/);
+    assert.doesNotMatch(header, /role="menu(item|itemradio)?"/);
     assert.match(header, /id="userMenuBtn"[\s\S]*?aria-label="/);
     const group = header.slice(header.indexOf('id="userMenuScriptGroup"') - 40);
     assert.match(group.slice(0, group.indexOf('>')), /data-no-t2s/);
