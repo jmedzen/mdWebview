@@ -419,6 +419,7 @@
             <div class="home-quick">
               <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
               <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>
+              <button type="button" class="home-chip home-chip-listen" id="homeResume" hidden><span aria-hidden="true">▶ </span><span id="homeResumeText">繼續聽</span></button>
               <button type="button" class="home-chip home-chip-listen" id="homeListen" hidden><span aria-hidden="true">🎧 </span>聽經</button>
             </div>
             <button type="button" class="home-scroll-cue" id="homeScrollCue" hidden>向下 · 我的書架與今日</button>
@@ -3355,6 +3356,7 @@
   <!-- 朗讀選單（右上角喇叭）：標準 menu button；↑↓ 移動、Enter 執行、Esc 關閉 -->
   <div class="tts-menu" id="ttsStartMenu" role="menu" aria-label="朗讀" hidden>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="toggle" hidden><span class="tts-menu-title" id="ttsMenuToggleText">暫停</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="resume" hidden><span class="tts-menu-title">從上次位置繼續</span><span class="tts-menu-sub" id="ttsMenuResumeSub"></span></button>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="here"><span class="tts-menu-title">從這裡讀到結尾</span><span class="tts-menu-sub">從畫面上第一句開始</span></button>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="section"><span class="tts-menu-title">朗讀本節</span><span class="tts-menu-sub">讀到下一個同級標題為止</span></button>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="sentence"><span class="tts-menu-title">朗讀本句</span><span class="tts-menu-sub" id="ttsMenuSentenceSub">只讀畫面上第一句，讀完就停</span></button>
