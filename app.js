@@ -27,6 +27,7 @@
    §18.5 Preferences Backup      export / import user preferences JSON
    §19 Sidebar Resize            drag-to-resize sidebar width
    §20 Event Listeners           setupEventListeners — keyboard, click, popstate wiring
+   §20a Keyboard Avoidance       iOS 螢幕鍵盤：html.kb-open + 焦點欄位捲到鍵盤上方
    §21 Admin Panel               settings UI, analytics, logs
        §21.1 面板開關與髒值追蹤      closeAdminModal, setAdminDirty
        §21.2 帳號與設定維護          password, backup/restore, diagnostics
@@ -826,6 +827,7 @@
     renderHome();
     updateWelcomeFooter(appConfig);
     setupEventListeners();
+    setupKeyboardAvoidance();
     // 帳號：不等網路，避免拖慢第一次開啟經文。
     initAccounts().catch(err => console.error('Account init failed:', err));
     if (isMobileBrowser() || window.innerWidth <= 768) {
@@ -13245,6 +13247,116 @@
   window.mdwIsVirtual = () => isVirtualMode();
   window.mdwVirtualTopLine = () => (isVirtualMode() ? virtualTopLine() : -1);
   window.mdwScrollToLine = line => (isVirtualMode() ? scrollToLineVirtual(line) : scrollToLine(line));
+
+  // ═══════════════════════════════════════════════════════════
+  // §20a 螢幕鍵盤避讓（iPad／iPhone）
+  //
+  // iOS Safari 跳出螢幕鍵盤時不縮小版面（innerHeight、100dvh 都不變），
+  // 只縮小 visualViewport。後台與各種對話框都是 position: fixed 滿版、
+  // 裡面再自己捲動，Safari 自動捲動找不到該捲哪一層，於是鍵盤直接蓋住
+  // 正在輸入的欄位（例如讀音校正的自訂字典）。
+  //
+  // 做法：鍵盤打開時在 <html> 加上 .kb-open，並把可見範圍寫進
+  // --kb-vv-top／--kb-vv-height；CSS 讓後台與對話框只佔可見範圍
+  // （style.css §20a）。接著把焦點欄位捲進每一層可捲動容器的可見區。
+  // Android Chrome 預設會縮小版面，innerHeight 跟著變小，不會觸發這裡。
+  // ═══════════════════════════════════════════════════════════
+
+  const KB_MIN_HEIGHT = 120; // 比這小的差距當成網址列／預測列，不算鍵盤
+  const KB_REVEAL_MARGIN = 16;
+  const NON_TEXT_INPUT_RE = /^(checkbox|radio|range|button|submit|reset|file|color|image|hidden)$/i;
+
+  /** 會叫出螢幕鍵盤的欄位（select 在 iPad 是彈出選單，不算）。 */
+  function isKeyboardField(el) {
+    if (!el || el === document.body) return false;
+    if (el.isContentEditable) return true;
+    if (el.tagName === 'TEXTAREA') return !el.readOnly && !el.disabled;
+    if (el.tagName === 'INPUT') return !NON_TEXT_INPUT_RE.test(el.type) && !el.readOnly && !el.disabled;
+    return false;
+  }
+
+  function isScrollableY(el) {
+    if (el.scrollHeight <= el.clientHeight + 1) return false;
+    const oy = getComputedStyle(el).overflowY;
+    return oy === 'auto' || oy === 'scroll';
+  }
+
+  /** 把欄位捲進每一層捲動容器、且在鍵盤上方的可見區。 */
+  function revealKeyboardField(el) {
+    const vv = window.visualViewport;
+    if (!vv || !el || !el.isConnected) return;
+    const viewTop = vv.offsetTop;
+    const viewBottom = vv.offsetTop + vv.height;
+    for (let box = el.parentElement; box && box !== document.documentElement; box = box.parentElement) {
+      if (!isScrollableY(box)) continue;
+      const br = box.getBoundingClientRect();
+      const top = Math.max(br.top, viewTop) + KB_REVEAL_MARGIN;
+      const bottom = Math.min(br.bottom, viewBottom) - KB_REVEAL_MARGIN;
+      if (bottom - top < 40) continue;
+      const r = el.getBoundingClientRect();
+      let delta = 0;
+      if (r.height > bottom - top) {
+        // 比可見區還高的 textarea：頂端對齊，游標那一行由 Safari 在框內自己捲
+        delta = r.top - top;
+      } else if (r.bottom > bottom) {
+        delta = r.bottom - bottom;
+      } else if (r.top < top) {
+        delta = r.top - top;
+      }
+      if (Math.abs(delta) >= 1) box.scrollTop += delta;
+    }
+  }
+
+  function setupKeyboardAvoidance() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    let open = false;
+    let lastHeight = 0;
+    let frame = 0;
+    let revealTimer = 0;
+
+    const scheduleReveal = (delay) => {
+      clearTimeout(revealTimer);
+      revealTimer = setTimeout(() => {
+        if (open && isKeyboardField(document.activeElement)) revealKeyboardField(document.activeElement);
+      }, delay);
+    };
+
+    const update = () => {
+      frame = 0;
+      const active = document.activeElement;
+      const kbHeight = window.innerHeight - vv.height;
+      const zoomed = Math.abs((vv.scale || 1) - 1) > 0.05; // 雙指放大也會縮小 visualViewport
+      const nowOpen = !zoomed && kbHeight > KB_MIN_HEIGHT && isKeyboardField(active);
+      if (nowOpen) {
+        root.style.setProperty('--kb-vv-top', `${Math.round(vv.offsetTop)}px`);
+        root.style.setProperty('--kb-vv-height', `${Math.round(vv.height)}px`);
+      }
+      if (nowOpen !== open) {
+        open = nowOpen;
+        root.classList.toggle('kb-open', open);
+        if (!open) {
+          root.style.removeProperty('--kb-vv-top');
+          root.style.removeProperty('--kb-vv-height');
+        }
+      }
+      // 鍵盤剛打開，或高度明顯改變（切換輸入法、收起預測列）才重新對位，
+      // 避免使用者自己捲動時被拉回去
+      if (open && Math.abs(vv.height - lastHeight) > 40) scheduleReveal(60);
+      lastHeight = open ? vv.height : 0;
+    };
+    const queue = () => { if (!frame) frame = requestAnimationFrame(update); };
+
+    vv.addEventListener('resize', queue);
+    vv.addEventListener('scroll', queue);
+    document.addEventListener('focusin', (e) => {
+      queue();
+      // 鍵盤已經開著時換到下一個欄位，版面不會再變，要自己捲過去
+      if (open && isKeyboardField(e.target)) scheduleReveal(60);
+    });
+    document.addEventListener('focusout', () => setTimeout(queue, 0));
+  }
 
   // ═══════════════════════════════════════════════════════════
   // §20 EVENT LISTENERS (全站事件綁定：鍵盤、側邊欄、搜尋、排序、捲動…)
