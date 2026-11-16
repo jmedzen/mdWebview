@@ -599,6 +599,26 @@ describe('朗讀（TTS）後端', () => {
       assert.equal((await request('/api/admin/tts/analytics')).status, 401);
     });
 
+    test('讀者回報念錯：只收這篇的句子序號，文字由伺服器取；同一句合併計數；後台可列出與處理', async () => {
+      const doc = await request(`/api/tts/doc?path=${encodeURIComponent(P)}&voice=v1&chapter=0`);
+      const s0 = doc.json.sentences.find((x) => x.kind !== 'skip');
+      assert.equal((await post('/api/tts/report', { path: P, i: s0.i }, { Origin: 'https://evil.example' })).status, 403);
+      assert.equal((await post('/api/tts/report', { path: P, i: 99999 })).status, 400);
+      assert.equal((await post('/api/tts/report', { path: '../x.md', i: 0 })).status, 404);
+      assert.equal((await post('/api/tts/report', { path: P, i: s0.i, voice: 'v1', note: '<b>般</b>念錯' })).status, 200);
+      assert.equal((await post('/api/tts/report', { path: P, i: s0.i, text: '任意文字' })).status, 200);
+      const r = await request('/api/admin/tts/reports', { headers: admin });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.reports.length, 1);
+      const x = r.json.reports[0];
+      assert.equal(x.n, 2);
+      assert.equal(x.text, s0.text);
+      assert.equal(x.note, 'b般/b念錯'); // 角括號拿掉；後到的空備註不覆蓋
+      assert.equal((await request('/api/admin/tts/reports')).status, 401);
+      assert.equal((await post('/api/admin/tts/reports/delete', { key: x.key }, admin)).status, 200);
+      assert.equal((await request('/api/admin/tts/reports', { headers: admin })).json.reports.length, 0);
+    });
+
     test('未登入 401；一般使用者 401', async () => {
       const user = session('tok-user-3', 'user');
       for (const p of ['settings', 'health', 'lexicon', 'cache']) {
