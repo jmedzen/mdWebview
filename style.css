@@ -13146,6 +13146,9 @@ body.tts-chant-open { overflow: hidden; }
 .listen-item-head h3 { margin: 0; font-size: 18px; letter-spacing: .04em; }
 .listen-meta { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); font-family: system-ui, -apple-system, sans-serif; }
 .listen-meta b { color: var(--tts-accent-text, var(--accent)); font-weight: 500; }
+/* 訪客不能生成時：哪些經已經備好可以直接聽（app.js listenReadyBadge） */
+.listen-ready { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; border: 1px solid var(--border-color); color: var(--text-secondary); white-space: nowrap; }
+.listen-ready.ok { border-color: var(--tts-accent, var(--accent)); color: var(--tts-accent-text, var(--accent)); }
 .listen-actions { display: flex; gap: 8px; align-items: center; }
 .listen-actions .listen-btn { min-height: 40px; font-size: 14px; padding: 0 14px; }
 .listen-actions .listen-btn.ghost { padding: 0 6px; }
