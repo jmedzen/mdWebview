@@ -13303,3 +13303,43 @@ body.tts-chant-open { overflow: hidden; }
   .tts-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; max-height: min(52vh, 480px); }
   .tts-panel > .tts-notice, .tts-panel > .tts-sec-seek, .tts-panel > .tts-more, .tts-panel > .tts-stop-btn { grid-column: 1 / -1; }
 }
+
+/* ── §20a 螢幕鍵盤避讓（iPad／iPhone，app.js §20a）──────────────
+   iOS 跳出鍵盤時 100dvh 不變，只有 visualViewport 變矮。鍵盤打開時
+   html 會加上 .kb-open，並給 --kb-vv-top／--kb-vv-height（可見範圍）；
+   滿版的後台、後台搜尋與各對話框改成只佔鍵盤上方，裡面的捲動區才捲得到
+   正在輸入的欄位。 */
+html.kb-open .modal-overlay,
+html.kb-open .admin-palette {
+  top: var(--kb-vv-top, 0px);
+  bottom: auto;
+  height: var(--kb-vv-height, 100%);
+}
+
+/* 後台外框原本固定 100dvh，改為跟著外層（=鍵盤上方）的高度 */
+html.kb-open .admin-shell {
+  height: auto;
+}
+
+/* 一般對話框：可見範圍比卡片矮時，外層可捲、卡片靠上（margin:auto 置中不會切掉上緣） */
+html.kb-open .modal-overlay:not(#adminSettingsOverlay) {
+  overflow-y: auto;
+  align-items: flex-start !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+html.kb-open .modal-overlay:not(#adminSettingsOverlay) > * {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+/* 後台搜尋（⌘K）：結果清單留在鍵盤上方 */
+html.kb-open .admin-palette {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+html.kb-open .admin-palette-box {
+  max-height: 100%;
+}
