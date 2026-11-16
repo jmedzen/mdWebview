@@ -28,8 +28,16 @@
   - 經文原文仍是繁體，簡體是在你的瀏覽器裡即時轉換的；簡體顯示時搜尋會一併比對簡繁字形，輸入簡體或繁體都找得到。
 - 🔖 **書籤與歷程**：右上角選單的「書籤與歷程」會從右側滑出一個面板（手機上是全螢幕）。書籤依資料夾分組，可收合、排序、刪除；歷程依今天／昨天／更早分組。兩個分頁都會顯示每篇讀到幾成的進度條，按「繼續閱讀」回到上次的位置。同一個選單也能直接調整字級大小。
 - 🖍️ **劃重點**：選取經文後，選字小選單最前面有朱、黃、綠、藍四個色點，點一下就在字下畫線；點已劃線的地方可改色、複製或取消。劃線會掛在書籤下，在「書籤與歷程」裡逐條展開、跳回原處。經文日後小改時劃線會跟著新文字走，真的找不到時標成「找不到原處」，不會刪掉。
-- 🔊 **朗讀**（網站接上區域網路的 audio.cpp 才有）：從目前位置、從某個標題（「朗讀本節」）或選取的文字開始朗讀，畫面跟著朗讀的句子標示與捲動；底部播放列可換音色、調語速，鎖定畫面與耳機也能控制。選到半句會自動延伸到完整的句子。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句。
-- ✂️ **選字小選單**：同一個選單還能複製（可附出處）、查辭典、全站搜尋、複製這一行的分享連結，登入後也能把選取的句子做成早安圖。
+- 🔊 **朗讀**（網站接上區域網路的 audio.cpp 才有）：右上角的喇叭一按就從畫面上這一段開始讀；旁邊的 ▾ 是完整的朗讀選單（從上次位置繼續、朗讀本節、朗讀本句、從頭朗讀、讀完接下一篇、睡眠計時、誦經模式）。也可以從標題旁的「朗讀本節」或選取的文字開始，選到半句會自動延伸到完整的句子。畫面跟著朗讀的句子標示與捲動；播放中點一下別的段落，會出現「從這段讀」。
+  - 底部播放列可換音色、調語速，顯示「約剩 N 分鐘」；鎖定畫面與耳機也能控制。切到背景或鎖屏時會先備好約 2 分鐘的音檔，比較不會斷。
+  - 下次打開同一篇，朗讀選單第一項與首頁的「繼續聽」會從上次聽到的地方接著讀。
+  - 第一次生成要等幾秒，畫面會顯示「生成中…」；某一句失敗會自動重試，還是不行就略過繼續讀。訪客不能生成新音檔時會提示「登入後繼續」，登入後從那一句接著讀。
+  - 聽到念錯的字，按面板裡的「這句念錯了」回報，管理員會在後台看到。
+  - **誦經模式**是全螢幕大字跟讀；也能下載整篇離線收聽。
+  - 快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速。
+- 🎧 **聽經目錄**：首頁的「🎧 聽經」或朗讀選單的「聽經目錄…」（網址 `/?listen`）列出管理員挑好的常誦經典，依分類排列。每部經可以從頭讀誦，或展開選一品、一卷開始；會記得每部經聽到哪裡，並標出大約要多久。
+- 🈳 **罕見字也看得到、念得出**：經文裡的擴充區罕見字（如 𤦲、䟽、𦦨）由自帶的後備字型補上，瀏覽器只下載頁面用到的那一小塊；早安圖也一樣。朗讀時這些字會換成讀音相同的常用字來念。
+- ✂️ **選字小選單**：同一個選單還能朗讀、複製（可附出處）、查辭典、全站搜尋、複製這一行的分享連結，登入後也能把選取的句子做成早安圖。
 - 🔎 **在這一篇裡找字**：按 <kbd>Ctrl</kbd> + <kbd>F</kbd>（Mac 為 <kbd>Cmd</kbd> + <kbd>F</kbd>）就能在目前這篇裡找字，會顯示找到幾個，並可前後跳看。
 
 **搜尋**
@@ -40,7 +48,7 @@
   - 相隔太遠、明顯不相關的結果會自動省略。
 - 📖 **佛學辭典**：可依詞條開頭查、模糊查，或全文查。結果可以一直往下翻，直到把整部辭典查完，不會中途停住。
 - 🔗 **文章互相連結**：文章之間可以用 `[[檔名]]` 互相連結，點一下就能跳過去。
-- 🔗 **分享特定段落**：可以把某一句的網址複製給別人，對方一打開就直接跳到那一行。
+- 🔗 **分享特定段落**：可以把某一句的網址複製給別人，對方一打開就直接跳到那一行。複製出來的是英數短連結（例如 `/F1a2b3c4d5e6f70L128`），貼到 LINE、Google Chat 也不會被截斷。
 
 **其它**
 
@@ -54,6 +62,8 @@
   - iPhone／iPad 沒有捷徑可觸發，會顯示三個步驟的圖文教學。
   - 偏好設定裡永遠保留入口，改變主意時隨時找得到。
   - 已加到桌面的人不會再看到任何提示。
+- 🦯 **螢幕閱讀器（VoiceOver）**：檔案樹、大綱與搜尋結果可以用方向鍵操作；開經後焦點移到經名；對話框打開時焦點不會跑到背後；選字後按 Alt+M 打開選字選單。
+- 🔁 **自動拿到新版**：網站更新後，瀏覽器會自動拿新程式；一直開著沒重新整理的分頁會出現「重新載入」提示。
 - 🐳 **可安裝在自己的電腦或伺服器**：支援 Docker，一個指令就能啟動。
 
 ---
@@ -142,13 +152,19 @@ NODE_MAX_OLD_SPACE_MB=8192 docker-compose up -d
 
 | 分組 | 頁面 |
 | :--- | :--- |
-| 網站 | 網站與經文庫、閱讀預設、首頁頁尾與公告、推薦閱讀（含每日經文與早安圖）、搜尋引擎與分享 |
+| 網站 | 網站與經文庫、閱讀預設、首頁頁尾與公告、推薦閱讀（含每日經文與早安圖）、聽經目錄、搜尋引擎與分享 |
 | 讀者與登入 | 使用者、註冊與邀請碼、登入方式、條款與隱私 |
-| 外部服務 | 開站設定、寄信、Turnstile 人機驗證 |
+| 外部服務 | 開站設定、寄信、Turnstile 人機驗證、朗讀（TTS）、讀音校正 |
 | 營運 | 數據分析、報表信 |
 | 系統 | 系統狀態（含重建索引等維護）、安全與攔截、日誌、備份與還原 |
 
-設定類的頁面改了欄位後，畫面底部會出現儲存列，按「儲存」（寄信、Turnstile、登入方式是「儲存並檢查」）才會生效，也可以「還原」。按 <kbd>Ctrl</kbd>／<kbd>Cmd</kbd> + <kbd>K</kbd> 可以搜尋後台的頁面與欄位。網址帶 `#admin/<頁面>` 可以直接打開某一頁。單機版會藏起帳號、搜尋引擎與數據分析相關的頁面。
+設定類的頁面改了欄位後，畫面底部會出現儲存列，按「儲存」（寄信、Turnstile、登入方式是「儲存並檢查」）才會生效，也可以「還原」。按 <kbd>Ctrl</kbd>／<kbd>Cmd</kbd> + <kbd>K</kbd> 可以搜尋後台的頁面與欄位。網址帶 `#admin/<頁面>` 可以直接打開某一頁。單機版會藏起帳號、搜尋引擎與數據分析相關的頁面。在 iPad／iPhone 上點輸入欄位時，後台會縮到螢幕鍵盤上方，欄位不會被鍵盤蓋住。
+
+**朗讀、讀音校正與聽經目錄**
+
+- **朗讀（TTS）**：需要區域網路上另外架一台 [audio.cpp](https://github.com/0xShug0/audio.cpp)。在後台「朗讀（TTS）」填伺服器網址、選模型，按「儲存並檢查」；再勾選要開放給讀者的音色、填中文名稱並產生試聽。讀者的瀏覽器不會直接連 audio.cpp，一律經過本站。同一句、同一音色只生成一次，全站共用。這一頁也能設定訪客能不能生成新音檔、每小時上限、音檔快取，以及預先生成整篇或整個資料夾（可設成「固定保留」）。
+- **讀音校正**：內建一份佛經讀音表（如「南無」「般若」「乘」），可在這一頁開關、逐條試聽「校正後／原讀法」、停用某一條。下面的自訂字典一行一條「詞｜改讀為」，例如 `般若｜波惹`；只寫詞（不寫改讀）表示這個詞不要被斷開。讀者按「這句念錯了」的回報也列在這一頁，可直接試聽、處理。改讀只影響念出來的聲音，畫面上的經文不變。
+- **聽經目錄**（「網站」群組）：預設收 16 部常誦經、6 個分類，可以增刪、排序、改分類。品、卷會自動偵測，偵測不到的可以手動分段，也可以只收錄一部經的一段（如法華經的普門品）。檔案改版後若找不到原本的分段起點，會亮黃燈提醒。可以把整個目錄預先生成，讓訪客也能直接聽。
 
 **每日經文（首頁正中間那一句）**
 
@@ -232,24 +248,25 @@ mdWebview/
 ├── logs/               # 存取日誌與流量統計（自動產生）
 ├── index/              # 搜尋索引快取 *.bin 與早安圖快取（自動產生，可刪除重建）
 ├── server.js           # 網站主程式
-├── lib/                # 主程式的模組（設定、帳號、寄信、報表、科判、早安圖、索引…共 32 個）
+├── lib/                # 主程式的模組（設定、帳號、寄信、報表、科判、早安圖、朗讀、聽經目錄、索引…共 39 個），以及內建的佛經讀音表與罕見字讀音表
 ├── render-worker.js    # 伺服器端把 Markdown 變成網頁（背景執行緒）
 ├── index-worker.js     # 建立與查詢全文搜尋索引（背景執行緒）
 ├── index.html          # 網站主頁（也包含整個後台）
-├── app.js              # 網頁的互動邏輯（目錄、閱讀、搜尋、辭典、劃重點、後台）
+├── app.js              # 網頁的互動邏輯（目錄、閱讀、搜尋、辭典、劃重點、朗讀、聽經目錄、後台）
 ├── style.css           # 外觀與八種配色
 ├── kepan-sidebar.js    # 科判側欄
 ├── highlights.js       # 劃重點的定位規則（瀏覽器與伺服器共用）
 ├── library-sync.js     # 書籤與歷程的同步規則（瀏覽器與伺服器共用）
 ├── share-card.js       # 早安圖的版型與畫法（瀏覽器與伺服器共用）
+├── tts-segment.js      # 朗讀的斷句與讀音替換規則（瀏覽器與伺服器共用）
 ├── md-worker.js        # 瀏覽器端的 Markdown 解析（備援）
 ├── sw.js               # 離線瀏覽支援
 ├── marked.min.js       # 把 Markdown 變成網頁的程式（自帶，不需連外網）
 ├── i18n/               # 繁簡顯示切換、簡繁字形比對表與介面字串
-├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC、QR 碼、手寫字型）
+├── vendor/             # 自帶的第三方程式（KaTeX、Pele〔Mermaid 語法圖表〕、OpenCC、QR 碼、手寫字型、罕見字後備字型）
 ├── manifest.json       # 加到手機主畫面的設定
 ├── tests/              # 自動測試（npm test）
-├── tools/              # 開發工具（產生簡繁字組表）
+├── tools/              # 開發工具（產生簡繁字組表、早安圖挑圖模擬、rare-chars/ 重建罕見字字型與讀音表）
 ├── Dockerfile、docker-compose.yml、docker-entrypoint.sh   # Docker 打包與啟動
 ├── .env.example        # 金鑰設定範本（複製成 .env）
 ├── ARCHITECTURE.md     # 給開發者的深入說明
@@ -267,7 +284,8 @@ npm test       # 執行 tests/ 裡的所有測試
 - 本機已經有一個正式的網站在跑時，測試請換一個埠（例如 `PORT=8401`），並用另一份 `CONFIG_PATH`，以免動到正式的設定與帳號資料。
 - 分支流程：從 `dev` 開功能分支 → PR 合回 `dev` → 驗證後由 `dev` 開 PR 到 `main` 發布。`dev` 與 `main` 推上 GitHub 後會自動建出 Docker 映像（`:dev`、`:latest`）。
 - 版本號只寫在 `package.json` 與 `package-lock.json`。
-- 環境變數總表、後台的程式結構與資料流請看 [`ARCHITECTURE.md`](./ARCHITECTURE.md)（§0、§10.1、§21–§23）。
+- 環境變數總表、後台的程式結構與資料流請看 [`ARCHITECTURE.md`](./ARCHITECTURE.md)（§0、§10.1、§21–§23）；朗讀、聽經目錄、罕見字與無障礙在 §24–§27。
+- 經文庫新增了罕見字時，照 [`tools/rare-chars/README.md`](./tools/rare-chars/README.md) 重建字型與讀音表。
 
 ---
 
@@ -280,9 +298,15 @@ npm test       # 執行 tests/ 裡的所有測試
 | <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | 跳到下一個 / 上一個找到的字 |
 | <kbd>Ctrl</kbd> + <kbd>+</kbd> 或 <kbd>Cmd</kbd> + <kbd>+</kbd> | 字放大 |
 | <kbd>Ctrl</kbd> + <kbd>-</kbd> 或 <kbd>Cmd</kbd> + <kbd>-</kbd> | 字縮小 |
-| `?file=路徑&line=行號` | 分享某篇經論的某一行，對方打開就直接跳到那裡 |
+| <kbd>Alt</kbd> + <kbd>R</kbd> | 朗讀：播放／暫停（Mac 為 <kbd>Option</kbd>） |
+| <kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | 朗讀：上一句／下一句 |
+| <kbd>Alt</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | 朗讀：語速加快／放慢 |
+| <kbd>Alt</kbd> + <kbd>M</kbd> | 選取文字後，把焦點移進選字小選單（給鍵盤與螢幕閱讀器） |
+| `/F<14 碼>L<行號>` | 某篇經論某一行的短分享連結（由「分享」按鈕產生），打開後跳到那一行 |
+| `?file=路徑&line=行號` | 同上的長網址寫法，對方打開就直接跳到那裡 |
 | `?file=路徑&q=關鍵字` | 開啟該篇並在文內標示該關鍵字 |
 | `?search=關鍵字` | 直接執行全庫搜尋，可分享、加書籤，或設為瀏覽器的自訂搜尋引擎 |
+| `?listen` | 打開聽經目錄 |
 | `?frontpage=1` 或 `?home=1` | 直接回到首頁 |
 
 ---
@@ -328,8 +352,16 @@ npm test       # 執行 tests/ 裡的所有測試
   - The texts themselves stay Traditional; Simplified is converted in your browser on the fly. In Simplified display, searches match Simplified and Traditional forms, so typing either finds the text.
 - 🔖 **Bookmarks & History**: 書籤與歷程 in the top-right menu slides out a panel from the right (full screen on phones). Bookmarks are grouped by folder and can be collapsed, sorted and deleted; recent reading is grouped into today / yesterday / earlier. Both tabs show a progress bar for how far you read each text, and 繼續閱讀 takes you back to where you stopped. The same menu also adjusts the text size.
 - 🖍️ **Highlights**: Select some text and the small selection menu starts with four color dots (vermilion, yellow, green, blue); tap one to underline the passage. Tap a highlight to recolor, copy or remove it. Highlights belong to bookmarks and are listed under each bookmark in Bookmarks & History, where you can jump back to them. When a text is lightly edited later, highlights follow the new wording; if one can no longer be found it is marked as such, never deleted.
-- 🔊 **Read aloud** (when the site is connected to an audio.cpp server on the local network): start from where you are, from a heading ("read this section") or from selected text; the current sentence is marked and followed on screen. The bottom player changes voice and speed, and the lock screen and headphones can control it. Selecting part of a sentence reads the whole sentence. Alt+R plays/pauses, Alt+←/→ moves between sentences.
-- ✂️ **Selection menu**: The same menu copies (optionally with the source), looks up the dictionary, searches the whole library, copies a link to the line, and — when signed in — turns the selected sentence into a greeting card.
+- 🔊 **Read aloud** (when the site is connected to an audio.cpp server on the local network): the speaker button at the top right starts reading from the passage on screen in one tap; the ▾ next to it opens the full menu (resume where you left off, read this section, read this sentence, read from the start, continue to the next text, sleep timer, chanting mode). You can also start from the "read this section" button beside a heading or from selected text; selecting part of a sentence reads the whole sentence. The current sentence is marked and followed on screen, and while playing you can tap another paragraph to get a "read from here" button.
+  - The bottom player changes voice and speed and shows the time left; the lock screen and headphones can control it. When the screen locks or the page goes to the background, about two minutes of audio is prepared ahead so playback does not stall.
+  - Next time you open the same text, the first menu item and the home page's "continue listening" pick up where you stopped.
+  - The first sentence takes a few seconds to generate and shows "generating…". A sentence that fails is retried automatically, then skipped. If guests may not generate new audio, the player says "sign in to continue" and resumes from that sentence after you sign in.
+  - Hear a word misread? Press "this sentence was misread" in the panel and the administrator sees the report.
+  - **Chanting mode** shows the text in large type, full screen; a whole text can also be downloaded for offline listening.
+  - Shortcuts: Alt+R play/pause, Alt+←/→ previous/next sentence, Alt+↑/↓ speed.
+- 🎧 **Listening catalog**: "🎧 聽經" on the home page or "Listening catalog…" in the read-aloud menu (URL `/?listen`) lists the sutras the administrator picked, by category. Start a sutra from the beginning, or expand it and start from a chapter or fascicle. Each sutra remembers where you stopped and shows roughly how long it takes.
+- 🈳 **Rare characters display and read correctly**: rare extension-block characters in the texts (such as 𤦲, 䟽, 𦦨) are drawn by a bundled fallback font, and the browser downloads only the small pieces a page needs; greeting cards use it too. Read aloud replaces them with a common character of the same sound.
+- ✂️ **Selection menu**: The same menu reads aloud, copies (optionally with the source), looks up the dictionary, searches the whole library, copies a link to the line, and — when signed in — turns the selected sentence into a greeting card.
 - 🔎 **Find text in this article**: Press <kbd>Ctrl</kbd> + <kbd>F</kbd> (<kbd>Cmd</kbd> + <kbd>F</kbd> on Mac) to search the article you are reading. It shows how many matches there are, and you can step through them.
 
 **Searching**
@@ -340,7 +372,7 @@ npm test       # 執行 tests/ 裡的所有測試
   - Results where the words are far apart and clearly unrelated are left out automatically.
 - 📖 **Buddhist dictionary**: Look up entries by their beginning, by approximate spelling, or by full text. You can keep paging through results all the way to the end of the dictionary instead of stopping partway.
 - 🔗 **Link articles together**: Use `[[filename]]` to link between articles — click and it jumps straight there.
-- 🔗 **Share a specific passage**: Copy the link for a particular sentence and whoever opens it lands right on that line.
+- 🔗 **Share a specific passage**: Copy the link for a particular sentence and whoever opens it lands right on that line. The copied link is a short ASCII code (such as `/F1a2b3c4d5e6f70L128`), so LINE and Google Chat do not cut it off.
 
 **Other**
 
@@ -348,6 +380,8 @@ npm test       # 執行 tests/ 裡的所有測試
 - 🌐 **Sharing on social media**: Paste a link into Facebook, Line, or similar and it shows a title, description, and preview image.
 - ☁️ **Sync across devices**: When signed in, bookmarks, reading history and highlights sync to your other devices.
 - 🔒 **Admin area**: Administrators can set the site name, announcements, and recommended reading, view usage and system status, and export reports. Passwords are stored encrypted, repeated failed sign-in attempts are temporarily blocked, and sign-ins and sign-outs are logged for later review.
+- 🦯 **Screen readers (VoiceOver)**: the file tree, outline and search results work with the arrow keys; opening a text moves focus to its title; dialogs keep focus inside while open; after selecting text, Alt+M moves into the selection menu.
+- 🔁 **New versions arrive by themselves**: after the site is updated, browsers pick up the new code automatically, and a tab left open for a long time shows a "reload" banner.
 - 📦 **Works offline**: The core files are all hosted on your own site with no outside services. Anything you have already viewed stays readable without a network; if you open a text that was never downloaded, you get a clear "you are offline and this text is not cached yet" message rather than a blank page.
 - 📲 **Add to your home screen**: Install it like an app and open a text in one tap, without launching a browser.
   - After you have read a few texts, a card on the home page offers to install it. Choose "later" and it stays quiet for 3 days.
@@ -442,13 +476,19 @@ The admin area lists grouped pages on the left and shows one page at a time on t
 
 | Group | Pages |
 | :--- | :--- |
-| Site | Site & library, Reading defaults, Home footer & announcements, Recommended reading (incl. daily verse and greeting cards), Search engines & sharing |
+| Site | Site & library, Reading defaults, Home footer & announcements, Recommended reading (incl. daily verse and greeting cards), Listening catalog, Search engines & sharing |
 | Readers & sign-in | Users, Sign-up & invite codes, Sign-in methods, Terms & privacy |
-| External services | Site setup, Mail, Turnstile |
+| External services | Site setup, Mail, Turnstile, Read aloud (TTS), Pronunciation |
 | Operations | Analytics, Report emails |
 | System | System status (incl. index rebuilds), Security & blocking, Logs, Backup & restore |
 
-On settings pages, a save bar appears at the bottom once you change a field; nothing takes effect until you press Save (Save & check for mail, Turnstile and sign-in methods), or Revert. <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>K</kbd> searches admin pages and fields, and `#admin/<page>` in the URL opens a page directly. The single-user build hides the account, search-engine and analytics pages.
+On settings pages, a save bar appears at the bottom once you change a field; nothing takes effect until you press Save (Save & check for mail, Turnstile and sign-in methods), or Revert. <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>K</kbd> searches admin pages and fields, and `#admin/<page>` in the URL opens a page directly. The single-user build hides the account, search-engine and analytics pages. On iPad and iPhone, the admin area shrinks to the space above the on-screen keyboard while you type, so fields are never covered.
+
+**Read aloud, pronunciation and the listening catalog**
+
+- **Read aloud (TTS)** needs a separate [audio.cpp](https://github.com/0xShug0/audio.cpp) server on the local network. On the admin "Read aloud (TTS)" page, enter its address, pick the model and press Save & check; then choose which voices readers may use, give them names and generate samples. Readers' browsers never talk to audio.cpp directly; everything goes through this site. Each sentence is generated once per voice and shared by everyone. The same page sets whether guests may generate new audio, hourly limits, the audio cache, and pre-generation of a text or folder (optionally pinned so it is never evicted).
+- **Pronunciation** (讀音校正): a built-in Buddhist reading list (南無, 般若, 乘…) can be switched on or off, each entry can be previewed corrected or uncorrected, and single entries can be disabled. The custom dictionary below takes one entry per line, `word｜read as`; a word on its own just keeps it from being split. Reader reports ("this sentence was misread") are listed here too, ready to preview and close. Corrections change only the audio, never the text on screen.
+- **Listening catalog** (Site group): ships with 16 commonly chanted sutras in 6 categories, which you can add to, reorder and recategorize. Chapters and fascicles are detected automatically; where they are not, split by hand, or include only part of a sutra (such as the Universal Gate chapter of the Lotus Sutra). If a text changes and a chapter start can no longer be found, the page shows a yellow light. The whole catalog can be pre-generated so guests can listen right away.
 
 **Reader accounts (online site)**
 
@@ -501,24 +541,25 @@ mdWebview/
 ├── logs/               # Access logs and traffic statistics (generated)
 ├── index/              # Search index caches *.bin and the greeting-card cache (generated; safe to delete)
 ├── server.js           # The main server program
-├── lib/                # Server modules (settings, accounts, mail, reports, outlines, greeting cards, indexes… 32 in all)
+├── lib/                # Server modules (settings, accounts, mail, reports, outlines, greeting cards, read aloud, listening catalog, indexes… 39 in all), plus the built-in Buddhist and rare-character reading lists
 ├── render-worker.js    # Server-side Markdown rendering (background thread)
 ├── index-worker.js     # Builds and queries the full-text index (background thread)
 ├── index.html          # The main page (also contains the whole admin area)
-├── app.js              # Page behavior (contents, reading, search, dictionary, highlights, admin)
+├── app.js              # Page behavior (contents, reading, search, dictionary, highlights, read aloud, listening catalog, admin)
 ├── style.css           # Appearance and the eight color schemes
 ├── kepan-sidebar.js    # Outline (科判) sidebar
 ├── highlights.js       # Highlight anchoring rules (shared by browser and server)
 ├── library-sync.js     # Bookmark and history sync rules (shared by browser and server)
 ├── share-card.js       # Greeting-card layouts and drawing (shared by browser and server)
+├── tts-segment.js      # Read-aloud sentence splitting and reading substitutions (shared by browser and server)
 ├── md-worker.js        # In-browser Markdown parsing (fallback)
 ├── sw.js               # Offline support
 ├── marked.min.js       # Turns Markdown into web pages (bundled, no internet needed)
 ├── i18n/               # Traditional/Simplified display, variant table and interface strings
-├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC, QR codes, a script font)
+├── vendor/             # Bundled third-party code (KaTeX, Pele for Mermaid-syntax diagrams, OpenCC, QR codes, a script font, the rare-character fallback font)
 ├── manifest.json       # Settings for adding the site to your phone's home screen
 ├── tests/              # Automated tests (npm test)
-├── tools/              # Developer tools (generating the variant table)
+├── tools/              # Developer tools (variant table, greeting-card pick simulator, rare-chars/ to rebuild the rare-character font and readings)
 ├── Dockerfile, docker-compose.yml, docker-entrypoint.sh   # Docker packaging and startup
 ├── .env.example        # Template for secrets (copy to .env)
 ├── ARCHITECTURE.md     # In-depth notes for developers
@@ -536,7 +577,8 @@ npm test       # runs every test in tests/
 - If a production instance is already running on this machine, test on another port (for example `PORT=8401`) with a separate `CONFIG_PATH`, so you never touch the real settings and account database.
 - Branch flow: branch off `dev` → PR back into `dev` → once verified, a `dev` → `main` PR releases it. Pushes to `dev` and `main` build Docker images automatically (`:dev`, `:latest`).
 - The version number lives only in `package.json` and `package-lock.json`.
-- For the full environment-variable list, the admin code structure and data flow, see [`ARCHITECTURE.md`](./ARCHITECTURE.md) (§0, §10.1, §21–§23).
+- For the full environment-variable list, the admin code structure and data flow, see [`ARCHITECTURE.md`](./ARCHITECTURE.md) (§0, §10.1, §21–§23); read aloud, the listening catalog, rare characters and accessibility are in §24–§27.
+- When new rare characters appear in the library, rebuild the font and reading list with [`tools/rare-chars/README.md`](./tools/rare-chars/README.md).
 
 ---
 
@@ -549,9 +591,15 @@ npm test       # runs every test in tests/
 | <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Jump to the next / previous match |
 | <kbd>Ctrl</kbd> + <kbd>+</kbd> or <kbd>Cmd</kbd> + <kbd>+</kbd> | Make text larger |
 | <kbd>Ctrl</kbd> + <kbd>-</kbd> or <kbd>Cmd</kbd> + <kbd>-</kbd> | Make text smaller |
-| `?file=PATH&line=NUM` | Share a specific line of a text; it opens right at that line |
+| <kbd>Alt</kbd> + <kbd>R</kbd> | Read aloud: play/pause (<kbd>Option</kbd> on Mac) |
+| <kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | Read aloud: previous/next sentence |
+| <kbd>Alt</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | Read aloud: faster/slower |
+| <kbd>Alt</kbd> + <kbd>M</kbd> | After selecting text, move focus into the selection menu (for keyboard and screen-reader users) |
+| `/F<14 chars>L<NUM>` | Short share link for a line of a text (made by the Share buttons); opens right at that line |
+| `?file=PATH&line=NUM` | The long form of the same link |
 | `?file=PATH&q=KEYWORD` | Open that text and mark the keyword inside it |
 | `?search=KEYWORD` | Run a whole-library search immediately — shareable, bookmarkable, and usable as a browser custom search engine |
+| `?listen` | Open the listening catalog |
 | `?frontpage=1` or `?home=1` | Go straight back to the home page |
 
 ---
