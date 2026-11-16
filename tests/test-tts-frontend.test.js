@@ -381,3 +381,28 @@ describe('長時間聽經（2026-11-16 體驗審計第二批）', () => {
     assert.match(ttsSection, /open && remain \? '' :/);
   });
 });
+
+describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
+  test('右上角：喇叭一按就從這裡朗讀（朗讀中是暫停／繼續），▾ 才是選單', () => {
+    assert.match(html, /id="ttsQuickBtn"[^>]*aria-label="從這裡朗讀"/);
+    const fn = ttsSection.slice(ttsSection.indexOf('function setupTtsQuickEntry'));
+    assert.match(fn.slice(0, 400), /if \(ttsRt\.active\) return ttsTogglePlay\(\);\s*ttsSetStartMode\('here'\);\s*ttsStartFromVisible\(\);/);
+    assert.match(ttsSection, /const label = !ttsRt\.active \? '從這裡朗讀' : ttsRt\.playing \? '暫停朗讀' : '繼續朗讀';/);
+  });
+
+  test('播放中點段落出現「從這段讀」；不攔截連結、按鈕與選字', () => {
+    assert.match(html, /id="ttsJumpPill" hidden>從這段讀<\/button>/);
+    assert.match(ttsSection, /e\.target\.closest\('a, button, input, select, textarea, label, summary, sup, \.tts-head-btn'\)/);
+    assert.match(ttsSection, /if \(sel && !sel\.isCollapsed\) return;/);
+  });
+
+  test('「這句念錯了」只送路徑與句子序號（文字由伺服器取）', () => {
+    assert.match(html, /id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm">這句念錯了<\/button>/);
+    assert.match(ttsSection, /ttsApi\('\/api\/tts\/report', \{ path: ttsRt\.path, i: it\.i, voice: v && v\.id, note: /);
+  });
+
+  test('首次提示只出現一次，按過喇叭或「知道了」就不再出現', () => {
+    assert.match(html, /<div class="tts-hint" id="ttsHint" role="note" hidden>/);
+    assert.match(ttsSection, /if \(storage\.get\(TTS_HINT_KEY\)\) return;/);
+  });
+});

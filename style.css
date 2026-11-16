@@ -13267,3 +13267,36 @@ body.tts-chant-open { overflow: hidden; }
 .admin-shell .tts-lex-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
 .admin-shell .tts-lex-state.on { background: var(--tts-accent-bg); color: var(--tts-accent-text); }
 .admin-shell .tts-lex-state.off { background: var(--hover-bg); color: var(--text-muted); }
+
+/* ── 朗讀體驗審計第三批：喇叭＋▾、點段落朗讀、首次提示、回報念錯、桌面面板 ── */
+.tts-caret-btn { min-width: 22px; padding: 0 3px; margin-left: -4px; }
+.tts-quick-btn.is-playing { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+@media (hover: none) { .tts-caret-btn { min-width: 24px; } }
+.tts-jump-pill {
+  position: fixed; z-index: 70; padding: 6px 14px; min-height: 36px;
+  border: 1px solid var(--tts-accent); border-radius: 999px;
+  background: var(--bg-secondary); color: var(--tts-accent-text);
+  font: inherit; font-size: 14px; box-shadow: 0 4px 14px var(--shadow-color); cursor: pointer;
+}
+.tts-jump-pill[hidden] { display: none; }
+@media (hover: none) { .tts-jump-pill { min-height: 44px; } }
+.tts-hint {
+  position: fixed; z-index: 75; max-width: min(320px, calc(100vw - 16px));
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 12px; border: 1px solid var(--tts-accent);
+  background: var(--bg-secondary); color: var(--text-primary);
+  font-size: 13.5px; line-height: 1.55; box-shadow: 0 6px 20px var(--shadow-color);
+}
+.tts-hint[hidden] { display: none; }
+.tts-hint button { flex: none; border: 0; border-radius: 8px; padding: 4px 10px; min-height: 32px; background: var(--tts-accent-bg); color: var(--tts-accent-text); font: inherit; cursor: pointer; }
+.tts-report { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.tts-report-form { display: flex; gap: 8px; flex: 1 1 240px; }
+.tts-report-form[hidden] { display: none; }
+.tts-report-form input { flex: 1; min-width: 0; min-height: 36px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.tts-report-table .tts-report-text { max-width: 420px; }
+
+/* 桌面寬螢幕：面板分兩欄、矮一點，不要蓋住大半篇經文 */
+@media (min-width: 900px) {
+  .tts-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; max-height: min(52vh, 480px); }
+  .tts-panel > .tts-notice, .tts-panel > .tts-sec-seek, .tts-panel > .tts-more, .tts-panel > .tts-stop-btn { grid-column: 1 / -1; }
+}
