@@ -330,3 +330,29 @@ describe('上一句／下一句', () => {
     assert.match(fn, /showToast\(msg/);
   });
 });
+
+describe('等待與失敗（2026-11-16 體驗審計第一批）', () => {
+  test('解鎖用的靜音檔開始播放時，不清掉「生成中」的等待狀態', () => {
+    const m = /a\.addEventListener\('playing', \(\) => \{([^\n]*)\}\);/.exec(ttsSection);
+    assert.ok(m, '找不到 playing 事件');
+    assert.match(m[1], /^\s*if \(!a\.dataset\.ttsSha\) return;/);
+  });
+
+  test('等太久顯示暖機提示；失敗先自動重試再略過，連續失敗才停', () => {
+    assert.match(ttsSection, /const TTS_SLOW_WAIT_MS = \d+;/);
+    const retry = /const TTS_RETRY_MS = \[([^\]]+)\]/.exec(ttsSection)[1].split(',').map(Number);
+    assert.ok(retry.reduce((a, b) => a + b, 0) > 30000, '最後一次重試要等過伺服器 30 秒的失敗記憶');
+    const rec = ttsSection.slice(ttsSection.indexOf('function ttsRecover'), ttsSection.indexOf('async function ttsEnsure'));
+    assert.match(rec, /ttsRt\.failStreak >= 3/);
+    assert.match(rec, /ttsPlayAt\(next\)/);
+    const playAt = ttsSection.slice(ttsSection.indexOf('async function ttsPlayAt'), ttsSection.indexOf('function ttsFail'));
+    assert.match(playAt, /ttsRecover\(k, /);
+  });
+
+  test('訪客不能生成時：錯誤列顯示「登入後繼續」（不是無效的重試），登入後接著讀', () => {
+    assert.match(html, /id="ttsLoginBtn" hidden>登入後繼續<\/button>/);
+    assert.match(ttsSection, /retry\.hidden = !ttsRt\.error \|\| needLogin;/);
+    assert.match(ttsSection, /openAccountAuth\('login', \{ afterLogin: 'tts' \}\)/);
+    assert.match(app, /authUi\.afterLogin === 'tts'[\s\S]{0,80}ttsResumeAfterLogin\(\)/);
+  });
+});

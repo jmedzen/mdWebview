@@ -10210,6 +10210,8 @@
   const TTS_GAP_BLOCK_MS = 480;        // 標題前後、偈頌之後的停頓
   const TTS_RATES = [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7, 2];
   const TTS_USER_SCROLL_MS = 4000;     // 使用者自己捲動後，這麼久內不自動跟讀
+  const TTS_SLOW_WAIT_MS = 8000;       // 第一句等超過這麼久，就提示「朗讀服務暖機中」
+  const TTS_RETRY_MS = [5000, 15000, 35000]; // 一句失敗時自動重試的間隔（伺服器 30 秒內不重試同一句）
   // 0.1 秒的靜音：第一句還在生成時先播它，佔住 iOS 的播放權（data: URI 會被 CSP 擋下，所以由伺服器提供）
   const TTS_SILENCE = '/api/tts/silence.wav';
   const TTS_ICON = {
@@ -10346,7 +10348,8 @@
     a.setAttribute('playsinline', '');
     a.addEventListener('ended', onTtsEnded);
     a.addEventListener('error', () => { if (a.dataset.ttsSha) onTtsAudioError(); });
-    a.addEventListener('playing', () => { ttsRt.waiting = false; renderTtsBar(); });
+    // 解鎖用的靜音檔（沒有 ttsSha）播放時不算「開始念了」：第一句還在生成，等待提示要留著
+    a.addEventListener('playing', () => { if (!a.dataset.ttsSha) return; ttsRt.waiting = false; ttsRt.slowWait = false; renderTtsBar(); });
     ttsRt.audio = a;
     return a;
   }
@@ -10578,25 +10581,72 @@
     updateTtsMediaSession();
     ttsPrefetch(k);
     if (!ttsRt.playing) { renderTtsBar(); return; }
-    if (it.cached && it.sha) { ttsRt.waiting = false; renderTtsBar(); ttsSetSrc(it.sha); return; }
+    clearTimeout(ttsRt.retryTimer); ttsRt.retryNote = '';
+    if (it.cached && it.sha) { ttsRt.waiting = false; ttsRt.slowWait = false; renderTtsBar(); ttsSetSrc(it.sha); return; }
     ttsRt.waiting = true; renderTtsBar();
+    // 等超過 8 秒多半是 audio.cpp 冷啟動（實測 35–45 秒）：明白告訴讀者要等多久，免得以為壞了
+    clearTimeout(ttsRt.slowTimer); ttsRt.slowWait = false;
+    ttsRt.slowTimer = setTimeout(() => { if (token === ttsRt.token && ttsRt.pos === k && ttsRt.waiting && ttsRt.playing) { ttsRt.slowWait = true; renderTtsBar(); } }, TTS_SLOW_WAIT_MS);
     try {
       const got = await ttsEnsure([it], 'now');
       if (token !== ttsRt.token || ttsRt.pos !== k) return;
+      clearTimeout(ttsRt.slowTimer); ttsRt.slowWait = false;
       const st = got.get(it);
-      if (st === 'ready') { if (ttsRt.playing) ttsSetSrc(it.sha); else { ttsRt.waiting = false; renderTtsBar(); } return; }
-      ttsFail(st === 'login' ? '登入後才能生成新的朗讀音檔' : st === 'quota' ? '這一小時的朗讀額度用完了，稍後再試' : st === 'unavailable' ? '朗讀服務暫時無法使用' : '這一句生成失敗', st);
+      if (st === 'ready') { ttsRt.failStreak = 0; if (ttsRt.playing) ttsSetSrc(it.sha); else { ttsRt.waiting = false; renderTtsBar(); } return; }
+      if (st === 'login') { showToast('這一段還沒有朗讀音檔，登入後就能繼續聽', 'info', 5000); return ttsFail('這一段還沒有朗讀音檔，登入後就能繼續聽', 'login'); }
+      if (st === 'quota') return ttsFail('這一小時的朗讀額度用完了，稍後再試', 'quota');
+      ttsRecover(k, st === 'unavailable' ? 'unavailable' : 'failed');
     } catch (err) {
       if (token !== ttsRt.token || ttsRt.pos !== k) return;
-      ttsFail(navigator.onLine === false ? '網路中斷' : `這一句生成失敗：${err.message}`, 'failed');
+      clearTimeout(ttsRt.slowTimer); ttsRt.slowWait = false;
+      ttsRecover(k, navigator.onLine === false ? 'offline' : 'failed');
     }
   }
 
   function ttsFail(msg, kind) {
-    ttsRt.waiting = false; ttsRt.error = { msg, kind };
+    clearTimeout(ttsRt.retryTimer); clearTimeout(ttsRt.slowTimer);
+    ttsRt.waiting = false; ttsRt.slowWait = false; ttsRt.retryNote = ''; ttsRt.error = { msg, kind };
     ttsRt.playing = false;
     renderTtsBar();
+    updateTtsMediaSession(); // 鎖屏的播放鍵變成「播放」，按一下就重試
     ttsAnnounce(msg);
+  }
+
+  /**
+   * 一句生成或播放失敗：先自動重試（5、15、35 秒；伺服器 30 秒內不重試同一句，所以最後一次要等過 30 秒），
+   * 仍然失敗就略過這一句接著讀；連續 3 句都失敗、服務連不上或網路中斷才停下來。
+   * 鎖屏聽經時讀者看不到畫面，不能一失敗就停。
+   */
+  function ttsRecover(k, why) {
+    const it = ttsRt.items[k];
+    if (!it || !ttsRt.active) return;
+    const token = ttsRt.token;
+    const n = it.autoTries || 0;
+    // 前一句已經重試到放棄：服務多半有狀況，後面的句子只再試一次就略過，不要每句都等將近一分鐘
+    const maxTries = ttsRt.failStreak > 0 ? 1 : TTS_RETRY_MS.length;
+    if (n < maxTries) {
+      it.autoTries = n + 1;
+      const sec = Math.round(TTS_RETRY_MS[n] / 1000);
+      ttsRt.waiting = true; ttsRt.slowWait = false; ttsRt.error = null;
+      ttsRt.retryNote = why === 'unavailable' || why === 'offline' ? `朗讀服務暫時連不上，${sec} 秒後重試…` : `這一句生成失敗，${sec} 秒後重試…`;
+      renderTtsBar();
+      if (n === 0) ttsAnnounce(ttsRt.retryNote);
+      clearTimeout(ttsRt.retryTimer);
+      ttsRt.retryTimer = setTimeout(() => { if (token === ttsRt.token && ttsRt.pos === k && ttsRt.playing) ttsPlayAt(k); }, TTS_RETRY_MS[n]);
+      return;
+    }
+    it.autoTries = 0;
+    if (why === 'offline') return ttsFail('網路中斷，連上網路後按播放繼續', 'failed');
+    if (why === 'unavailable') return ttsFail('朗讀服務暫時連不上，已生成的部分仍可聽', 'unavailable');
+    ttsRt.failStreak = (ttsRt.failStreak || 0) + 1;
+    const next = ttsNextPlayable(k + 1, 1);
+    if (ttsRt.failStreak >= 3 || next < 0) {
+      ttsRt.failStreak = 0;
+      return ttsFail(next < 0 ? '最後一句生成失敗' : '連續幾句都生成失敗，朗讀服務可能暫時連不上', 'failed');
+    }
+    ttsRt.retryNote = '';
+    ttsAnnounce('這一句無法生成，已略過');
+    ttsPlayAt(next);
   }
 
   /**
@@ -10652,7 +10702,7 @@
       ttsPlayAt(ttsRt.pos);
       return;
     }
-    ttsFail(navigator.onLine === false ? '網路中斷' : '這一句無法播放', 'failed');
+    ttsRecover(ttsRt.pos, navigator.onLine === false ? 'offline' : 'failed');
   }
 
   /**
@@ -10773,6 +10823,14 @@
     ttsClearPaint();
     renderTtsBar();
     if ('mediaSession' in navigator) { try { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; } catch (_) {} }
+  }
+
+  /** 從「登入後繼續」登入成功：重新取得朗讀權限，從停下的那一句接著讀。 */
+  async function ttsResumeAfterLogin() {
+    await refreshTtsStatus(true);
+    if (!ttsRt.active || !ttsRt.error || ttsRt.error.kind !== 'login') return;
+    ttsRt.error = null; ttsRt.playing = true;
+    ttsPlayAt(Math.max(0, ttsRt.pos));
   }
 
   function ttsSetRate(rate) {
@@ -11273,11 +11331,14 @@
     $('ttsTitle').textContent = ttsRt.title;
     const pos = $('ttsPos');
     if (ttsRt.error) pos.textContent = ttsRt.error.msg;
-    else if (ttsRt.waiting && ttsRt.playing) pos.textContent = `第 ${n || 1} 句　生成中…`;
+    else if (ttsRt.retryNote && ttsRt.playing) pos.textContent = ttsRt.retryNote;
+    else if (ttsRt.waiting && ttsRt.playing) pos.textContent = ttsRt.slowWait ? '朗讀服務暖機或忙碌中，請稍候（第一次約需 40 秒）…' : `第 ${n || 1} 句　生成中…`;
     else pos.textContent = n ? `第 ${n}／${m}${open ? '+' : ''} 句${ttsRt.sleep ? `　${ttsSleepText()}` : ''}` : '';
     $('ttsProgressFill').style.width = m ? `${Math.round(n / m * 100)}%` : '0%';
     const retry = $('ttsRetryBtn'); const skipBtn = $('ttsSkipBtn');
-    retry.hidden = !ttsRt.error; skipBtn.hidden = !ttsRt.error || ttsRt.error.kind !== 'failed';
+    const needLogin = !!ttsRt.error && ttsRt.error.kind === 'login';
+    retry.hidden = !ttsRt.error || needLogin; skipBtn.hidden = !ttsRt.error || ttsRt.error.kind !== 'failed';
+    $('ttsLoginBtn').hidden = !needLogin;
     const rate = ttsRate(); const v = ttsVoice();
     const rateBtn = $('ttsRateBtn');
     rateBtn.textContent = `${rate}×`; rateBtn.setAttribute('aria-label', `語速 ${rate} 倍，按一下調整`);
@@ -11665,7 +11726,8 @@
     on('ttsCloseBtn', 'click', stopAndRefocus);
     on('ttsStopBtn', 'click', stopAndRefocus);
     on('ttsBackBtn', 'click', () => ttsBackToPosition());
-    on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; const it = ttsRt.items[ttsRt.pos]; if (it) it.retried = false; ttsPlayAt(ttsRt.pos); });
+    on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsRt.failStreak = 0; const it = ttsRt.items[ttsRt.pos]; if (it) { it.retried = false; it.autoTries = 0; } ttsPlayAt(ttsRt.pos); });
+    on('ttsLoginBtn', 'click', () => { ttsUnlock(); openAccountAuth('login', { afterLogin: 'tts' }); });
     on('ttsSkipBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsStep(1); });
     on('ttsExpandBtn', 'click', () => setTtsPanelOpen($('ttsPanel').hidden));
     localizeTtsShortcutLabels();
@@ -11761,7 +11823,33 @@
   // 播報一次，播放時不搶 VoiceOver 的話。
   // ═══════════════════════════════════════════════════════════
   const LISTEN_CHARS_PER_SEC = 4.2; // 估算長度用（實際依音色與語速而定，畫面上一律標「約」）
-  const listenRt = { data: null, at: 0, loading: null, filter: 'all', open: new Set(), visible: false, lastSave: 0 };
+  const listenRt = { data: null, at: 0, loading: null, filter: 'all', open: new Set(), visible: false, lastSave: 0, ready: null, readyKey: '' };
+
+  /**
+   * 不能生成新音檔（訪客）時，向伺服器問每部經已生成幾成，在目錄上標「可直接聽」或「登入後可聽」。
+   * 能生成時不問（多花一次查詢，也沒有要提醒的）。
+   */
+  async function listenLoadReady() {
+    const st = ttsRt.status;
+    if (!st || !st.enabled || st.canGenerate !== false) { listenRt.ready = null; return null; }
+    const v = ttsVoice(); const key = v ? v.id : '';
+    if (listenRt.ready && listenRt.readyKey === key) return listenRt.ready;
+    try {
+      const r = await fetch(`/api/listen/ready?voice=${encodeURIComponent(key)}`, { credentials: 'same-origin' });
+      const d = r.ok ? await r.json() : null;
+      listenRt.ready = d && d.available ? (d.items || {}) : null; listenRt.readyKey = key;
+    } catch (_) { listenRt.ready = null; }
+    return listenRt.ready;
+  }
+  function listenReadyBadge(item) {
+    const map = listenRt.ready;
+    if (!map) return '';
+    const pct = map[item.id] || 0;
+    if (pct >= 100) return '<span class="listen-ready ok">可直接聽</span>';
+    const login = ttsRt.status && ttsRt.status.generateBlocked === 'login';
+    if (pct > 0) return `<span class="listen-ready part">已備好 ${pct}%${login ? '，其餘登入後可聽' : ''}</span>`;
+    return login ? '<span class="listen-ready none">登入後可聽</span>' : '';
+  }
 
   function listenMinutes(chars) {
     const r = ttsRate ? (ttsRate() || 1) : 1;
@@ -11915,7 +12003,7 @@
     }
     return `<li class="listen-item${open ? ' open' : ''}" data-listen-id="${escHtml(item.id)}">
       <div class="listen-item-head"><h3 id="listenH-${escHtml(item.id)}">${escHtml(item.name)}</h3>
-        <p class="listen-meta">${meta}${status ? ` · <b>${escHtml(status)}</b>` : ''}</p></div>
+        <p class="listen-meta">${meta}${status ? ` · <b>${escHtml(status)}</b>` : ''}${listenReadyBadge(item)}</p></div>
       <div class="listen-actions">
         <button type="button" class="listen-btn primary" data-listen-act="play" aria-label="從頭讀誦 ${escHtml(item.name)}">${LISTEN_ICON.play}從頭讀誦</button>
         ${n ? `<button type="button" class="listen-btn" data-listen-act="toggle" aria-expanded="${open}" aria-controls="${pid}">${open ? '收起' : '選擇'}${escHtml(unit)}（${n}）${LISTEN_ICON.chev}</button>` : ''}
@@ -11975,6 +12063,8 @@
     renderListenView();
     const content = $('content'); if (content) content.scrollTop = 0;
     const d = await listenLoad(false);
+    if (!listenRt.visible) return;
+    await refreshTtsStatus(false); await listenLoadReady();
     if (!listenRt.visible) return;
     renderListenView();
     const h = $('listenTitle'); if (h) h.focus({ preventScroll: true });
@@ -19215,6 +19305,7 @@
     updateUserMenu();
     if (user && user.needsConsent) openOverlay('consentOverlay');
     onLibraryAccountChange(user);
+    if (ttsRt.status) refreshTtsStatus(true); // 登入／登出會改變能不能生成新的朗讀音檔
   }
 
   function openOverlay(id) {
@@ -19488,6 +19579,9 @@
             authUi.afterLogin = '';
             if (state.isAdmin) await openSettingsOverlay();
             else showToast('已登入，但這個帳號沒有管理權限', 'info', 3500);
+          } else if (authUi.afterLogin === 'tts') {
+            authUi.afterLogin = '';
+            ttsResumeAfterLogin();
           } else if (authUi.afterLogin === 'quoteCard') {
             authUi.afterLogin = '';
             const pending = pendingQuoteCard;

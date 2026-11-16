@@ -180,6 +180,14 @@ describe('存檔與讀者端目錄', () => {
     assert.equal(d.items[0].unit, '品');
     assert.equal(d.items[0].parts.length, 4);
     assert.ok(!('head' in d.items[0].parts[0]), '讀者端不需要錨點文字');
+    // 訪客用：每部經已生成幾成（依音色快取）
+    lc.init({ coverage: async (p, voice) => (voice === 'v1' ? { voiced: 8, cached: 8 } : { voiced: 8, cached: 2 }) });
+    const res = { headers: {}, setHeader() {}, writeHead(c, h) { this.code = c; }, end(b) { this.body = b; } };
+    assert.equal(await lc.handle({ method: 'GET' }, res, '/api/listen/ready', { voice: 'v1' }), true);
+    assert.deepEqual(JSON.parse(res.body).items, { a: 100 });
+    await lc.handle({ method: 'GET' }, res, '/api/listen/ready', { voice: 'v2' });
+    assert.deepEqual(JSON.parse(res.body).items, { a: 25 });
+    assert.ok(lc.isListenRoute('/api/listen/ready'));
     const adm = await lc.adminCatalog();
     assert.equal(adm.status.c.ok, false);
     assert.deepEqual(lc.catalogFiles(), ['k/lotus.md', 'k/none.md']);

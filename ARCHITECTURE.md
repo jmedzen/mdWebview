@@ -2124,6 +2124,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題旁的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入到標題**前面**當兄弟元素，`float: right` 靠右對齊標題第一行（`alignTtsHeadButtons()` 量出 margin-top，`ResizeObserver` 在字級／行寬改變時重算），不另佔一行；不放在標題裡，標題的無障礙名稱保持乾淨，VoiceOver 從標題往前滑一下就是它；只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`；大小跟著所在標題：按鈕 font-size＝該層標題字級（`:has(+ h1)`…），按鈕框就是喇叭圖形（`TTS_ICON.speakTight`，viewBox 裁到圖形含線寬，0.9em 見方），右緣在每層標題都貼齊內文右緣、中心對齊標題第一行；hover 底色用 box-shadow 外擴，`::after` 把點擊範圍補到至少 44px，不增加版面高度）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
 - **選取的位置**：前端把選取端點換成 `{ line, n }`（`n`＝該行中這一點之前的非空白字數），伺服器在該行的句子上對位（`resolveStrippedPos`）。畫面文字與正規化文字的空白、Markdown 記號不同，但非空白字的順序相同。選到半句時面板顯示「已延伸至完整句」，補讀的句子用較淡的 `mdw-tts-padded` 底色。
 - **播放**：只有一個重複使用的 `Audio`，第一次在使用者手勢的同步呼叫內先播 `/api/tts/silence.wav`（0.1 秒靜音，用 `data:` URI 會被 CSP 擋下）解鎖，之後換 `src`。`ended` 時接下一句；句間停頓只在頁面可見時用計時器插入（背景時計時器會被凍結，直接接）。後 3 句用 `/api/tts/speak` 的 `priority:'prefetch'` 先生成，並 `fetch` 一次讓 Service Worker 存起來。換 `src` 後重設 `playbackRate`（iOS 會重設）並開 `preservesPitch`。
+- **等待與失敗**（2026-11-16 體驗審計）：解鎖用的靜音檔播放時不清掉等待狀態，第一句生成中一律顯示「生成中…」，超過 8 秒（`TTS_SLOW_WAIT_MS`）改顯示「朗讀服務暖機或忙碌中」。一句失敗時 `ttsRecover()` 先自動重試（`TTS_RETRY_MS` 5／15／35 秒；最後一次要等過伺服器 30 秒的失敗記憶），仍失敗就略過並播報一次；前一句已放棄時後面的句子只再試一次；連續 3 句失敗、服務連不上或網路中斷才停（Media Session 改為暫停，鎖屏按播放即重試）。伺服器回 `login`（訪客不能生成）時錯誤列顯示「登入後繼續」而不是重試，登入成功後 `ttsResumeAfterLogin()` 從那一句接著讀；登入、登出都會重新取得 `/api/tts/status`。
 - **朗讀本節**：遇到同級或更高級的標題就停；本節可能跨好幾章，`ttsFillSection()` 在背景把句子接上來，「第 N／M 句」才算得出本節的總數。從目前位置朗讀則讀到底，自動接下一章。
 - **跟讀高亮**：`mdw-tts-current`（淡朱底色＋朱筆底線）。用該句的 `line`／`endLine` 在 `buildHighlightTextIndex()`（與劃重點共用）的文字裡找，去掉空白比對，找不到就退回整行；內文重畫（虛擬捲動、繁簡切換）時由劃重點的 MutationObserver 一併重畫。不支援 Custom Highlight 的瀏覽器在該區塊加 `.tts-line-current`。跟讀捲動只在句子離開視窗中段時才捲；使用者自己捲動（wheel／touchmove）後 4 秒內不跟，播放列出現「回到朗讀位置」。`prefers-reduced-motion` 時不平滑捲動。
 - **無障礙**：播放列 `<section aria-label="朗讀播放器">`（地標）＋略過連結；播放／暫停是同一顆按鈕切換 `aria-label`；進度與語速是 `input[type=range]`，`aria-valuetext`「第 N 句，共 M 句」「1.2 倍」；音色用原生 `<select>`；只有一個 `aria-live="polite"` 的狀態區，只在使用者操作後寫入（已暫停、語速、朗讀範圍已延伸、無法連到朗讀服務），換句時不播報。高亮純視覺，不移動焦點。
@@ -2195,6 +2196,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | 路由 | 說明 |
 |---|---|
 | `GET /api/listen/catalog` | 讀者端：`{ categories, items: [{ id, name, sub, cat, path, line, endLine, lastLine, chars, unit, parts: [{ t, juan, line, endLine, chars }] }] }`。只列顯示中且檔案存在的經；空的分類不列。`endLine`＝停止的行（不含），0＝讀到檔尾 |
+| `GET /api/listen/ready?voice=` | 讀者端：每部經在該音色下已生成的百分比 `{ available, items: { <id>: 0–100 } }`，依音色快取 10 分鐘。前端只在 `canGenerate:false`（訪客）時查詢，在目錄上標「可直接聽」「已備好 N%」「登入後可聽」 |
 | `GET /api/admin/listen/catalog` | 後台：完整目錄＋每部經的解析結果與問題（`status[id].issues`：`missing`、`range-start`、`range-end`、`part:<文字>`） |
 | `POST /api/admin/listen/catalog {catalog}` | 驗證後存檔（`sanitizeCatalog`：沒有名稱或不是 `.md` 的丟掉、未知分類歸第一類、id 重複會換掉；上限 200 部、每部 400 段、30 類） |
 | `POST /api/admin/listen/catalog/reset` | 回到預設經目 |
