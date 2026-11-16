@@ -78,7 +78,8 @@
   // 用不到 1620 寬；真正傳出去、存下來的仍是 PIXEL_SIZES.portrait 全尺寸。
   const PREVIEW_PIXELS = [540, 675];
   const GREETINGS = ['早安', '午安', '晚安', '法安', '自在', '吉祥'];   // 法安／自在／吉祥 = 不分時間，給跨時區的收件人
-  const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "Songti TC", serif';
+  // mdRare＝罕見字後備字型（vendor/fonts/rare/）；放在系統宋體之前，罕見字才不會被系統黑體搶先補上
+  const SERIF = '"Noto Serif TC", "Noto Serif CJK TC", "Source Han Serif TC", "mdRare", "Songti TC", serif';
 
   const CN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
   const CN_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];

@@ -31,8 +31,12 @@
     padMin: 15,         // 吸附後不足此長度就補句
     readNotes: false,   // 夾注（…）讀或不讀（全站設定）
     readNonScripture: false, // 「版權說明」「目錄」等區段讀或不讀（全站設定）
-    lexicon: []         // [[詞, 替換]]；替換為空字串＝只保護不切開
+    lexicon: [],        // [[詞, 替換]]；替換為空字串＝只保護不切開
+    charMap: null       // 罕見字讀音表 {字: 改讀為}（lib/tts-lexicon-rare.txt）；改讀為空字串＝略過不讀
   };
+
+  // 可能出現在罕見字讀音表裡的字：部首、擴充 A、相容字、第 2／3 平面（擴充 B 以後）
+  const RARE_CHAR_RE = /[\u2E80-\u2FDF\u31C0-\u31EF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]/gu;
 
   const STRONG = new Set('。！？；');
   const CLOSERS = new Set('」』）》〕】)”’');
@@ -241,6 +245,9 @@
       const w = o.lexicon[x][0], r = o.lexicon[x][1];
       if (r && s.indexOf(w) >= 0) s = s.split(w).join(r);
     }
+    // 罕見字（𤦲、䟽…）語音模型多半不認得：換成讀音相同的常用字；字典先套，自訂讀法優先
+    const map = o.charMap;
+    if (map) s = s.replace(RARE_CHAR_RE, (c) => (Object.prototype.hasOwnProperty.call(map, c) ? map[c] : c));
     return s.trim();
   }
 
@@ -249,6 +256,7 @@
     o.maxLen = Math.max(40, Math.min(200, Math.floor(Number(o.maxLen)) || DEFAULTS.maxLen));
     o.lexicon = (Array.isArray(o.lexicon) ? o.lexicon : []).filter((e) => e && e[0])
       .map((e) => [String(e[0]), String(e[1] || '')]).sort((x, y) => y[0].length - x[0].length);
+    if (!o.charMap || typeof o.charMap !== 'object') o.charMap = null;
     return o;
   }
 

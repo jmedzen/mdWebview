@@ -3061,6 +3061,8 @@
     if (document.fonts && document.fonts.load) {
       const sample = `${shareRt.greeting}${meta.verse.text}${meta.verse.source || ''}${meta.siteName}星期一二三四五六日〇十月年`;
       await Promise.all([500, 700].map(w => document.fonts.load(`${w} 40px "Noto Serif TC"`, sample).catch(() => {})));
+      // 罕見字（例如 𤦲）在 mdRare 的哪一塊，要先載好，canvas 才畫得出來
+      await document.fonts.load('40px "mdRare"', sample).catch(() => {});
     }
     const preview = size === 'preview';
     const drawSize = preview ? 'portrait' : size;
@@ -18539,6 +18541,7 @@
     const rows = (d.builtin || []).filter(r => !q || r.word.includes(q) || r.to.includes(q) || r.reading.includes(q) || r.source.includes(q));
     const active = (d.builtin || []).filter(r => !r.overridden).length;
     $('adminTtsBuiltinInfo').textContent = `共 ${(d.builtin || []).length} 條${on ? `，生效 ${active} 條` : '（目前關閉）'}`;
+    if (d.rare && d.rare.count) $('adminTtsBuiltinInfo').textContent += `；罕見字讀音表 ${d.rare.count.toLocaleString()} 字（其中 ${d.rare.skipped.toLocaleString()} 字查無讀音、朗讀略過）`;
     tb.innerHTML = rows.map(r => {
       const state = !on ? '<span class="tts-lex-state off">已關閉</span>'
         : r.overridden ? `<span class="tts-lex-state off">${r.override === r.word ? '已停用' : `自訂：${escHtml(r.override)}`}</span> <button type="button" class="modal-btn secondary-btn small-btn tts-lex-enable" data-no-dirty data-word="${escHtml(r.word)}">恢復</button>`

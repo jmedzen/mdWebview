@@ -77,6 +77,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <!-- 罕見字後備字型（擴充 B 等 Noto Serif TC 沒有的字，例如 𤦲）；只下載頁面用到的塊 -->
+  <link rel="stylesheet" href="vendor/fonts/rare/rare-font.css?v=__APP_VERSION__">
   <link rel="stylesheet" href="style.css?v=__APP_VERSION__">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
   <script src="i18n/boot.js?v=__APP_VERSION__"></script>
@@ -2564,6 +2566,7 @@
                 <span class="toggle-switch-title">使用內建佛經讀音表</span>
               </div>
               <p class="field-hint">內建表依教育部《重編國語辭典修訂本》與佛門誦讀慣例整理，每條都附注音與依據。要停用某一條，按該列的「停用」（會在下方自訂字典加上「詞｜詞」）。</p>
+              <p class="field-hint" id="adminTtsRareInfo">同一個開關也管「罕見字讀音表」：經文裡的罕見字（例如「車𤦲」的 𤦲）語音模型多半不認得，朗讀時換成異體正字或同音常用字（𤦲 → 璩）；查不到讀音的字略過不讀。要改某個字的讀法，在下方自訂字典寫「字｜改讀為」。</p>
               <div class="account-inline-form">
                 <input type="search" id="adminTtsBuiltinFilter" data-no-dirty placeholder="篩選詞條，例如：伽" aria-label="篩選內建讀音表">
                 <span class="field-hint" id="adminTtsBuiltinInfo"></span>
