@@ -132,7 +132,7 @@
         -->
         <div class="user-menu" id="userMenu">
           <button id="userMenuBtn" class="control-btn user-menu-btn" type="button"
-                  aria-haspopup="menu" aria-expanded="false" aria-controls="userMenuPanel"
+                  aria-expanded="false" aria-controls="userMenuPanel"
                   title="選單：帳號、繁簡、主題與設定" aria-label="選單：帳號、繁簡、主題與設定">
             <svg class="user-menu-icon user-menu-icon-person" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1.5c-2.7 0-5.5 1.35-5.5 3.25V14h11v-1.25C13.5 10.85 10.7 9.5 8 9.5z"/>
@@ -142,7 +142,7 @@
             </svg>
             <span class="user-menu-initial" id="userMenuInitial" aria-hidden="true"></span>
           </button>
-          <div class="user-menu-panel" id="userMenuPanel" role="menu" aria-label="選單" hidden>
+          <div class="user-menu-panel" id="userMenuPanel" role="group" aria-label="選單" hidden>
             <div class="user-menu-account" id="userMenuAccount" hidden>
               <div class="user-menu-status">
                 <span class="user-menu-avatar" id="userMenuAvatar" aria-hidden="true"></span>
@@ -152,54 +152,54 @@
                 </div>
               </div>
               <div class="user-menu-auth" id="userMenuAuthRow">
-                <button type="button" class="user-menu-auth-btn primary" id="userMenuLoginBtn" role="menuitem">登入</button>
-                <button type="button" class="user-menu-auth-btn" id="userMenuRegisterBtn" role="menuitem">註冊</button>
+                <button type="button" class="user-menu-auth-btn primary" id="userMenuLoginBtn">登入</button>
+                <button type="button" class="user-menu-auth-btn" id="userMenuRegisterBtn">註冊</button>
               </div>
               <div class="user-menu-sep"></div>
             </div>
             <div class="user-menu-row">
               <span class="user-menu-label" data-i18n="settings.displayScript.title">繁簡顯示</span>
               <div class="user-menu-seg" id="userMenuScriptGroup" role="group" aria-label="繁簡顯示" data-no-t2s>
-                <button type="button" class="user-menu-seg-btn" data-value="hant" lang="zh-TW" role="menuitemradio" aria-checked="true">繁體</button>
-                <button type="button" class="user-menu-seg-btn" data-value="hans" lang="zh-Hans" role="menuitemradio" aria-checked="false">简体</button>
+                <button type="button" class="user-menu-seg-btn" data-value="hant" lang="zh-TW" aria-pressed="true">繁體</button>
+                <button type="button" class="user-menu-seg-btn" data-value="hans" lang="zh-Hans" aria-pressed="false">简体</button>
               </div>
             </div>
             <div class="user-menu-row">
               <span class="user-menu-label">主題</span>
               <div class="user-menu-themes" id="userMenuThemeGroup" role="group" aria-label="閱讀主題">
-                <button type="button" class="user-menu-theme" data-value="obsidian-light" role="menuitemradio" title="霧灰 Mist" aria-label="霧灰 Mist"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="paper" role="menuitemradio" title="素紙 Paper" aria-label="素紙 Paper"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="moon" role="menuitemradio" title="月白 Moon" aria-label="月白 Moon"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="bamboo" role="menuitemradio" title="竹青 Bamboo" aria-label="竹青 Bamboo"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="zen" role="menuitemradio" title="禪風 Zen" aria-label="禪風 Zen"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="obsidian-dark" role="menuitemradio" title="夜藍 Night" aria-label="夜藍 Night"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="solarized" role="menuitemradio" title="苔夜 Moss" aria-label="苔夜 Moss"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="gruvbox" role="menuitemradio" title="Gruvbox" aria-label="Gruvbox"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="obsidian-light" aria-pressed="false" title="霧灰 Mist" aria-label="霧灰 Mist"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="paper" aria-pressed="false" title="素紙 Paper" aria-label="素紙 Paper"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="moon" aria-pressed="false" title="月白 Moon" aria-label="月白 Moon"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="bamboo" aria-pressed="false" title="竹青 Bamboo" aria-label="竹青 Bamboo"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="zen" aria-pressed="false" title="禪風 Zen" aria-label="禪風 Zen"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="obsidian-dark" aria-pressed="false" title="夜藍 Night" aria-label="夜藍 Night"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="solarized" aria-pressed="false" title="苔夜 Moss" aria-label="苔夜 Moss"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="gruvbox" aria-pressed="false" title="Gruvbox" aria-label="Gruvbox"><span class="swatch"></span></button>
               </div>
             </div>
             <div class="user-menu-row">
               <span class="user-menu-label">字級</span>
               <div class="user-menu-font">
-                <button type="button" class="user-menu-font-btn" id="userMenuFontDec" role="menuitem" aria-label="縮小字級" title="縮小字級 (Ctrl −)">A<span aria-hidden="true">−</span></button>
+                <button type="button" class="user-menu-font-btn" id="userMenuFontDec" aria-label="縮小字級" title="縮小字級 (Ctrl −)">A<span aria-hidden="true">−</span></button>
                 <span class="user-menu-font-size" id="userMenuFontSize" aria-live="polite">16</span>
-                <button type="button" class="user-menu-font-btn" id="userMenuFontInc" role="menuitem" aria-label="放大字級" title="放大字級 (Ctrl +)">A<span aria-hidden="true">+</span></button>
+                <button type="button" class="user-menu-font-btn" id="userMenuFontInc" aria-label="放大字級" title="放大字級 (Ctrl +)">A<span aria-hidden="true">+</span></button>
               </div>
             </div>
             <div class="user-menu-sep"></div>
-            <button type="button" class="user-menu-item" id="userMenuLibraryBtn" role="menuitem" aria-haspopup="dialog" aria-controls="libraryDrawer">
+            <button type="button" class="user-menu-item" id="userMenuLibraryBtn" aria-haspopup="dialog" aria-controls="libraryDrawer">
               <span class="user-menu-item-icon" aria-hidden="true">🔖</span><span>書籤與歷程</span><span class="user-menu-count" id="userMenuLibraryCount"></span>
             </button>
-            <button type="button" class="user-menu-item" id="userMenuSettingsBtn" role="menuitem">
+            <button type="button" class="user-menu-item" id="userMenuSettingsBtn">
               <span class="user-menu-item-icon" aria-hidden="true">⚙️</span><span>偏好設定</span><small>排版、紀錄、備份</small>
             </button>
-            <button type="button" class="user-menu-item" id="userMenuAccountBtn" role="menuitem" hidden>
+            <button type="button" class="user-menu-item" id="userMenuAccountBtn" hidden>
               <span class="user-menu-item-icon" aria-hidden="true">👤</span><span>我的帳號</span>
             </button>
-            <button type="button" class="user-menu-item" id="userMenuAdminBtn" role="menuitem" hidden>
+            <button type="button" class="user-menu-item" id="userMenuAdminBtn" hidden>
               <span class="user-menu-item-icon" aria-hidden="true">🛠️</span><span id="userMenuAdminLabel">後台系統設定</span>
             </button>
             <div class="user-menu-sep" id="userMenuLogoutSep" hidden></div>
-            <button type="button" class="user-menu-item" id="userMenuLogoutBtn" role="menuitem" hidden>
+            <button type="button" class="user-menu-item" id="userMenuLogoutBtn" hidden>
               <span class="user-menu-item-icon" aria-hidden="true">↪</span><span>登出</span>
             </button>
           </div>
@@ -214,26 +214,26 @@
 
       <!-- ── §SIDEBAR ─────────────────────────────────────── -->
       <aside class="sidebar" id="sidebar">
-        <div class="sidebar-tabs" id="sidebarTabs">
-          <button class="sidebar-tab active" data-tab="files" title="檔案瀏覽器">
+        <div class="sidebar-tabs" id="sidebarTabs" role="tablist" aria-label="側欄">
+          <button class="sidebar-tab active" data-tab="files" id="sidebarTab-files" role="tab" aria-controls="panelFiles" title="檔案瀏覽器">
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
             </svg>
             <span class="tab-label">檔案</span>
           </button>
-          <button class="sidebar-tab" data-tab="search" title="全文搜尋">
+          <button class="sidebar-tab" data-tab="search" id="sidebarTab-search" role="tab" aria-controls="panelSearch" title="全文搜尋">
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
             </svg>
             <span class="tab-label">搜尋</span>
           </button>
-          <button class="sidebar-tab" data-tab="toc" title="本頁大綱">
+          <button class="sidebar-tab" data-tab="toc" id="sidebarTab-toc" role="tab" aria-controls="panelToc" title="本頁大綱">
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path fill-rule="evenodd" d="M2 4a1 1 0 100-2 1 1 0 000 2zm3.75-1.5a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zm0 5a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zm0 5a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zM3 8a1 1 0 11-2 0 1 1 0 012 0zm-1 5a1 1 0 100-2 1 1 0 000 2z"/>
             </svg>
             <span class="tab-label">大綱</span>
           </button>
-          <button class="sidebar-tab" data-tab="kepan" title="科判：整部論的科判樹" hidden>
+          <button class="sidebar-tab" data-tab="kepan" id="sidebarTab-kepan" role="tab" aria-controls="panelKepan" title="科判：整部論的科判樹" hidden>
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
               <path d="M2.5 2.5h4M5 5h4.5M5 8h4.5M7.5 10.5h6M7.5 13h6M3 2.5v0M3.5 3v2h1.5M3.5 5v3h1.5M6 8.5v4.5h1.5"/>
             </svg>
@@ -242,7 +242,7 @@
         </div>
 
         <!-- Files Panel -->
-        <div class="sidebar-panel active" id="panelFiles" data-panel="files">
+        <div class="sidebar-panel active" id="panelFiles" role="tabpanel" aria-labelledby="sidebarTab-files" data-panel="files">
           <div class="panel-header">
             <h3>檔案瀏覽器</h3>
             <div class="panel-actions">
@@ -278,7 +278,7 @@
         </div>
 
         <!-- Search Panel -->
-        <div class="sidebar-panel" id="panelSearch" data-panel="search">
+        <div class="sidebar-panel" id="panelSearch" role="tabpanel" aria-labelledby="sidebarTab-search" data-panel="search">
           <div class="panel-header">
             <h3>全文搜尋</h3>
             <div class="panel-actions">
@@ -331,7 +331,7 @@
         </div>
 
         <!-- TOC Panel -->
-        <div class="sidebar-panel" id="panelToc" data-panel="toc">
+        <div class="sidebar-panel" id="panelToc" role="tabpanel" aria-labelledby="sidebarTab-toc" data-panel="toc">
           <div class="panel-header">
             <h3>本頁大綱</h3>
             <div class="panel-actions">
@@ -353,7 +353,7 @@
         </div>
 
         <!-- Kepan Panel（科判系列時取代大綱，kepan-sidebar.js） -->
-        <div class="sidebar-panel" id="panelKepan" data-panel="kepan">
+        <div class="sidebar-panel" id="panelKepan" role="tabpanel" aria-labelledby="sidebarTab-kepan" data-panel="kepan">
           <div class="kepan-scope">
             <div class="kepan-rounds" id="kepanRounds" hidden></div>
             <select id="kepanScope" title="切換科判範圍：只看其中一段，或看全文" aria-label="科判範圍"></select>
@@ -654,15 +654,15 @@
       </div>
 
       <!-- Settings Tabs Navigation (Pinned at top) -->
-      <div class="settings-tabs-nav" id="userSettingsTabsNav">
-        <button type="button" class="settings-tab-btn active" data-tab="appearance">🎨 視覺排版</button>
-        <button type="button" class="settings-tab-btn" data-tab="recommended">🪷 推薦經論</button>
-        <button type="button" class="settings-tab-btn" data-tab="system">💾 備份與管理</button>
+      <div class="settings-tabs-nav" id="userSettingsTabsNav" role="tablist" aria-label="偏好設定分頁">
+        <button type="button" class="settings-tab-btn active" data-tab="appearance" id="settingsTab-appearance" role="tab" aria-controls="pane-appearance">🎨 視覺排版</button>
+        <button type="button" class="settings-tab-btn" data-tab="recommended" id="settingsTab-recommended" role="tab" aria-controls="pane-recommended">🪷 推薦經論</button>
+        <button type="button" class="settings-tab-btn" data-tab="system" id="settingsTab-system" role="tab" aria-controls="pane-system">💾 備份與管理</button>
       </div>
 
       <div class="settings-menu-body">
         <!-- Tab 1: 視覺排版 (Appearance) -->
-        <div class="settings-tab-pane active" id="pane-appearance">
+        <div class="settings-tab-pane active" id="pane-appearance" role="tabpanel" aria-labelledby="settingsTab-appearance">
           <!-- Theme -->
           <div class="setting-item-row">
             <div class="setting-item-label">
@@ -821,7 +821,7 @@
         </div>
 
         <!-- Tab 2: 推薦經論 (Recommended & Hot) -->
-        <div class="settings-tab-pane" id="pane-recommended" style="display: none;">
+        <div class="settings-tab-pane" id="pane-recommended" role="tabpanel" aria-labelledby="settingsTab-recommended" style="display: none;">
           <div class="setting-section-header">
             <span>📖 成多聞慧，成無漏慧（熱門與推薦經論）</span>
           </div>
@@ -829,7 +829,7 @@
         </div>
 
         <!-- Tab 3: 備份與管理 (Backup & Admin) -->
-        <div class="settings-tab-pane" id="pane-system" style="display: none;">
+        <div class="settings-tab-pane" id="pane-system" role="tabpanel" aria-labelledby="settingsTab-system" style="display: none;">
           <div class="user-backup-box" id="userBackupBox">
             <div class="setting-section-header">
               <span>💾 個人偏好備份與還原</span>

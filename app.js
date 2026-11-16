@@ -13457,6 +13457,7 @@
     setupSelectionPopup();
     setupA11yBridges();
     setupA11yTrees();
+    setupA11yTabs();
     setupTts();
     setupHighlights();
 
@@ -17936,7 +17937,7 @@
     $$('#userMenuScriptGroup .user-menu-seg-btn').forEach(b => {
       const on = b.getAttribute('data-value') === state.displayScript;
       b.classList.toggle('active', on);
-      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
 
@@ -17944,7 +17945,7 @@
     $$('#userMenuThemeGroup .user-menu-theme').forEach(b => {
       const on = b.getAttribute('data-value') === theme;
       b.classList.toggle('active', on);
-      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
 
@@ -20471,6 +20472,45 @@
     });
   }
 
+  /**
+   * 側欄（檔案／搜尋／大綱／科判）與偏好設定的分頁：依 .active 同步 aria-selected，
+   * 只有選中的分頁在 Tab 順序裡，←→／Home／End 在分頁間移動，Enter／空白鍵切換。
+   */
+  function setupA11yTabs() {
+    for (const id of ['sidebarTabs', 'userSettingsTabsNav']) {
+      const list = $(id);
+      if (!list) continue;
+      const tabs = () => [...list.querySelectorAll('[role="tab"]')];
+      const sync = () => {
+        const all = tabs();
+        const anyActive = all.some(t => t.classList.contains('active'));
+        all.forEach((t, i) => {
+          const on = t.classList.contains('active') || (!anyActive && i === 0);
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
+          t.tabIndex = on ? 0 : -1;
+        });
+      };
+      sync();
+      new MutationObserver(sync).observe(list, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+      list.addEventListener('keydown', (e) => {
+        const cur = e.target.closest('[role="tab"]');
+        if (!cur) return;
+        const vis = tabs().filter(t => !t.hidden && t.getClientRects().length);
+        const i = vis.indexOf(cur);
+        let next = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = vis[(i + 1) % vis.length];
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = vis[(i - 1 + vis.length) % vis.length];
+        else if (e.key === 'Home') next = vis[0];
+        else if (e.key === 'End') next = vis[vis.length - 1];
+        if (!next) return;
+        e.preventDefault();
+        // 手動啟用：方向鍵只移動焦點，Enter／空白鍵才切換（切到搜尋分頁會把焦點移進搜尋框）
+        tabs().forEach(t => { t.tabIndex = t === next ? 0 : -1; });
+        next.focus();
+      });
+    }
+  }
+
   /** 給螢幕閱讀器的一次性播報（共用的 #a11yLive）。 */
   function a11yAnnounce(msg) {
     const live = $('a11yLive');
@@ -20943,6 +20983,12 @@
       popup.classList.toggle('touch', lastInputWasTouch);
       popup.classList.add('visible');
       placePopupNear(range);
+      {
+        const brief = text.length > 12 ? text.slice(0, 12) + '…' : text;
+        a11yAnnounce(lastInputWasTouch
+          ? `已選取「${brief}」，可劃線、分享或查辭典，選單在頁面最後`
+          : `已選取「${brief}」，按 Alt+M 開啟劃線、分享、辭典選單`);
+      }
 
       // 分享連結：經文用英數短連結 /F<碼>L<行>（任何聊天軟體都不會斷）；辭典退回純 ASCII 長連結
       const baseUrl = window.location.origin + window.location.pathname;
@@ -21184,8 +21230,32 @@
       setMoreOpen(moreMenu.hidden);
     });
 
+    // 選字彈窗的鍵盤與 VoiceOver：Alt+M（或選單鍵）把焦點移進彈窗；在彈窗裡按 Esc 收起並回到選取處
+    popup.setAttribute('role', 'toolbar');
+    popup.setAttribute('aria-label', '選取文字的動作');
+    let selectionReturnEl = null;
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && popup.classList.contains('visible')) hidePopup();
+      const visible = popup.classList.contains('visible');
+      if (visible && ((e.altKey && e.code === 'KeyM') || e.key === 'ContextMenu') && !popup.contains(document.activeElement)) {
+        const first = [...popup.querySelectorAll('button')].find(b => b.getClientRects().length);
+        if (first) {
+          e.preventDefault();
+          popupPinned = true; // 焦點移入後選取可能被瀏覽器收掉，彈窗仍要留著
+          const r = currentRange;
+          const node = r && (r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement);
+          selectionReturnEl = node && node.closest && node.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt');
+          first.focus();
+        }
+        return;
+      }
+      if (e.key === 'Escape' && visible) {
+        const hadFocus = popup.contains(document.activeElement);
+        hidePopup();
+        if (hadFocus && selectionReturnEl && selectionReturnEl.isConnected) {
+          if (!selectionReturnEl.hasAttribute('tabindex')) selectionReturnEl.setAttribute('tabindex', '-1');
+          selectionReturnEl.focus({ preventScroll: true });
+        }
+      }
     });
 
     // Close popup on mousedown anywhere else
