@@ -7256,6 +7256,7 @@
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="panel-placeholder"><span class="placeholder-icon">🔍</span><span>沒有找到結果</span></div>';
+      a11yAnnounce('沒有找到結果');
       return;
     }
 
@@ -7268,6 +7269,12 @@
     // items above the viewport are identical, so restoring keeps the user in place).
     const prevScrollTop = container.scrollTop;
     const parts = [`<div class="search-status">找到 ${data.total} 個結果${data.capped ? '（已達上限）' : ''}</div>`];
+    // 第一次畫出結果時念出筆數（「顯示更多」不重念）
+    if (data !== state._a11yAnnouncedSearch) {
+      state._a11yAnnouncedSearch = data;
+      a11yAnnounce(`找到 ${data.total} 個結果${data.capped ? '，已達上限' : ''}，按向下鍵進入結果`);
+    }
+    parts.push('<div class="search-result-tree">');
 
     // Group by file
     const groups = {};
@@ -7339,6 +7346,7 @@
       parts.push(`</div></div>`);
     }
 
+    parts.push('</div>'); // .search-result-tree
     const remaining = data.results.length - rendered;
     if (remaining > 0) {
       parts.push(`<button class="search-load-more" data-action="load-more">顯示更多（還有 ${remaining} 筆）</button>`);
@@ -13448,6 +13456,7 @@
     setupDictResizeHandle();
     setupSelectionPopup();
     setupA11yBridges();
+    setupA11yTrees();
     setupTts();
     setupHighlights();
 
@@ -20460,6 +20469,257 @@
       else if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
     });
+  }
+
+  /** 給螢幕閱讀器的一次性播報（共用的 #a11yLive）。 */
+  function a11yAnnounce(msg) {
+    const live = $('a11yLive');
+    if (!live || !msg) return;
+    live.textContent = '';
+    setTimeout(() => { live.textContent = msg; }, 50);
+  }
+
+  /**
+   * 側欄的檔案樹、本頁大綱、全文搜尋結果原本都是 div＋click，鍵盤到不了、VoiceOver 只當一般文字念。
+   * 這裡不動原本的渲染與點擊邏輯，只在畫好之後補上 ARIA 樹狀結構（tree／treeitem、層級、展開狀態），
+   * 並提供標準的樹狀鍵盤操作：↑↓ 移動、→ 展開或進入下一層、← 收合或回上一層、Home／End、Enter 開啟。
+   * 只有一列在 Tab 順序裡（roving tabindex），Tab 一次就能跳過整棵樹。
+   * 大綱在大檔案時是虛擬捲動（列會重畫），靠 key() 在重畫後把焦點放回同一列。
+   */
+  function setupA11yTrees() {
+    const trees = [
+      {
+        container: $('fileTree'), label: '檔案瀏覽器', rowSel: '.tree-item-row',
+        wrapperSel: '.tree-item, .tree-children',
+        key: r => r.dataset.path,
+        isBranch: r => r.classList.contains('tree-folder'),
+        isExpanded: r => !!(r.nextElementSibling && r.nextElementSibling.classList.contains('expanded')),
+        toggle: r => r.click(),
+        level: (r, c) => { let n = 1; for (let el = r.parentElement; el && el !== c; el = el.parentElement) if (el.classList.contains('tree-children')) n++; return n; },
+        name: r => {
+          const nm = r.querySelector('.tree-name')?.textContent || '';
+          const cnt = r.querySelector('.tree-file-count')?.textContent;
+          return r.classList.contains('tree-folder') && cnt ? `${nm}，${cnt} 部` : nm;
+        },
+      },
+      {
+        container: $('tocList'), label: '本頁大綱', rowSel: '.toc-item-row',
+        wrapperSel: ':scope > div:not(.toc-item-row):not(.panel-placeholder), :scope > div > div:not(.toc-item-row)',
+        key: r => r.dataset.index,
+        isBranch: r => { const c = r.querySelector('.toc-item-chevron'); return !!c && !c.classList.contains('empty'); },
+        isExpanded: r => !r.classList.contains('collapsed'),
+        toggle: r => r.querySelector('.toc-item-chevron')?.click(),
+        level: r => {
+          const pad = parseInt(r.style.paddingLeft, 10);
+          return Number.isFinite(pad) ? Math.max(1, Math.round((pad - 8) / 16) + 1) : (parseInt(r.dataset.level, 10) || 1);
+        },
+        name: r => r.querySelector('.toc-item-label')?.textContent || r.textContent.trim(),
+      },
+      {
+        container: $('searchResults'), label: '搜尋結果', rowSel: '.search-result-file, .search-result-item',
+        root: c => c.querySelector('.search-result-tree'),
+        wrapperSel: '.search-result-group, .search-result-group-body',
+        key: r => r.dataset.fileGroup ? 'g:' + r.dataset.fileGroup : 'i:' + r.dataset.file + ':' + r.dataset.line + ':' + (r.dataset.entry || ''),
+        isBranch: r => r.classList.contains('search-result-file'),
+        isExpanded: r => { const b = r.nextElementSibling; return !(b && b.classList.contains('collapsed')); },
+        toggle: r => r.click(),
+        level: r => r.classList.contains('search-result-file') ? 1 : 2,
+        name: r => {
+          if (r.classList.contains('search-result-file')) {
+            const cnt = r.querySelector('.search-result-count')?.textContent || '';
+            const nm = [...r.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
+            return `${nm}，${cnt} 筆`;
+          }
+          return null; // 命中列直接用畫面上的文字（第 N 行＋片段）當名稱
+        },
+      },
+    ].filter(t => t.container);
+
+    const visibleRows = t => [...t.container.querySelectorAll(t.rowSel)].filter(r => r.getClientRects().length);
+
+    function enhance(t) {
+      const c = (t.root && t.root(t.container)) || t.container;
+      const rows = [...c.querySelectorAll(t.rowSel)];
+      if (!rows.length) { c.removeAttribute('role'); c.removeAttribute('aria-label'); return; }
+      c.setAttribute('role', 'tree');
+      c.setAttribute('aria-label', t.label);
+      c.querySelectorAll(t.wrapperSel).forEach(w => { if (!w.matches(t.rowSel)) w.setAttribute('role', 'none'); });
+      let hasTabStop = false;
+      const levels = rows.map(r => t.level(r, c));
+      rows.forEach((r, i) => {
+        if (r.getAttribute('role') !== 'treeitem') r.setAttribute('role', 'treeitem');
+        r.setAttribute('aria-level', String(levels[i]));
+        const nm = t.name(r);
+        if (nm == null) r.removeAttribute('aria-label');
+        else if (r.getAttribute('aria-label') !== nm) r.setAttribute('aria-label', nm);
+        if (t.isBranch(r)) r.setAttribute('aria-expanded', t.isExpanded(r) ? 'true' : 'false');
+        else r.removeAttribute('aria-expanded');
+        r.setAttribute('aria-selected', r.classList.contains('active') ? 'true' : 'false');
+        if (r.tabIndex === 0) { if (hasTabStop) r.tabIndex = -1; else hasTabStop = true; }
+        else if (r.getAttribute('tabindex') === null) r.tabIndex = -1;
+      });
+      // 同層的序號（「第 2 項，共 5 項」）
+      const stack = [];
+      const counts = new Map();
+      rows.forEach((r, i) => {
+        const lv = levels[i];
+        while (stack.length && stack[stack.length - 1].lv > lv) stack.pop();
+        let group = stack.length && stack[stack.length - 1].lv === lv ? stack[stack.length - 1] : null;
+        if (!group) { group = { lv, items: [] }; stack.push(group); }
+        group.items.push(r);
+        counts.set(r, group);
+      });
+      counts.forEach((g, r) => { r.setAttribute('aria-setsize', String(g.items.length)); r.setAttribute('aria-posinset', String(g.items.indexOf(r) + 1)); });
+      // Tab 停駐的那一列若被收合藏起來，Tab 會整個跳過樹，改選一列看得到的
+      const stop = hasTabStop && rows.find(r => r.tabIndex === 0);
+      if (stop && !stop.getClientRects().length && document.activeElement !== stop) { stop.tabIndex = -1; hasTabStop = false; }
+      if (!hasTabStop) {
+        const pick = (t.pendingKey && rows.find(r => t.key(r) === t.pendingKey)) || rows.find(r => r.classList.contains('active') && r.getClientRects().length) || visibleRows(t)[0];
+        if (pick) pick.tabIndex = 0;
+      }
+      // 虛擬捲動重畫後，把焦點放回原本那一列
+      if (t.pendingKey && (document.activeElement === document.body || !document.activeElement)) {
+        const back = rows.find(r => t.key(r) === t.pendingKey);
+        if (back) { rows.forEach(r => { r.tabIndex = r === back ? 0 : -1; }); back.focus({ preventScroll: true }); }
+      }
+    }
+
+    function focusRow(t, row) {
+      if (!row) return;
+      t.container.querySelectorAll(t.rowSel).forEach(r => { r.tabIndex = r === row ? 0 : -1; });
+      t.pendingKey = t.key(row);
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: 'nearest' });
+    }
+
+    for (const t of trees) {
+      let raf = 0;
+      const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; enhance(t); }); };
+      new MutationObserver(schedule).observe(t.container, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+      enhance(t);
+
+      t.container.addEventListener('focusin', (e) => {
+        const row = e.target.closest(t.rowSel);
+        if (row && t.container.contains(row)) { t.pendingKey = t.key(row); }
+      });
+      t.container.addEventListener('focusout', (e) => {
+        // 焦點離開樹（而不是列被重畫掉）時，不再試圖搶回焦點
+        if (e.relatedTarget && !t.container.contains(e.relatedTarget)) t.pendingKey = null;
+      });
+
+      t.container.addEventListener('keydown', (e) => {
+        const row = e.target.closest && e.target.closest(t.rowSel);
+        if (!row || e.target !== row || e.altKey || e.ctrlKey || e.metaKey) return;
+        const rows = visibleRows(t);
+        const i = rows.indexOf(row);
+        const lv = t.level(row, t.container);
+        let handled = true;
+        switch (e.key) {
+          case 'ArrowDown': focusRow(t, rows[i + 1]); break;
+          case 'ArrowUp': focusRow(t, rows[i - 1]); break;
+          case 'Home': focusRow(t, rows[0]); break;
+          case 'End': focusRow(t, rows[rows.length - 1]); break;
+          case 'ArrowRight':
+            if (t.isBranch(row)) {
+              if (!t.isExpanded(row)) t.toggle(row);
+              else if (rows[i + 1] && t.level(rows[i + 1], t.container) > lv) focusRow(t, rows[i + 1]);
+            }
+            break;
+          case 'ArrowLeft':
+            if (t.isBranch(row) && t.isExpanded(row)) t.toggle(row);
+            else { for (let j = i - 1; j >= 0; j--) if (t.level(rows[j], t.container) < lv) { focusRow(t, rows[j]); break; } }
+            break;
+          case 'Enter': case ' ': row.click(); break;
+          default: handled = false;
+        }
+        if (handled) { e.preventDefault(); enhance(t); } // 展開狀態立即更新，不等下一幀
+      });
+    }
+
+    // 點大綱（含 VoiceOver 點兩下）跳到標題後，焦點也跟到那個標題，接著往下念的就是該段經文
+    const tocList = $('tocList');
+    if (tocList) {
+      tocList.addEventListener('click', (e) => {
+        const row = e.target.closest('.toc-item-row');
+        if (!row || e.target.closest('.toc-item-chevron')) return;
+        const label = row.querySelector('.toc-item-label')?.textContent.trim();
+        setTimeout(() => {
+          const body = $('markdownBody');
+          if (!body) return;
+          let h = row.dataset.target && document.getElementById(row.dataset.target);
+          if (!h && label) {
+            // 大檔案（虛擬捲動）沒有固定 id：找捲到畫面附近、文字相同的標題
+            const top = $('content').getBoundingClientRect().top;
+            h = [...body.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+              .filter(x => x.textContent.trim() === label)
+              .sort((a, b) => Math.abs(a.getBoundingClientRect().top - top) - Math.abs(b.getBoundingClientRect().top - top))[0];
+          }
+          if (!h) return;
+          if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
+          h.focus({ preventScroll: true });
+        }, 600);
+      });
+    }
+
+    // 篩選框、搜尋框按 ↓ 直接跳進結果
+    const jumpIn = (inputId, t) => {
+      const input = $(inputId);
+      if (!input || !t) return;
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowDown' || e.isComposing) return;
+        const first = visibleRows(t)[0];
+        if (!first) return;
+        e.preventDefault();
+        focusRow(t, first);
+      });
+    };
+    jumpIn('fileTreeFilterInput', trees.find(t => t.label === '檔案瀏覽器'));
+    jumpIn('tocFilterInput', trees.find(t => t.label === '本頁大綱'));
+    jumpIn('globalSearchInput', trees.find(t => t.label === '搜尋結果'));
+
+    // 篩選後念出找到幾筆（停止打字後再念，避免每打一個字就播報）
+    const fileFilter = $('fileTreeFilterInput');
+    if (fileFilter) {
+      let timer = 0;
+      fileFilter.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const q = fileFilter.value.trim();
+          if (!q) return;
+          const n = state._lastFileTreeFilterMatches || 0;
+          a11yAnnounce(n ? `找到 ${n} 部，按向下鍵進入清單` : `沒有符合「${q}」的檔案`);
+        }, 800);
+      });
+    }
+
+    // 開經之後把焦點移到經名（有指定行號時移到那一行），VoiceOver 會念出開了什麼。
+    // 只在使用者從檔案樹、搜尋結果、經文連結、首頁或書籤抽屜開經時才移，不影響開站時的自動恢復閱讀。
+    const body = $('markdownBody');
+    if (body) {
+      let intentAt = 0;
+      const OPEN_SOURCES = '#fileTree .tree-file, #searchResults .search-result-item, .wikilink, #welcomeScreen, #libraryDrawer';
+      const markIntent = (e) => {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target.closest && e.target.closest(OPEN_SOURCES)) intentAt = Date.now();
+      };
+      document.addEventListener('click', markIntent, true);
+      document.addEventListener('keydown', markIntent, true);
+      let timer = 0;
+      new MutationObserver(() => {
+        if (!intentAt || Date.now() - intentAt > 8000) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (!intentAt) return;
+          intentAt = 0;
+          const line = new URLSearchParams(location.search).get('line');
+          const anchor = line && document.getElementById('L' + line);
+          let target = anchor ? (anchor.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt') || anchor) : body.querySelector('h1, h2, h3, h4, h5, h6');
+          if (!target) target = body;
+          if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+          target.focus({ preventScroll: true });
+        }, 350);
+      }).observe(body, { childList: true, subtree: true });
+    }
   }
 
   function setupSelectionPopup() {
