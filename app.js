@@ -100,7 +100,9 @@
     // 朗讀偏好：{ voice, rate, follow, shortcuts, exact }
     TTS_PREFS: 'mdWebview-tts-prefs',
     // 下載以離線收聽的經文：{ '<音色>|<路徑>': { shas, bytes, at } }
-    TTS_OFFLINE: 'mdWebview-tts-offline'
+    TTS_OFFLINE: 'mdWebview-tts-offline',
+    LISTEN_PROGRESS: 'mdWebview-listen-progress', // 聽經目錄：每部經上次聽到哪裡、聽完哪些品
+    LISTEN_PREFS: 'mdWebview-listen-prefs'       // 聽經目錄：點一品後讀到經末或只讀這品
   };
 
   // ── 安全 LocalStorage 存取工具 (Safe Storage Helper) ───────
@@ -845,6 +847,8 @@
     } else if (urlInfo && urlInfo.search) {
       // ?search= 為明確的入口意圖，優先於其他參數（此時不會有 file）。
       activateSearchPanel(urlInfo.search);
+    } else if (urlInfo && urlInfo.isListen) {
+      openListenView(false);
     } else if (urlInfo && urlInfo.isHome) {
       goHome(false);
     } else if (urlInfo && urlInfo.file) {
@@ -863,6 +867,8 @@
         // 經文、側欄被收合或分頁被切走。popstate 只在真實的歷史移動時
         // 觸發，故不需去重。
         activateSearchPanel(info.search);
+      } else if (info && info.isListen) {
+        openListenView(false);
       } else if (info && info.isHome) {
         goHome(false);
       } else if (info && info.file && info.file !== state.currentFile) {
@@ -1403,6 +1409,9 @@
     if (rawSearch !== null && rawSearch.trim()) {
       return { search: rawSearch.trim().slice(0, 500) };
     }
+
+    // 聽經目錄 /?listen
+    if (searchParams.has('listen') && !searchParams.get('file')) return { isListen: true };
 
     // Check for explicit frontpage / home URL parameters (e.g. ?home=1, ?frontpage=1, ?home, ?frontpage, ?page=home)
     const pageVal = (searchParams.get('page') || '').toLowerCase();
@@ -2140,6 +2149,7 @@
     }
     updateEntryNav();
 
+    closeListenView();
     const welcome = $('welcomeScreen');
     const wrapper = $('contentWrapper');
     const loading = $('contentLoading');
@@ -5547,6 +5557,7 @@
     const wrapper = $('contentWrapper');
     const content = $('content');
 
+    closeListenView();
     welcome.style.display = 'none';
     wrapper.style.display = 'none';
     loading.style.display = 'flex';
@@ -10386,6 +10397,9 @@
     ttsRt.items = []; ttsRt.pos = -1; ttsRt.endIndex = -1; ttsRt.stopLevel = null; ttsRt.chapter = null;
     ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null; ttsRt.error = null; ttsRt.waiting = false; ttsRt.selOnly = false;
     ttsRt.userScrollAt = 0; ttsRt.stopAtUnit = undefined; ttsRt.sectionStart = undefined; ttsRt.sectionStartUnit = undefined; ttsRt.lastRange = null;
+    ttsRt.stopLine = 0; // 聽經目錄：讀到這一行（不含）就停；0＝不限
+    ttsRt.listen = ttsRt.nextListen || null; ttsRt.nextListen = null; // 聽經目錄的經與品（播放列標題、收聽進度）
+    if (ttsRt.listen) ttsRt.title = ttsRt.listen.name;
     return ttsRt.token;
   }
 
@@ -10464,6 +10478,7 @@
       if (k < 0) k = 0;
       const first = ttsNextPlayable(k, 1);
       if (opts && opts.one && first >= 0) ttsRt.endIndex = first; // 朗讀本句：只到這一句
+      if (opts && opts.stopLine > line) { ttsRt.stopLine = opts.stopLine; ttsFillToLine(token); } // 聽經目錄：只讀這一品／節錄的範圍
       if (section && first >= 0) {
         const head = ttsRt.items[first];
         ttsRt.stopLevel = head.kind === 'heading' ? (head.level || 7) : 7;
@@ -10472,6 +10487,16 @@
       }
       return first;
     });
+  }
+
+  /** 聽經目錄的停止行：在背景把句子接到那一行，「第 N／M 句」才算得出總數（最多 20 批）。 */
+  async function ttsFillToLine(token) {
+    for (let n = 0; n < 20 && token === ttsRt.token && ttsRt.stopLine; n++) {
+      const last = ttsRt.items[ttsRt.items.length - 1];
+      if (last && last.line >= ttsRt.stopLine) break;
+      if (!(await ttsLoadMore())) break;
+    }
+    if (token === ttsRt.token) renderTtsBar();
   }
 
   /** 朗讀本節：一直接下一批句子，直到出現結束本節的標題或全篇結束（最多 20 批）。 */
@@ -10548,6 +10573,7 @@
     if (k < 0 || k >= ttsRt.items.length) return ttsFinish();
     const it = ttsRt.items[k];
     ttsRt.pos = k; ttsRt.error = null;
+    if (ttsRt.listen) listenOnPlay(it);
     ttsPaintCurrent(true);
     updateTtsMediaSession();
     ttsPrefetch(k);
@@ -10674,6 +10700,7 @@
     // 朗讀本節：遇到同級或更高級的標題就結束
     if (ttsRt.stopLevel !== null && nx.kind === 'heading' && k !== ttsRt.sectionStart && (nx.level || 7) <= ttsRt.stopLevel) return ttsFinish();
     if (ttsRt.stopAtUnit !== undefined && nx.i > ttsRt.stopAtUnit) return ttsFinish();
+    if (ttsRt.stopLine && nx.line >= ttsRt.stopLine) return ttsFinish();
     const block = nx.kind === 'heading' || (cur && (cur.kind === 'heading' || (cur.g && cur.g !== nx.g)));
     const gap = document.visibilityState === 'visible' ? (block ? TTS_GAP_BLOCK_MS : TTS_GAP_MS) : 0;
     if (gap) ttsRt.gapTimer = setTimeout(() => { if (token === ttsRt.token) ttsPlayAt(k); }, gap);
@@ -10682,6 +10709,7 @@
 
   function ttsFinish(msg, why) {
     if (ttsRt.playing) { ttsFlushListen(); ttsTrack('end', { key: why || 'finished' }); }
+    if (ttsRt.listen && !why && !msg) { listenOnFinish(); msg = `${ttsRt.listen.name}${ttsRt.listen.only ? ` ${ttsRt.listen.partTitle || ''}` : ''}讀誦圓滿`; }
     ttsRt.playing = false; ttsRt.waiting = false;
     clearTimeout(ttsRt.sleepTimer);
     renderTtsBar();
@@ -10913,6 +10941,7 @@
     if (act === 'section') return ttsStartSectionHere();
     if (act === 'sentence') return ttsStartOneSentence(range);
     if (act === 'top') return ttsStartFromLine(1, false);
+    if (act === 'listen') return openListenView(true);
     if (act === 'chant') { if (!ttsRt.active) { ttsSetStartMode('chant'); await ttsStartFromVisible(); } return openTtsChant(); }
     if (act === 'panel') {
       if (!ttsRt.active) { const p = ttsStartFromVisible(); ttsTogglePlayAfter(p); }
@@ -11189,6 +11218,9 @@
         if (o.kind === 'heading' && (o.level || 7) <= ttsRt.stopLevel) { last = k - 1; sectionEnded = true; break; }
       }
     }
+    if (ttsRt.stopLine) { // 聽經目錄：只算到停止的那一行之前
+      for (let k = 0; k <= last; k++) if (ttsRt.items[k].line >= ttsRt.stopLine) { last = k - 1; sectionEnded = true; break; }
+    }
     for (let k = 0; k <= last; k++) {
       if (!ttsPlayable(ttsRt.items[k])) continue;
       m++; if (k <= ttsRt.pos) n++;
@@ -11340,7 +11372,7 @@
 
   /** 整篇讀完：設定了「讀完接著讀下一篇」就開下一篇從頭讀。回傳是否接上了。 */
   async function ttsContinueNextDoc() {
-    if (!ttsPrefs().continueNext || ttsRt.endIndex >= 0 || ttsRt.stopLevel !== null) return false;
+    if (!ttsPrefs().continueNext || ttsRt.endIndex >= 0 || ttsRt.stopLevel !== null || ttsRt.stopLine || ttsRt.listen) return false; // 聽經目錄的經讀完就停
     const next = ttsNextDocPath(ttsRt.path);
     if (!next) return false;
     const token = ttsRt.token;
@@ -11715,6 +11747,310 @@
       if (document.visibilityState === 'hidden') ttsFlushListen(); // 切到背景：把累積的收聽時間送出去
     });
     refreshTtsStatus(true).then(() => ttsScheduleRepaint());
+    setupListen();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §17d LISTEN CATALOG（聽經目錄：精選經目 → 品／卷 → 朗讀）
+  //
+  // 資料由 /api/listen/catalog 提供（lib/listen-catalog.js，ARCHITECTURE §25）。頁面在 #content
+  // 裡、網址 /?listen。點一品＝開啟那部經、用現有朗讀從該品第一行開始（ttsStartFromLine），
+  // 「只讀這品」或節錄（例如普門品）用 stopLine 停在下一段之前。
+  // 無障礙（WAI-ARIA 標準做法）：h1 → 分類 h2 → 每部經 h3；品卷是揭露按鈕（aria-expanded）
+  // 加有序清單，不用樹狀角色（每列有多個動作）；篩選膠囊是 aria-pressed；狀態只用 #a11yLive
+  // 播報一次，播放時不搶 VoiceOver 的話。
+  // ═══════════════════════════════════════════════════════════
+  const LISTEN_CHARS_PER_SEC = 4.2; // 估算長度用（實際依音色與語速而定，畫面上一律標「約」）
+  const listenRt = { data: null, at: 0, loading: null, filter: 'all', open: new Set(), visible: false, lastSave: 0 };
+
+  function listenMinutes(chars) {
+    const r = ttsRate ? (ttsRate() || 1) : 1;
+    return Math.max(1, Math.round(chars / LISTEN_CHARS_PER_SEC / r / 60));
+  }
+  function listenDuration(chars) {
+    const m = listenMinutes(chars);
+    if (m < 60) return `約 ${m} 分鐘`;
+    return `約 ${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ''}`;
+  }
+  function listenPrefs() {
+    const p = storage.getJson(STORAGE_KEYS.LISTEN_PREFS, {}) || {};
+    return { only: p.only === true };
+  }
+  function listenProgressAll() { return storage.getJson(STORAGE_KEYS.LISTEN_PROGRESS, {}) || {}; }
+  function listenProgress(id) { return listenProgressAll()[id] || null; }
+  function listenSaveProgress(id, patch) {
+    const all = listenProgressAll();
+    const cur = Object.assign({ done: [], times: 0 }, all[id] || {}, patch, { at: Date.now() });
+    all[id] = cur;
+    const keys = Object.keys(all);
+    if (keys.length > 200) { keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0)); delete all[keys[0]]; }
+    storage.setJson(STORAGE_KEYS.LISTEN_PROGRESS, all);
+    return cur;
+  }
+
+  async function listenLoad(force) {
+    if (!force && listenRt.data && Date.now() - listenRt.at < 5 * 60 * 1000) return listenRt.data;
+    if (listenRt.loading) return listenRt.loading;
+    listenRt.loading = fetch('/api/listen/catalog', { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && Array.isArray(d.items)) { listenRt.data = d; listenRt.at = Date.now(); } return listenRt.data; })
+      .catch(() => listenRt.data)
+      .finally(() => { listenRt.loading = null; });
+    return listenRt.loading;
+  }
+
+  /** 目前這一句屬於第幾品（parts 依行號排序；-1＝在第一品之前）。 */
+  function listenPartAt(item, line) {
+    let k = -1;
+    for (let i = 0; i < item.parts.length; i++) if (item.parts[i].line <= line) k = i; else break;
+    return k;
+  }
+
+  /** 由朗讀播放器呼叫：每換一句記下聽到哪裡、更新播放列標題。 */
+  function listenOnPlay(it) {
+    const L = ttsRt.listen; if (!L || !it || it.kind === 'skip') return;
+    const item = listenRt.data && listenRt.data.items.find(x => x.id === L.id);
+    if (!item) return;
+    const k = listenPartAt(item, it.line);
+    const title = k >= 0 ? `${item.name} · ${item.parts[k].t}` : item.name;
+    if (ttsRt.title !== title) { ttsRt.title = title; L.partTitle = k >= 0 ? item.parts[k].t : ''; }
+    const p = listenProgress(item.id) || { done: [] };
+    const done = Array.isArray(p.done) ? p.done.slice() : [];
+    if (L.part >= 0 && k > L.part && !done.includes(L.part)) done.push(L.part); // 前一品讀完了
+    L.part = k;
+    const span = Math.max(1, (item.endLine || item.lastLine + 1 || it.line + 1) - item.line);
+    const pct = Math.max(0, Math.min(99, Math.round((it.line - item.line) / span * 100)));
+    // 每換一品或至少每 5 秒存一次（換句很頻繁）
+    if (k !== p.part || Date.now() - listenRt.lastSave > 5000) {
+      listenRt.lastSave = Date.now();
+      listenSaveProgress(item.id, { part: k, line: it.line, pct, done, finished: false });
+    }
+  }
+
+  function listenOnFinish() {
+    const L = ttsRt.listen; if (!L) return;
+    const item = listenRt.data && listenRt.data.items.find(x => x.id === L.id);
+    if (!item) return;
+    const p = listenProgress(item.id) || { done: [] };
+    const done = Array.isArray(p.done) ? p.done.slice() : [];
+    if (L.part >= 0 && !done.includes(L.part)) done.push(L.part);
+    const whole = !L.only && (!item.parts.length || done.length >= item.parts.length || L.part === item.parts.length - 1);
+    listenSaveProgress(item.id, whole ? { part: -1, line: 0, pct: 0, done: [], finished: true, times: (p.times || 0) + 1 } : { done });
+    if (listenRt.visible) renderListenView();
+  }
+
+  /**
+   * 開始讀誦。partIdx＝-1 從頭；only＝只讀這一品。
+   * 先開啟經文（跟讀高亮與「回到朗讀位置」都要經文在畫面上），再從該行開始朗讀。
+   */
+  async function listenPlay(item, partIdx, opts) {
+    const o = opts || {};
+    const part = partIdx >= 0 ? item.parts[partIdx] : null;
+    const only = !!(part && o.only);
+    const line = o.line || (part ? part.line : item.line);
+    const stopLine = only ? part.endLine : item.endLine;
+    ttsUnlock(); // 在使用者手勢內先解鎖 iOS 的 <audio>
+    try { if (state.currentFile !== item.path) await openFile(item.path); } catch (_) { return; }
+    if (state.currentFile !== item.path) return;
+    ttsRt.nextListen = { id: item.id, name: item.name, part: listenPartAt(item, line), partTitle: part ? part.t : '', only };
+    ttsSetStartMode('listen');
+    ttsAnnounce(`開始讀誦 ${item.name}${part ? ` ${part.t}` : ''}`);
+    await ttsStartFromLine(line, false, stopLine ? { stopLine } : undefined);
+    ttsRt.nextListen = null; // 沒開始成功（例如網站沒開朗讀）時不要留給下一次朗讀
+  }
+
+  function listenResumeTarget() {
+    const d = listenRt.data; if (!d) return null;
+    const all = listenProgressAll();
+    let best = null;
+    for (const item of d.items) {
+      const p = all[item.id];
+      if (!p || p.finished || !p.line || !p.at) continue;
+      if (!best || p.at > best.p.at) best = { item, p };
+    }
+    return best;
+  }
+
+  const LISTEN_ICON = {
+    play: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4a.6.6 0 00.9.52l8.6-5.2a.6.6 0 000-1.04L4.9 2.28A.6.6 0 004 2.8z"/></svg>',
+    playS: '<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.8v10.4a.6.6 0 00.9.52l8.6-5.2a.6.6 0 000-1.04L4.9 2.28A.6.6 0 004 2.8z"/></svg>',
+    now: '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2" y="5" width="2.6" height="8" rx="1"/><rect x="6.7" y="2" width="2.6" height="11" rx="1"/><rect x="11.4" y="7" width="2.6" height="6" rx="1"/></svg>',
+    done: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>',
+    chev: '<svg class="listen-chev" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>',
+    phones: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 15v-3a8 8 0 0116 0v3"/><rect x="3" y="14" width="4" height="7" rx="1.5"/><rect x="17" y="14" width="4" height="7" rx="1.5"/></svg>'
+  };
+
+  function listenItemHtml(item, all) {
+    const p = all[item.id] || null;
+    const unit = item.unit || '品';
+    const n = item.parts.length;
+    const open = n > 0 && listenRt.open.has(item.id);
+    const pid = `listenParts-${item.id}`;
+    let status = '';
+    if (p && !p.finished && p.line) status = p.part >= 0 && item.parts[p.part] ? `上次聽到 ${item.parts[p.part].t}` : `已聽 ${p.pct || 0}%`;
+    else if (p && p.times) status = p.times > 1 ? `已聽完 ${p.times} 次` : '已聽完';
+    const meta = [item.sub, listenDuration(item.chars), n ? `${n} ${unit}` : ''].filter(Boolean).map(escHtml).join(' · ');
+    let parts = '';
+    if (open) {
+      const done = new Set(p && Array.isArray(p.done) ? p.done : []);
+      const nowIdx = p && !p.finished && p.line ? p.part : -1;
+      const only = listenPrefs().only;
+      const groups = [];
+      item.parts.forEach((pt, i) => {
+        const g = groups[groups.length - 1];
+        if (!g || g.juan !== pt.juan) groups.push({ juan: pt.juan, list: [[pt, i]] }); else g.list.push([pt, i]);
+      });
+      parts = `<div class="listen-parts" id="${pid}">
+        <fieldset class="listen-scope"><legend>點一${escHtml(unit)}：</legend>
+          <label class="${only ? '' : 'on'}"><input type="radio" name="listenScope-${escHtml(item.id)}" value="all" ${only ? '' : 'checked'}> 讀到經末</label>
+          <label class="${only ? 'on' : ''}"><input type="radio" name="listenScope-${escHtml(item.id)}" value="only" ${only ? 'checked' : ''}> 只讀這${escHtml(unit)}</label>
+        </fieldset>
+        ${groups.map(g => `${g.juan ? `<h4 class="listen-juan">${escHtml(g.juan)}</h4>` : ''}<ol class="listen-plist">${g.list.map(([pt, i]) => {
+          const cls = i === nowIdx ? 'now' : (done.has(i) ? 'done' : '');
+          const extra = cls === 'now' ? '，上次聽到這裡' : (cls === 'done' ? '，已聽完' : '');
+          const ic = cls === 'now' ? LISTEN_ICON.now : (cls === 'done' ? LISTEN_ICON.done : LISTEN_ICON.playS);
+          return `<li><button type="button" class="listen-part ${cls}" data-listen-part="${i}" aria-label="從${escHtml(pt.t)}開始讀誦，${listenDuration(pt.chars)}${extra}"><span class="listen-pi">${ic}</span><span class="listen-pn">${escHtml(pt.t)}</span><span class="listen-pm" aria-hidden="true">${cls === 'now' ? '上次聽到 · ' : ''}${listenMinutes(pt.chars)} 分</span></button></li>`;
+        }).join('')}</ol>`).join('')}
+      </div>`;
+    }
+    return `<li class="listen-item${open ? ' open' : ''}" data-listen-id="${escHtml(item.id)}">
+      <div class="listen-item-head"><h3 id="listenH-${escHtml(item.id)}">${escHtml(item.name)}</h3>
+        <p class="listen-meta">${meta}${status ? ` · <b>${escHtml(status)}</b>` : ''}</p></div>
+      <div class="listen-actions">
+        <button type="button" class="listen-btn primary" data-listen-act="play" aria-label="從頭讀誦 ${escHtml(item.name)}">${LISTEN_ICON.play}從頭讀誦</button>
+        ${n ? `<button type="button" class="listen-btn" data-listen-act="toggle" aria-expanded="${open}" aria-controls="${pid}">${open ? '收起' : '選擇'}${escHtml(unit)}（${n}）${LISTEN_ICON.chev}</button>` : ''}
+        <button type="button" class="listen-btn ghost" data-listen-act="open" aria-label="看經文 ${escHtml(item.name)}">看經文</button>
+      </div>${parts}</li>`;
+  }
+
+  function renderListenView() {
+    const root = $('listenView'); if (!root) return;
+    const d = listenRt.data;
+    if (!d) { root.innerHTML = '<div class="listen-page"><p class="listen-empty">讀取中…</p></div>'; return; }
+    const all = listenProgressAll();
+    const cats = d.categories;
+    if (listenRt.filter !== 'all' && !cats.some(c => c.id === listenRt.filter)) listenRt.filter = 'all';
+    const resume = listenResumeTarget();
+    const ttsOk = ttsEnabled();
+    let resumeHtml = '';
+    if (resume) {
+      const pt = resume.p.part >= 0 ? resume.item.parts[resume.p.part] : null;
+      resumeHtml = `<section class="listen-resume" aria-labelledby="listenResumeLabel">
+        <span class="listen-resume-icon" aria-hidden="true">${LISTEN_ICON.phones}</span>
+        <div class="listen-resume-text"><div class="listen-resume-k" id="listenResumeLabel">繼續收聽</div>
+          <div class="listen-resume-t">${escHtml(resume.item.name)}${pt ? ` · ${escHtml(pt.t)}` : ''}</div>
+          <div class="listen-resume-s">已聽 ${resume.p.pct || 0}%</div></div>
+        <button type="button" class="listen-btn primary" data-listen-act="resume" data-listen-id="${escHtml(resume.item.id)}" aria-label="繼續收聽 ${escHtml(resume.item.name)}${pt ? ` ${escHtml(pt.t)}` : ''}">${LISTEN_ICON.play}繼續</button>
+      </section>`;
+    }
+    const shown = cats.filter(c => listenRt.filter === 'all' || c.id === listenRt.filter);
+    root.innerHTML = `<div class="listen-page">
+      <header class="listen-head"><h1 id="listenTitle" tabindex="-1">聽經</h1>
+        <p>選一部經按「從頭讀誦」，或展開後從某一品、某一卷開始。可以關掉螢幕，在背景繼續聽。</p>
+        ${ttsOk ? '' : '<p class="listen-warn" role="note">這個網站目前沒有開啟朗讀，只能看經文。</p>'}</header>
+      ${resumeHtml}
+      ${cats.length > 1 ? `<div class="listen-filter" role="group" aria-label="依分類篩選">
+        <button type="button" data-listen-filter="all" aria-pressed="${listenRt.filter === 'all'}">全部</button>
+        ${cats.map(c => `<button type="button" data-listen-filter="${escHtml(c.id)}" aria-pressed="${listenRt.filter === c.id}">${escHtml(c.name)}</button>`).join('')}
+      </div>` : ''}
+      ${d.items.length ? shown.map(c => {
+        const items = d.items.filter(i => i.cat === c.id);
+        return `<section class="listen-cat" aria-labelledby="listenCat-${escHtml(c.id)}"><h2 id="listenCat-${escHtml(c.id)}">${escHtml(c.name)}${c.note ? `<small>${escHtml(c.note)}</small>` : ''}</h2>
+          <ul class="listen-list">${items.map(i => listenItemHtml(i, all)).join('')}</ul></section>`;
+      }).join('') : '<p class="listen-empty">目錄還是空的。管理員可以在後台「聽經目錄」加入經典。</p>'}
+    </div>`;
+    root.classList.toggle('no-tts', !ttsOk);
+  }
+
+  /** 顯示聽經頁（網址 /?listen）。push＝false 用於上一頁／重新整理。 */
+  async function openListenView(push = true) {
+    goHome(false);
+    const welcome = $('welcomeScreen'); const root = $('listenView');
+    if (!root) return;
+    if (welcome) welcome.style.display = 'none';
+    root.hidden = false; listenRt.visible = true;
+    document.body.classList.add('listen-open');
+    if (push && !/[?&]listen\b/.test(location.search)) history.pushState(null, '', '/?listen');
+    document.title = `聽經 — ${state.siteName}`;
+    renderListenView();
+    const content = $('content'); if (content) content.scrollTop = 0;
+    const d = await listenLoad(false);
+    if (!listenRt.visible) return;
+    renderListenView();
+    const h = $('listenTitle'); if (h) h.focus({ preventScroll: true });
+    if (d) a11yAnnounce(`聽經目錄，${d.items.length} 部經`);
+  }
+
+  function closeListenView() {
+    const root = $('listenView');
+    if (root) root.hidden = true;
+    listenRt.visible = false;
+    document.body.classList.remove('listen-open');
+  }
+
+  function setupListen() {
+    const root = $('listenView');
+    if (!root) return;
+    root.addEventListener('click', async (e) => {
+      const t = e.target.closest && e.target.closest('button');
+      if (!t || !listenRt.data) return;
+      if (t.dataset.listenFilter) {
+        listenRt.filter = t.dataset.listenFilter;
+        renderListenView();
+        const b = root.querySelector(`[data-listen-filter="${CSS.escape(listenRt.filter)}"]`); if (b) b.focus();
+        const cat = listenRt.data.categories.find(c => c.id === listenRt.filter);
+        const n = cat ? listenRt.data.items.filter(i => i.cat === cat.id).length : listenRt.data.items.length;
+        a11yAnnounce(`${cat ? cat.name : '全部'}，${n} 部經`);
+        return;
+      }
+      const li = t.closest('[data-listen-id]');
+      const id = (t.dataset.listenId) || (li && li.dataset.listenId);
+      const item = id && listenRt.data.items.find(x => x.id === id);
+      if (!item) return;
+      const act = t.dataset.listenAct;
+      if (act === 'toggle') {
+        if (listenRt.open.has(id)) listenRt.open.delete(id); else listenRt.open.add(id);
+        renderListenView();
+        const nb = root.querySelector(`[data-listen-id="${CSS.escape(id)}"] [data-listen-act="toggle"]`); if (nb) nb.focus();
+        return;
+      }
+      if (act === 'open') { closeListenView(); openFile(item.path); return; }
+      if (act === 'play') { closeListenView(); return listenPlay(item, -1); }
+      if (act === 'resume') {
+        const p = listenProgress(item.id);
+        closeListenView();
+        return listenPlay(item, p && p.part >= 0 ? p.part : -1, { line: p && p.line });
+      }
+      if (t.dataset.listenPart !== undefined) {
+        closeListenView();
+        return listenPlay(item, Number(t.dataset.listenPart), { only: listenPrefs().only });
+      }
+    });
+    root.addEventListener('change', (e) => {
+      const r = e.target;
+      if (!r || r.type !== 'radio' || !/^listenScope-/.test(r.name)) return;
+      storage.setJson(STORAGE_KEYS.LISTEN_PREFS, { only: r.value === 'only' });
+      root.querySelectorAll('.listen-scope label').forEach(l => { const i = l.querySelector('input'); l.classList.toggle('on', !!i && i.value === r.value); if (i) i.checked = i.value === r.value; });
+      a11yAnnounce(r.value === 'only' ? '點一品只讀這一品' : '點一品會接著讀到經末');
+    });
+    // Esc：焦點在品卷清單裡時收起，焦點回到展開鈕
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const li = e.target.closest && e.target.closest('.listen-item.open');
+      if (!li || !li.querySelector('.listen-parts').contains(e.target)) return;
+      e.preventDefault();
+      listenRt.open.delete(li.dataset.listenId);
+      renderListenView();
+      const nb = root.querySelector(`[data-listen-id="${CSS.escape(li.dataset.listenId)}"] [data-listen-act="toggle"]`); if (nb) nb.focus();
+    });
+    const chip = $('homeListen');
+    if (chip) chip.addEventListener('click', () => openListenView(true));
+    // 首頁的入口：有開朗讀、目錄有經才顯示
+    Promise.all([listenLoad(false), refreshTtsStatus(false).catch(() => null)]).then(([d]) => {
+      if (chip) chip.hidden = !(d && d.items.length && ttsEnabled());
+      const mi = document.querySelector('#ttsStartMenu [data-tts-act="listen"]');
+      if (mi) mi.hidden = !(d && d.items.length);
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -15534,7 +15870,7 @@
   let stateAnalyticsRange = '1d';
 
   // ── 數據分析：朗讀（TTS）──
-  const TTS_MODE_LABELS = { here: '從這裡讀到結尾', section: '朗讀本節（選單）', heading: '標題旁的朗讀本節', toc: '大綱的朗讀本節', sentence: '朗讀本句', top: '從頭朗讀整篇', selection: '選字朗讀', chant: '誦經模式', 'next-doc': '讀完接下一篇（自動）', resume: '繼續上次' };
+  const TTS_MODE_LABELS = { here: '從這裡讀到結尾', section: '朗讀本節（選單）', heading: '標題旁的朗讀本節', toc: '大綱的朗讀本節', sentence: '朗讀本句', top: '從頭朗讀整篇', selection: '選字朗讀', chant: '誦經模式', 'next-doc': '讀完接下一篇（自動）', resume: '繼續上次', listen: '聽經目錄' };
   const TTS_FEATURE_LABELS = { sleep: '睡眠計時', 'continue-next': '開啟「讀完接下一篇」', chant: '誦經模式', offline: '離線下載整篇', 'pin-voice': '固定這部經的音色', panel: '打開播放面板', 'voice-switch': '朗讀中換音色', rate: '調整語速' };
   const TTS_END_LABELS = { finished: '讀完', stopped: '使用者停止', sleep: '睡眠計時停止' };
 
@@ -15972,7 +16308,7 @@
     config: 'adminPaneConfig', seo: 'adminPaneSeo', hardware: 'adminPaneHardware',
     logs: 'adminPaneLogs', analytics: 'adminPaneAnalytics', suggest: 'adminPaneSuggest',
     users: 'adminPaneUsers', accountsys: 'adminPaneAccountSystem', reports: 'adminPaneReports',
-    backup: 'adminPaneBackup', overview: 'adminPaneOverview', tts: 'adminPaneTts'
+    backup: 'adminPaneBackup', overview: 'adminPaneOverview', tts: 'adminPaneTts', listen: 'adminPaneListen'
   };
   const ADMIN_HASH_PREFIX = '#admin';
   let adminCurrentPane = null;
@@ -16026,6 +16362,7 @@
       case 'backup': setupAdminAccountEvents(); loadAdminBackupPane(); break;
       case 'overview': loadAdminOverview(); break;
       case 'tts': loadAdminTtsPane(); break;
+      case 'listen': loadAdminListenPane(); break;
       default: break;
     }
   }
@@ -17824,6 +18161,362 @@
       const id = b.closest('[data-job]').dataset.job;
       const r = await ttsAdminApi(`/api/admin/tts/jobs/${id}`, { method: 'POST', body: { action: b.dataset.jobAction } });
       if (r.ok) renderTtsAdminJobs(r.data); else showToast(`❌ ${r.data.error || '操作失敗'}`, 'error');
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // §21.9 聽經目錄後台（#adminPaneListen，lib/listen-catalog.js）
+  //
+  // 編輯的是一份本地副本（lcAdmin.cat），按「儲存」才送出；品卷由伺服器依目前的設定偵測
+  // （POST /api/admin/listen/detect），所以畫面上的起點行號、長度和讀者端一致。
+  // 自動分段時只存管理員的覆寫（改名、不收錄），以「開頭文字＋行號」對應，檔案改版也找得回來。
+  // ═══════════════════════════════════════════════════════════
+  const lcAdmin = { cat: null, saved: '', status: {}, sel: null, detect: null, detectKey: '', coverage: null, voice: '', wired: false, catsOpen: false };
+  const LC_SPLITS = [['auto', '自動・有品依品'], ['juan', '自動・依卷'], ['none', '不分段'], ['manual', '手動']];
+
+  function lcDirty() { return !!lcAdmin.cat && JSON.stringify(lcAdmin.cat) !== lcAdmin.saved; }
+  function lcItem() { return lcAdmin.cat && lcAdmin.cat.items.find(i => i.id === lcAdmin.sel); }
+  function lcMarkDirty() { const d = $('lcDirty'); if (d) d.textContent = lcDirty() ? '有尚未儲存的變更' : ''; }
+  function lcNewId() { return Math.random().toString(16).slice(2, 12); }
+
+  async function loadAdminListenPane() {
+    setupAdminListenEvents();
+    if (lcDirty()) return; // 有沒存的變更就不覆蓋
+    const r = await ttsAdminApi('/api/admin/listen/catalog');
+    if (!r.ok) { setAdminCardLight('listenlist', 'bad', r.data.error || '無法載入'); return; }
+    lcApplyServer(r.data);
+    const st = await refreshTtsStatus(false).catch(() => null);
+    lcAdmin.voice = st && st.defaultVoice ? st.defaultVoice : '';
+    const dl = $('lcPathList');
+    if (dl && !dl.childElementCount) dl.innerHTML = homeAllFiles().map(f => `<option value="${escHtml(f.path)}"></option>`).join('');
+    lcLoadCoverage();
+  }
+
+  function lcApplyServer(data) {
+    lcAdmin.cat = JSON.parse(JSON.stringify(data.catalog));
+    lcAdmin.saved = JSON.stringify(lcAdmin.cat);
+    lcAdmin.status = data.status || {};
+    if (!lcItem()) lcAdmin.sel = lcAdmin.cat.items.length ? lcAdmin.cat.items[0].id : null;
+    lcAdmin.detect = null; lcAdmin.detectKey = '';
+    renderLcAdmin();
+    lcMarkDirty();
+    const bad = Object.values(lcAdmin.status).filter(s => !s.ok).length;
+    const warn = Object.values(lcAdmin.status).filter(s => s.ok && s.issues && s.issues.length).length;
+    if (bad) setAdminCardLight('listenlist', 'bad', `${bad} 部經找不到檔案`);
+    else if (warn) setAdminCardLight('listenlist', 'warn', `${warn} 部經有品卷對不到`);
+    else setAdminCardLight('listenlist', 'ok', `${lcAdmin.cat.items.filter(i => i.enabled !== false).length} 部經顯示中${data.seeded ? '（預設經目，尚未存檔）' : ''}`);
+  }
+
+  function lcLight(it) {
+    const s = lcAdmin.status[it.id];
+    if (!s) return ['off', '尚未檢查（儲存後檢查）'];
+    if (!s.ok) return ['bad', '找不到檔案'];
+    if (s.issues && s.issues.length) return ['warn', '有品卷或節錄範圍對不到'];
+    return ['ok', '正常'];
+  }
+
+  function renderLcList() {
+    const box = $('lcList'); const c = lcAdmin.cat; if (!box || !c) return;
+    box.innerHTML = c.categories.map(cat => {
+      const items = c.items.filter(i => i.cat === cat.id);
+      return `<div class="lc-catname" role="heading" aria-level="4">${escHtml(cat.name)} <span>（${items.length}）</span></div>
+        <ul class="lc-rows">${items.map((it, k) => {
+          const [lv, lt] = lcLight(it); const s = lcAdmin.status[it.id];
+          const info = it.range ? '節錄' : (s && s.ok && s.parts && s.parts.length ? `${s.parts.filter(p => !p.off).length} ${s.unit || '段'}` : '整部');
+          return `<li class="lc-row${it.id === lcAdmin.sel ? ' sel' : ''}${it.enabled === false ? ' off' : ''}" data-lc-id="${escHtml(it.id)}">
+            <span class="status-light ${lv}" role="img" aria-label="${escHtml(lt)}" title="${escHtml(lt)}"></span>
+            <button type="button" class="lc-row-name" data-lc-act="select" data-no-dirty aria-current="${it.id === lcAdmin.sel ? 'true' : 'false'}">${escHtml(it.name)}<small>${escHtml(info)}${it.enabled === false ? '・不顯示' : ''}</small></button>
+            <button type="button" class="lc-mini" data-lc-act="up" data-no-dirty aria-label="上移 ${escHtml(it.name)}" ${k === 0 ? 'disabled' : ''}>↑</button>
+            <button type="button" class="lc-mini" data-lc-act="down" data-no-dirty aria-label="下移 ${escHtml(it.name)}" ${k === items.length - 1 ? 'disabled' : ''}>↓</button>
+          </li>`;
+        }).join('')}</ul>`;
+    }).join('') || '<p class="field-hint">還沒有經。按「＋ 加入經」。</p>';
+  }
+
+  function renderLcCats() {
+    const box = $('lcCats'); const c = lcAdmin.cat; if (!box || !c) return;
+    box.hidden = !lcAdmin.catsOpen;
+    $('lcCatsBtn').setAttribute('aria-expanded', String(lcAdmin.catsOpen));
+    if (!lcAdmin.catsOpen) return;
+    box.innerHTML = `<ul class="lc-cat-edit">${c.categories.map((cat, k) => {
+      const used = c.items.filter(i => i.cat === cat.id).length;
+      return `<li data-lc-cat="${escHtml(cat.id)}">
+        <input type="text" class="lc-in" data-lc-cf="name" value="${escHtml(cat.name)}" aria-label="分類名稱" maxlength="30" data-no-dirty>
+        <input type="text" class="lc-in lc-in-note" data-lc-cf="note" value="${escHtml(cat.note || '')}" aria-label="${escHtml(cat.name)} 的說明" placeholder="說明（可空白）" maxlength="40" data-no-dirty>
+        <button type="button" class="lc-mini" data-lc-cact="up" data-no-dirty aria-label="上移分類 ${escHtml(cat.name)}" ${k === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" class="lc-mini" data-lc-cact="down" data-no-dirty aria-label="下移分類 ${escHtml(cat.name)}" ${k === c.categories.length - 1 ? 'disabled' : ''}>↓</button>
+        <button type="button" class="lc-mini" data-lc-cact="del" data-no-dirty aria-label="刪除分類 ${escHtml(cat.name)}" ${used || c.categories.length < 2 ? `disabled title="${used ? '分類裡還有經' : '至少要有一個分類'}"` : ''}>✕</button>
+      </li>`;
+    }).join('')}</ul>
+    <button type="button" class="modal-btn secondary-btn small-btn" data-lc-cact="add" data-no-dirty>＋ 新增分類</button>`;
+  }
+
+  function renderLcEdit() {
+    const box = $('lcEdit'); const it = lcItem(); if (!box) return;
+    if (!it) { box.innerHTML = '<p class="field-hint">從左邊選一部經來編輯。</p>'; return; }
+    const c = lcAdmin.cat; const d = lcAdmin.detect;
+    const heads = d && d.headings ? d.headings : [];
+    const opt = (h, cur) => `<option value="${escHtml(h.head)}|${h.line}" ${cur && cur.head === h.head && Math.abs((cur.line || h.line) - h.line) < 400 ? 'selected' : ''}>第 ${h.line} 行　${escHtml(h.head)}</option>`;
+    box.innerHTML = `<h3 class="lc-edit-title">${escHtml(it.name)}</h3>
+      <div class="lc-form">
+        <label for="lcName">顯示名稱</label><input type="text" class="lc-in" id="lcName" data-lc-f="name" value="${escHtml(it.name)}" maxlength="60" data-no-dirty>
+        <label for="lcSub">副標</label><input type="text" class="lc-in" id="lcSub" data-lc-f="sub" value="${escHtml(it.sub || '')}" maxlength="60" placeholder="譯者，例如：姚秦 鳩摩羅什 譯" data-no-dirty>
+        <label for="lcCat">分類</label><select class="lc-in" id="lcCat" data-lc-f="cat" data-no-dirty>${c.categories.map(cat => `<option value="${escHtml(cat.id)}" ${cat.id === it.cat ? 'selected' : ''}>${escHtml(cat.name)}</option>`).join('')}</select>
+        <label for="lcPath">經文檔案</label><div class="lc-path"><input type="text" class="lc-in" id="lcPath" data-lc-f="path" value="${escHtml(it.path)}" list="lcPathList" spellcheck="false" data-no-dirty><a class="modal-btn secondary-btn small-btn" href="/?file=${encodeURIComponent(it.path)}" target="_blank" rel="noopener">開啟</a></div>
+        <span class="lc-label">顯示</span><label class="lc-check"><input type="checkbox" data-lc-f="enabled" ${it.enabled !== false ? 'checked' : ''} data-no-dirty> 在聽經頁顯示</label>
+        <span class="lc-label" id="lcRangeLbl">範圍</span>
+        <div><div class="lc-seg" role="radiogroup" aria-labelledby="lcRangeLbl">
+          <label><input type="radio" name="lcRange" value="all" ${it.range ? '' : 'checked'} data-no-dirty> 整個檔案</label>
+          <label><input type="radio" name="lcRange" value="part" ${it.range ? 'checked' : ''} data-no-dirty> 只取一段（節錄）</label></div>
+          ${it.range ? `<div class="lc-range">
+            <label>從 <select class="lc-in" data-lc-range="from" data-no-dirty>${heads.map(h => opt(h, it.range.from)).join('')}</select></label>
+            <label>到（不含）<select class="lc-in" data-lc-range="to" data-no-dirty><option value="">檔案結尾</option>${heads.map(h => opt(h, it.range.to)).join('')}</select></label>
+          </div>` : '<p class="field-hint">節錄例：普門品＝法華經第二十五品；普賢行願品＝四十華嚴卷四十。</p>'}
+        </div>
+        <span class="lc-label" id="lcSplitLbl">分段方式</span>
+        <div><div class="lc-seg" role="radiogroup" aria-labelledby="lcSplitLbl">${LC_SPLITS.map(([v, t]) => `<label><input type="radio" name="lcSplit" value="${v}" ${it.split === v ? 'checked' : ''} data-no-dirty> ${t}</label>`).join('')}</div>
+          <p class="field-hint">${d && d.resolved ? (d.resolved.parts.length ? `偵測到 ${d.resolved.parts.length} ${escHtml(d.resolved.unit || '段')}；全部約 ${listenMinutes(d.resolved.chars)} 分鐘。` : `不分段；全部約 ${listenMinutes(d.resolved.chars)} 分鐘。`) : '偵測中…'}${it.split === 'manual' ? ' 手動：在下方用「＋ 加一段」挑每一段的開頭。' : ''}</p></div>
+      </div>
+      <div class="lc-edit-foot"><button type="button" class="modal-btn cancel-btn small-btn" data-lc-act="delete" data-no-dirty>從目錄移除這部經</button></div>`;
+  }
+
+  function renderLcParts() {
+    const box = $('lcParts'); const it = lcItem(); if (!box) return;
+    const d = lcAdmin.detect;
+    if (!it) { box.innerHTML = ''; return; }
+    if (!d) { box.innerHTML = '<p class="field-hint">讀取品卷中…</p>'; return; }
+    if (d.error) { box.innerHTML = `<p class="field-hint lc-err">${escHtml(d.error)}</p>`; return; }
+    const parts = d.resolved.parts; const manual = it.split === 'manual';
+    const issues = (d.resolved.issues || []).map(x => x.replace(/^part:/, '對不到：').replace('range-start', '節錄的起點對不到').replace('range-end', '節錄的終點對不到'));
+    let rows = ''; let lastJ = null;
+    parts.forEach((p, i) => {
+      if (p.juan && p.juan !== lastJ) { rows += `<tr class="lc-juan"><td colspan="6">${escHtml(p.juan)}</td></tr>`; lastJ = p.juan; }
+      rows += `<tr data-lc-head="${escHtml(p.head)}" data-lc-line="${p.line}"${p.off ? ' class="off"' : ''}>
+        <td><input type="checkbox" data-lc-pf="on" ${p.off ? '' : 'checked'} aria-label="收錄 ${escHtml(p.t)}" data-no-dirty></td>
+        <td class="lc-num">${i + 1}</td>
+        <td><input type="text" class="lc-in" data-lc-pf="title" value="${escHtml(p.t)}" aria-label="第 ${i + 1} 段讀者看到的名稱" maxlength="60" data-no-dirty></td>
+        <td class="lc-num"><a href="/?file=${encodeURIComponent(d.path)}&line=${p.line}" target="_blank" rel="noopener" aria-label="在經文中查看第 ${p.line} 行">第 ${p.line} 行</a></td>
+        <td class="lc-num">約 ${listenMinutes(p.chars)} 分</td>
+        <td>${manual ? `<button type="button" class="lc-mini" data-lc-pact="del" data-no-dirty aria-label="刪除 ${escHtml(p.t)}">✕</button>` : ''}</td></tr>`;
+    });
+    const heads = d.headings || [];
+    box.innerHTML = `<div class="lc-parts-head"><h3>品卷（${parts.filter(p => !p.off).length}）</h3>
+        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="redetect" data-no-dirty>重新偵測</button></div>
+      ${issues.length ? `<p class="field-hint lc-err" role="alert">${issues.map(escHtml).join('；')}</p>` : ''}
+      ${parts.length ? `<table class="lc-table"><thead><tr><th scope="col"><span class="tts-sr-only">收錄</span></th><th scope="col">#</th><th scope="col">讀者看到的名稱</th><th scope="col">起點</th><th scope="col">長度</th><th scope="col"><span class="tts-sr-only">操作</span></th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="field-hint">${manual ? '還沒有分段。' : '這部經沒有偵測到品或卷，讀者會看到「從頭讀誦」整部。'}</p>`}
+      ${manual ? `<div class="lc-addpart"><label for="lcAddPart">＋ 加一段，從</label>
+        <select class="lc-in" id="lcAddPart" data-no-dirty><option value="">選一個標題或段首…</option>${heads.map(h => `<option value="${escHtml(h.head)}|${h.line}">第 ${h.line} 行　${escHtml(h.head)}</option>`).join('')}</select>
+        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-pact="add" data-no-dirty>加入</button></div>` : ''}`;
+  }
+
+  function renderLcGen() {
+    const box = $('lcGen'); const it = lcItem(); if (!box) return;
+    const cov = lcAdmin.coverage;
+    const ttsOn = ttsEnabled();
+    const one = it && cov && cov.items ? cov.items[it.id] : null;
+    const totals = cov && cov.items ? Object.values(cov.items).filter(Boolean).reduce((a, x) => ({ v: a.v + x.voiced, c: a.c + x.cached }), { v: 0, c: 0 }) : null;
+    const pct = (x) => (x && x.voiced ? Math.floor(x.cached / x.voiced * 100) : 0);
+    const voice = (ttsVoices().find(v => v.id === lcAdmin.voice) || {}).name || lcAdmin.voice;
+    box.innerHTML = `<div class="lc-parts-head"><h3>預先生成語音</h3><span class="field-hint">${voice ? `音色：${escHtml(voice)}（預設）` : ''}</span></div>
+      ${!ttsOn ? '<p class="field-hint">網站還沒有開啟朗讀，或沒有開放的音色。請先到「朗讀（TTS）」設定。</p>' : `
+      <div class="lc-stat">
+        <div><b>${one ? pct(one) + '%' : '—'}</b><span>這部經已生成${one ? `（${one.cached.toLocaleString()}／${one.voiced.toLocaleString()} 句）` : ''}</span></div>
+        <div><b>${totals && totals.v ? Math.floor(totals.c / totals.v * 100) + '%' : '—'}</b><span>整個目錄已生成${totals ? `（${totals.c.toLocaleString()}／${totals.v.toLocaleString()} 句）` : ''}</span></div>
+      </div>
+      <div class="lc-bar" role="progressbar" aria-label="這部經已生成" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${one ? pct(one) : 0}"><i style="width:${one ? pct(one) : 0}%"></i></div>
+      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。工作在背景依序進行，進度在「朗讀（TTS）」頁的預先生成區。</p>
+      <div class="lc-tool">
+        <button type="button" class="modal-btn submit-btn small-btn" data-lc-act="gen-one" data-no-dirty ${it ? '' : 'disabled'}>預先生成這部經</button>
+        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="gen-all" data-no-dirty>整個目錄一起預先生成</button>
+        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 固定保留（不被快取清理刪掉）</label>
+      </div>`}`;
+  }
+
+  function renderLcAdmin() {
+    renderLcList(); renderLcCats(); renderLcEdit(); renderLcParts(); renderLcGen();
+    lcDetect();
+  }
+
+  /** 依目前（可能還沒存）的設定請伺服器偵測品卷；設定沒變就不重送。 */
+  async function lcDetect(force) {
+    const it = lcItem(); if (!it) return;
+    const key = JSON.stringify([it.path, it.split, it.range, it.parts]);
+    if (!force && key === lcAdmin.detectKey) return;
+    lcAdmin.detectKey = key;
+    const r = await ttsAdminApi('/api/admin/listen/detect', { method: 'POST', body: { path: it.path, split: it.split, range: it.range, parts: it.parts } });
+    if (key !== lcAdmin.detectKey) return;
+    lcAdmin.detect = r.ok ? r.data : { error: r.status === 404 ? '找不到這個檔案。請確認路徑（可以從清單挑選）。' : (r.data.error || '偵測失敗') };
+    renderLcEdit(); renderLcParts();
+  }
+
+  async function lcLoadCoverage() {
+    if (!ttsEnabled()) { renderLcGen(); return; }
+    const r = await ttsAdminApi(`/api/admin/listen/coverage?voice=${encodeURIComponent(lcAdmin.voice)}`);
+    lcAdmin.coverage = r.ok ? r.data : null;
+    renderLcGen();
+  }
+
+  function lcChanged(opts) {
+    lcMarkDirty();
+    const o = opts || {};
+    if (o.list) renderLcList();
+    if (o.edit) renderLcEdit();
+    if (o.detect) { lcAdmin.detect = null; renderLcParts(); lcDetect(); }
+  }
+
+  /** 自動分段的覆寫：只存跟偵測結果不同的（改名或不收錄）。 */
+  function lcSetOverride(it, head, line, patch) {
+    let ov = it.parts.find(o => o.head === head && Math.abs((o.line || line) - line) < 400);
+    if (!ov) { ov = { head, line, title: '', on: true }; it.parts.push(ov); }
+    Object.assign(ov, patch);
+    if (it.split !== 'manual' && ov.on !== false && !ov.title) it.parts.splice(it.parts.indexOf(ov), 1); // 沒有覆寫就不存
+  }
+
+  function setupAdminListenEvents() {
+    if (lcAdmin.wired) return;
+    lcAdmin.wired = true;
+    const pane = $('adminPaneListen');
+    pane.addEventListener('click', async (e) => {
+      const b = e.target.closest && e.target.closest('button'); if (!b || !lcAdmin.cat) return;
+      const c = lcAdmin.cat;
+      const row = b.closest('[data-lc-id]');
+      const act = b.dataset.lcAct;
+      if (row && act) {
+        const id = row.dataset.lcId; const it = c.items.find(x => x.id === id);
+        if (act === 'select') { lcAdmin.sel = id; lcAdmin.detect = null; lcAdmin.detectKey = ''; renderLcAdmin(); const n = $('lcName'); if (n && isAdminNarrow()) n.focus(); return; }
+        if (act === 'up' || act === 'down') {
+          const same = c.items.filter(x => x.cat === it.cat); const k = same.indexOf(it); const other = same[k + (act === 'up' ? -1 : 1)];
+          if (!other) return;
+          const a = c.items.indexOf(it); const bI = c.items.indexOf(other);
+          c.items[a] = other; c.items[bI] = it;
+          lcChanged({ list: true });
+          const nb = $('lcList').querySelector(`[data-lc-id="${CSS.escape(id)}"] [data-lc-act="${act}"]`);
+          (nb && !nb.disabled ? nb : $('lcList').querySelector(`[data-lc-id="${CSS.escape(id)}"] .lc-row-name`)).focus();
+          a11yAnnounce(`${it.name} 已${act === 'up' ? '上移' : '下移'}`);
+          return;
+        }
+      }
+      if (act === 'delete') {
+        const it = lcItem(); if (!it) return;
+        if (!confirm(`從聽經目錄移除「${it.name}」？（經文檔案不會被刪除）`)) return;
+        c.items.splice(c.items.indexOf(it), 1);
+        lcAdmin.sel = c.items.length ? c.items[0].id : null; lcAdmin.detect = null; lcAdmin.detectKey = '';
+        lcChanged(); renderLcAdmin(); return;
+      }
+      if (act === 'redetect') { lcDetect(true); return; }
+      if (act === 'gen-one' || act === 'gen-all') {
+        const it = lcItem();
+        if (act === 'gen-one' && lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const scope = act === 'gen-one' ? it.path : 'listen:catalog';
+        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
+        if (r.ok) showToast(`✅ 已排入預先生成（${act === 'gen-one' ? it.name : '整個目錄'}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        return;
+      }
+      const pact = b.dataset.lcPact; const it = lcItem();
+      if (pact && it) {
+        if (pact === 'add') {
+          const v = $('lcAddPart').value; if (!v) return;
+          const i = v.lastIndexOf('|'); const head = v.slice(0, i); const line = Number(v.slice(i + 1));
+          if (!it.parts.some(p => p.head === head && p.line === line)) it.parts.push({ head, line, title: head, on: true });
+          it.parts.sort((x, y) => x.line - y.line);
+          lcChanged({ detect: true, list: true }); return;
+        }
+        if (pact === 'del') {
+          const tr = b.closest('tr'); const head = tr.dataset.lcHead; const line = Number(tr.dataset.lcLine);
+          it.parts = it.parts.filter(p => !(p.head === head && Math.abs(p.line - line) < 400));
+          lcChanged({ detect: true, list: true }); return;
+        }
+      }
+      const cact = b.dataset.lcCact;
+      if (cact) {
+        const li = b.closest('[data-lc-cat]'); const k = li ? c.categories.findIndex(x => x.id === li.dataset.lcCat) : -1;
+        if (cact === 'add') c.categories.push({ id: lcNewId(), name: '新分類', note: '' });
+        else if (cact === 'del' && k >= 0) c.categories.splice(k, 1);
+        else if ((cact === 'up' || cact === 'down') && k >= 0) { const j = k + (cact === 'up' ? -1 : 1); if (j < 0 || j >= c.categories.length) return; [c.categories[k], c.categories[j]] = [c.categories[j], c.categories[k]]; }
+        lcChanged({ list: true, edit: true }); renderLcCats();
+        if (cact === 'add') { const ins = $('lcCats').querySelectorAll('[data-lc-cf="name"]'); const last = ins[ins.length - 1]; if (last) { last.focus(); last.select(); } }
+        return;
+      }
+    });
+    pane.addEventListener('input', (e) => {
+      const t = e.target; const it = lcItem();
+      if (t.dataset.lcF && it && (t.dataset.lcF === 'name' || t.dataset.lcF === 'sub')) {
+        it[t.dataset.lcF] = t.value;
+        if (t.dataset.lcF === 'name') { const h = $('lcEdit').querySelector('.lc-edit-title'); if (h) h.textContent = t.value; }
+        lcMarkDirty(); return;
+      }
+      if (t.dataset.lcCf) {
+        const cat = lcAdmin.cat.categories.find(x => x.id === t.closest('[data-lc-cat]').dataset.lcCat);
+        if (cat) { cat[t.dataset.lcCf] = t.value; lcMarkDirty(); }
+        return;
+      }
+      if (t.dataset.lcPf === 'title' && it) {
+        const tr = t.closest('tr');
+        lcSetOverride(it, tr.dataset.lcHead, Number(tr.dataset.lcLine), { title: t.value.trim() });
+        lcMarkDirty();
+      }
+    });
+    pane.addEventListener('change', (e) => {
+      const t = e.target; const it = lcItem(); if (!lcAdmin.cat) return;
+      if (t.dataset.lcCf) { lcChanged({ list: true, edit: true }); return; }
+      if (!it) return;
+      if (t.dataset.lcF === 'cat') { it.cat = t.value; lcChanged({ list: true }); return; }
+      if (t.dataset.lcF === 'enabled') { it.enabled = t.checked; lcChanged({ list: true }); return; }
+      if (t.dataset.lcF === 'path') { it.path = t.value.trim(); it.parts = it.split === 'manual' ? [] : it.parts; it.range = null; lcChanged({ edit: true, detect: true }); return; }
+      if (t.name === 'lcRange') {
+        if (t.value === 'all') it.range = null;
+        else { const h = (lcAdmin.detect && lcAdmin.detect.headings || [])[0]; it.range = { from: h ? { head: h.head, line: h.line } : { head: '', line: 1 }, to: null }; it.split = 'none'; }
+        lcChanged({ edit: true, detect: true }); return;
+      }
+      if (t.dataset.lcRange) {
+        const v = t.value; const i = v.lastIndexOf('|');
+        const a = v ? { head: v.slice(0, i), line: Number(v.slice(i + 1)) } : null;
+        if (t.dataset.lcRange === 'from' && a) it.range.from = a; else if (t.dataset.lcRange === 'to') it.range.to = a;
+        lcChanged({ detect: true }); return;
+      }
+      if (t.name === 'lcSplit') {
+        const was = it.split; it.split = t.value;
+        if (t.value === 'manual' && was !== 'manual' && lcAdmin.detect) { // 從偵測結果開始手動調整
+          it.parts = lcAdmin.detect.resolved.parts.map(p => ({ head: p.head, line: p.line, title: p.t, on: !p.off }));
+        } else if (was === 'manual' && t.value !== 'manual') it.parts = [];
+        lcChanged({ detect: true, list: true }); return;
+      }
+      if (t.dataset.lcPf === 'on') {
+        const tr = t.closest('tr');
+        lcSetOverride(it, tr.dataset.lcHead, Number(tr.dataset.lcLine), { on: t.checked });
+        tr.classList.toggle('off', !t.checked);
+        lcChanged({ detect: true, list: true }); return;
+      }
+      if (t.dataset.lcPf === 'title') lcDetect();
+    });
+    $('lcAddBtn').addEventListener('click', () => {
+      const c = lcAdmin.cat; if (!c) return;
+      const it = { id: lcNewId(), name: '新的經', sub: '', cat: c.categories[0].id, path: '', enabled: true, split: 'auto', range: null, parts: [] };
+      c.items.push(it); lcAdmin.sel = it.id; lcAdmin.detect = { error: '請填入經文檔案（可以從清單挑選）。' }; lcAdmin.detectKey = '';
+      lcChanged(); renderLcList(); renderLcEdit(); renderLcParts(); renderLcGen();
+      const p = $('lcPath'); if (p) p.focus();
+    });
+    $('lcCatsBtn').addEventListener('click', () => { lcAdmin.catsOpen = !lcAdmin.catsOpen; renderLcCats(); if (lcAdmin.catsOpen) { const f = $('lcCats').querySelector('input'); if (f) f.focus(); } });
+    $('lcRevertBtn').addEventListener('click', () => {
+      if (!lcDirty()) return;
+      lcAdmin.cat = JSON.parse(lcAdmin.saved); if (!lcItem()) lcAdmin.sel = lcAdmin.cat.items.length ? lcAdmin.cat.items[0].id : null;
+      lcAdmin.detect = null; lcAdmin.detectKey = ''; renderLcAdmin(); lcMarkDirty();
+      a11yAnnounce('已放棄變更');
+    });
+    $('lcPreviewBtn').addEventListener('click', () => window.open('/?listen', '_blank', 'noopener'));
+    $('lcSaveBtn').addEventListener('click', async () => {
+      const c = lcAdmin.cat; if (!c) return;
+      const bad = c.items.find(i => !i.name.trim() || !/\.md$/i.test(i.path || ''));
+      if (bad) { lcAdmin.sel = bad.id; renderLcAdmin(); showToast('每部經都要有名稱和 .md 經文檔案', 'warn'); return; }
+      const btn = $('lcSaveBtn'); btn.disabled = true;
+      const r = await ttsAdminApi('/api/admin/listen/catalog', { method: 'POST', body: { catalog: c } });
+      btn.disabled = false;
+      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
+      lcApplyServer(r.data);
+      listenRt.data = null; // 讀者頁下次重新讀取
+      showToast('✅ 聽經目錄已儲存', 'success');
+      lcLoadCoverage();
     });
   }
 

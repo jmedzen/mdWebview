@@ -419,6 +419,7 @@
             <div class="home-quick">
               <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
               <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>
+              <button type="button" class="home-chip home-chip-listen" id="homeListen" hidden><span aria-hidden="true">🎧 </span>聽經</button>
             </div>
             <button type="button" class="home-scroll-cue" id="homeScrollCue" hidden>向下 · 我的書架與今日</button>
           </div>
@@ -485,6 +486,9 @@
             </div>
           </div>
         </div>
+
+        <!-- 聽經目錄（/?listen，app.js §17d） -->
+        <div class="listen-view" id="listenView" hidden></div>
 
         <!-- File Content -->
         <div class="content-wrapper" id="contentWrapper" style="display:none">
@@ -1237,6 +1241,7 @@
             <button type="button" class="admin-nav-item" data-page="reading" data-save="config" data-pane="config" data-cards="reading"><span class="admin-nav-icon" aria-hidden="true">🎨</span><span class="admin-nav-label">閱讀預設</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="homepage" data-save="config" data-pane="config" data-cards="footer,announce"><span class="admin-nav-icon" aria-hidden="true">🏡</span><span class="admin-nav-label">首頁頁尾與公告</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="suggest" data-save="suggest" data-pane="suggest" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📖</span><span class="admin-nav-label">推薦閱讀</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="listen" data-pane="listen" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🎧</span><span class="admin-nav-label">聽經目錄</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="seo" data-save="seo" data-pane="seo" data-cards="" data-web-only><span class="admin-nav-icon" aria-hidden="true">🔍</span><span class="admin-nav-label">搜尋引擎與分享</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
@@ -2403,6 +2408,43 @@
       </div>
 
       <!-- 朗讀（TTS）：audio.cpp 連線、音色白名單、朗讀規則、讀音字典、快取與預先生成（app.js §21.8，ARCHITECTURE §24） -->
+      <!-- 聽經目錄（app.js §21.9、lib/listen-catalog.js）：自己的儲存鈕，不走底部儲存列 -->
+      <div class="admin-tab-pane" id="adminPaneListen" style="display: none;">
+        <div class="lc-admin" id="adminListen">
+          <p class="field-hint lc-intro">讀者端「聽經」頁的經目。只放常誦的經；每部經可依品或卷分段，讀者點一段就從那裡開始朗讀。目錄存在網站設定裡，會跟著「設定備份」一起匯出。</p>
+          <div class="lc-cols">
+            <div data-card="listenlist" class="config-card lc-list-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">📜</span>
+                <h3 class="config-card-title">經目</h3>
+                <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
+              </div>
+              <div class="config-card-body">
+                <div class="lc-tool">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="lcAddBtn" data-no-dirty>＋ 加入經</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="lcCatsBtn" data-no-dirty aria-expanded="false" aria-controls="lcCats">分類…</button>
+                </div>
+                <div class="lc-cats" id="lcCats" hidden></div>
+                <div id="lcList" class="lc-list"></div>
+                <p class="field-hint">用 ↑↓ 排序。燈號：綠＝正常、黃＝檔案改過或有品卷對不到、紅＝找不到檔案；刪除線＝暫不顯示。</p>
+              </div>
+            </div>
+            <div class="lc-right">
+              <div data-card="listenedit" class="config-card" id="lcEditCard"><div class="config-card-body" id="lcEdit"></div></div>
+              <div data-card="listenparts" class="config-card" id="lcPartsCard"><div class="config-card-body" id="lcParts"></div></div>
+              <div data-card="listengen" class="config-card" id="lcGenCard"><div class="config-card-body" id="lcGen"></div></div>
+            </div>
+          </div>
+          <div class="lc-savebar">
+            <span class="lc-dirty" id="lcDirty" role="status" aria-live="polite"></span>
+            <button type="button" class="modal-btn secondary-btn" id="lcPreviewBtn" data-no-dirty>看讀者頁</button>
+            <button type="button" class="modal-btn cancel-btn" id="lcRevertBtn" data-no-dirty>放棄變更</button>
+            <button type="button" class="modal-btn submit-btn" id="lcSaveBtn" data-no-dirty>儲存</button>
+          </div>
+          <datalist id="lcPathList"></datalist>
+        </div>
+      </div>
+
       <div class="admin-tab-pane" id="adminPaneTts" style="display: none;">
         <div class="admin-config-grid">
           <div data-card="tts" class="config-card full-width" id="adminTtsCard">
@@ -3292,6 +3334,7 @@
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="section"><span class="tts-menu-title">朗讀本節</span><span class="tts-menu-sub">讀到下一個同級標題為止</span></button>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="sentence"><span class="tts-menu-title">朗讀本句</span><span class="tts-menu-sub" id="ttsMenuSentenceSub">只讀畫面上第一句，讀完就停</span></button>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="top"><span class="tts-menu-title">從頭朗讀整篇</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="listen" hidden><span class="tts-menu-title">聽經目錄…</span><span class="tts-menu-sub">常誦經典，依品卷收聽</span></button>
     <div class="tts-menu-sep" role="separator"></div>
     <button type="button" role="menuitemcheckbox" aria-checked="false" class="tts-menu-item tts-menu-check" data-tts-act="next" id="ttsMenuNext"><span class="tts-menu-title">讀完接下一篇</span><span class="tts-menu-sub">同一個資料夾的下一篇</span><span class="tts-menu-tick" aria-hidden="true"></span></button>
     <div class="tts-menu-group" role="group" aria-labelledby="ttsMenuSleepLabel">

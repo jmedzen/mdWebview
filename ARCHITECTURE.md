@@ -52,6 +52,7 @@
 22. [資料流總覽：一份經文從磁碟到畫面](#22-資料流總覽一份經文從磁碟到畫面)
 23. [開發、測試、部署與分支流程](#23-開發測試部署與分支流程)
 24. [朗讀（TTS）](#24-朗讀tts)
+25. [聽經目錄](#25-聽經目錄)
 
 ---
 
@@ -807,6 +808,7 @@ flowchart TD
 | `lib/share-stats.js` | 早安圖事件定義與統計彙整：事件寫成 `tag = 'ShareCard'` 的結構化日誌、聚合成趨勢列；不記帳號與問候語 | `TREND_FIELDS`, `SHARE_TAG`, `SHARE_EVENTS`, `CLIENT_EVENTS`, `SEND_EVENTS`, `ERROR_STAGES`, `sanitizeShareFields`, `shareFieldsOf`, `isShareServerEntry`, `shareKeysOf`, `summarizeShareMap`, `emptyShareSummary`, `withVerseTexts`, `emptyTrendRow`, `addEventToTrendRow`, `addShareMapToTrendRow`, `emptyHourBins` |
 | `lib/tts.js` | 朗讀（§24）：audio.cpp 代理與健康檢查、優先佇列與 single-flight、回應驗證、ffmpeg 後製、文件斷句的記憶體快取、限額、`/api/tts/*` 與 `/api/admin/tts/*` 路由 | `init`, `start`, `stop`, `isTtsRoute`, `handle`, `getSettings` |
 | `lib/tts-store.js` | 朗讀音檔的內容定址快取與 `tts.db`（blob 索引、每日統計、LRU 清理） | `open`, `lookup`, `get`, `put`, `touch`, `gc`, `clear`, `usage` |
+| `lib/listen-catalog.js` | 聽經目錄（§25）：經目的驗證與存檔（`config.settings.listenCatalog`）、品卷偵測、錨點對位、`/api/listen/catalog` 與 `/api/admin/listen/*` | `init`, `isListenRoute`, `handle`, `publicCatalog`, `adminCatalog`, `detect`, `catalogFiles` |
 | `lib/tts-lexicon.js` | 朗讀讀音字典 `tts-lexicon.txt` 的讀取、熱重載與儲存 | `entries`, `version`, `describe`, `save` |
 | `lib/tts-segment-worker.js` | ≥ 1 MB 的檔案在 Worker 裡斷句（一次一個、做完即結束） | （Worker 進入點） |
 | `lib/kepan.js` | 從講記標題抽取科判樹（v4.20.0）：依「甲乙…→子丑…→天地玄黃…」字序判層級（**不看 `#` 數**）、一行多層拆段、跨卷重述同一科不重建、字序重複用字與「巳／己」誤植以「編號能否接續」判定；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；v4.30.0 起動態科判也掃不帶 `#` 的純文字干支行（`parseHeadingSegments(line, { plain: true })`）；依資料夾（檔案數＋最新 mtime）快取 | `LEVELS`, `MIN_NODES`, `MIN_NODES_FORCED`, `MIN_NODES_SINGLE`, `parseChapterHeading`, `usesChapters`, `buildChapterTree`, `pickScopeDepth`, `kepanFlag`, `groupFiles`, `linkRounds`, `topicOfTitle`, `bookOfTitle`, `roundTopic`, `describeRounds`, `buildFolder`, `cnNum`, `parseHeadingSegments`, `orderFiles`, `buildKepanTree`, `toClientPayload`, `getKepanForFile`, `clearKepanCache` |
@@ -2163,3 +2165,61 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 - **偏好設定**：設定視窗「閱讀」頁有完整的朗讀區（預設音色、語速、睡眠計時預設、跟讀捲動、焦點跟隨、讀完接下一篇、快捷鍵），與播放面板同步，納入偏好匯出入。
 - **低視力**：觸控目標 ≥ 44pt；播放列字級用 `font: -apple-system-body`（跟隨系統文字大小）；`prefers-contrast: more`、`forced-colors`、`prefers-reduced-motion` 都有對應；亮色主題朱色對比由測試把關。
 - **實機檢核**：VoiceOver（macOS Safari、iOS／iPadOS Safari 與加到主畫面的 PWA）的流程檢核表在 PR #216 的說明裡；這部分需要真機，內建瀏覽器與自動測試做不到。
+
+## 25. 聽經目錄
+
+一般讀者不會從七千多篇的檔案樹裡找經來聽。聽經目錄是一份管理員挑選的經目（分類 → 經 → 品／卷），點一品就用 §24 的朗讀從那裡開始讀。**不另做播放器**：讀誦就是「開啟經文 → `ttsStartFromLine(line, false, { stopLine })`」。
+
+### 25.1 資料（`config.settings.listenCatalog`，跟著設定備份）
+
+```
+{ categories: [{ id, name, note }],
+  items: [{ id, name, sub, cat, path, enabled, split, range, parts }], updatedAt }
+```
+
+- `split`：`auto`（有兩個以上的品就依品、卷當分組；否則依卷）、`juan`、`none`、`manual`。
+- `range`：節錄（普門品＝法華經第二十五品）：`{ from: 錨點, to: 錨點|null }`，`to` 不含。
+- `parts`：自動模式只存覆寫（改名 `title`、不收錄 `on:false`）；手動模式就是分段本身。
+- **錨點** `{ head, line }`＝該段開頭的文字（去空白）＋存檔時的行號。檔案改版後先找文字完全相同、離原行號最近的單位，再找以它開頭的；都找不到就回報問題（後台黃燈），不會默默讀錯地方。
+- 沒有存過時用 `DEFAULT_ITEMS`（16 部常誦經，6 類；檔案不在經文庫裡的自動略過）。壇經的品名是「行由第一」這種不含「品」字的獨立行，偵測不到，預設就是手動 10 段。
+
+### 25.2 品卷偵測（`lib/listen-catalog.js`）
+
+斷句沿用朗讀的 `tts.loadDoc()`（同一份標準句與記憶體快取），所以起點行號、字數都和實際朗讀一致。只看 `kind:'heading'` 的單位（`#` 標題或 strict 的卷品文字行）：`…卷第N`／`卷上中下` 是卷（與上一個卷號相同的是卷尾，略過），`…品第N(之N)` 或八字內的 `…第N` 是品。名稱去掉三字以上的經名前綴（「妙法蓮華經方便品第二」→「方便品第二」，「持經品」不動）。每段長度＝到下一段（不收錄的段仍是邊界）之間可朗讀的字數，第一段之前的經名與譯者算在第一段。解析結果依「項目設定＋檔案簽章」快取。
+
+實測（真實語料）：法華 7 卷 28 品、地藏 13 品、維摩 14 品、楞嚴 10 卷、無量壽 2 卷、八十華嚴 80 卷約 40 品、四十華嚴 40 卷；心經、金剛、阿彌陀、藥師、觀無量壽、圓覺、遺教、八大人覺、盂蘭盆沒有品卷標題，整部一段。
+
+### 25.3 API
+
+| 路由 | 說明 |
+|---|---|
+| `GET /api/listen/catalog` | 讀者端：`{ categories, items: [{ id, name, sub, cat, path, line, endLine, lastLine, chars, unit, parts: [{ t, juan, line, endLine, chars }] }] }`。只列顯示中且檔案存在的經；空的分類不列。`endLine`＝停止的行（不含），0＝讀到檔尾 |
+| `GET /api/admin/listen/catalog` | 後台：完整目錄＋每部經的解析結果與問題（`status[id].issues`：`missing`、`range-start`、`range-end`、`part:<文字>`） |
+| `POST /api/admin/listen/catalog {catalog}` | 驗證後存檔（`sanitizeCatalog`：沒有名稱或不是 `.md` 的丟掉、未知分類歸第一類、id 重複會換掉；上限 200 部、每部 400 段、30 類） |
+| `POST /api/admin/listen/catalog/reset` | 回到預設經目 |
+| `POST /api/admin/listen/detect {path, split, range, parts}` | 不存檔，依目前（還沒存的）設定偵測；另回傳所有可當錨點的標題與獨立成行的「…第N」，供手動分段與節錄挑選 |
+| `GET /api/admin/listen/coverage?voice=` | 每部經在某音色下已生成幾句（`tts.coverage()`，重複句只算一次） |
+
+預先生成沿用 `/api/admin/tts/jobs`：`scope` 是單篇路徑，或 `listen:catalog`（目錄裡所有顯示中的經）。匿名的 `/api/admin/status` 不回傳 `listenCatalog`。
+
+### 25.4 讀者端（`app.js` §17d、`index.html` `#listenView`、`style.css` §27d）
+
+- 網址 `/?listen`（`parseUrlParams` → `isListen`），內容在 `#content` 裡（`goHome(false)` 後藏起首頁）；`openFile()` 與 `goHome()` 都會 `closeListenView()`。上一頁回到聽經頁。
+- 入口：首頁膠囊「🎧 聽經」與右上角朗讀選單「聽經目錄…」，網站有開朗讀且目錄有經時才出現。
+- 每部經一張卡：從頭讀誦、選擇品（N）、看經文；展開後品依卷分組。「點一品：讀到經末／只讀這品」存在 `STORAGE_KEYS.LISTEN_PREFS`。
+- 播放：`listenPlay()` 先開經文，設 `ttsRt.nextListen`（`ttsResetSession()` 收下成 `ttsRt.listen`），再 `ttsStartFromLine(line, false, { stopLine })`。`stopLine`＝只讀這品時的下一品起點，或節錄的終點；`ttsFillToLine()` 在背景把句子接到那一行，「第 N／M 句」才有總數。聽經的經讀完就停（不接同資料夾的下一篇），播報「…讀誦圓滿」。
+- 進度：`listenOnPlay()` 在每換一句時更新播放列標題（「經名 · 品名」），每換一品或每 5 秒把 `{ part, line, pct, done[] }` 存進 `STORAGE_KEYS.LISTEN_PROGRESS`（最多 200 部）。頁首「繼續收聽」取最近一部沒聽完的；整部聽完記 `times`。
+- 長度：可朗讀字數 ÷ 每秒 4.2 字 ÷ 語速，一律標「約」。
+
+### 25.5 無障礙（WAI-ARIA 標準做法）
+
+- `h1`「聽經」（開頁時焦點移到這裡並播報「聽經目錄，N 部經」）→ 分類 `h2` → 每部經 `h3`：轉子的「標題」可逐部跳。
+- 品卷是**揭露按鈕**（`aria-expanded`＋`aria-controls`）加有序清單，不用 `role="tree"`：每部經有「讀誦、展開、看經文」多個動作，樹狀項目裡不能放按鈕；揭露＋清單在 iOS VoiceOver 最穩定，清單讓 VoiceOver 自己說「第 N 項，共 M 項」。
+- 每一品的按鈕名稱完整：「從閻浮眾生業感品第四開始讀誦，約 10 分鐘，上次聽到這裡」。
+- 篩選膠囊是 `aria-pressed` 按鈕組，切換後用 `#a11yLive` 播報「淨土，4 部經」。Esc 在品清單內收起並把焦點還給展開鈕。觸控目標 ≥ 44px；`forced-colors`、`prefers-reduced-motion` 有對應。
+- 按下讀誦後開啟經文（PR #234 的做法：焦點到經名標題），另用朗讀的狀態區播報一次「開始讀誦 …」，之後換句不播報。
+
+### 25.6 後台（`app.js` §21.9、`#adminPaneListen`）
+
+「網站」群組的「🎧 聽經目錄」。左邊經目依分類分組（燈號：綠正常、黃有錨點對不到、紅找不到檔案；刪除線＝不顯示；↑↓ 在同一分類內排序，鍵盤可用）；「分類…」可改名、加說明、排序、刪除空的分類。右邊編輯選取的經（名稱、副標、分類、檔案（`datalist` 列出全部經文）、顯示、範圍、分段方式），品卷表可改名、取消收錄、看起點（連到經文該行），手動模式可從標題清單加一段或刪除。最下面是預先生成（這部經／整個目錄、固定保留）。編輯的是本地副本，按「儲存」才送出（不走底部儲存列，輸入框都標 `data-no-dirty`）。
+
