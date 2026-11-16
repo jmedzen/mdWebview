@@ -10192,7 +10192,9 @@
   const TTS_ICON = {
     play: '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.5 2.6v10.8a.6.6 0 00.92.5l8.3-5.4a.6.6 0 000-1L5.42 2.1a.6.6 0 00-.92.5z"/></svg>',
     pause: '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3.5" y="2.5" width="3.2" height="11" rx="1"/><rect x="9.3" y="2.5" width="3.2" height="11" rx="1"/></svg>',
-    speak: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/></svg>'
+    speak: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/></svg>',
+    // 標題旁的喇叭：viewBox 裁到圖形本身（含線寬），框的中心就是圖形的視覺中心
+    speakTight: '<svg viewBox="1.8 1.65 12.7 12.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/></svg>'
   };
 
   const ttsRt = {
@@ -10957,7 +10959,7 @@
       const name = (h.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
       b.setAttribute('aria-label', `朗讀本節：${name}`);
       b.title = '朗讀本節';
-      b.innerHTML = TTS_ICON.speak;
+      b.innerHTML = TTS_ICON.speakTight;
       h.before(b);
     }
     alignTtsHeadButtons();

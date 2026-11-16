@@ -12659,24 +12659,25 @@ body.tts-enabled:not(.tts-has-file):not(.tts-active) .tts-start-btn { display: n
 body.tts-active .tts-start-btn { color: var(--tts-accent-text); }
 
 /* 標題旁的「朗讀本節」：放在標題前面、浮動靠右，對齊標題第一行（JS 量 margin-top），不另佔一行。
-   大小跟著所在標題：按鈕的 font-size 等於該層標題的字級（同一個父層的 em），
-   圓框 1.35em、喇叭 0.92em（接近標題字高）；點擊範圍用 ::after 補到至少 44px，不增加版面高度。 */
+   大小跟著所在標題：按鈕的 font-size 等於該層標題的字級（同一個父層的 em）。
+   按鈕框就是喇叭圖形本身（裁掉留白的 viewBox，0.9em 見方）：右緣在每一層標題都對齊內文右緣，
+   框的中心＝圖形的視覺中心，跟標題第一行置中。點擊範圍用 ::after 補到至少 44px，不增加版面高度。 */
 body.tts-enabled .markdown-body .tts-head-btn {
-  --tts-head-size: 1.35em;
+  --tts-head-size: 0.9em;
   display: inline-flex; align-items: center; justify-content: center;
   float: right; clear: right; position: relative; z-index: 1;
-  width: var(--tts-head-size); height: var(--tts-head-size); margin: 0 0 0 0.35em; padding: 0;
-  border: 1px solid transparent; border-radius: 999px;
+  width: var(--tts-head-size); height: var(--tts-head-size); margin: 0 0 0 0.5em; padding: 0;
+  border: 0; border-radius: 0.2em;
   background: transparent; color: var(--text-muted);
   font-size: 1em; line-height: 1; cursor: pointer; opacity: 0.7;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   user-select: none; -webkit-user-select: none;
 }
 body.tts-enabled .markdown-body .tts-head-btn:has(+ h1) { font-size: 1.75em; }
 body.tts-enabled .markdown-body .tts-head-btn:has(+ h2) { font-size: 1.45em; }
 body.tts-enabled .markdown-body .tts-head-btn:has(+ h3) { font-size: 1.2em; }
 body.tts-enabled .markdown-body .tts-head-btn:has(+ h4) { font-size: 1.05em; }
-body.tts-enabled .markdown-body .tts-head-btn svg { width: 0.92em; height: 0.92em; }
+body.tts-enabled .markdown-body .tts-head-btn svg { width: 100%; height: 100%; display: block; overflow: visible; }
 body.tts-enabled .markdown-body .tts-head-btn::after {
   content: ''; position: absolute; inset: min(-4px, calc((var(--tts-head-size) - 44px) / 2));
 }
@@ -12686,13 +12687,15 @@ body.tts-enabled .markdown-body .tts-head-btn + :is(h1, h2, h3, h4, h5, h6) { cl
 body.tts-enabled .markdown-body .tts-head-btn:has(+ :is(h1, h2, h3, h4, h5, h6):hover),
 body.tts-enabled .markdown-body .tts-head-btn:hover,
 body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
+  /* 底色往外擴一圈（box-shadow，不佔版面），圖形位置不動 */
   opacity: 1; color: var(--tts-accent-text); background: var(--tts-accent-bg);
+  box-shadow: 0 0 0 0.22em var(--tts-accent-bg);
 }
 @media (hover: none) {
   /* 觸控沒有 hover：按鈕一直清楚可見（大小同桌機，跟著標題；點擊範圍 ≥ 44px） */
   body.tts-enabled .markdown-body .tts-head-btn,
   body.tts-enabled .markdown-body .tts-head-btn:hover {
-    opacity: 0.9; color: var(--tts-accent-text); background: transparent;
+    opacity: 0.9; color: var(--tts-accent-text); background: transparent; box-shadow: none;
   }
 }
 
