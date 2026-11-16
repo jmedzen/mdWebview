@@ -104,7 +104,9 @@ const shareQr = require('./lib/share-qr');
 const shareLink = require('./lib/share-link');
 const shareStats = require('./lib/share-stats');
 const tts = require('./lib/tts');
-tts.init({ resolveMdPath }); // resolveMdPath 是下方的函式宣告（已提升）
+const listenCatalog = require('./lib/listen-catalog');
+tts.init({ resolveMdPath, listenCatalogFiles: () => listenCatalog.catalogFiles() }); // resolveMdPath 是下方的函式宣告（已提升）
+listenCatalog.init({ loadDoc: tts.loadDoc, coverage: tts.coverage });
 
 const {
   workerPool, indexWorkerPool, initWorkerPool, initIndexWorkerPool,
@@ -5953,6 +5955,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // 聽經目錄：/api/listen/catalog 與 /api/admin/listen/*（lib/listen-catalog.js）
+  if (listenCatalog.isListenRoute(pathname)) {
+    listenCatalog.handle(req, res, pathname, query).then(handled => {
+      if (!handled && !res.headersSent) sendJSON(res, 404, { error: 'Not found' });
+    }).catch(err => {
+      if (err && err.status === 413) { if (!res.headersSent) sendPayloadTooLarge(res); return; }
+      Logger.error('Listen', `Listen catalog route failed: ${req.method} ${pathname}`, err, req);
+      if (!res.headersSent) sendJSON(res, 500, { error: 'Internal Server Error' });
+    });
+    return;
+  }
+
   // Admin API routes
   if (pathname === '/api/admin/status' && req.method === 'GET') {
     // Redact the absolute vault path (and any other filesystem-layout detail) from
@@ -5960,6 +5974,7 @@ const server = http.createServer((req, res) => {
     const safeSettings = Object.assign({}, config.settings);
     delete safeSettings.mdRoot;
     delete safeSettings.dictionaryPath;
+    delete safeSettings.listenCatalog; // 聽經目錄很大，讀者用 /api/listen/catalog
     delete safeSettings.tts; // 朗讀伺服器的區域網路位址與音色對照不給匿名訪客（讀者用 /api/tts/status）
     // `authMode` tells the client which kind of deployment it is talking to:
     //   'single-user' — no login exists; a loopback caller is already the owner
