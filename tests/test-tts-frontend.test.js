@@ -98,7 +98,8 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.match(playerHtml, /<details class="tts-sec tts-more" id="ttsMore">/);
     assert.match(playerHtml, /<select id="ttsSleep"[^>]*aria-label="睡眠計時"/);
     assert.match(playerHtml, /id="ttsOfflineBtn" aria-label="下載整篇以離線收聽"/);
-    assert.match(css, /\.tts-voice-name \{[^}]*white-space: nowrap;/);
+    assert.match(css, /\.tts-voice-name \{[^}]*overflow-wrap: anywhere;/);
+    assert.match(css, /\.tts-voice-tags \{[^}]*color: var\(--text-secondary\);/);
     assert.match(css, /\.tts-voice-card \{[^}]*min-height: 44px;/);
   });
 
@@ -404,5 +405,17 @@ describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
   test('首次提示只出現一次，按過喇叭或「知道了」就不再出現', () => {
     assert.match(html, /<div class="tts-hint" id="ttsHint" role="note" hidden>/);
     assert.match(ttsSection, /if \(storage\.get\(TTS_HINT_KEY\)\) return;/);
+  });
+
+  test('播放列標題去掉藏經編號與書名號；音色鈕只放主名', () => {
+    const grab = name => { const m = ttsSection.match(new RegExp(`function ${name}\\(name\\) \\{[\\s\\S]*?\\n  \\}`)); assert.ok(m, name); return new Function(`${m[0]}; return ${name};`)(); };
+    const clean = grab('ttsCleanTitle');
+    assert.equal(clean('T0412《地藏菩薩本願經》'), '地藏菩薩本願經');
+    assert.equal(clean('X1234_楞嚴經'), '楞嚴經');
+    assert.equal(clean('2026年度報告'), '2026年度報告');
+    assert.equal(clean('T0235'), 'T0235');
+    const short = grab('ttsVoiceShortName');
+    assert.equal(short('慧音（女聲・柔和）'), '慧音');
+    assert.match(ttsSection, /ttsRt\.title = ttsCleanTitle\(/);
   });
 });

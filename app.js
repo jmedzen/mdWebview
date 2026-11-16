@@ -10398,11 +10398,24 @@
     return ttsRt.loadingMore;
   }
 
+  // 播放列與鎖屏的標題：去掉藏經編號（T0412、X1234_、0001-）與書名號，只留經名；去完是空的就用原名
+  // 迷你列音色鈕只放主名（「慧音（女聲・柔和）」→「慧音」），完整名稱在 aria-label 與 title
+  function ttsVoiceShortName(name) {
+    const t = String(name || '').replace(/\s*[（(].*$/, '').trim();
+    return t || String(name || '');
+  }
+
+  function ttsCleanTitle(name) {
+    const raw = String(name || '');
+    const t = raw.replace(/^[A-Za-z]{0,3}\d{2,}[a-z]?(?:[_\-.\s]+|(?=[《〈「]))/, '').replace(/[《》〈〉]/g, '').trim();
+    return t || raw;
+  }
+
   function ttsResetSession(path) {
     ttsRt.token++;
     clearTimeout(ttsRt.gapTimer);
     ttsRt.path = path;
-    ttsRt.title = path.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, '');
+    ttsRt.title = ttsCleanTitle(path.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, ''));
     ttsRt.items = []; ttsRt.pos = -1; ttsRt.endIndex = -1; ttsRt.stopLevel = null; ttsRt.chapter = null; ttsRt.chapters = null;
     ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null; ttsRt.error = null; ttsRt.waiting = false; ttsRt.selOnly = false;
     ttsRt.userScrollAt = 0; ttsRt.stopAtUnit = undefined; ttsRt.sectionStart = undefined; ttsRt.sectionStartUnit = undefined; ttsRt.lastRange = null;
@@ -11421,7 +11434,7 @@
     box.innerHTML = list.map(v => `
       <div class="tts-voice-card">
         <label title="${escHtml(v.name)}"><input type="radio" name="ttsVoice" value="${escHtml(v.id)}" ${cur && cur.id === v.id ? 'checked' : ''}>
-          <span class="tts-voice-dot" aria-hidden="true"></span><span class="tts-voice-name">${escHtml(v.name)}</span>${v.tags && v.tags.length ? `<span class="tts-voice-tags">${escHtml(v.tags.join('・'))}</span>` : ''}</label>
+          <span class="tts-voice-dot" aria-hidden="true"></span><span class="tts-voice-text"><span class="tts-voice-name">${escHtml(v.name)}</span>${v.tags && v.tags.length ? `<span class="tts-voice-tags">${escHtml(v.tags.join('・'))}</span>` : ''}</span></label>
         ${v.sample ? `<button type="button" class="tts-voice-sample" data-sample="${escHtml(v.sample)}" aria-label="試聽${escHtml(v.name)}">${TTS_ICON.play}</button>` : ''}
       </div>`).join('');
   }
@@ -11475,7 +11488,7 @@
     const rateBtn = $('ttsRateBtn');
     rateBtn.textContent = `${rate}×`; rateBtn.setAttribute('aria-label', `語速 ${rate} 倍，按一下調整`);
     const voiceBtn = $('ttsVoiceBtn');
-    voiceBtn.textContent = v ? v.name : '音色'; voiceBtn.setAttribute('aria-label', `音色：${v ? v.name : '未選擇'}，按一下更換`);
+    voiceBtn.textContent = v ? ttsVoiceShortName(v.name) : '音色'; voiceBtn.title = v ? v.name : ''; voiceBtn.setAttribute('aria-label', `音色：${v ? v.name : '未選擇'}，按一下更換`);
     const away = state.currentFile !== ttsRt.path || (!!ttsRt.lastRange && !ttsRangeVisible(ttsRt.lastRange)) || (!ttsRt.lastRange && !!it);
     $('ttsBackBtn').hidden = !away;
     // 面板
