@@ -8294,7 +8294,11 @@
       pageSearchAbortController.abort();
       pageSearchAbortController = null;
     }
-    $('pageSearchBar').classList.remove('visible');
+    const bar = $('pageSearchBar');
+    const hadFocus = bar.contains(document.activeElement);
+    bar.classList.remove('visible');
+    // 焦點原本在搜尋框裡：送回頁內搜尋按鈕，免得鍵盤與 VoiceOver 的位置掉回頁首
+    if (hadFocus) $('headerPageSearchBtn')?.focus({ preventScroll: true });
     clearPageHighlights();
     $('pageSearchCount').textContent = '';
     $('pageSearchInput').value = '';
@@ -12860,6 +12864,9 @@
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
           safeScrollToElement(targetEl, $('content'), 'center');
+          // 讓 VoiceOver 與鍵盤的焦點跟著跳到註腳，否則只有畫面捲過去、讀到的仍是原處
+          if (!targetEl.hasAttribute('tabindex')) targetEl.setAttribute('tabindex', '-1');
+          targetEl.focus({ preventScroll: true });
           targetEl.classList.add('highlight-flash');
           setTimeout(() => {
             targetEl.classList.remove('highlight-flash');
@@ -12875,6 +12882,7 @@
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
           safeScrollToElement(targetEl, $('content'), 'center');
+          targetEl.focus({ preventScroll: true }); // 回到正文的註號（本身是連結，可聚焦）
           targetEl.classList.add('highlight-flash');
           setTimeout(() => {
             targetEl.classList.remove('highlight-flash');
@@ -13439,6 +13447,7 @@
     setupResizeHandle();
     setupDictResizeHandle();
     setupSelectionPopup();
+    setupA11yBridges();
     setupTts();
     setupHighlights();
 
@@ -16169,7 +16178,7 @@
       const shown = adminTodosExpanded ? todos : todos.slice(0, ADMIN_TODOS_SHOWN);
       list.innerHTML = todos.length ? shown.map((t, i) => `
         <div class="ov-todo">
-          <span class="admin-nav-light ${t.level}" aria-label="${ADMIN_LIGHT_LABEL[t.level]}"></span>
+          <span class="admin-nav-light ${t.level}" role="img" aria-label="${ADMIN_LIGHT_LABEL[t.level]}"></span>
           <div class="ov-todo-text"><strong>${escHtml(t.title)}</strong>${t.pageLabel ? `<span class="ov-todo-page">${escHtml(t.pageLabel)}</span>` : ''}
             ${t.text ? `<small>${escHtml(t.text)}</small>` : ''}</div>
           <button type="button" class="modal-btn ${i === 0 && t.level === 'bad' ? 'submit-btn' : 'cancel-btn'} small-btn" data-todo="${i}">${t.account ? '我的帳號' : '前往'}</button>
@@ -20378,6 +20387,80 @@
     find: SEL_ICON('<path d="M3.5 2.5h6l3 3v8h-9z"/><circle cx="7.5" cy="9" r="2"/><path d="M9 10.5l1.5 1.5"/>'),
     speak: SEL_ICON('<path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/>'),
   };
+
+  /**
+   * 螢幕閱讀器（VoiceOver）的共用補強，不改變任何視覺行為：
+   *   1. 左側欄展開／收起時同步 #sidebarToggle 的 aria-expanded。
+   *   2. 模態視窗（偏好設定、後台、早安圖、登入…）打開時把焦點移進去、Tab 不會跑到背後，
+   *      關閉後焦點回到打開它的按鈕。已自行管理焦點的（書籤抽屜、誦經模式）不在名單內；
+   *      打開時焦點若已在視窗裡（該視窗自己聚焦了某欄位）就不搶。
+   */
+  function setupA11yBridges() {
+    const sidebar = $('sidebar');
+    const toggle = $('sidebarToggle');
+    if (sidebar && toggle) {
+      const sync = () => toggle.setAttribute('aria-expanded', sidebar.classList.contains('collapsed') ? 'false' : 'true');
+      sync();
+      new MutationObserver(sync).observe(sidebar, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    const MODAL_IDS = ['userSettingsOverlay', 'adminSettingsOverlay', 'adminSetupOverlay', 'shareCardOverlay',
+      'installGuideOverlay', 'accountAuthOverlay', 'accountSettingsOverlay', 'reauthOverlay', 'consentOverlay',
+      'mediaLightboxOverlay'];
+    const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+    const stack = []; // { el, opener }，最後打開的在最上面
+    let lastFocused = null;
+    document.addEventListener('focusin', (e) => { if (e.target !== document.body) lastFocused = e.target; });
+    const isOpen = el => !el.hidden && getComputedStyle(el).display !== 'none';
+    const focusables = el => [...el.querySelectorAll(FOCUSABLE)].filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
+
+    const onChange = (el) => {
+      const idx = stack.findIndex(m => m.el === el);
+      if (isOpen(el)) {
+        if (idx >= 0) return;
+        // 選單項目按下後選單先收起、焦點會掉到 body，所以退而用最後一個有焦點的元素
+        let opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : lastFocused;
+        // 從右上角選單打開的：選單會收起，關閉後改回到選單按鈕
+        if (opener && opener.closest('#userMenuPanel')) opener = $('userMenuBtn');
+        stack.push({ el, opener });
+        // 等打開它的程式把內容與焦點準備好，再判斷要不要接手
+        setTimeout(() => {
+          if (!isOpen(el) || el.contains(document.activeElement)) return;
+          const first = focusables(el)[0];
+          if (first) first.focus({ preventScroll: true });
+          else { if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1'); el.focus({ preventScroll: true }); }
+        }, 60);
+      } else if (idx >= 0) {
+        const { opener } = stack.splice(idx, 1)[0];
+        const active = document.activeElement;
+        // 只有焦點掉在 body 或還留在剛關掉的視窗裡時才送回去，不打斷關閉後程式自己安排的焦點
+        if (opener && opener.isConnected && (!active || active === document.body || el.contains(active))) {
+          setTimeout(() => {
+            const now = document.activeElement;
+            if (!now || now === document.body || el.contains(now)) opener.focus({ preventScroll: true });
+          }, 0);
+        }
+      }
+    };
+    for (const id of MODAL_IDS) {
+      const el = $(id);
+      if (!el) continue;
+      new MutationObserver(() => onChange(el)).observe(el, { attributes: true, attributeFilter: ['style', 'hidden', 'class'] });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab' || !stack.length) return;
+      const top = stack[stack.length - 1].el;
+      if (!isOpen(top)) return;
+      const list = focusables(top);
+      if (!list.length) { e.preventDefault(); return; }
+      const first = list[0], last = list[list.length - 1];
+      const active = document.activeElement;
+      if (!top.contains(active)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+      else if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    });
+  }
 
   function setupSelectionPopup() {
     let popup = $('selectionSharePopup');

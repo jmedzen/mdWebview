@@ -407,11 +407,11 @@ function parseMarkdown(body, filePath) {
       let backlinksHtml = '';
       const count = refCounter[id] || 0;
       if (count === 1) {
-        backlinksHtml = ` <a href="#fn-ref-${safeId}-1" class="footnote-backlink" title="返回">↩</a>`;
+        backlinksHtml = ` <a href="#fn-ref-${safeId}-1" class="footnote-backlink" title="返回" aria-label="返回正文">↩</a>`;
       } else if (count > 1) {
         backlinksHtml = ' ';
         for (let r = 1; r <= count; r++) {
-          backlinksHtml += `<a href="#fn-ref-${safeId}-${r}" class="footnote-backlink" title="返回至第 ${r} 處">↩<sup>${r}</sup></a> `;
+          backlinksHtml += `<a href="#fn-ref-${safeId}-${r}" class="footnote-backlink" title="返回至第 ${r} 處" aria-label="返回正文第 ${r} 處">↩<sup>${r}</sup></a> `;
         }
       }
 
