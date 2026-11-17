@@ -18676,7 +18676,21 @@
     const el = $('adminTtsJobs');
     const voices = (ttsAdmin.data && ttsAdmin.data.settings.voices) || [];
     const vname = (id) => (voices.find(v => v.id === id) || {}).name || id;
-    el.innerHTML = d.jobs.length ? d.jobs.map(j => {
+    // 排序：生成中 → 排隊中（依實際執行順序）→ 已暫停 → 已結束（新的在前）。
+    // 以前一律依建立時間，新排的工作和舊的已取消紀錄混在一起，同一個音色看起來像出現兩次。
+    const rank = { running: 0, queued: 1, paused: 2 };
+    const jobs = d.jobs.slice().sort((a, b) => {
+      const ra = rank[a.state] ?? 3, rb = rank[b.state] ?? 3;
+      if (ra !== rb) return ra - rb;
+      return ra === 1 ? a.id - b.id : b.id - a.id;
+    });
+    const activeStates = ['running', 'queued', 'paused'];
+    let queuePos = 0;
+    el.innerHTML = jobs.length ? jobs.map(j => {
+      const active = activeStates.includes(j.state);
+      const ahead = j.state === 'queued' ? queuePos++ + (jobs.some(x => x.state === 'running') ? 1 : 0) : 0;
+      const stateLabel = j.state === 'queued' && ahead ? `排隊中（前面還有 ${ahead} 個）` : (TTS_JOB_STATE[j.state] || j.state);
+      const pausedHint = j.state === 'paused' ? '<div class="field-hint">已暫停：其他工作照常進行；按「繼續」會排回佇列，從停下的那一句接著做。</div>' : '';
       const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.label || j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
       const acts = [];
       if (j.state === 'running' || j.state === 'queued') acts.push(['pause', '暫停']);
@@ -18690,7 +18704,8 @@
         ${fails.length ? `<details class="tts-job-fails"><summary>看失敗的句子（${fails.length}${j.failed > fails.length ? `／${j.failed}` : ''}）</summary><ul>${fails.map(f => `<li><a href="/?file=${encodeURIComponent(f.path)}&line=${f.line}" target="_blank" rel="noopener">${escHtml(f.label)} 第 ${f.line} 行</a>「${escHtml(f.text)}」— ${escHtml(f.reason)}</li>`).join('')}</ul></details>` : ''}` : '';
       return `<div class="account-row tts-job" data-job="${j.id}">
         <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
-          <div class="field-hint">${TTS_JOB_STATE[j.state] || j.state}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          <div class="field-hint">${stateLabel}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${active && j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          ${pausedHint}
           <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
           ${report}
         </div>
@@ -18698,7 +18713,7 @@
       </div>`;
     }).join('') : '<div class="field-hint">還沒有預先生成的工作。</div>';
     clearTimeout(ttsAdmin.jobsTimer);
-    if (d.jobs.some(j => j.state === 'running' || j.state === 'queued') && adminCurrentPage === 'tts') {
+    if (jobs.some(j => j.state === 'running' || j.state === 'queued') && adminCurrentPage === 'tts') {
       ttsAdmin.jobsTimer = setTimeout(() => { if (adminCurrentPage === 'tts') loadTtsAdminJobs(); }, 4000);
     }
   }
