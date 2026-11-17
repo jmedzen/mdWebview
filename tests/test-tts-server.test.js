@@ -509,6 +509,135 @@ describe('朗讀（TTS）後端', () => {
     });
   });
 
+  describe('換音色後舊音色不再佔用 audio.cpp', () => {
+    const L = 'tab0123456789abcdef';
+    const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+    const voicesAfter = (n) => fake.speech.slice(n).map((b) => b.voice);
+    /** 送出請求、等到伺服器收到後就中斷連線（模擬前端 AbortController.abort()） */
+    function speakThenAbort(body, afterMs) {
+      return new Promise((resolve) => {
+        const req = http.request(new URL('/api/tts/speak', baseUrl), { method: 'POST', agent: false, headers: { 'Content-Type': 'application/json', Connection: 'close' } });
+        req.on('error', () => resolve());
+        req.end(JSON.stringify(body));
+        setTimeout(() => { req.destroy(); resolve(); }, afterMs);
+      });
+    }
+
+    test('用音色 A 播放、預取排隊中換成音色 B：之後 audio.cpp 只再收到 A 正在生成的那一句', async () => {
+      fake.delayMs = 150;
+      const pre = speak([1, 2, 3, 5], { priority: 'prefetch', listener: L, gen: 1 });
+      await sleepMs(60); // 第一句已送到 audio.cpp，其餘三句在排隊
+      assert.equal(fake.speech.length, 1);
+      const switchAt = fake.speech.length;
+      const now = await speak([1], { voice: 'v2', listener: L, gen: 2 });
+      assert.equal(now.json.items[0].state, 'ready');
+      const old = await pre;
+      const after = voicesAfter(switchAt);
+      assert.deepEqual(after, ['demo_1_man'], `換音色後送出的請求：${after.join(', ')}`);
+      assert.equal(fake.speech.filter((b) => b.voice === 'demo_3_woman').length, 1, '舊音色只有換之前已在生成的那一句');
+      assert.deepEqual(old.json.items.map((x) => x.state), ['ready', 'cancelled', 'cancelled', 'cancelled']);
+      assert.ok(tts._internals.queueStats().cancelled >= 3);
+      // 已生成的舊音色那一句留在快取
+      const back = await speak([1], { listener: L, gen: 3 });
+      assert.equal(back.json.items[0].state, 'ready');
+      assert.equal(fake.speech.filter((b) => b.voice === 'demo_3_woman').length, 1, '換回音色 A 時直接命中快取');
+      assert.equal(tts._internals.queueStats().queued, 0);
+    });
+
+    test('/api/tts/cancel（停止朗讀）把這位讀者排隊中的句子移出佇列', async () => {
+      fake.delayMs = 150;
+      const pre = speak([1, 2, 3, 5], { priority: 'prefetch', listener: L, gen: 1 });
+      await sleepMs(60);
+      const c = await post('/api/tts/cancel', { listener: L, gen: 2 });
+      assert.equal(c.status, 200); assert.equal(c.json.dropped, 3);
+      await pre;
+      assert.equal(fake.speech.length, 1);
+      assert.equal((await post('/api/tts/cancel', { gen: 2 })).status, 400, '缺 listener');
+    });
+
+    test('前端中斷請求（關頁、斷線）且沒有再來：寬限期後排隊的句子撤銷，上游只跑完已開始的那一句', async () => {
+      tts._internals.setListenerGrace(20);
+      try {
+        fake.delayMs = 150;
+        await speakThenAbort({ path: P, voice: 'v1', ids: [1, 2, 3, 5], priority: 'prefetch', listener: L, gen: 1 }, 60);
+        await sleepMs(500);
+        assert.equal(fake.speech.length, 1, fake.speech.map((b) => b.input).join(' / '));
+        assert.equal(tts._internals.queueStats().queued, 0);
+        assert.equal(tts._internals.queueStats().running, 0);
+      } finally { tts._internals.setListenerGrace(3000); }
+    });
+
+    test('中斷後馬上用新的請求接上（換音色的正常流程）：不撤銷新的請求', async () => {
+      tts._internals.setListenerGrace(100);
+      try {
+        fake.delayMs = 80;
+        await speakThenAbort({ path: P, voice: 'v1', ids: [1, 2], priority: 'prefetch', listener: L, gen: 1 }, 30);
+        const r = await speak([3, 5], { voice: 'v2', priority: 'prefetch', listener: L, gen: 2 });
+        assert.deepEqual(r.json.items.map((x) => x.state), ['ready', 'ready']);
+        assert.deepEqual(fake.speech.map((b) => b.voice), ['demo_3_woman', 'demo_1_man', 'demo_1_man']);
+      } finally { tts._internals.setListenerGrace(3000); }
+    });
+
+    test('慢到的舊 gen 請求（亂序）不再排新工作', async () => {
+      await post('/api/tts/cancel', { listener: L, gen: 5 });
+      const r = await speak([2], { listener: L, gen: 4 });
+      assert.equal(r.json.items[0].state, 'cancelled');
+      assert.equal(fake.speech.length, 0);
+    });
+
+    test('別的讀者（或離線下載）也在等同一句：一位讀者換音色不影響他', async () => {
+      fake.delayMs = 100;
+      const other = speak([1, 2, 3], { priority: 'prefetch', listener: 'offline0123456789ab', gen: 1 });
+      const mine = speak([1, 2, 3], { priority: 'prefetch', listener: L, gen: 1 });
+      await sleepMs(30);
+      await post('/api/tts/cancel', { listener: L, gen: 2 });
+      const o = await other; await mine;
+      assert.deepEqual(o.json.items.map((x) => x.state), ['ready', 'ready', 'ready']);
+      assert.equal(fake.speech.length, 3, '沒有重複生成');
+    });
+
+    test('舊版前端（沒帶 listener）：照舊排進去就跑完', async () => {
+      fake.delayMs = 50;
+      const r = await speak([1, 2, 3], { priority: 'prefetch' });
+      assert.deepEqual(r.json.items.map((x) => x.state), ['ready', 'ready', 'ready']);
+      assert.equal(fake.speech.length, 3);
+    });
+
+    test('後台預生成工作：讀者撤銷不影響；管理員暫停時排隊的那一句移出佇列', async () => {
+      fake.delayMs = 120;
+      const { enqueue, releaseClaims, queueStats } = tts._internals;
+      const s = tts.getSettings();
+      const v1 = s.voices.find((v) => v.id === 'v1');
+      const mk = (txt) => ({ sha: tts._internals.blobSha(txt, tts._internals.voiceKey(s, v1)), spoken: txt, voiceName: v1.voice, voiceId: 'v1', flags: 0 });
+      const blocker = enqueue(mk('第一句佔住生成名額。'), 'now', { key: 'l:' + L, gen: 1 });
+      await sleepMs(20); // 已送到 audio.cpp
+      const bulk = enqueue(mk('預生成的一句經文。'), 'bulk', { key: 'job:77', gen: 0 });
+      const shared = mk('讀者與預生成都要的一句。');
+      const pShared = enqueue(shared, 'bulk', { key: 'job:77', gen: 0 });
+      enqueue(shared, 'now', { key: 'l:' + L, gen: 1 }); // 讀者把它提前
+      assert.equal(releaseClaims('l:' + L, Infinity), 0, '背景工作還在等，不移除');
+      assert.equal(queueStats().byPriority[0], 0, '只剩背景工作在等：退回 bulk 優先序');
+      assert.equal(releaseClaims('job:77', Infinity), 2, '管理員暫停：兩句都移出佇列');
+      await assert.rejects(bulk, (e) => e.cancelled === true);
+      await assert.rejects(pShared, (e) => e.cancelled === true);
+      await blocker;
+      assert.equal(fake.speech.length, 1);
+    });
+
+    test('同一範圍、同一音色的預生成工作不重複排', async () => {
+      const admin = session('dupjob-tok', 'admin');
+      fs.writeFileSync(path.join(VAULT, 'sub', 'b.md'), '# 乙\n\n如是我聞。\n');
+      const a = await post('/api/admin/tts/jobs', { scope: 'sub/b.md', voice: 'v1' }, admin);
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'pause' }, admin);
+      const b = await post('/api/admin/tts/jobs', { scope: 'sub/b.md', voice: 'v1' }, admin);
+      assert.equal(b.status, 200);
+      assert.equal(b.json.id, a.json.id, '沿用已排的工作');
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'cancel' }, admin);
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'delete' }, admin);
+      fs.unlinkSync(path.join(VAULT, 'sub', 'b.md'));
+    });
+  });
+
   describe('保溫與音色版本', () => {
     const warmInputs = () => fake.speech.filter((b) => b.input === '南無阿彌陀佛').length;
 

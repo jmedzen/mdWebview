@@ -10271,7 +10271,9 @@
     statusAt: 0,
     audio: null,
     unlocked: false,
-    token: 0,              // 每次開始新的朗讀自增，過期的非同步回應據此丟棄
+    token: 0,              // 每次開始新的朗讀自增，過期的非同步回應據此丟棄；也是送給伺服器的 gen
+    listener: '',          // 這個分頁的隨機 id：伺服器據此知道哪些排隊的句子是誰要的（換音色時撤掉舊的）
+    ctl: null,             // 目前 token 的 AbortController：換 token 就中斷還在等的 /api/tts/speak
     active: false,         // 播放器是否開著（含暫停）
     playing: false,        // 使用者要不要它播（暫停＝false）
     path: null, title: '',
@@ -10334,8 +10336,8 @@
     setTimeout(() => { live.textContent = msg; }, 30);
   }
 
-  async function ttsApi(url, body) {
-    const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  async function ttsApi(url, body, signal) {
+    const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal } : (signal ? { signal } : undefined));
     let data = null;
     try { data = await res.json(); } catch (_) {}
     if (!res.ok) throw Object.assign(new Error((data && data.error) || `HTTP ${res.status}`), { status: res.status, data });
@@ -10456,8 +10458,33 @@
     return t || raw;
   }
 
-  function ttsResetSession(path) {
+  function ttsListenerId(prefix) {
+    const b = new Uint8Array(9);
+    try { crypto.getRandomValues(b); } catch (_) { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); }
+    return prefix + Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  }
+  function ttsListener() { if (!ttsRt.listener) ttsRt.listener = ttsListenerId('r'); return ttsRt.listener; }
+  function ttsSignal() { if (!ttsRt.ctl) ttsRt.ctl = new AbortController(); return ttsRt.ctl.signal; }
+
+  /** 告訴伺服器：這位讀者 gen 比這個舊的句子都不要了（還在排隊的就不會再送到 audio.cpp）。 */
+  function ttsCancelServer(listener, gen) {
+    if (!listener) return;
+    try { fetch('/api/tts/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listener, gen }), keepalive: true }).catch(() => {}); } catch (_) {}
+  }
+
+  /**
+   * 作廢目前這段朗讀的所有非同步工作：token 加一（過期的回應會被丟掉）、中斷還在等的 /api/tts/speak，
+   * 並請伺服器把舊 token 還在排隊的句子（例如舊音色的預取）移出佇列。已經在生成的那一句會生成完、留在快取。
+   */
+  function ttsBumpToken() {
     ttsRt.token++;
+    if (ttsRt.ctl) { try { ttsRt.ctl.abort(); } catch (_) {} ttsRt.ctl = null; }
+    if (ttsRt.listenerUsed) ttsCancelServer(ttsRt.listener, ttsRt.token);
+    return ttsRt.token;
+  }
+
+  function ttsResetSession(path) {
+    ttsBumpToken();
     clearTimeout(ttsRt.gapTimer);
     ttsRt.path = path;
     ttsRt.title = ttsCleanTitle(path.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, ''));
@@ -10476,7 +10503,7 @@
    * 只暫停、不清 src：iOS 已解鎖的 <audio> 保持可用。
    */
   function ttsHaltCurrent() {
-    ttsRt.token++;
+    ttsBumpToken();
     clearTimeout(ttsRt.gapTimer);
     const a = ttsRt.audio;
     if (a && a.dataset.ttsSha) {
@@ -10725,14 +10752,15 @@
     let todo = list.filter(it => ttsPlayable(it) && !it.cached);
     for (const it of list) if (it.cached) out.set(it, 'ready');
     for (let round = 0; todo.length && round < 12; round++) {
-      const d = await ttsApi('/api/tts/speak', { path, voice: v && v.id, ids: todo.map(it => it.id || it.i), priority });
+      ttsRt.listenerUsed = true;
+      const d = await ttsApi('/api/tts/speak', { path, voice: v && v.id, ids: todo.map(it => it.id || it.i), priority, listener: ttsListener(), gen: token }, ttsSignal());
       if (token !== ttsRt.token) return out;
       const next = [];
       d.items.forEach((r, n) => {
         const it = todo[n];
         if (!it) return;
         if (r.state === 'ready') { it.cached = true; it.sha = r.sha; it.ms = r.ms; out.set(it, 'ready'); }
-        else if (r.state === 'pending') next.push(it);
+        else if (r.state === 'pending' || r.state === 'cancelled') next.push(it); // cancelled：被較新的請求撤掉，token 沒變就再要一次
         else out.set(it, r.state);
       });
       todo = next;
@@ -10949,7 +10977,7 @@
 
   function ttsStop() {
     if (ttsRt.active) { ttsFlushListen(); if (ttsRt.playing) ttsTrack('end', { key: 'stopped' }); }
-    ttsRt.token++;
+    ttsBumpToken();
     clearTimeout(ttsRt.gapTimer);
     if (ttsRt.audio) { try { ttsRt.audio.pause(); ttsRt.audio.dataset.ttsSha = ''; ttsRt.audio.removeAttribute('src'); ttsRt.audio.load(); } catch (_) {} }
     ttsRt.unlocked = false;
@@ -11000,7 +11028,7 @@
     ttsAnnounce(`${v.name}，${ttsRate()} 倍`);
     renderTtsBar();
     if (!ttsRt.active || ttsRt.pos < 0) return;
-    const token = ++ttsRt.token; // 丟掉舊音色還在路上的回應
+    const token = ttsBumpToken(); // 丟掉舊音色還在路上的回應，伺服器也撤掉舊音色排隊中的預取
     clearTimeout(ttsRt.gapTimer);
     try { ttsRt.audio && ttsRt.audio.pause(); } catch (_) {}
     const cur = ttsRt.items[ttsRt.pos];
@@ -11837,6 +11865,8 @@
     ttsTrack('feature', { key: 'offline' });
     if (!window.caches) { renderTtsOffline('這個瀏覽器不支援離線儲存。'); return; }
     const token = ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1;
+    if (!ttsRt.offlineListener) ttsRt.offlineListener = ttsListenerId('o'); // 跟播放分開：換音色不影響下載
+    ttsRt.offlineCtl = new AbortController();
     ttsRt.offlineBusy = true; renderTtsOffline('正在整理這一篇的句子…');
     try {
       const all = await ttsAllSentences(path, token);
@@ -11852,7 +11882,7 @@
         const batch = all.slice(i, i + 8);
         const need = batch.filter(s => !s.cached);
         if (need.length) {
-          const got = await ttsEnsureFor(path, v.id, need);
+          const got = await ttsEnsureFor(path, v.id, need, token);
           if (token !== ttsRt.offlineToken) return;
           for (const s of need) if (got.get(s) !== 'ready') failed++;
           if (need.some(s => ['login', 'quota', 'unavailable'].includes(got.get(s)))) {
@@ -11889,6 +11919,7 @@
       renderTtsOffline(failed ? `下載完成，但有 ${failed} 句失敗（${fmtTtsSize(bytes)}）。可以再按一次補下載。` : '');
       ttsAnnounce(failed ? '下載未完成' : '已下載，可離線收聽');
     } catch (err) {
+      if (token !== ttsRt.offlineToken) return; // 使用者按了取消：中斷的請求不算失敗
       renderTtsOffline(`下載失敗：${err.message}`);
     } finally {
       if (token === ttsRt.offlineToken && ttsRt.offlineBusy) { ttsRt.offlineBusy = false; renderTtsOffline(ttsRt.offlineMsg); }
@@ -11896,15 +11927,16 @@
   }
 
   /** 和 ttsEnsure 相同，但不綁目前的朗讀（下載的是面板上這一篇，不一定正在播）。 */
-  async function ttsEnsureFor(path, voiceId, list) {
+  async function ttsEnsureFor(path, voiceId, list, token) {
     const out = new Map(); let todo = list.slice();
     for (let round = 0; todo.length && round < 12; round++) {
-      const d = await ttsApi('/api/tts/speak', { path, voice: voiceId, ids: todo.map(s => s.i), priority: 'prefetch' });
+      if (token !== undefined && token !== ttsRt.offlineToken) break;
+      const d = await ttsApi('/api/tts/speak', { path, voice: voiceId, ids: todo.map(s => s.i), priority: 'prefetch', listener: ttsRt.offlineListener, gen: token || 0 }, ttsRt.offlineCtl && ttsRt.offlineCtl.signal);
       const next = [];
       d.items.forEach((r, n) => {
         const s = todo[n]; if (!s) return;
         if (r.state === 'ready') { s.cached = true; s.sha = r.sha; s.ms = r.ms; out.set(s, 'ready'); }
-        else if (r.state === 'pending') next.push(s); else out.set(s, r.state);
+        else if (r.state === 'pending' || r.state === 'cancelled') next.push(s); else out.set(s, r.state);
       });
       todo = next;
     }
@@ -11978,7 +12010,12 @@
     on('ttsChantPrevBtn', 'click', () => ttsStep(-1));
     on('ttsChantNextBtn', 'click', () => ttsStep(1));
     on('ttsOfflineBtn', 'click', () => ttsDownloadOffline());
-    on('ttsOfflineCancel', 'click', () => { ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1; ttsRt.offlineBusy = false; renderTtsOffline('已取消下載。'); });
+    on('ttsOfflineCancel', 'click', () => {
+      ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1; ttsRt.offlineBusy = false;
+      if (ttsRt.offlineCtl) { try { ttsRt.offlineCtl.abort(); } catch (_) {} ttsRt.offlineCtl = null; }
+      ttsCancelServer(ttsRt.offlineListener, ttsRt.offlineToken); // 還沒生成的句子不再排在 audio.cpp 前面
+      renderTtsOffline('已取消下載。');
+    });
     on('ttsOfflineRemove', 'click', () => ttsRemoveOffline());
     const chant = $('ttsChant');
     if (chant) chant.addEventListener('keydown', (e) => {
