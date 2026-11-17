@@ -18788,7 +18788,55 @@
     const r = await ttsAdminApi('/api/admin/tts/lexicon', { method: 'POST', body: { text } });
     if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return false; }
     applyTtsLexiconData(r.data);
+    if (r.data.refresh) renderTtsRefresh(r.data.refresh);
     return true;
+  }
+
+  /**
+   * 讀音校正後的補生成：顯示這次改到的詞、已預先生成範圍裡讀法變了／缺音檔的句數，
+   * 一鍵依原音色與釘選補生成，並把舊讀法的釘選音檔交回快取自動清理。
+   */
+  function renderTtsRefresh(d) {
+    const box = $('adminTtsRefresh'); if (!box || !d) return;
+    ttsAdmin.refresh = d;
+    const text = $('adminTtsRefreshText'); const apply = $('adminTtsRefreshApply'); const scan = $('adminTtsRefreshScan');
+    const r = d.result; const ch = d.changes || [];
+    const words = ch.slice(0, 12).map(c => c.to ? `${escHtml(c.word)}→${escHtml(c.to)}` : `${escHtml(c.word)}（移除）`).join('、') + (ch.length > 12 ? ` 等 ${ch.length} 條` : '');
+    let html = ''; let canApply = false;
+    clearTimeout(ttsAdmin.refreshTimer);
+    if (d.state === 'running') {
+      html = '⏳ 正在比對已預先生成的經文，算出哪些句子要補生成…';
+      ttsAdmin.refreshTimer = setTimeout(loadTtsRefresh, 1500);
+    } else if (d.state === 'error') {
+      html = `❌ 計算失敗：${escHtml(d.error || '')}`;
+    } else if (r) {
+      const groups = (r.groups || []).filter(g => g.usable && g.missing);
+      if (!r.groups || !r.groups.length) html = '還沒有預先生成過任何經文。讀者播放時會直接用新的讀法現場生成，不用補。';
+      else if (!r.missing && !r.stalePinned) html = `✅ 已預先生成的 ${r.files.toLocaleString()} 篇都是目前的讀法，不用補生成。`;
+      else {
+        const parts = [];
+        if (r.missing) parts.push(`需要補生成 <strong>${r.missing.toLocaleString()} 句</strong>（${groups.map(g => `${escHtml(g.name)}${g.pin ? '・釘選' : ''} ${g.missing.toLocaleString()} 句`).join('、')}）`);
+        if (r.stalePinned) parts.push(`另有 ${r.stalePinned.toLocaleString()} 個舊讀法的釘選音檔（約 ${formatBytes(r.staleBytes)}）會解除釘選，交給快取自動清理`);
+        html = `已預先生成的 ${r.files.toLocaleString()} 篇裡，${ch.length ? `讀法變了的句子有 ${r.affected.toLocaleString()} 句；` : ''}${parts.join('；')}。`;
+        if (r.missing) html += '<br><span class="field-hint">缺的句子也可能是先前生成失敗或經文內容改過；已有音檔的句子會直接跳過。</span>';
+        canApply = true;
+      }
+    }
+    if (ch.length) html = `<span class="tts-refresh-words">這次讀音訂正：${words}</span><br>` + html;
+    if (d.applied && !canApply && d.state !== 'running') {
+      const a = d.applied;
+      html += `<br>已排入 ${a.jobs} 個補生成工作（共 ${a.sentences.toLocaleString()} 句），進度見「預先生成」${a.unpinned ? `；${a.unpinned.toLocaleString()} 個舊音檔已解除釘選` : ''}。`;
+    }
+    text.innerHTML = html;
+    apply.hidden = !canApply;
+    apply.textContent = r && r.missing ? `補生成 ${r.missing.toLocaleString()} 句${r.stalePinned ? '並清理舊音檔' : ''}` : '清理舊音檔';
+    scan.disabled = d.state === 'running';
+    box.hidden = !html;
+  }
+
+  async function loadTtsRefresh() {
+    const r = await ttsAdminApi('/api/admin/tts/refresh');
+    if (r.ok) renderTtsRefresh(r.data);
   }
 
   async function ttsLexiconPreview(text, raw, btn, voiceId) {
@@ -18812,6 +18860,7 @@
     renderTtsAdmin();
     const lx = await ttsAdminApi('/api/admin/tts/lexicon');
     if (lx.ok) applyTtsLexiconData(lx.data);
+    await loadTtsRefresh();
     await loadTtsAdminReports();
     // 依序載入，不要一次湧出一批請求（API 有每秒 30 次的限流，後台開啟時其他頁也在載入）
     await loadTtsAdminCache();
@@ -18906,6 +18955,19 @@
       showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', r.data.code === 'NO_TRANSCRIPT' ? 8000 : 5000);
       if (r.data.code === 'NO_TRANSCRIPT') refreshTtsAdminVoiceDir(); // 顯示 ASR 進度，跑完自動更新
     });
+    $('adminTtsRefreshScan').addEventListener('click', async () => {
+      const r = await ttsAdminApi('/api/admin/tts/refresh', { method: 'POST', body: { action: 'scan' } });
+      if (r.ok) renderTtsRefresh(r.data); else showToast(`❌ ${r.data.error || '無法計算'}`, 'error');
+    });
+    $('adminTtsRefreshApply').addEventListener('click', async () => {
+      const b = $('adminTtsRefreshApply'); b.disabled = true;
+      const r = await ttsAdminApi('/api/admin/tts/refresh', { method: 'POST', body: { action: 'apply' } });
+      b.disabled = false;
+      if (r.data && r.data.state) renderTtsRefresh(r.data);
+      if (!r.ok) { showToast(`❌ ${r.data.error || '補生成失敗'}`, 'warn', 4000); return; }
+      showToast(r.data.ids.length ? `✅ 已排入補生成（${r.data.applied.sentences.toLocaleString()} 句）` : '✅ 已清理舊音檔', 'success', 3000);
+      if (r.data.jobs) renderTtsAdminJobs(r.data.jobs);
+    });
     $('adminTtsLexiconSaveBtn').addEventListener('click', async () => {
       if (await saveTtsLexiconText($('adminTtsLexicon').value)) showToast('✅ 讀音字典已儲存', 'success', 2500);
     });
@@ -18947,7 +19009,7 @@
     $('adminTtsBuiltinLexicon').addEventListener('change', async (e) => {
       const r = await ttsAdminApi('/api/admin/tts/settings', { method: 'POST', body: { settings: { builtinLexicon: e.target.checked } } });
       if (!r.ok) { e.target.checked = !e.target.checked; showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
-      ttsAdmin.data = r.data; renderTtsBuiltinLexicon();
+      ttsAdmin.data = r.data; renderTtsBuiltinLexicon(); loadTtsRefresh();
       showToast(e.target.checked ? '已啟用內建佛經讀音表' : '已關閉內建佛經讀音表', 'success', 2500);
     });
     $('adminTtsClearAllBtn').addEventListener('click', async () => {

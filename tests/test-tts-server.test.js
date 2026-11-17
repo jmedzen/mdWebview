@@ -977,6 +977,68 @@ describe('朗讀（TTS）後端', () => {
       store.clear();
     });
 
+    test('讀音訂正後補生成：算出受影響句數、一鍵補生成、釘選的舊讀法音檔解除釘選', async () => {
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
+      store.clear();
+      const waitJobs = async () => { for (let i = 0; i < 300 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 30)); };
+      const waitScan = async () => {
+        let r;
+        for (let i = 0; i < 300; i++) { r = (await request('/api/admin/tts/refresh', { headers: admin })).json; if (r.state !== 'running') break; await new Promise((x) => setTimeout(x, 30)); }
+        return r;
+      };
+      fs.writeFileSync(path.join(VAULT, 'sub', 'lex.md'), '南無阿彌陀佛。\n\n諸惡莫作，眾善奉行。\n');
+      const job = await post('/api/admin/tts/jobs', { scope: 'sub/lex.md', voice: 'v1', pin: true }, admin);
+      assert.equal(job.status, 200); await waitJobs();
+      const before = (await request('/api/tts/doc?chapter=0&voice=v1&path=sub/lex.md')).json.sentences.filter((x) => x.sha);
+      assert.ok(before.length >= 2 && before.every((x) => x.cached));
+      const oldSha = before.find((x) => x.text.includes('阿彌陀')).sha;
+      assert.ok(store.get(oldSha).flags & store.FLAG_PIN, '預先生成時有釘選');
+
+      // 沒改字典：重新計算 → 都齊了
+      await post('/api/admin/tts/refresh', { action: 'scan' }, admin);
+      let r = await waitScan();
+      assert.equal(r.state, 'done'); assert.equal(r.result.missing, 0); assert.equal(r.result.stalePinned, 0);
+
+      // 新增讀音訂正：儲存後自動計算
+      const saved = await post('/api/admin/tts/lexicon', { text: '阿彌陀｜阿米陀\n' }, admin);
+      assert.equal(saved.status, 200); assert.ok(saved.json.refresh);
+      r = await waitScan();
+      assert.equal(r.state, 'done', JSON.stringify(r));
+      assert.deepEqual(r.changes.map((c) => [c.word, c.to]), [['阿彌陀', '阿米陀']]);
+      assert.equal(r.result.affected, 1, '只有一句讀法變了');
+      assert.equal(r.result.missing, 1);
+      assert.equal(r.result.stalePinned, 1, '舊讀法的釘選音檔');
+      assert.ok(r.result.staleBytes > 0);
+      const g = r.result.groups.find((x) => x.voice === 'v1');
+      assert.equal(g.pin, true); assert.equal(g.missing, 1);
+
+      // 一鍵補生成
+      const n0 = fake.speech.length;
+      const ap = await post('/api/admin/tts/refresh', { action: 'apply' }, admin);
+      assert.equal(ap.status, 200, JSON.stringify(ap.json)); assert.equal(ap.json.ids.length, 1);
+      assert.equal(ap.json.applied.unpinned, 1); assert.deepEqual(ap.json.changes, []);
+      await waitJobs();
+      assert.equal(fake.speech.length - n0, 1, '只重新生成讀法變了的那一句');
+      assert.ok(fake.speech.slice(n0).some((x) => String(x.input || x).includes('阿米陀')));
+      const old = store.get(oldSha);
+      assert.ok(!old || !(old.flags & store.FLAG_PIN), '舊音檔已解除釘選');
+      const after = (await request('/api/tts/doc?chapter=0&voice=v1&path=sub/lex.md')).json.sentences.filter((x) => x.sha);
+      assert.ok(after.every((x) => x.cached));
+      const newSha = after.find((x) => x.text.includes('阿彌陀')).sha;
+      assert.notEqual(newSha, oldSha);
+      assert.ok(store.get(newSha).flags & store.FLAG_PIN, '補生成沿用原本的釘選');
+      await post('/api/admin/tts/refresh', { action: 'scan' }, admin);
+      r = await waitScan();
+      assert.equal(r.result.missing, 0); assert.equal(r.result.stalePinned, 0);
+      // 不合法的 action；沒登入
+      assert.equal((await post('/api/admin/tts/refresh', { action: 'nope' }, admin)).status, 400);
+      assert.equal((await post('/api/admin/tts/refresh', { action: 'scan' })).status, 401);
+
+      fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
+      store.clear();
+    });
+
     test('「開放朗讀」關閉：讀者端入口全關；後台試聽、字典試聽、快取、預先生成、覆蓋率照常可用', async () => {
       config.settings.tts = Object.assign(baseSettings(), { enabled: false });
       fs.writeFileSync(path.join(VAULT, 'sub', 'off.md'), '諸行無常，是生滅法。生滅滅已，寂滅為樂。\n');
