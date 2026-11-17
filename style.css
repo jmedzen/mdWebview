@@ -13451,3 +13451,11 @@ html.kb-open .admin-palette {
 html.kb-open .admin-palette-box {
   max-height: 100%;
 }
+
+/* 後台朗讀：讀者端沒有可用音色（所有朗讀入口被隱藏）時的文字警告 */
+.tts-admin-alert {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--danger); background: var(--danger-bg); color: var(--danger);
+  font-weight: 600; line-height: 1.6;
+}
+.tts-admin-alert[hidden] { display: none; }
