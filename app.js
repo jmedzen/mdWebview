@@ -18339,19 +18339,24 @@
   function updateTtsAdminLights(d) {
     if (!d) return;
     const s = d.settings;
+    // 「開放朗讀」只管讀者端入口：刻意關閉時是上線前的正常狀態，用資訊說明，不當成警告；
+    // 燈號照樣反映後台（audio.cpp、音色、ffmpeg），因為預先生成在前台關閉時也會跑。
+    const readerOff = !s.enabled;
+    const usable = ttsAdminUsableVoices(d);
     // 朗讀已開放但讀者端沒有可用音色時，前台會隱藏所有朗讀入口：後台用明顯的文字說清楚
-    const noVoice = !!s.enabled && !ttsAdminUsableVoices(d).length;
+    const noVoice = !readerOff && !usable.length;
     document.querySelectorAll('[data-tts-novoice-warn]').forEach(el => { el.hidden = !noVoice; });
-    if (!s.enabled) setAdminCardLight('tts', 'off', '');
-    else if (!s.baseUrl || !s.model) setAdminCardLight('tts', 'warn', '朗讀已開放，但還沒設定伺服器網址或模型');
-    else if (!d.health.ok) setAdminCardLight('tts', 'bad', `朗讀服務無法使用：${d.health.error || '未知原因'}`);
-    else if (!s.voices.some(v => v.enabled)) setAdminCardLight('tts', 'warn', '還沒有開放任何音色');
-    else if (!ttsAdminUsableVoices(d).length) setAdminCardLight('tts', 'bad', '開放的音色都找不到參考錄音（可能改名或刪除），讀者端的朗讀入口已全部隱藏；請在音色表勾選現有的音色並儲存');
-    else if (!d.ffmpeg.ok) setAdminCardLight('tts', 'warn', '找不到 ffmpeg：音檔存成 WAV，約大十倍');
-    else setAdminCardLight('tts', 'ok', `audio.cpp ${d.health.info && d.health.info.backend ? `（${d.health.info.backend}）` : ''}連線正常`);
+    document.querySelectorAll('[data-tts-reader-off-note]').forEach(el => { el.hidden = !readerOff; });
+    const off = readerOff ? '前台未開放朗讀・' : '';
+    if (!s.baseUrl || !s.model) setAdminCardLight('tts', readerOff ? 'off' : 'warn', readerOff ? '前台未開放朗讀；還沒設定伺服器網址或模型' : '朗讀已開放，但還沒設定伺服器網址或模型');
+    else if (!d.health.ok) setAdminCardLight('tts', 'bad', `${off}朗讀服務無法使用：${d.health.error || '未知原因'}`);
+    else if (!s.voices.some(v => v.enabled)) setAdminCardLight('tts', readerOff ? 'off' : 'warn', `${off}還沒有開放任何音色`);
+    else if (!usable.length) setAdminCardLight('tts', readerOff ? 'warn' : 'bad', readerOff ? `${off}開放的音色都找不到參考錄音（可能改名或刪除）；請在音色表勾選現有的音色並儲存` : '開放的音色都找不到參考錄音（可能改名或刪除），讀者端的朗讀入口已全部隱藏；請在音色表勾選現有的音色並儲存');
+    else if (!d.ffmpeg.ok) setAdminCardLight('tts', 'warn', `${off}找不到 ffmpeg：音檔存成 WAV，約大十倍`);
+    else setAdminCardLight('tts', 'ok', `${off}audio.cpp ${d.health.info && d.health.info.backend ? `（${d.health.info.backend}）` : ''}連線正常`);
     const chip = $('hwTtsStatus');
     if (chip) {
-      chip.hidden = !s.enabled;
+      chip.hidden = !s.enabled && !(s.baseUrl && s.model); // 前台關閉、後台已設定好時也顯示（預先生成靠它）
       const light = chip.querySelector('.admin-nav-light');
       const level = !d.health.ok ? 'bad' : 'ok';
       if (light) light.className = `admin-nav-light ${level}`;
@@ -18653,7 +18658,7 @@
     const el = $('adminTtsCacheStats');
     if (!r.ok) { el.innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法讀取快取')}</div>`; return; }
     const c = r.data;
-    if (!c.available) { el.innerHTML = '<div class="field-hint">快取還沒有建立（開放朗讀並生成過音檔後才會出現）。</div>'; setAdminCardLight('ttscache', 'off', ''); return; }
+    if (!c.available) { el.innerHTML = '<div class="field-hint">快取還沒有建立（設定好伺服器網址與模型、生成過音檔後才會出現）。</div>'; setAdminCardLight('ttscache', 'off', ''); return; }
     const pct = c.limitBytes ? Math.round(c.bytes / c.limitBytes * 100) : 0;
     const sum = (k) => (c.days || []).slice(0, 7).reduce((n, d) => n + (d[k] || 0), 0);
     const hits = sum('hits'), misses = sum('misses');
@@ -18709,20 +18714,46 @@
     const tb = $('adminTtsReports') && $('adminTtsReports').querySelector('tbody');
     if (!tb) return;
     const r = await ttsAdminApi('/api/admin/tts/reports');
-    if (!r.ok) { tb.innerHTML = `<tr><td colspan="5" class="field-hint">${escHtml(r.data.error || '無法讀取')}</td></tr>`; return; }
+    if (!r.ok) { tb.innerHTML = `<tr><td colspan="6" class="field-hint">${escHtml(r.data.error || '無法讀取')}</td></tr>`; return; }
     const list = r.data.reports || [];
     const vname = Object.fromEntries((r.data.voices || []).map(v => [v.id, v.name]));
+    // 音色：回報當時記下的名稱優先（之後改名或移除仍看得出是哪個聲音），舊的回報只有 id 時用目前的名稱
+    for (const x of list) x.voiceLabel = x.voiceName || (x.voice && vname[x.voice]) || x.voice || '';
     tb.innerHTML = list.map(x => {
       const doc = x.path.split('/').pop().replace(/\.md$/i, '');
-      return `<tr data-key="${escHtml(x.key)}"><td><div class="tts-report-text">${escHtml(x.text)}</div><div class="field-hint">${escHtml(doc)}${x.voice && vname[x.voice] ? `・${escHtml(vname[x.voice])}` : ''}</div></td>
+      const renamed = x.voiceName && x.voice && vname[x.voice] && vname[x.voice] !== x.voiceName;
+      const gone = x.voice && !vname[x.voice];
+      return `<tr data-key="${escHtml(x.key)}"><td><div class="tts-report-text">${escHtml(x.text)}</div><div class="field-hint">${escHtml(doc)}</div></td>
+        <td class="tts-report-voice">${x.voiceLabel ? escHtml(x.voiceLabel) : '<span class="field-hint">（未記錄）</span>'}${renamed ? `<div class="field-hint">現名：${escHtml(vname[x.voice])}</div>` : ''}${gone ? '<div class="field-hint">已移除</div>' : ''}</td>
         <td>${escHtml(x.note || '—')}</td><td>${x.n}</td><td>${escHtml(new Date(x.lastAt).toLocaleString('zh-TW', { hour12: false }))}</td>
         <td class="tts-lex-act"><button type="button" class="modal-btn secondary-btn small-btn tts-rep-try" data-no-dirty aria-label="試聽這一句">試聽</button>
           <button type="button" class="modal-btn secondary-btn small-btn tts-rep-fill" data-no-dirty aria-label="把這一句放進下方試聽欄">放進試聽</button>
           <button type="button" class="modal-btn secondary-btn small-btn tts-rep-done" data-no-dirty aria-label="標為已處理">已處理</button></td></tr>`;
-    }).join('') || '<tr><td colspan="5" class="field-hint">目前沒有讀者回報。</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="field-hint">目前沒有讀者回報。</td></tr>';
     ttsAdmin.reports = list;
+    const exp = $('adminTtsReportsExport'); if (exp) exp.disabled = !list.length;
     const cnt = $('adminTtsReportCount'); // 待處理數放在標題旁，一打開這頁就看得到
     if (cnt) { cnt.hidden = !list.length; cnt.textContent = list.length ? `${list.length} 則待處理` : ''; }
+  }
+
+  /** 讀者回報匯出成 CSV（含回報當時的音色 id 與名稱）；Excel 開啟要 BOM 才認得 UTF-8。 */
+  function ttsReportsCsv(list) {
+    const cell = v => { const t = String(v == null ? '' : v); return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const time = ms => (ms ? new Date(ms).toLocaleString('zh-TW', { hour12: false }) : '');
+    const head = ['句子', '送去朗讀的文字', '檔案', '句序', '音色 id', '音色名稱', '讀者備註', '次數', '第一次回報', '最後回報'];
+    const rows = list.map(x => [x.text, x.spoken, x.path, x.unit, x.voice, x.voiceLabel || x.voiceName || '', x.note, x.n, time(x.firstAt), time(x.lastAt)]);
+    return '\ufeff' + [head, ...rows].map(r => r.map(cell).join(',')).join('\r\n') + '\r\n';
+  }
+
+  function exportTtsReportsCsv() {
+    const list = ttsAdmin.reports || [];
+    if (!list.length) { showToast('目前沒有讀者回報', 'info'); return; }
+    const blob = new Blob([ttsReportsCsv(list)], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `讀者回報-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   /** 讀音校正：自訂字典的文字框＋內建佛經讀音表。 */
@@ -18760,8 +18791,10 @@
     return true;
   }
 
-  async function ttsLexiconPreview(text, raw, btn) {
-    const voice = $('adminTtsPreviewVoice').value;
+  async function ttsLexiconPreview(text, raw, btn, voiceId) {
+    // voiceId：讀者回報的「試聽」用回報時的音色（還開放的話），否則用試聽欄選的音色
+    const sel = $('adminTtsPreviewVoice');
+    const voice = voiceId && [...sel.options].some(o => o.value === voiceId) ? voiceId : sel.value;
     if (!voice) { showToast('請先在「朗讀」頁開放至少一個音色', 'warn', 4000); return; }
     if (btn) btn.disabled = true;
     const r = await ttsAdminApi('/api/admin/tts/preview', { method: 'POST', body: { voice, text, raw: !!raw } });
@@ -18887,10 +18920,11 @@
       ttsLexiconPreview(text, true, $('adminTtsPreviewRawBtn'));
     });
     $('adminTtsBuiltinFilter').addEventListener('input', renderTtsBuiltinLexicon);
+    $('adminTtsReportsExport').addEventListener('click', exportTtsReportsCsv);
     $('adminTtsReports').addEventListener('click', async (e) => {
       const tr = e.target.closest('tr[data-key]'); if (!tr) return;
       const x = (ttsAdmin.reports || []).find(r => r.key === tr.dataset.key); if (!x) return;
-      if (e.target.closest('.tts-rep-try')) return ttsLexiconPreview(x.text, false, e.target.closest('button'));
+      if (e.target.closest('.tts-rep-try')) return ttsLexiconPreview(x.text, false, e.target.closest('button'), x.voice);
       if (e.target.closest('.tts-rep-fill')) { $('adminTtsPreviewText').value = x.text; $('adminTtsPreviewText').focus(); return; }
       if (e.target.closest('.tts-rep-done')) {
         const r = await ttsAdminApi('/api/admin/tts/reports/delete', { method: 'POST', body: { key: x.key } });
@@ -18974,7 +19008,7 @@
   // （POST /api/admin/listen/detect），所以畫面上的起點行號、長度和讀者端一致。
   // 自動分段時只存管理員的覆寫（改名、不收錄），以「開頭文字＋行號」對應，檔案改版也找得回來。
   // ═══════════════════════════════════════════════════════════
-  const lcAdmin = { cat: null, saved: '', status: {}, sel: null, detect: null, detectKey: '', coverage: null, voice: '', wired: false, catsOpen: false };
+  const lcAdmin = { cat: null, saved: '', status: {}, sel: null, detect: null, detectKey: '', coverage: null, voice: '', voices: [], ttsReady: false, wired: false, catsOpen: false };
   const LC_SPLITS = [['auto', '自動・有品依品'], ['juan', '自動・依卷'], ['none', '不分段'], ['manual', '手動']];
 
   function lcDirty() { return !!lcAdmin.cat && JSON.stringify(lcAdmin.cat) !== lcAdmin.saved; }
@@ -18988,8 +19022,14 @@
     const r = await ttsAdminApi('/api/admin/listen/catalog');
     if (!r.ok) { setAdminCardLight('listenlist', 'bad', r.data.error || '無法載入'); return; }
     lcApplyServer(r.data);
-    const st = await refreshTtsStatus(false).catch(() => null);
-    lcAdmin.voice = st && st.defaultVoice ? st.defaultVoice : '';
+    // 用後台的朗讀設定（不是讀者端的 /api/tts/status）：「開放朗讀」關閉時也能看覆蓋率、預先生成
+    const ts = await ttsAdminApi('/api/admin/tts/settings').catch(() => null);
+    if (ts && ts.ok) ttsAdmin.data = ts.data;
+    const d = ts && ts.ok ? ts.data : null;
+    lcAdmin.voices = d ? ttsAdminUsableVoices(d) : [];
+    lcAdmin.ttsReady = !!(d && d.settings.baseUrl && d.settings.model && lcAdmin.voices.length);
+    const def = d && lcAdmin.voices.find(v => v.id === d.settings.defaultVoice);
+    lcAdmin.voice = def ? def.id : (lcAdmin.voices[0] ? lcAdmin.voices[0].id : '');
     const dl = $('lcPathList');
     if (dl && !dl.childElementCount) dl.innerHTML = homeAllFiles().map(f => `<option value="${escHtml(f.path)}"></option>`).join('');
     lcLoadCoverage();
@@ -19116,13 +19156,13 @@
   function renderLcGen() {
     const box = $('lcGen'); const it = lcItem(); if (!box) return;
     const cov = lcAdmin.coverage;
-    const ttsOn = ttsEnabled();
+    const ttsOn = lcAdmin.ttsReady;
     const one = it && cov && cov.items ? cov.items[it.id] : null;
     const totals = cov && cov.items ? Object.values(cov.items).filter(Boolean).reduce((a, x) => ({ v: a.v + x.voiced, c: a.c + x.cached }), { v: 0, c: 0 }) : null;
     const pct = (x) => (x && x.voiced ? Math.floor(x.cached / x.voiced * 100) : 0);
-    const voice = (ttsVoices().find(v => v.id === lcAdmin.voice) || {}).name || lcAdmin.voice;
+    const voice = (lcAdmin.voices.find(v => v.id === lcAdmin.voice) || {}).name || lcAdmin.voice;
     box.innerHTML = `<div class="lc-parts-head"><h3>預先生成語音</h3><span class="field-hint">${voice ? `音色：${escHtml(voice)}（預設）` : ''}</span></div>
-      ${!ttsOn ? '<p class="field-hint">網站還沒有開啟朗讀，或沒有開放的音色。請先到「朗讀（TTS）」設定。</p>' : `
+      ${!ttsOn ? '<p class="field-hint">還沒設定 audio.cpp 伺服器網址與模型，或沒有開放的音色。請先到「朗讀（TTS）」設定（不必打開「開放朗讀」）。</p>' : `
       <div class="lc-stat">
         <div><b>${one ? pct(one) + '%' : '—'}</b><span>這部經已生成${one ? `（${one.cached.toLocaleString()}／${one.voiced.toLocaleString()} 句）` : ''}</span></div>
         <div><b>${totals && totals.v ? Math.floor(totals.c / totals.v * 100) + '%' : '—'}</b><span>整個目錄已生成${totals ? `（${totals.c.toLocaleString()}／${totals.v.toLocaleString()} 句）` : ''}</span></div>
@@ -19154,7 +19194,7 @@
   }
 
   async function lcLoadCoverage() {
-    if (!ttsEnabled()) { renderLcGen(); return; }
+    if (!lcAdmin.ttsReady) { renderLcGen(); return; }
     const r = await ttsAdminApi(`/api/admin/listen/coverage?voice=${encodeURIComponent(lcAdmin.voice)}`);
     lcAdmin.coverage = r.ok ? r.data : null;
     renderLcGen();
