@@ -2469,6 +2469,7 @@
               <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
             </div>
             <div class="config-card-body">
+              <p class="tts-admin-alert" data-tts-novoice-warn role="alert" hidden>⚠️ 讀者端目前看不到任何朗讀入口（右上角喇叭、右鍵選單、選取朗讀都已隱藏）：沒有可用的音色（還沒開放任何音色，或開放的音色找不到參考錄音，可能已改名或刪除）。請在下方「音色」表勾選現有的音色、選好預設，再按儲存。</p>
               <p class="field-hint">讀者的瀏覽器不會直接連 audio.cpp：一律由本站代理，伺服器網址與音色名稱不會給讀者看到。</p>
               <div class="toggle-switch-wrapper compact-switch">
                 <label class="toggle-switch-label" for="adminTtsEnabled">
@@ -2515,6 +2516,7 @@
               <h3 class="config-card-title">音色</h3>
             </div>
             <div class="config-card-body">
+              <p class="tts-admin-alert" data-tts-novoice-warn hidden>⚠️ 讀者端目前看不到任何朗讀入口（右上角喇叭、右鍵選單、選取朗讀都已隱藏）：沒有可用的音色（還沒開放任何音色，或開放的音色找不到參考錄音，可能已改名或刪除）。請在這裡勾選現有的音色、選好預設，再按儲存。</p>
               <p class="field-hint">勾選要開放給讀者的音色，填上中文名與標籤。音色就是 audio.cpp 音色資料夾（<code>--voice-dir</code>）裡的參考錄音；換了錄音請用新檔名，或把「版本」加一，舊的音檔才不會混進來。每多開放一個音色，快取與生成時間都會多一倍。</p>
               <div class="tts-admin-table-wrap"><table class="tts-admin-table" id="adminTtsVoices">
                 <thead><tr><th scope="col">開放</th><th scope="col">預設</th><th scope="col">audio.cpp 名稱</th><th scope="col">中文名</th><th scope="col">標籤（以頓號分隔）</th><th scope="col">預設語速</th><th scope="col">版本</th><th scope="col">試聽</th></tr></thead>

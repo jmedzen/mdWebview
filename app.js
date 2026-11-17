@@ -18293,6 +18293,9 @@
   function updateTtsAdminLights(d) {
     if (!d) return;
     const s = d.settings;
+    // 朗讀已開放但讀者端沒有可用音色時，前台會隱藏所有朗讀入口：後台用明顯的文字說清楚
+    const noVoice = !!s.enabled && !ttsAdminUsableVoices(d).length;
+    document.querySelectorAll('[data-tts-novoice-warn]').forEach(el => { el.hidden = !noVoice; });
     if (!s.enabled) setAdminCardLight('tts', 'off', '');
     else if (!s.baseUrl || !s.model) setAdminCardLight('tts', 'warn', '朗讀已開放，但還沒設定伺服器網址或模型');
     else if (!d.health.ok) setAdminCardLight('tts', 'bad', `朗讀服務無法使用：${d.health.error || '未知原因'}`);

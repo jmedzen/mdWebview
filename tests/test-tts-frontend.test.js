@@ -516,3 +516,14 @@ describe('後台：開放的音色都找不到錄音時要警告', () => {
     assert.match(app, /else if \(!ttsAdminUsableVoices\(d\)\.length\) setAdminCardLight\('tts', 'bad', '[^']*讀者端的朗讀入口已全部隱藏/);
   });
 });
+
+describe('後台：讀者端沒有可用音色時顯示文字警告', () => {
+  test('朗讀服務卡與音色卡都有警告文字，預設隱藏', () => {
+    const warns = [...html.matchAll(/<p class="tts-admin-alert" data-tts-novoice-warn[^>]*hidden>([^<]+)<\/p>/g)];
+    assert.equal(warns.length, 2);
+    for (const [, text] of warns) assert.match(text, /讀者端目前看不到任何朗讀入口/);
+  });
+  test('狀態燈更新時依可用音色切換警告', () => {
+    assert.match(app, /const noVoice = !!s\.enabled && !ttsAdminUsableVoices\(d\)\.length;\s*document\.querySelectorAll\('\[data-tts-novoice-warn\]'\)\.forEach\(el => \{ el\.hidden = !noVoice; \}\);/);
+  });
+});
