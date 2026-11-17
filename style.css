@@ -8280,7 +8280,9 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 
 /* ── §32 Admin Analytics ────────────────────────────────────── */
 .admin-tz-select,
-#adminTtsModel {
+#adminTtsModel,
+#adminTtsAsrModel,
+#adminTtsJobVoice {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -12872,6 +12874,28 @@ body.focus-mode .tts-start-btn { display: none; }
 
 /* §27c 朗讀後台（#adminPaneTts） */
 .admin-shell .tts-admin-table-wrap { overflow-x: auto; margin: 8px 0; }
+/* 手機、iPad 直向：音色表改成一張張卡片，標籤、語速、版本、試聽不再藏在橫向捲動後面 */
+@media (max-width: 600px) {
+  .admin-shell #adminTtsVoices, .admin-shell #adminTtsVoices tbody { display: block; }
+  .admin-shell #adminTtsVoices thead { display: none; }
+  .admin-shell #adminTtsVoices tr[data-voice] {
+    display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px 12px; align-items: center;
+    padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary);
+  }
+  .admin-shell #adminTtsVoices tr[data-voice] > td { display: flex; align-items: center; gap: 6px; padding: 0; border: 0; min-width: 0; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td::before { content: attr(data-label); font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3)::before { content: none; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3) { flex-wrap: wrap; overflow-wrap: anywhere; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(4),
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) { grid-column: 1 / -1; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(4) input,
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) input { flex: 1; min-width: 0; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(8) { justify-self: end; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(7) input { width: 64px; }
+  /* 卡片標題列：狀態文字太長時換到下一行，標題不被擠成直排 */
+  .admin-shell .config-card-header { flex-wrap: wrap; }
+  .admin-shell .config-card-header .config-card-title { white-space: nowrap; }
+}
 .admin-shell .tts-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .admin-shell .tts-admin-table tr.is-gone td { opacity: 0.75; }
 .admin-shell .tts-admin-table tr.is-gone td:nth-child(3) { opacity: 1; }
@@ -12907,6 +12931,7 @@ body.focus-mode .tts-start-btn { display: none; }
 .admin-shell .tts-lcgen-voices { border: 0; margin: 6px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .admin-shell .tts-lcgen-voices legend { float: left; margin-right: 8px; color: var(--text-muted); font-size: 13px; }
 .admin-shell .tts-lcgen-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.admin-shell .tts-job-pin { display: flex; width: fit-content; margin: 6px 0 10px; }
 .admin-shell .tts-lcgen-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 6px; }
 .admin-shell .tts-lcgen-est:empty { display: none; }
 .admin-shell .tts-lcgen-est { margin-top: 8px; overflow-x: auto; }
@@ -13349,7 +13374,9 @@ body.tts-chant-open { overflow: hidden; }
 .admin-shell .tts-lex-table td.tts-lex-src { font-size: 0.85em; color: var(--text-muted); min-width: 10em; max-width: 16em; white-space: normal; line-height: 1.4; }
 .admin-shell .tts-lex-play, .admin-shell .tts-lex-act { white-space: nowrap; }
 .admin-shell .tts-lex-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
-.admin-shell .tts-lex-state.on { background: var(--tts-accent-bg); color: var(--tts-accent-text); }
+.admin-shell .tts-lex-state.on { background: var(--success-bg); color: var(--success); } /* 生效＝正常，用綠色，不要像錯誤 */
+.admin-shell .tts-lex-count { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--tts-accent-bg); color: var(--tts-accent-text); vertical-align: middle; }
+.admin-shell .tts-lex-count[hidden] { display: none; }
 .admin-shell .tts-lex-state.off { background: var(--hover-bg); color: var(--text-muted); }
 
 /* ── 朗讀體驗審計第三批：喇叭＋▾、點段落朗讀、首次提示、回報念錯、桌面面板 ── */

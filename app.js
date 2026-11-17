@@ -18320,14 +18320,14 @@
     const id = saved ? v.id : '';
     const rate = Number(v.rate) || 1;
     return `<tr data-voice="${escHtml(v.voice)}" data-id="${escHtml(id)}"${gone ? ' class="is-gone"' : ''}>
-      <td><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
-      <td><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
-      <td><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
-      <td><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
-      <td><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
-      <td><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
-      <td><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
-      <td><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id || !gone ? '' : 'disabled'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
+      <td data-label="開放"><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
+      <td data-label="預設"><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
+      <td data-label="名稱"><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
+      <td data-label="中文名"><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
+      <td data-label="標籤"><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
+      <td data-label="預設語速"><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
+      <td data-label="版本"><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
+      <td data-label="試聽"><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id || !gone ? '' : 'disabled'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
     </tr>`;
   }
 
@@ -18665,6 +18665,8 @@
           <button type="button" class="modal-btn secondary-btn small-btn tts-rep-done" data-no-dirty aria-label="標為已處理">已處理</button></td></tr>`;
     }).join('') || '<tr><td colspan="5" class="field-hint">目前沒有讀者回報。</td></tr>';
     ttsAdmin.reports = list;
+    const cnt = $('adminTtsReportCount'); // 待處理數放在標題旁，一打開這頁就看得到
+    if (cnt) { cnt.hidden = !list.length; cnt.textContent = list.length ? `${list.length} 則待處理` : ''; }
   }
 
   /** 讀音校正：自訂字典的文字框＋內建佛經讀音表。 */
@@ -19070,11 +19072,11 @@
         <div><b>${totals && totals.v ? Math.floor(totals.c / totals.v * 100) + '%' : '—'}</b><span>整個目錄已生成${totals ? `（${totals.c.toLocaleString()}／${totals.v.toLocaleString()} 句）` : ''}</span></div>
       </div>
       <div class="lc-bar" role="progressbar" aria-label="這部經已生成" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${one ? pct(one) : 0}"><i style="width:${one ? pct(one) : 0}%"></i></div>
-      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。工作在背景依序進行，進度在「朗讀（TTS）」頁的預先生成區。</p>
+      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。這裡用預設音色生成選中的這一部；整個目錄（可選多個音色、先估算時間與空間）在「朗讀（TTS）」頁的預先生成區。</p>
       <div class="lc-tool">
         <button type="button" class="modal-btn submit-btn small-btn" data-lc-act="gen-one" data-no-dirty ${it ? '' : 'disabled'}>預先生成這部經</button>
-        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="gen-all" data-no-dirty>整個目錄一起預先生成</button>
-        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 固定保留（不被快取清理刪掉）</label>
+        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 釘選（不被自動清除）</label>
+        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="goto-gen-all" data-no-dirty>整個目錄：到朗讀頁選音色、估算後生成…</button>
       </div>`}`;
   }
 
@@ -19150,12 +19152,18 @@
         lcChanged(); renderLcAdmin(); return;
       }
       if (act === 'redetect') { lcDetect(true); return; }
-      if (act === 'gen-one' || act === 'gen-all') {
+      if (act === 'gen-one') {
         const it = lcItem();
-        if (act === 'gen-one' && lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
-        const scope = act === 'gen-one' ? it.path : 'listen:catalog';
-        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
-        if (r.ok) showToast(`✅ 已排入預先生成（${act === 'gen-one' ? it.name : '整個目錄'}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        if (lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope: it.path, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
+        if (r.ok) showToast(`✅ 已排入預先生成（${it.name}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        return;
+      }
+      // 整個目錄只有一個入口：朗讀頁的「🎧 聽經目錄」區（可選音色、先估算），這裡帶過去
+      if (act === 'goto-gen-all') {
+        if (lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const nav = document.querySelector('#adminShell .admin-nav-item[data-page="tts"]'); if (nav) nav.click();
+        setTimeout(() => { const t = $('adminTtsLcGenTitle'); if (t) { t.scrollIntoView({ block: 'center' }); const f = document.querySelector('#adminTtsLcVoices input'); if (f) f.focus({ preventScroll: true }); } }, 300);
         return;
       }
       const pact = b.dataset.lcPact; const it = lcItem();

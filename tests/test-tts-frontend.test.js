@@ -470,3 +470,29 @@ describe('2026-11-17 介面審計修正（讀者端）', () => {
   });
 });
 
+
+describe('2026-11-17 介面審計修正（後台）', () => {
+  test('聽經目錄的「整個目錄」只有一個入口：朗讀頁的 🎧 區；用詞統一為「釘選」', () => {
+    assert.doesNotMatch(app, /data-lc-act="gen-all"/);
+    assert.match(app, /data-lc-act="goto-gen-all"/);
+    assert.match(app, /if \(act === 'goto-gen-all'\)[\s\S]{0,400}adminTtsLcGenTitle/);
+    assert.doesNotMatch(app, /固定保留/);
+    assert.match(app, /id="lcGenPin" checked data-no-dirty> 釘選（不被自動清除）/);
+  });
+  test('手機音色表改成卡片：每格有 data-label，600px 以下不靠橫向捲動', () => {
+    for (const lab of ['開放', '預設', '名稱', '中文名', '標籤', '預設語速', '版本', '試聽']) assert.match(app, new RegExp(`<td data-label="${lab}">`), lab);
+    assert.match(css, /@media \(max-width: 600px\) \{\n  \.admin-shell #adminTtsVoices, \.admin-shell #adminTtsVoices tbody \{ display: block; \}/);
+  });
+  test('讀音校正：讀者回報排在最前面並顯示待處理數，內建表放最後；「生效」用綠色', () => {
+    const card = html.slice(html.indexOf('data-card="ttslexicon"'), html.indexOf('data-card="ttscache"'));
+    const at = (t) => card.indexOf(t);
+    assert.ok(at('id="adminTtsReports"') < at('id="adminTtsLexicon"') && at('id="adminTtsLexicon"') < at('id="adminTtsBuiltinTable"'));
+    assert.match(card, /id="adminTtsReportCount" hidden/);
+    assert.match(css, /\.tts-lex-state\.on \{ background: var\(--success-bg\); color: var\(--success\); \}/);
+  });
+  test('後台下拉一致樣式；開關有關聯的名稱；預先生成的釘選獨立一行', () => {
+    assert.match(css, /#adminTtsModel,\n#adminTtsAsrModel,\n#adminTtsJobVoice \{/);
+    for (const id of ['adminTtsEnabled', 'adminTtsAutoTranscribe', 'adminTtsBuiltinLexicon']) assert.match(html, new RegExp(`id="${id}" aria-labelledby="${id}Title"`), id);
+    assert.match(html, /id="adminTtsJobAddBtn" data-no-dirty>開始<\/button>\n\s*<\/div>\n\s*<label class="tts-lcgen-check tts-job-pin"><input type="checkbox" id="adminTtsJobPin"/);
+  });
+});
