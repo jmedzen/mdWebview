@@ -18676,7 +18676,21 @@
     const el = $('adminTtsJobs');
     const voices = (ttsAdmin.data && ttsAdmin.data.settings.voices) || [];
     const vname = (id) => (voices.find(v => v.id === id) || {}).name || id;
-    el.innerHTML = d.jobs.length ? d.jobs.map(j => {
+    // 排序：生成中 → 排隊中（依實際執行順序）→ 已暫停 → 已結束（新的在前）。
+    // 以前一律依建立時間，新排的工作和舊的已取消紀錄混在一起，同一個音色看起來像出現兩次。
+    const rank = { running: 0, queued: 1, paused: 2 };
+    const jobs = d.jobs.slice().sort((a, b) => {
+      const ra = rank[a.state] ?? 3, rb = rank[b.state] ?? 3;
+      if (ra !== rb) return ra - rb;
+      return ra === 1 ? a.id - b.id : b.id - a.id;
+    });
+    const activeStates = ['running', 'queued', 'paused'];
+    let queuePos = 0;
+    el.innerHTML = jobs.length ? jobs.map(j => {
+      const active = activeStates.includes(j.state);
+      const ahead = j.state === 'queued' ? queuePos++ + (jobs.some(x => x.state === 'running') ? 1 : 0) : 0;
+      const stateLabel = j.state === 'queued' && ahead ? `排隊中（前面還有 ${ahead} 個）` : (TTS_JOB_STATE[j.state] || j.state);
+      const pausedHint = j.state === 'paused' ? '<div class="field-hint">已暫停：其他工作照常進行；按「繼續」會排回佇列，從停下的那一句接著做。</div>' : '';
       const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.label || j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
       const acts = [];
       if (j.state === 'running' || j.state === 'queued') acts.push(['pause', '暫停']);
@@ -18690,7 +18704,8 @@
         ${fails.length ? `<details class="tts-job-fails"><summary>看失敗的句子（${fails.length}${j.failed > fails.length ? `／${j.failed}` : ''}）</summary><ul>${fails.map(f => `<li><a href="/?file=${encodeURIComponent(f.path)}&line=${f.line}" target="_blank" rel="noopener">${escHtml(f.label)} 第 ${f.line} 行</a>「${escHtml(f.text)}」— ${escHtml(f.reason)}</li>`).join('')}</ul></details>` : ''}` : '';
       return `<div class="account-row tts-job" data-job="${j.id}">
         <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
-          <div class="field-hint">${TTS_JOB_STATE[j.state] || j.state}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          <div class="field-hint">${stateLabel}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${active && j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          ${pausedHint}
           <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
           ${report}
         </div>
@@ -18698,7 +18713,7 @@
       </div>`;
     }).join('') : '<div class="field-hint">還沒有預先生成的工作。</div>';
     clearTimeout(ttsAdmin.jobsTimer);
-    if (d.jobs.some(j => j.state === 'running' || j.state === 'queued') && adminCurrentPage === 'tts') {
+    if (jobs.some(j => j.state === 'running' || j.state === 'queued') && adminCurrentPage === 'tts') {
       ttsAdmin.jobsTimer = setTimeout(() => { if (adminCurrentPage === 'tts') loadTtsAdminJobs(); }, 4000);
     }
   }
@@ -18788,7 +18803,55 @@
     const r = await ttsAdminApi('/api/admin/tts/lexicon', { method: 'POST', body: { text } });
     if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return false; }
     applyTtsLexiconData(r.data);
+    if (r.data.refresh) renderTtsRefresh(r.data.refresh);
     return true;
+  }
+
+  /**
+   * 讀音校正後的補生成：顯示這次改到的詞、已預先生成範圍裡讀法變了／缺音檔的句數，
+   * 一鍵依原音色與釘選補生成，並把舊讀法的釘選音檔交回快取自動清理。
+   */
+  function renderTtsRefresh(d) {
+    const box = $('adminTtsRefresh'); if (!box || !d) return;
+    ttsAdmin.refresh = d;
+    const text = $('adminTtsRefreshText'); const apply = $('adminTtsRefreshApply'); const scan = $('adminTtsRefreshScan');
+    const r = d.result; const ch = d.changes || [];
+    const words = ch.slice(0, 12).map(c => c.to ? `${escHtml(c.word)}→${escHtml(c.to)}` : `${escHtml(c.word)}（移除）`).join('、') + (ch.length > 12 ? ` 等 ${ch.length} 條` : '');
+    let html = ''; let canApply = false;
+    clearTimeout(ttsAdmin.refreshTimer);
+    if (d.state === 'running') {
+      html = '⏳ 正在比對已預先生成的經文，算出哪些句子要補生成…';
+      ttsAdmin.refreshTimer = setTimeout(loadTtsRefresh, 1500);
+    } else if (d.state === 'error') {
+      html = `❌ 計算失敗：${escHtml(d.error || '')}`;
+    } else if (r) {
+      const groups = (r.groups || []).filter(g => g.usable && g.missing);
+      if (!r.groups || !r.groups.length) html = '還沒有預先生成過任何經文。讀者播放時會直接用新的讀法現場生成，不用補。';
+      else if (!r.missing && !r.stalePinned) html = `✅ 已預先生成的 ${r.files.toLocaleString()} 篇都是目前的讀法，不用補生成。`;
+      else {
+        const parts = [];
+        if (r.missing) parts.push(`需要補生成 <strong>${r.missing.toLocaleString()} 句</strong>（${groups.map(g => `${escHtml(g.name)}${g.pin ? '・釘選' : ''} ${g.missing.toLocaleString()} 句`).join('、')}）`);
+        if (r.stalePinned) parts.push(`另有 ${r.stalePinned.toLocaleString()} 個舊讀法的釘選音檔（約 ${formatBytes(r.staleBytes)}）會解除釘選，交給快取自動清理`);
+        html = `已預先生成的 ${r.files.toLocaleString()} 篇裡，${ch.length ? `讀法變了的句子有 ${r.affected.toLocaleString()} 句；` : ''}${parts.join('；')}。`;
+        if (r.missing) html += '<br><span class="field-hint">缺的句子也可能是先前生成失敗或經文內容改過；已有音檔的句子會直接跳過。</span>';
+        canApply = true;
+      }
+    }
+    if (ch.length) html = `<span class="tts-refresh-words">這次讀音訂正：${words}</span><br>` + html;
+    if (d.applied && !canApply && d.state !== 'running') {
+      const a = d.applied;
+      html += `<br>已排入 ${a.jobs} 個補生成工作（共 ${a.sentences.toLocaleString()} 句），進度見「預先生成」${a.unpinned ? `；${a.unpinned.toLocaleString()} 個舊音檔已解除釘選` : ''}。`;
+    }
+    text.innerHTML = html;
+    apply.hidden = !canApply;
+    apply.textContent = r && r.missing ? `補生成 ${r.missing.toLocaleString()} 句${r.stalePinned ? '並清理舊音檔' : ''}` : '清理舊音檔';
+    scan.disabled = d.state === 'running';
+    box.hidden = !html;
+  }
+
+  async function loadTtsRefresh() {
+    const r = await ttsAdminApi('/api/admin/tts/refresh');
+    if (r.ok) renderTtsRefresh(r.data);
   }
 
   async function ttsLexiconPreview(text, raw, btn, voiceId) {
@@ -18812,6 +18875,7 @@
     renderTtsAdmin();
     const lx = await ttsAdminApi('/api/admin/tts/lexicon');
     if (lx.ok) applyTtsLexiconData(lx.data);
+    await loadTtsRefresh();
     await loadTtsAdminReports();
     // 依序載入，不要一次湧出一批請求（API 有每秒 30 次的限流，後台開啟時其他頁也在載入）
     await loadTtsAdminCache();
@@ -18906,6 +18970,19 @@
       showToast(`❌ ${r.data.error || '試聽失敗'}`, 'error', r.data.code === 'NO_TRANSCRIPT' ? 8000 : 5000);
       if (r.data.code === 'NO_TRANSCRIPT') refreshTtsAdminVoiceDir(); // 顯示 ASR 進度，跑完自動更新
     });
+    $('adminTtsRefreshScan').addEventListener('click', async () => {
+      const r = await ttsAdminApi('/api/admin/tts/refresh', { method: 'POST', body: { action: 'scan' } });
+      if (r.ok) renderTtsRefresh(r.data); else showToast(`❌ ${r.data.error || '無法計算'}`, 'error');
+    });
+    $('adminTtsRefreshApply').addEventListener('click', async () => {
+      const b = $('adminTtsRefreshApply'); b.disabled = true;
+      const r = await ttsAdminApi('/api/admin/tts/refresh', { method: 'POST', body: { action: 'apply' } });
+      b.disabled = false;
+      if (r.data && r.data.state) renderTtsRefresh(r.data);
+      if (!r.ok) { showToast(`❌ ${r.data.error || '補生成失敗'}`, 'warn', 4000); return; }
+      showToast(r.data.ids.length ? `✅ 已排入補生成（${r.data.applied.sentences.toLocaleString()} 句）` : '✅ 已清理舊音檔', 'success', 3000);
+      if (r.data.jobs) renderTtsAdminJobs(r.data.jobs);
+    });
     $('adminTtsLexiconSaveBtn').addEventListener('click', async () => {
       if (await saveTtsLexiconText($('adminTtsLexicon').value)) showToast('✅ 讀音字典已儲存', 'success', 2500);
     });
@@ -18947,7 +19024,7 @@
     $('adminTtsBuiltinLexicon').addEventListener('change', async (e) => {
       const r = await ttsAdminApi('/api/admin/tts/settings', { method: 'POST', body: { settings: { builtinLexicon: e.target.checked } } });
       if (!r.ok) { e.target.checked = !e.target.checked; showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
-      ttsAdmin.data = r.data; renderTtsBuiltinLexicon();
+      ttsAdmin.data = r.data; renderTtsBuiltinLexicon(); loadTtsRefresh();
       showToast(e.target.checked ? '已啟用內建佛經讀音表' : '已關閉內建佛經讀音表', 'success', 2500);
     });
     $('adminTtsClearAllBtn').addEventListener('click', async () => {

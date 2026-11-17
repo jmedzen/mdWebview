@@ -636,6 +636,65 @@ describe('朗讀（TTS）後端', () => {
       await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'delete' }, admin);
       fs.unlinkSync(path.join(VAULT, 'sub', 'b.md'));
     });
+
+    // ── 預先生成排隊審計（2026-11-17）──
+    const waitFor = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 25)); } return false; };
+    const jobOf = async (admin, id) => (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((j) => j.id === id);
+    const many = (n, seed) => Array.from({ length: n }, (_, k) => `${seed}第${k + 1}句如是我聞。`).join('');
+
+    test('暫停的工作讓出佇列：其他音色的工作照常跑完；繼續後從同一句接著做，已處理句數不重複', async () => {
+      const admin = session('pausejob-tok', 'admin');
+      store.clear();
+      fs.writeFileSync(path.join(VAULT, 'sub', 'pa.md'), many(14, '甲') + '\n');
+      fs.writeFileSync(path.join(VAULT, 'sub', 'pb.md'), many(3, '乙') + '\n');
+      fake.delayMs = 40;
+      const a = await post('/api/admin/tts/jobs', { scope: 'sub/pa.md', voice: 'v1' }, admin);
+      const b = await post('/api/admin/tts/jobs', { scope: 'sub/pb.md', voice: 'v2' }, admin);
+      assert.ok(await waitFor(async () => (await jobOf(admin, a.json.id)).generated >= 4), '甲先跑了幾句');
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'pause' }, admin);
+      assert.ok(await waitFor(async () => (await jobOf(admin, b.json.id)).state === 'done'), '甲暫停時，乙不能被卡住');
+      const pa = await jobOf(admin, a.json.id);
+      assert.equal(pa.state, 'paused');
+      assert.equal(pa.current, null, '暫停的工作不佔著執行中');
+      assert.ok(pa.sentencesDone > 0 && pa.sentencesDone < 14, JSON.stringify(pa));
+      const before = fake.speech.length;
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'resume' }, admin);
+      assert.ok(await waitFor(async () => (await jobOf(admin, a.json.id)).state === 'done'));
+      const da = await jobOf(admin, a.json.id);
+      assert.equal(da.sentencesDone, 14, '繼續後不重算已處理的句子：' + JSON.stringify(da));
+      assert.equal(da.generated, 14, '每句只生成一次');
+      assert.equal(fake.speech.length - before, 14 - pa.generated, '繼續時只送還沒做的句子');
+      for (const id of [a.json.id, b.json.id]) await post(`/api/admin/tts/jobs/${id}`, { action: 'delete' }, admin);
+      fs.unlinkSync(path.join(VAULT, 'sub', 'pa.md')); fs.unlinkSync(path.join(VAULT, 'sub', 'pb.md'));
+    });
+
+    test('已暫停的同一個工作再按「開始」＝繼續；新工作取代同音色的已取消紀錄（後台不再出現兩列）', async () => {
+      const admin = session('pausejob2-tok', 'admin');
+      fs.writeFileSync(path.join(VAULT, 'sub', 'pc.md'), many(4, '丙') + '\n');
+      fake.delayMs = 60;
+      const a = await post('/api/admin/tts/jobs', { scope: 'sub/pc.md', voice: 'v1' }, admin);
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'pause' }, admin);
+      const again = await post('/api/admin/tts/jobs', { scope: 'sub/pc.md', voice: 'v1' }, admin);
+      assert.equal(again.json.id, a.json.id);
+      assert.notEqual((await jobOf(admin, a.json.id)).state, 'paused', '不能默默沿用一個停著的工作');
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'cancel' }, admin);
+      assert.ok(await waitFor(async () => !tts._internals.jobRt.running));
+      const c = await jobOf(admin, a.json.id);
+      assert.equal(c.state, 'cancelled'); assert.equal(c.error, '', '取消時清掉舊的提示');
+      assert.equal((await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'cancel' }, admin)).status, 400, '已取消的不能再取消');
+      fake.delayMs = 0;
+      const n = await post('/api/admin/tts/jobs', { scope: 'sub/pc.md', voice: 'v1' }, admin);
+      assert.notEqual(n.json.id, a.json.id);
+      const list = n.json.jobs.filter((j) => j.scope === 'sub/pc.md' && j.voice === 'v1');
+      assert.deepEqual(list.map((j) => j.id), [n.json.id], '同一範圍同一音色只留新的那一列');
+      assert.ok(await waitFor(async () => (await jobOf(admin, n.json.id)).state === 'done'));
+      // 完成的紀錄（含失敗報告）不會被新工作移除
+      const m = await post('/api/admin/tts/jobs', { scope: 'sub/pc.md', voice: 'v1' }, admin);
+      assert.ok(await waitFor(async () => (await jobOf(admin, m.json.id)).state === 'done'));
+      assert.ok(await jobOf(admin, n.json.id), '完成的紀錄保留');
+      for (const id of [n.json.id, m.json.id]) await post(`/api/admin/tts/jobs/${id}`, { action: 'delete' }, admin);
+      fs.unlinkSync(path.join(VAULT, 'sub', 'pc.md'));
+    });
   });
 
   describe('保溫與音色版本', () => {
@@ -974,6 +1033,68 @@ describe('朗讀（TTS）後端', () => {
       const j2 = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((j) => j.id === r2.json.id);
       assert.equal(j2.state, 'done');
       assert.equal((await post(`/api/admin/tts/jobs/${r2.json.id}`, { action: 'delete' }, admin)).status, 200);
+      store.clear();
+    });
+
+    test('讀音訂正後補生成：算出受影響句數、一鍵補生成、釘選的舊讀法音檔解除釘選', async () => {
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
+      store.clear();
+      const waitJobs = async () => { for (let i = 0; i < 300 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 30)); };
+      const waitScan = async () => {
+        let r;
+        for (let i = 0; i < 300; i++) { r = (await request('/api/admin/tts/refresh', { headers: admin })).json; if (r.state !== 'running') break; await new Promise((x) => setTimeout(x, 30)); }
+        return r;
+      };
+      fs.writeFileSync(path.join(VAULT, 'sub', 'lex.md'), '南無阿彌陀佛。\n\n諸惡莫作，眾善奉行。\n');
+      const job = await post('/api/admin/tts/jobs', { scope: 'sub/lex.md', voice: 'v1', pin: true }, admin);
+      assert.equal(job.status, 200); await waitJobs();
+      const before = (await request('/api/tts/doc?chapter=0&voice=v1&path=sub/lex.md')).json.sentences.filter((x) => x.sha);
+      assert.ok(before.length >= 2 && before.every((x) => x.cached));
+      const oldSha = before.find((x) => x.text.includes('阿彌陀')).sha;
+      assert.ok(store.get(oldSha).flags & store.FLAG_PIN, '預先生成時有釘選');
+
+      // 沒改字典：重新計算 → 都齊了
+      await post('/api/admin/tts/refresh', { action: 'scan' }, admin);
+      let r = await waitScan();
+      assert.equal(r.state, 'done'); assert.equal(r.result.missing, 0); assert.equal(r.result.stalePinned, 0);
+
+      // 新增讀音訂正：儲存後自動計算
+      const saved = await post('/api/admin/tts/lexicon', { text: '阿彌陀｜阿米陀\n' }, admin);
+      assert.equal(saved.status, 200); assert.ok(saved.json.refresh);
+      r = await waitScan();
+      assert.equal(r.state, 'done', JSON.stringify(r));
+      assert.deepEqual(r.changes.map((c) => [c.word, c.to]), [['阿彌陀', '阿米陀']]);
+      assert.equal(r.result.affected, 1, '只有一句讀法變了');
+      assert.equal(r.result.missing, 1);
+      assert.equal(r.result.stalePinned, 1, '舊讀法的釘選音檔');
+      assert.ok(r.result.staleBytes > 0);
+      const g = r.result.groups.find((x) => x.voice === 'v1');
+      assert.equal(g.pin, true); assert.equal(g.missing, 1);
+
+      // 一鍵補生成
+      const n0 = fake.speech.length;
+      const ap = await post('/api/admin/tts/refresh', { action: 'apply' }, admin);
+      assert.equal(ap.status, 200, JSON.stringify(ap.json)); assert.equal(ap.json.ids.length, 1);
+      assert.equal(ap.json.applied.unpinned, 1); assert.deepEqual(ap.json.changes, []);
+      await waitJobs();
+      assert.equal(fake.speech.length - n0, 1, '只重新生成讀法變了的那一句');
+      assert.ok(fake.speech.slice(n0).some((x) => String(x.input || x).includes('阿米陀')));
+      const old = store.get(oldSha);
+      assert.ok(!old || !(old.flags & store.FLAG_PIN), '舊音檔已解除釘選');
+      const after = (await request('/api/tts/doc?chapter=0&voice=v1&path=sub/lex.md')).json.sentences.filter((x) => x.sha);
+      assert.ok(after.every((x) => x.cached));
+      const newSha = after.find((x) => x.text.includes('阿彌陀')).sha;
+      assert.notEqual(newSha, oldSha);
+      assert.ok(store.get(newSha).flags & store.FLAG_PIN, '補生成沿用原本的釘選');
+      await post('/api/admin/tts/refresh', { action: 'scan' }, admin);
+      r = await waitScan();
+      assert.equal(r.result.missing, 0); assert.equal(r.result.stalePinned, 0);
+      // 不合法的 action；沒登入
+      assert.equal((await post('/api/admin/tts/refresh', { action: 'nope' }, admin)).status, 400);
+      assert.equal((await post('/api/admin/tts/refresh', { action: 'scan' })).status, 401);
+
+      fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
       store.clear();
     });
 
