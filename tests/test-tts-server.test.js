@@ -754,6 +754,20 @@ describe('朗讀（TTS）後端', () => {
       assert.equal(x.n, 2);
       assert.equal(x.text, s0.text);
       assert.equal(x.note, 'b般/b念錯'); // 角括號拿掉；後到的空備註不覆蓋
+      // 回報時選的音色：存 id 與當時的名稱；後到沒帶音色的回報不把它清掉
+      assert.equal(x.voice, 'v1'); assert.equal(x.voiceName, '慧音');
+      // 音色改名後，舊回報仍保留當時的名稱；換音色再回報，記成最新的那個
+      config.settings.tts.voices[0].name = '慧音（新）';
+      assert.equal((await request('/api/admin/tts/reports', { headers: admin })).json.reports[0].voiceName, '慧音');
+      assert.equal((await post('/api/tts/report', { path: P, i: s0.i, voice: 'v2' })).status, 200);
+      const x2 = (await request('/api/admin/tts/reports', { headers: admin })).json.reports[0];
+      assert.equal(x2.voice, 'v2'); assert.equal(x2.voiceName, '法音'); assert.equal(x2.n, 3);
+      // 不認得的音色 id 不存
+      const s1 = doc.json.sentences.filter((y) => y.kind !== 'skip')[1];
+      assert.equal((await post('/api/tts/report', { path: P, i: s1.i, voice: 'nope' })).status, 200);
+      const x3 = (await request('/api/admin/tts/reports', { headers: admin })).json.reports.find((y) => y.unit === s1.i);
+      assert.equal(x3.voice, ''); assert.equal(x3.voiceName, '');
+      await post('/api/admin/tts/reports/delete', { key: x3.key }, admin);
       assert.equal((await request('/api/admin/tts/reports')).status, 401);
       assert.equal((await post('/api/admin/tts/reports/delete', { key: x.key }, admin)).status, 200);
       assert.equal((await request('/api/admin/tts/reports', { headers: admin })).json.reports.length, 0);
@@ -961,6 +975,52 @@ describe('朗讀（TTS）後端', () => {
       assert.equal(j2.state, 'done');
       assert.equal((await post(`/api/admin/tts/jobs/${r2.json.id}`, { action: 'delete' }, admin)).status, 200);
       store.clear();
+    });
+
+    test('「開放朗讀」關閉：讀者端入口全關；後台試聽、字典試聽、快取、預先生成、覆蓋率照常可用', async () => {
+      config.settings.tts = Object.assign(baseSettings(), { enabled: false });
+      fs.writeFileSync(path.join(VAULT, 'sub', 'off.md'), '諸行無常，是生滅法。生滅滅已，寂滅為樂。\n');
+      // 讀者端
+      assert.deepEqual((await request('/api/tts/status')).json, { enabled: false, available: false, voices: [] });
+      assert.equal((await request(`/api/tts/doc?path=${encodeURIComponent(P)}`)).status, 404);
+      assert.equal((await speak([1])).status, 404);
+      assert.equal((await post('/api/tts/resolve', { path: P, start: { line: 1, n: 0 }, end: { line: 3, n: 2 } })).status, 404);
+      assert.equal((await post('/api/tts/report', { path: P, i: 1 })).status, 404);
+      assert.deepEqual((await request('/api/listen/ready?voice=v1')).json, { available: false, items: {} });
+      // 後台
+      const st = await request('/api/admin/tts/settings', { headers: admin });
+      assert.equal(st.status, 200); assert.equal(st.json.settings.enabled, false); assert.equal(st.json.storeAvailable, true);
+      const sample = await post('/api/admin/tts/sample', { voice: 'v1' }, admin);
+      assert.equal(sample.status, 200, JSON.stringify(sample.json));
+      assert.equal((await request(sample.json.url)).status, 200, '後台試聽的音檔要能播');
+      const pv = await post('/api/admin/tts/preview', { voice: 'v2', text: '般若波羅蜜多' }, admin);
+      assert.equal(pv.status, 200, JSON.stringify(pv.json));
+      assert.equal((await request('/api/admin/tts/cache', { headers: admin })).status, 200);
+      assert.equal((await request('/api/admin/tts/reports', { headers: admin })).status, 200);
+      const est = await post('/api/admin/tts/jobs/estimate', { scope: 'sub/off.md', voices: ['v1'] }, admin);
+      assert.equal(est.status, 200, JSON.stringify(est.json));
+      const job = await post('/api/admin/tts/jobs', { scope: 'sub/off.md', voice: 'v1' }, admin);
+      assert.equal(job.status, 200, JSON.stringify(job.json));
+      for (let i = 0; i < 200 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 30));
+      const done = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((j) => j.id === job.json.id);
+      assert.equal(done.state, 'done', JSON.stringify(done));
+      assert.ok(done.generated >= 1, JSON.stringify(done));
+      const cov = await tts.coverage('sub/off.md', 'v1', 0, 0);
+      assert.ok(cov && cov.voiced >= 1 && cov.cached === cov.voiced, JSON.stringify(cov));
+      assert.equal((await request('/api/admin/listen/coverage?voice=v1', { headers: admin })).json.available, true);
+      // 打開之後，讀者端立刻看得到剛才預先生成的句子
+      config.settings.tts.enabled = true;
+      const ss = (await request('/api/tts/doc?chapter=0&voice=v1&path=sub/off.md')).json.sentences;
+      assert.ok(ss.filter((x) => x.sha).every((x) => x.cached), JSON.stringify(ss));
+      await post(`/api/admin/tts/jobs/${job.json.id}`, { action: 'delete' }, admin);
+      store.clear();
+    });
+
+    test('「開放朗讀」關閉但伺服器還沒設定：後台試聽回 409，提示設定網址與模型（不再要求先開放朗讀）', async () => {
+      config.settings.tts = Object.assign(baseSettings(), { enabled: false, baseUrl: '', model: '' });
+      const r = await post('/api/admin/tts/sample', { voice: 'v1' }, admin);
+      assert.equal(r.status, 409);
+      assert.equal(r.json.error, '請先設定伺服器網址與模型');
     });
 
     test('聽經目錄一次預先生成：估算、多音色依序、節錄只生成那一段、失敗報告與重試', async () => {
