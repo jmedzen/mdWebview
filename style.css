@@ -13332,9 +13332,7 @@ body.tts-chant-open { overflow: hidden; }
 .admin-shell .tts-lex-state.off { background: var(--hover-bg); color: var(--text-muted); }
 
 /* ── 朗讀體驗審計第三批：喇叭＋▾、點段落朗讀、首次提示、回報念錯、桌面面板 ── */
-.tts-caret-btn { min-width: 22px; padding: 0 3px; margin-left: -4px; }
-.tts-quick-btn.is-playing { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
-@media (hover: none) { .tts-caret-btn { min-width: 24px; } }
+#ttsStartBtn.is-playing { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
 .tts-jump-pill {
   position: fixed; z-index: 70; padding: 6px 14px; min-height: 36px;
   border: 1px solid var(--tts-accent); border-radius: 999px;

@@ -11160,7 +11160,7 @@
     const btn = $('ttsStartBtn'); const menu = $('ttsStartMenu');
     if (!btn || !menu) return;
     btn.addEventListener('pointerdown', () => { ttsRt.menuRange = ttsSelectionRangeInBody(); });
-    btn.addEventListener('click', () => { if (menu.hidden) { const keep = ttsRt.menuRange; openTtsStartMenu(false); ttsRt.menuRange = ttsRt.menuRange || keep; } else closeTtsStartMenu(true); });
+    btn.addEventListener('click', () => { hideTtsHint(true); if (menu.hidden) { const keep = ttsRt.menuRange; openTtsStartMenu(false); ttsRt.menuRange = ttsRt.menuRange || keep; } else closeTtsStartMenu(true); });
     btn.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openTtsStartMenu(e.key === 'ArrowUp'); }
     });
@@ -11284,7 +11284,7 @@
     const lang = isHansDisplay() ? 'zh-Hans' : 'zh-Hant';
     const body = $('markdownBody'); if (body && body.lang !== lang) body.lang = lang;
     const chant = $('ttsChantCurrent'); if (chant && chant.lang !== lang) chant.lang = lang;
-    if (ttsRt.active) renderTtsBar(); else syncTtsQuickBtn();
+    if (ttsRt.active) renderTtsBar(); else syncTtsStartBtn();
     if (state.currentFile && ttsEnabled()) setTimeout(maybeShowTtsHint, 1200);
   }
 
@@ -11498,7 +11498,7 @@
     const skip = $('ttsSkipLink');
     bar.hidden = !ttsRt.active;
     if (skip) skip.hidden = !ttsRt.active;
-    syncTtsQuickBtn();
+    syncTtsStartBtn();
     if (!ttsRt.active) return;
     const it = ttsRt.items[ttsRt.pos]; const { n, m, open } = ttsCounts();
     const playBtn = $('ttsPlayBtn');
@@ -11575,25 +11575,19 @@
     if (rect.bottom > top - 16) scroller.scrollBy({ top: rect.bottom - top + Math.min(120, top / 3), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
-  // ── 右上角：喇叭一按就從這裡朗讀（朗讀中＝暫停／繼續），旁邊的 ▾ 才是完整的朗讀選單 ──
+  // ── 右上角：喇叭一按就開朗讀選單（第一項＝從這裡讀；朗讀中＝暫停／繼續）；Alt+R 仍可直接開始／暫停 ──
   const TTS_HINT_KEY = 'mdWebview-tts-hint-seen';
-  function syncTtsQuickBtn() {
-    const b = $('ttsQuickBtn'); if (!b) return;
-    const label = !ttsRt.active ? '從這裡朗讀' : ttsRt.playing ? '暫停朗讀' : '繼續朗讀';
+  function syncTtsStartBtn() {
+    const b = $('ttsStartBtn'); if (!b) return;
+    const st = !ttsRt.active ? '' : ttsRt.playing ? '（朗讀中）' : '（已暫停）';
+    const label = `朗讀選單${st}`;
     if (b.getAttribute('aria-label') !== label) {
       b.setAttribute('aria-label', label);
-      b.title = ttsKeyLabel(`${label}（Alt+R）`);
+      b.title = ttsKeyLabel(`朗讀${st}・Alt+R 直接${ttsRt.active ? (ttsRt.playing ? '暫停' : '繼續') : '從這裡讀'}`);
     }
     b.classList.toggle('is-playing', !!ttsRt.active && !!ttsRt.playing);
   }
   function setupTtsQuickEntry() {
-    const q = $('ttsQuickBtn');
-    if (q) q.addEventListener('click', () => {
-      hideTtsHint(true);
-      if (ttsRt.active) return ttsTogglePlay();
-      ttsSetStartMode('here');
-      ttsStartFromVisible();
-    });
     const hc = $('ttsHintClose'); if (hc) hc.addEventListener('click', () => hideTtsHint(true));
     // 播放中點一下內文的某一段：旁邊出現「從這段讀」
     const pill = $('ttsJumpPill');
@@ -11627,7 +11621,7 @@
   }
   /** 第一次看到朗讀入口時，提示一次喇叭與 ▾ 的差別（看過或按過就不再出現）。 */
   function maybeShowTtsHint() {
-    const hint = $('ttsHint'); const q = $('ttsQuickBtn');
+    const hint = $('ttsHint'); const q = $('ttsStartBtn');
     if (!hint || !q || !hint.hidden || ttsRt.active || !state.currentFile || !ttsEnabled()) return;
     if (storage.get(TTS_HINT_KEY)) return;
     const r = q.getBoundingClientRect();
@@ -11996,7 +11990,7 @@
   function ttsKeyLabel(text) { return TTS_IS_APPLE ? String(text).replace(/Alt（Option）\+|Alt\+/g, '⌥') : text; }
   function localizeTtsShortcutLabels() {
     if (!TTS_IS_APPLE) return;
-    for (const id of ['ttsQuickBtn', 'ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
+    for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
     for (const sel of ['#ttsShortcutsDesc', '#ttsSettings .setting-desc']) {
       document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
     }
@@ -12009,7 +12003,7 @@
     on('ttsPlayBtn', 'click', () => ttsTogglePlay());
     on('ttsPrevBtn', 'click', () => ttsStep(-1));
     on('ttsNextBtn', 'click', () => ttsStep(1));
-    const stopAndRefocus = () => { ttsStop(); const b = $('ttsQuickBtn'); if (b) b.focus(); };
+    const stopAndRefocus = () => { ttsStop(); const b = $('ttsStartBtn'); if (b) b.focus(); };
     on('ttsCloseBtn', 'click', stopAndRefocus);
     on('ttsStopBtn', 'click', stopAndRefocus);
     on('ttsBackBtn', 'click', () => ttsBackToPosition());

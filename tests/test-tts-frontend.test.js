@@ -384,11 +384,20 @@ describe('長時間聽經（2026-11-16 體驗審計第二批）', () => {
 });
 
 describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
-  test('右上角：喇叭一按就從這裡朗讀（朗讀中是暫停／繼續），▾ 才是選單', () => {
-    assert.match(html, /id="ttsQuickBtn"[^>]*aria-label="從這裡朗讀"/);
-    const fn = ttsSection.slice(ttsSection.indexOf('function setupTtsQuickEntry'));
-    assert.match(fn.slice(0, 400), /if \(ttsRt\.active\) return ttsTogglePlay\(\);\s*ttsSetStartMode\('here'\);\s*ttsStartFromVisible\(\);/);
-    assert.match(ttsSection, /const label = !ttsRt\.active \? '從這裡朗讀' : ttsRt\.playing \? '暫停朗讀' : '繼續朗讀';/);
+  test('右上角只有一顆喇叭：一按就開選單（沒有 ▾），原本的「從這裡讀／暫停」是選單第一項', () => {
+    assert.doesNotMatch(html, /id="ttsQuickBtn"/);
+    assert.doesNotMatch(html, /tts-caret-btn/);
+    assert.doesNotMatch(ttsSection, /ttsQuickBtn/);
+    const btn = html.match(/<button id="ttsStartBtn"[\s\S]*?<\/button>/)[0];
+    assert.match(btn, /aria-haspopup="menu" aria-expanded="false" aria-controls="ttsStartMenu"/);
+    assert.match(btn, /<path d="M2\.5 6\.2v3\.6h2\.4L8\.2 12\.6V3\.4L4\.9 6\.2z"\/>/, '喇叭圖示');
+    const menu = html.slice(html.indexOf('id="ttsStartMenu"'));
+    const acts = [...menu.matchAll(/data-tts-act="(\w+)"/g)].map(m => m[1]);
+    assert.deepEqual(acts.slice(0, 3), ['toggle', 'here', 'resume'], '朗讀中第一項是暫停／繼續；沒在讀時第一項是從這裡讀');
+    assert.match(ttsSection, /const label = `朗讀選單\$\{st\}`;/);
+    assert.match(ttsSection, /btn\.addEventListener\('click', \(\) => \{ hideTtsHint\(true\); if \(menu\.hidden\)/);
+    assert.match(ttsSection, /e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); closeTtsStartMenu\(true\);/);
+    assert.match(ttsSection, /if \(e\.code === 'KeyR'\) \{ e\.preventDefault\(\); if \(state\.currentFile \|\| ttsRt\.active\) ttsTogglePlay\(\); \}/, 'Alt+R 仍可直接開始／暫停');
   });
 
   test('播放中點段落出現「從這段讀」；不攔截連結、按鈕與選字', () => {
