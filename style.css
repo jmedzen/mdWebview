@@ -13424,6 +13424,7 @@ body.tts-chant-open { overflow: hidden; }
 .tts-report-form[hidden] { display: none; }
 .tts-report-form input { flex: 1; min-width: 0; min-height: 36px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .tts-report-table .tts-report-text { max-width: 420px; }
+.tts-report-table .tts-report-voice { white-space: nowrap; }
 
 /* 寬版面板（桌面、iPad 橫向）：看播放列本身的寬度（≥ 640px），不是視窗寬，
    側欄打開、閱讀區變窄時自動回到窄版。
@@ -13499,3 +13500,11 @@ html.kb-open .admin-palette-box {
   font-weight: 600; line-height: 1.6;
 }
 .tts-admin-alert[hidden] { display: none; }
+
+/* 後台朗讀：前台「開放朗讀」刻意關閉時的說明（資訊，不是警告） */
+.tts-admin-note {
+  margin: 8px 0 12px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);
+  font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.6;
+}
+.tts-admin-note[hidden] { display: none; }

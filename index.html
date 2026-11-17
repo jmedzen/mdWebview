@@ -2478,7 +2478,8 @@
                 </label>
                 <span class="toggle-switch-title" id="adminTtsEnabledTitle">開放朗讀</span>
               </div>
-              <p class="field-hint">關閉時讀者看不到任何朗讀入口；已生成的音檔保留。</p>
+              <p class="field-hint">只控制<strong>讀者端</strong>看不看得到朗讀入口（右上角喇叭、右鍵選單、選取朗讀、首頁聽經、播放器）。關閉時後台照常可用：音色、ASR、讀音字典、快取、預先生成（含聽經目錄）與試聽都能先準備好；已生成的音檔保留。</p>
+              <p class="tts-admin-note" data-tts-reader-off-note role="status" hidden>ℹ️ 前台朗讀目前關閉：讀者看不到任何朗讀入口。後台設定與預先生成照常運作，準備好之後再打開「開放朗讀」並儲存。</p>
               <label class="field-hint" for="adminTtsBaseUrl">audio.cpp 伺服器網址</label>
               <input type="url" id="adminTtsBaseUrl" placeholder="http://192.168.1.10:8301" spellcheck="false" autocomplete="off">
               <p class="field-hint" id="adminTtsBaseUrlLock" hidden></p>
@@ -2569,11 +2570,12 @@
               <p class="field-hint">語音合成常把佛經專有詞念成一般讀音（例如「般若」念成 bān ruò）。朗讀前會把這些詞換成同音、讀音單一的字再送去合成；<strong>讀者畫面上的經文不變</strong>。改了讀法的句子會自動重新生成，其他句子的快取不受影響。</p>
 
               <h4 class="tts-lex-sub">讀者回報 <span class="tts-lex-count" id="adminTtsReportCount" hidden></span></h4>
-              <p class="field-hint">讀者在播放面板按「這句念錯了」的句子（同一句合併計數）。試聽後把念錯的詞加進下方自訂字典，再按「已處理」。</p>
+              <p class="field-hint">讀者在播放面板按「這句念錯了」的句子（同一句合併計數；音色是最近一次回報時讀者選的聲音）。試聽會用那個音色；試聽後把念錯的詞加進下方自訂字典，再按「已處理」。</p>
               <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-report-table" id="adminTtsReports">
-                <thead><tr><th scope="col">句子</th><th scope="col">讀者備註</th><th scope="col">次數</th><th scope="col">最後回報</th><th scope="col">動作</th></tr></thead>
-                <tbody><tr><td colspan="5" class="field-hint">讀取中…</td></tr></tbody>
+                <thead><tr><th scope="col">句子</th><th scope="col">音色</th><th scope="col">讀者備註</th><th scope="col">次數</th><th scope="col">最後回報</th><th scope="col">動作</th></tr></thead>
+                <tbody><tr><td colspan="6" class="field-hint">讀取中…</td></tr></tbody>
               </table></div>
+              <div class="account-inline-form"><button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsReportsExport" data-no-dirty>匯出 CSV</button></div>
 
               <h4 class="tts-lex-sub">自訂字典</h4>
               <p class="field-hint">一行一條「詞｜讀法」，例如「般若｜波惹」；寫「詞｜詞」表示照原字念（可用來停用內建的某一條）；只寫詞表示朗讀時不在這個詞中間斷句。以 # 開頭是註解。自訂的讀法優先於內建表。</p>

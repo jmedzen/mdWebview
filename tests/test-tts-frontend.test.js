@@ -528,7 +528,7 @@ describe('後台：開放的音色都找不到錄音時要警告', () => {
     assert.equal(ctx.f({ settings: { voices }, upstreamVoices: null }).length, 2);
   });
   test('狀態燈在這種情況亮紅燈並說明入口已隱藏', () => {
-    assert.match(app, /else if \(!ttsAdminUsableVoices\(d\)\.length\) setAdminCardLight\('tts', 'bad', '[^']*讀者端的朗讀入口已全部隱藏/);
+    assert.match(app, /else if \(!usable\.length\) setAdminCardLight\('tts', readerOff \? 'warn' : 'bad', readerOff \? [^:]+ : '[^']*讀者端的朗讀入口已全部隱藏/);
   });
 });
 
@@ -538,8 +538,76 @@ describe('後台：讀者端沒有可用音色時顯示文字警告', () => {
     assert.equal(warns.length, 2);
     for (const [, text] of warns) assert.match(text, /讀者端目前看不到任何朗讀入口/);
   });
-  test('狀態燈更新時依可用音色切換警告', () => {
-    assert.match(app, /const noVoice = !!s\.enabled && !ttsAdminUsableVoices\(d\)\.length;\s*document\.querySelectorAll\('\[data-tts-novoice-warn\]'\)\.forEach\(el => \{ el\.hidden = !noVoice; \}\);/);
+});
+
+describe('後台：「開放朗讀」只管讀者端入口（前台關閉時後台照常）', () => {
+  const grab = (name) => { const i = app.indexOf(`function ${name}(`); return app.slice(i, app.indexOf('\n  }\n', i) + 4); };
+  const run = (d) => {
+    const els = { warn: [{ hidden: true }, { hidden: true }], note: [{ hidden: true }] };
+    const light = {};
+    const ctx = {
+      Array, Set,
+      document: { querySelectorAll: (sel) => (sel.includes('novoice') ? els.warn : sel.includes('reader-off') ? els.note : []) },
+      setAdminCardLight: (k, level, text) => { light.level = level; light.text = text; },
+      $: () => null
+    };
+    vm.createContext(ctx);
+    vm.runInContext(grab('ttsAdminUsableVoices') + grab('updateTtsAdminLights') + '\nthis.f = updateTtsAdminLights;', ctx);
+    ctx.f(d);
+    return { light, warn: els.warn.every(e => !e.hidden), note: !els.note[0].hidden };
+  };
+  const data = (over) => Object.assign({ health: { ok: true, info: { backend: 'metal' } }, ffmpeg: { ok: true }, upstreamVoices: ['A'] },
+    { settings: Object.assign({ enabled: false, baseUrl: 'http://x', model: 'm', voices: [{ id: 'v1', voice: 'A', enabled: true }] }, over || {}) });
+
+  test('關閉、後台正常：顯示資訊說明，不顯示紅色警告；燈號是綠燈並註明前台未開放', () => {
+    const r = run(data());
+    assert.equal(r.note, true); assert.equal(r.warn, false);
+    assert.equal(r.light.level, 'ok'); assert.match(r.light.text, /^前台未開放朗讀・audio\.cpp/);
+  });
+  test('關閉、沒有可用音色：不顯示「讀者端入口已隱藏」的警告（那是刻意關閉）', () => {
+    const r = run(data({ voices: [] }));
+    assert.equal(r.warn, false); assert.equal(r.note, true);
+    assert.equal(r.light.level, 'off');
+  });
+  test('關閉、audio.cpp 連不上：照樣亮紅燈（預先生成要靠它）', () => {
+    const d = data(); d.health = { ok: false, error: 'down' };
+    assert.equal(run(d).light.level, 'bad');
+  });
+  test('開放、沒有可用音色：紅色警告與紅燈；沒有資訊說明', () => {
+    const r = run(data({ enabled: true, voices: [{ id: 'v1', voice: 'gone', enabled: true }] }));
+    assert.equal(r.warn, true); assert.equal(r.note, false);
+    assert.equal(r.light.level, 'bad'); assert.match(r.light.text, /讀者端的朗讀入口已全部隱藏/);
+  });
+  test('開放、一切正常：綠燈，沒有說明也沒有警告', () => {
+    const r = run(data({ enabled: true }));
+    assert.equal(r.warn, false); assert.equal(r.note, false);
+    assert.equal(r.light.level, 'ok'); assert.match(r.light.text, /^audio\.cpp/);
+  });
+  test('開關說明寫明只影響讀者端入口；有對應的資訊說明元素', () => {
+    assert.match(html, /<p class="field-hint">只控制<strong>讀者端<\/strong>看不看得到朗讀入口/);
+    assert.match(html, /<p class="tts-admin-note" data-tts-reader-off-note role="status" hidden>/);
+    assert.ok(!html.includes('關閉時讀者看不到任何朗讀入口；已生成的音檔保留。'));
+  });
+  test('聽經目錄後台用後台設定判斷能不能預先生成，不看讀者端的 /api/tts/status', () => {
+    const pane = grab('loadAdminListenPane') + grab('renderLcGen') + grab('lcLoadCoverage');
+    assert.ok(!/ttsEnabled\(\)|ttsVoices\(\)|refreshTtsStatus/.test(pane), pane);
+    assert.match(pane, /\/api\/admin\/tts\/settings/);
+  });
+});
+
+describe('後台：讀者回報記錄音色並可匯出', () => {
+  test('回報表有音色欄；匯出 CSV 含音色 id 與名稱', () => {
+    assert.match(html, /<th scope="col">句子<\/th><th scope="col">音色<\/th>/);
+    assert.match(html, /id="adminTtsReportsExport"/);
+    const i = app.indexOf('function ttsReportsCsv(');
+    const ctx = { Date, String }; vm.createContext(ctx);
+    vm.runInContext(app.slice(i, app.indexOf('\n  }\n', i) + 4) + '\nthis.f = ttsReportsCsv;', ctx);
+    const csv = ctx.f([{ text: '般若, "甚深"', spoken: '波惹', path: 'a.md', unit: 3, voice: 'v1', voiceLabel: '慧音', note: '', n: 2, firstAt: 0, lastAt: 0 }]);
+    assert.ok(csv.startsWith('\ufeff句子,送去朗讀的文字,檔案,句序,音色 id,音色名稱,'));
+    assert.ok(csv.endsWith('\r\n"般若, ""甚深""",波惹,a.md,3,v1,慧音,,2,,\r\n'), JSON.stringify(csv));
+  });
+  test('試聽用回報時的音色', () => {
+    assert.match(app, /ttsLexiconPreview\(x\.text, false, e\.target\.closest\('button'\), x\.voice\)/);
   });
 });
 
