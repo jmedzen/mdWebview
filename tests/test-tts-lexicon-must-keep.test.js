@@ -99,7 +99,8 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   assert.equal(say('懷孕，𣎜'), '懷韻，韻');
   assert.equal(say('㖿跢囇嘇'), '也多力森');
   assert.equal(say('誦呪，竪幢旛，功効'), '誦咒，束幢翻，功笑');
-  assert.equal(say('心無罣㝵'), '心無艾礙');
+  assert.equal(say('心無罣㝵'), '心無掛礙');
+  assert.equal(say('心無罣礙，無罣礙故'), '心無掛礙，無掛礙故');
   // 白話「難道不也…」不是答語：「不也」後面沒有標點就不改
   assert.equal(say('這不也是假名安立嗎？'), '這不也是假名安立嗎？');
   assert.equal(say('豈不也很精進？'), '豈不也很精進？');
