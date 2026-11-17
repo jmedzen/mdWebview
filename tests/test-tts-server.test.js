@@ -73,7 +73,8 @@ function startFake() {
           if (fake.mode === 'json200') { res.writeHead(200, { 'Content-Type': 'audio/wav' }); return res.end(JSON.stringify({ error: { message: 'oops' } })); }
           if (fake.mode === 'html200') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<html>error</html>'); }
           const chars = Array.from(String(body.input)).length;
-          const wav = makeWav(fake.mode === 'tooshort' ? 10 : chars * 250);
+          // capped：模擬 drama3 的 context 被參考錄音吃光，聲音停在約 3.5 秒（實測 76 秒參考錄音）
+          const wav = makeWav(fake.mode === 'tooshort' ? 10 : fake.mode === 'capped' ? 3500 : chars * 250);
           res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length, 'x-audiocpp-audio-duration-ms': String(chars * 250) });
           res.end(wav);
         }, fake.delayMs);
@@ -739,6 +740,35 @@ describe('朗讀（TTS）後端', () => {
       }
     });
 
+    test('參考錄音太長：後台標出每句可生成長度；被截短的聲音不進快取，回 REF_TOO_LONG', async () => {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+      fs.writeFileSync(path.join(d, 'demo_3_woman.wav'), makeWav(76000));
+      fs.writeFileSync(path.join(d, 'demo_1_man.wav'), makeWav(18000));
+      fs.writeFileSync(path.join(d, 'prompt_text'), `demo_3_woman|${'歡'.repeat(1178)}\ndemo_1_man|${'迎'.repeat(288)}\n`);
+      config.settings.tts = Object.assign({}, config.settings.tts, { voiceDir: d, autoTranscribe: false });
+      try {
+        const g = await request('/api/admin/tts/settings', { headers: admin });
+        const long = g.json.voiceDir.voices.find(v => v.name === 'demo_3_woman');
+        const short = g.json.voiceDir.voices.find(v => v.name === 'demo_1_man');
+        assert.ok(long.budget.frames < 150, `76 秒參考錄音幾乎沒有生成空間：${long.budget.frames}`);
+        assert.ok(long.budget.maxChars < 20);
+        assert.equal(short.budget.frames, 1024, '18 秒參考錄音不受 context 限制');
+        tts._internals.failed.clear();
+        fake.mode = 'capped';
+        const text = '一時佛在舍衛國祇樹給孤獨園，與大比丘眾千二百五十人俱。';
+        const r = await post('/api/admin/tts/preview', { voice: 'v1', text: text + '甲' }, admin);
+        assert.equal(r.status, 502); assert.equal(r.json.code, 'REF_TOO_LONG');
+        assert.match(r.json.error, /剪成約 20 秒/);
+        // 短的參考錄音碰到同樣的短音檔：不是 context 造成的，維持原本的判斷（3.5 秒對 28 字算合理）
+        const ok = await post('/api/admin/tts/preview', { voice: 'v2', text: text + '乙' }, admin);
+        assert.equal(ok.status, 200);
+      } finally {
+        fake.mode = 'ok'; tts._internals.failed.clear();
+        config.settings.tts = Object.assign({}, config.settings.tts, { voiceDir: '' });
+        fs.rmSync(d, { recursive: true, force: true });
+      }
+    });
+
     test('讀音字典：讀取、儲存、試聽套用字典', async () => {
       const g = await request('/api/admin/tts/lexicon', { headers: admin });
       assert.equal(g.json.exists, false); assert.ok(g.json.count > 5);
@@ -918,6 +948,56 @@ describe('lib/tts.js 純函式', () => {
       assert.equal(fs.readFileSync(path.join(d, 'prompt_text'), 'utf8'), 'RA-乙|乙稿\nRA-甲|歡迎來到思辨之境\n');
       assert.equal(I.startVoiceTranscribe({ voiceDir: d, baseUrl: 'http://asr.test', asrModel: 'qwen3-asr' }, { force: true, names: ['不存在'] }), false);
     } finally { I.setFetch(null); fs.rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test('estimateRefBudget：依實測校正（18 秒＋288 字可生成滿 1024 格；76 秒＋1178 字只剩約 4 秒）', () => {
+    const a = I.estimateRefBudget(18186, 288, 5);
+    assert.ok(Math.abs(a.promptRows - 510) < 40, `promptRows ${a.promptRows}`);
+    assert.equal(a.frames, 1024);
+    const b = I.estimateRefBudget(75829, 1178, 44);
+    assert.ok(b.promptRows >= 1962, `估算要偏保守：${b.promptRows}`);
+    assert.ok(b.maxMs < 4500 && b.maxMs >= 0);
+    const c = I.estimateRefBudget(120000, 1314, 10);
+    assert.equal(c.frames, 0); assert.equal(c.maxChars, 0);
+  });
+
+  test('parseSilences／pickTrimPoint：切在 12–28 秒間最接近 20 秒的停頓；沒有停頓就切 20 秒', () => {
+    const log = '[silencedetect @ 0x1] silence_start: 5.2\n[silencedetect @ 0x1] silence_end: 5.6 | silence_duration: 0.4\n' +
+      'silence_start: 17.9\nsilence_end: 18.5 | silence_duration: 0.6\nsilence_start: 23.1\nsilence_end: 23.5\nsilence_start: 31\n';
+    const sil = I.parseSilences(log);
+    assert.deepEqual(sil, [{ start: 5.2, end: 5.6 }, { start: 17.9, end: 18.5 }, { start: 23.1, end: 23.5 }]);
+    assert.deepEqual(I.pickTrimPoint(sil, 76), { sec: 18.2, atPause: true });
+    assert.deepEqual(I.pickTrimPoint([{ start: 5, end: 6 }], 76), { sec: 20, atPause: false });
+  });
+
+  test('trimReferenceVoice：剪短、原檔移到 _原始錄音、ASR 重做逐字稿（需要本機 ffmpeg）', async (t) => {
+    const ff = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', path.join(os.homedir(), '.local/bin/ffmpeg')].find(f => fs.existsSync(f));
+    if (!ff) { t.skip('沒有 ffmpeg'); return; }
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+    I.setFfmpeg({ path: ff, ok: true });
+    try {
+      // 40 秒的錄音，19.0–19.8 秒是靜音
+      const w = makeWav(40000); const rate = 8000;
+      w.fill(0, 44 + Math.round(19.0 * rate) * 2, 44 + Math.round(19.8 * rate) * 2);
+      fs.writeFileSync(path.join(d, 'RA-長.wav'), w);
+      fs.writeFileSync(path.join(d, 'RA-長.txt'), '很長的舊稿\n');
+      fs.writeFileSync(path.join(d, 'prompt_text'), 'RA-長|很長的舊稿\n');
+      I.setFetch(async () => new Response(JSON.stringify({ text: '剪过的稿' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      const s = { voiceDir: d, baseUrl: 'http://asr.test', asrModel: 'qwen3-asr' };
+      const r = await I.trimReferenceVoice(s, 'RA-長');
+      assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.atPause, true);
+      assert.ok(r.toSec > 19 && r.toSec < 19.8, String(r.toSec));
+      assert.equal(r.original, path.join('_原始錄音', 'RA-長.wav'));
+      assert.equal(I.readWavInfo(path.join(d, '_原始錄音', 'RA-長.wav')).ms, 40000);
+      assert.equal(fs.readFileSync(path.join(d, '_原始錄音', 'RA-長.txt'), 'utf8'), '很長的舊稿\n');
+      assert.ok(Math.abs(I.readWavInfo(path.join(d, 'RA-長.wav')).ms - r.toSec * 1000) < 100);
+      for (let i = 0; i < 200 && I.voiceAsrState().running; i++) await new Promise(res => setTimeout(res, 10));
+      assert.equal(fs.readFileSync(path.join(d, 'prompt_text'), 'utf8'), 'RA-長|剪過的稿\n');
+      assert.deepEqual(fs.readdirSync(d).filter(f => f.startsWith('.')), [], '暫存檔要清掉');
+      // 已經夠短：不再剪
+      const again = await I.trimReferenceVoice(s, 'RA-長');
+      assert.equal(again.code, 'NOT_LONG');
+    } finally { I.setFetch(null); I.setFfmpeg({ ok: false }); fs.rmSync(d, { recursive: true, force: true }); }
   });
 
   test('readWavInfo 只讀檔頭算長度；不是 WAV 回 null', () => {

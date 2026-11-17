@@ -18327,12 +18327,15 @@
   }
 
   /** 參考錄音的長度與格式（只看 WAV 檔頭）；太長、太短給提示。 */
-  function ttsVoiceDirAudioMeta(a) {
+  function ttsVoiceDirAudioMeta(a, budget, maxChars) {
     if (!a) return { text: '', warn: '' };
     const sec = a.ms / 1000;
     const text = `${sec < 10 ? sec.toFixed(1) : Math.round(sec)} 秒・${a.rate / 1000} kHz・${a.channels === 1 ? '單聲道' : a.channels + ' 聲道'}`;
     let warn = '';
-    if (sec > 30) warn = '錄音超過 30 秒：每一句都要重新編碼參考錄音（較慢），也壓縮生成長度。建議剪成 10–30 秒';
+    // budget：伺服器估算的 drama3 生成空間（參考錄音＋逐字稿吃掉 context 之後，每句還能生成多長）
+    if (budget && budget.frames <= 0) warn = '參考錄音＋逐字稿已經塞滿 drama3 的 context，完全無法生成。請剪成 10–30 秒';
+    else if (budget && maxChars && budget.maxChars < maxChars) warn = `參考錄音太長：每句最多只能生成約 ${Math.round(budget.maxMs / 1000)} 秒（約 ${budget.maxChars} 字），較長的句子會停在半句。請剪成 10–30 秒`;
+    else if (sec > 30) warn = '錄音超過 30 秒：每一句都要重新編碼參考錄音（較慢）。建議剪成 10–30 秒';
     else if (sec < 3) warn = '錄音太短（3 秒以下），音色可能不穩';
     return { text, warn };
   }
@@ -18368,15 +18371,17 @@
           else if (!v.inPrompt) notes.push('prompt_text 還沒有這一行（audio.cpp 讀不到）');
           else if (v.stale) notes.push('.txt 跟 prompt_text 不一致（audio.cpp 用的是 prompt_text）');
           if (up.size && !up.has(v.name)) notes.push('audio.cpp 沒有列出');
-          const meta = ttsVoiceDirAudioMeta(v.audio);
+          const meta = ttsVoiceDirAudioMeta(v.audio, v.budget, (d.settings && d.settings.maxSentenceChars) || 120);
           if (meta.warn) notes.push(meta.warn);
           if (!saved.has(v.name) && v.transcript && (!up.size || up.has(v.name))) notes.push('還沒加進下方「音色」清單');
           const tid = 'ttsVd-' + v.name.replace(/[^\w-]/g, c => c.charCodeAt(0).toString(16));
           return `<li class="tts-vd-item" data-name="${escHtml(v.name)}"><div class="tts-vd-head"><span class="tts-voicedir-mark" aria-hidden="true">${busy ? '⏳' : notes.length ? '⚠️' : '✅'}</span><code>${escHtml(v.name)}</code>${meta.text ? `<span class="tts-vd-meta">${escHtml(meta.text)}</span>` : ''}${notes.length ? `<span class="field-hint">　${notes.map(escHtml).join('；')}</span>` : ''}</div>` +
             `<details${!v.transcript ? ' open' : ''}><summary>逐字稿${v.text ? `：${escHtml(v.text.length > 40 ? v.text.slice(0, 40) + '…' : v.text)}` : '（無）'}</summary>` +
-            `<label class="tts-sr-only" for="${tid}">${escHtml(v.name)} 的逐字稿</label><textarea id="${tid}" class="tts-vd-text" maxlength="1000" placeholder="照錄音一字不差寫下來（含語氣詞），drama3 才能對齊音色">${escHtml(v.text || '')}</textarea>` +
+            `<label class="tts-sr-only" for="${tid}">${escHtml(v.name)} 的逐字稿</label><textarea id="${tid}" class="tts-vd-text" maxlength="3000" placeholder="照錄音一字不差寫下來（含語氣詞），drama3 才能對齊音色">${escHtml(v.text || '')}</textarea>` +
             `<div class="tts-vd-actions"><button type="button" class="modal-btn submit-btn small-btn tts-vd-save" data-no-dirty>儲存逐字稿</button>` +
-            `<button type="button" class="modal-btn secondary-btn small-btn tts-vd-asr" data-no-dirty ${asr.running || !/\.wav$/i.test(v.file) ? 'disabled' : ''}>${v.transcript ? '重新用 ASR 轉寫' : '用 ASR 轉寫'}</button></div></details></li>`;
+            `<button type="button" class="modal-btn secondary-btn small-btn tts-vd-asr" data-no-dirty ${asr.running || !/\.wav$/i.test(v.file) ? 'disabled' : ''}>${v.transcript ? '重新用 ASR 轉寫' : '用 ASR 轉寫'}</button>` +
+            (v.audio && v.audio.ms > 30000 && /\.wav$/i.test(v.file) ? `<button type="button" class="modal-btn secondary-btn small-btn tts-vd-trim" data-no-dirty ${asr.running || !(d.ffmpeg && d.ffmpeg.ok) ? 'disabled' : ''} title="在 12–28 秒間找停頓切開，原檔移到「_原始錄音」子資料夾，再用 ASR 重做逐字稿">剪成約 20 秒</button>` : '') +
+            `</div></details></li>`;
         }).join('') + '</ul>');
       }
       if (asr.running) rows.push(`<div class="field-hint">⏳ 正在用 audio.cpp ASR 補逐字稿${asr.current ? `：<code>${escHtml(asr.current)}</code>` : ''}…</div>`);
@@ -18660,11 +18665,15 @@
     });
     // 音色資料夾清單裡的逐字稿：儲存、重新 ASR
     $('adminTtsVoiceDirStatus').addEventListener('click', async (e) => {
-      const btn = e.target.closest('.tts-vd-save, .tts-vd-asr'); if (!btn) return;
+      const btn = e.target.closest('.tts-vd-save, .tts-vd-asr, .tts-vd-trim'); if (!btn) return;
       const li = btn.closest('li[data-name]'); const name = li.dataset.name;
+      if (btn.classList.contains('tts-vd-trim') && !confirm(`把「${name}」剪成約 20 秒？\n原檔與舊逐字稿會移到音色資料夾裡的「_原始錄音」子資料夾，剪好後自動用 ASR 重做逐字稿。`)) return;
       btn.disabled = true;
       let r;
-      if (btn.classList.contains('tts-vd-save')) {
+      if (btn.classList.contains('tts-vd-trim')) {
+        r = await ttsAdminApi('/api/admin/tts/voicedir/trim', { method: 'POST', body: { name } });
+        if (r.ok) showToast(`✅ 「${name}」已從 ${Math.round(r.data.fromSec)} 秒剪成 ${r.data.toSec.toFixed(1)} 秒${r.data.atPause ? '（切在停頓處）' : ''}，原檔在 ${r.data.original}。正在用 ASR 重做逐字稿，請校對`, 'success', 8000);
+      } else if (btn.classList.contains('tts-vd-save')) {
         const text = li.querySelector('textarea.tts-vd-text').value.trim();
         if (!text) { btn.disabled = false; showToast('逐字稿不可空白', 'error'); return; }
         r = await ttsAdminApi('/api/admin/tts/voicedir/transcript', { method: 'POST', body: { name, text } });
