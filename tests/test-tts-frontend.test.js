@@ -430,7 +430,10 @@ describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
   });
 
   test('「這句念錯了」只送路徑與句子序號（文字由伺服器取）', () => {
-    assert.match(html, /id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm">這句念錯了<\/button>/);
+    assert.match(html, /class="tts-report-btn" id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm" aria-label="這句念錯了，回報"[^>]*>[\s\S]*?<span>念錯了<\/span><\/button>/);
+    // 次要動作：無框淡字，點擊範圍仍 ≥ 44px
+    assert.match(css, /\.tts-report-btn \{\n  position: relative;[^}]*border: 0;[^}]*color: var\(--text-muted\);/);
+    assert.match(css, /\.tts-report-btn::after \{ content: ''; position: absolute; inset: -8px -4px; \}/);
     assert.match(ttsSection, /ttsApi\('\/api\/tts\/report', \{ path: ttsRt\.path, i: it\.i, voice: v && v\.id, note: /);
   });
 
@@ -537,5 +540,43 @@ describe('後台：讀者端沒有可用音色時顯示文字警告', () => {
   });
   test('狀態燈更新時依可用音色切換警告', () => {
     assert.match(app, /const noVoice = !!s\.enabled && !ttsAdminUsableVoices\(d\)\.length;\s*document\.querySelectorAll\('\[data-tts-novoice-warn\]'\)\.forEach\(el => \{ el\.hidden = !noVoice; \}\);/);
+  });
+});
+
+describe('展開面板：窄版／寬版（2026-11-17 寬螢幕重新設計）', () => {
+  const wide = (() => {
+    const i = css.indexOf('@container tts-bar (min-width: 640px) {\n  .tts-panel {');
+    assert.ok(i > 0, '寬版面板要用播放列寬度的 container query，不是視窗寬');
+    return css.slice(i, css.indexOf('\n}\n', i));
+  })();
+
+  test('寬版：進度橫跨兩欄，左欄音色＋語速，右欄聆聽方式；沒有提示時不留空列', () => {
+    assert.match(wide, /grid-template-areas: "notice notice" "seek seek" "voice listen" "rate listen"/);
+    assert.match(wide, /\.tts-panel:has\(> \.tts-notice\[hidden\]\) \{ grid-template-areas: "seek seek" "voice listen" "rate listen"/);
+    for (const cls of ['tts-sec-seek', 'tts-voices', 'tts-sec-rate', 'tts-sec-listen']) assert.match(playerHtml, new RegExp(`class="tts-sec[^"]*${cls}`));
+    // DOM 順序＝鍵盤／VoiceOver 順序：進度 → 音色 → 語速 → 聆聽方式
+    const order = ['id="ttsSeek"', 'id="ttsVoiceCards"', 'id="ttsRatePresets"', 'id="ttsRate"', 'id="ttsChantBtn"', 'id="ttsMoreBtn"'].map(s => playerHtml.indexOf(s));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+  });
+
+  test('寬版音色膠囊換行，不橫向捲動；舊的 900px 視窗規則已移除', () => {
+    assert.match(wide, /\.tts-voice-cards \{ flex-wrap: wrap; overflow: visible;/);
+    assert.ok(!/@media \(min-width: 900px\) \{\n  \.tts-panel/.test(css));
+  });
+
+  test('語速常用鍵：toggle 按鈕（aria-pressed），值都在 TTS_RATES 裡，點了走 ttsSetRate', () => {
+    assert.match(playerHtml, /<div class="tts-rate-presets" id="ttsRatePresets" role="group" aria-label="常用語速">/);
+    const rates = [...playerHtml.matchAll(/class="tts-rate-preset" data-rate="([\d.]+)" aria-pressed="(?:true|false)" aria-label="\1 倍"/g)].map(m => Number(m[1]));
+    assert.deepEqual(rates, [0.8, 1, 1.2, 1.5]);
+    const list = JSON.parse(/const TTS_RATES = (\[[^\]]+\]);/.exec(app)[1]);
+    for (const r of rates) assert.ok(list.includes(r), `${r} 不在 TTS_RATES`);
+    assert.match(ttsSection, /on\('ttsRatePresets', 'click', [^\n]*ttsSetRate\(Number\(b\.dataset\.rate\)\)/);
+    assert.match(ttsSection, /#ttsRatePresets \[data-rate\]'\)\.forEach\(b => b\.setAttribute\('aria-pressed'/);
+  });
+
+  test('常用鍵外觀 36px、點擊範圍 44px；選中時用朱底＋ --tts-on-accent 字色', () => {
+    assert.match(css, /\.tts-rate-preset \{\n  position: relative; min-height: 36px;/);
+    assert.match(css, /\.tts-rate-preset::after \{ content: ''; position: absolute; inset: -4px 0; \}/);
+    assert.match(css, /\.tts-rate-preset\[aria-pressed="true"\] \{ background: var\(--tts-accent\); border-color: var\(--tts-accent\); color: var\(--tts-on-accent\);/);
   });
 });
