@@ -924,6 +924,7 @@ flowchart TD
 | `/api/admin/reports…` | 報表信設定、預覽、寄送（`lib/reports.js`） |
 | `/api/tts/status`、`/api/tts/doc`、`/api/tts/resolve`、`/api/tts/speak`、`/api/tts/audio/<sha>` | 朗讀（`lib/tts.js`，逐條說明見 §24.7）；不需登入，生成新音檔受 `settings.tts.guestGenerate` 與每小時限額管制 |
 | `/api/admin/tts/settings`、`/health`、`/sample`、`/preview`、`/lexicon`、`/cache`、`/cache/clear` | 朗讀的後台設定、連線檢查、試聽、讀音字典、快取用量與清除（需管理員） |
+| `/api/admin/tts/refresh`（GET；POST `action: scan / apply`） | 讀音訂正後補生成：儲存字典或開關內建表後自動比對「曾預先生成過的範圍」（依音色＋釘選分組），列出改到的詞、讀法變了與缺音檔的句數；`apply` 依原音色與釘選各排一個補生成工作，並把不再屬於任何範圍的釘選舊音檔解除釘選、交回 LRU（需管理員） |
 
 後台各頁對應哪些 API 見 §21.2。
 
