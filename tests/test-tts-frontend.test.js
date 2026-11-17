@@ -567,9 +567,15 @@ describe('展開面板：窄版／寬版（2026-11-17 寬螢幕重新設計）',
   test('語速常用鍵：toggle 按鈕（aria-pressed），值都在 TTS_RATES 裡，點了走 ttsSetRate', () => {
     assert.match(playerHtml, /<div class="tts-rate-presets" id="ttsRatePresets" role="group" aria-label="常用語速">/);
     const rates = [...playerHtml.matchAll(/class="tts-rate-preset" data-rate="([\d.]+)" aria-pressed="(?:true|false)" aria-label="\1 倍"/g)].map(m => Number(m[1]));
-    assert.deepEqual(rates, [0.8, 1, 1.2, 1.5]);
+    assert.deepEqual(rates, [0.85, 1, 1.1, 1.25]);
     const list = JSON.parse(/const TTS_RATES = (\[[^\]]+\]);/.exec(app)[1]);
     for (const r of rates) assert.ok(list.includes(r), `${r} 不在 TTS_RATES`);
+    // 滑桿的 HTML 初始值要對得上 TTS_RATES（max＝最後一格，value＝1 倍）
+    assert.match(playerHtml, new RegExp(`<input type="range" id="ttsRate" min="0" max="${list.length - 1}" step="1" value="${list.indexOf(1)}"`));
+    // 偏好設定的語速下拉選單：選項正好是 TTS_RATES（另加 0＝音色預設），存得住、讀得回
+    const sel = /<select id="settingTtsRate"[^>]*>([\s\S]*?)<\/select>/.exec(html)[1];
+    const opts = [...sel.matchAll(/<option value="([\d.]+)">/g)].map(m => Number(m[1]));
+    assert.deepEqual(opts, [0, ...list]);
     assert.match(ttsSection, /on\('ttsRatePresets', 'click', [^\n]*ttsSetRate\(Number\(b\.dataset\.rate\)\)/);
     assert.match(ttsSection, /#ttsRatePresets \[data-rate\]'\)\.forEach\(b => b\.setAttribute\('aria-pressed'/);
   });

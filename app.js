@@ -10248,7 +10248,7 @@
   const TTS_PREFETCH = 3;              // 預取後面幾句
   const TTS_GAP_MS = 220;              // 句間停頓（頁面可見時才插入；背景時計時器會被凍結）
   const TTS_GAP_BLOCK_MS = 480;        // 標題前後、偈頌之後的停頓
-  const TTS_RATES = [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7, 2];
+  const TTS_RATES = [0.7, 0.8, 0.85, 0.9, 1, 1.1, 1.2, 1.25, 1.3, 1.5, 1.7, 2]; // 只是播放時的 playbackRate，不影響生成與快取
   const TTS_USER_SCROLL_MS = 4000;     // 使用者自己捲動後，這麼久內不自動跟讀
   const TTS_SLOW_WAIT_MS = 8000;       // 第一句等超過這麼久，就提示「朗讀服務暖機中」
   const TTS_RETRY_MS = [5000, 15000, 35000]; // 一句失敗時自動重試的間隔（伺服器 30 秒內不重試同一句）
@@ -18263,7 +18263,7 @@
   // §21.8 朗讀（TTS）後台：連線、音色白名單、規則、讀音字典、快取、預先生成
   // API 見 lib/tts.js 與 ARCHITECTURE §24.7；這一頁的設定走底部儲存列（data-save="tts"）。
   // ═══════════════════════════════════════════════════════════
-  const TTS_ADMIN_RATES = [0.8, 0.9, 1, 1.1, 1.2, 1.3];
+  const TTS_ADMIN_RATES = [0.8, 0.85, 0.9, 1, 1.1, 1.2, 1.25, 1.3];
   const ttsAdmin = { data: null, probe: null, wired: false, jobsTimer: null, previewAudio: null };
 
   /** accountApi 加上限流重試：開啟後台時各頁一起載入，常撞到每秒 30 次的 API 限流（429）。 */
