@@ -2484,9 +2484,9 @@
                 </label>
                 <span class="toggle-switch-title">缺逐字稿時用 audio.cpp 的 ASR 自動補上</span>
               </div>
-              <p class="field-hint">打開這一頁時檢查：沒有同名 <code>.txt</code>、也不在 <code>prompt_text</code> 裡的 WAV，送 audio.cpp 轉寫，寫成 <code>&lt;名稱&gt;.txt</code>（不覆蓋已有的），再依各 <code>.txt</code> 重建 <code>prompt_text</code>（舊檔留成 <code>prompt_text.bak</code>）。ASR 結果可能有錯字或簡體字，請打開 .txt 校對。</p>
+              <p class="field-hint">音色資料夾一有新的 WAV（約 5 秒後）、打開這一頁時、以及每 2 分鐘都會檢查：沒有同名 <code>.txt</code>、也不在 <code>prompt_text</code> 裡的 WAV，送 audio.cpp 轉寫（轉成繁體），寫成 <code>&lt;名稱&gt;.txt</code>（不覆蓋已有的），再依各 <code>.txt</code> 重建 <code>prompt_text</code>（舊檔留成 <code>prompt_text.bak</code>）。audio.cpp 下一句就讀得到，不必重新啟動。ASR 可能有錯字，請在上面的清單裡點開逐字稿校對。</p>
               <label class="field-hint" for="adminTtsAsrModel">ASR 模型（audio.cpp 上的代號）</label>
-              <input type="text" id="adminTtsAsrModel" placeholder="qwen3-asr" spellcheck="false" autocomplete="off">
+              <select id="adminTtsAsrModel"></select>
               <div class="account-inline-form">
                 <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsTranscribeBtn" data-no-dirty>立即補逐字稿</button>
               </div>
@@ -2516,7 +2516,7 @@
                 <input type="text" id="adminTtsAddVoice" data-no-dirty placeholder="手動加入音色名稱（模型內建、清單沒列出的）" aria-label="手動加入音色名稱" spellcheck="false">
                 <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsAddVoiceBtn" data-no-dirty>加入</button>
               </div>
-              <p class="field-hint">試聽句：「<span id="adminTtsSampleText">應無所住，而生其心。</span>」。新加的音色要先儲存才能試聽；試聽檔會給讀者的音色卡片使用。</p>
+              <p class="field-hint">試聽句：「<span id="adminTtsSampleText">應無所住，而生其心。</span>」。還沒儲存的新音色也能先試聽；儲存後的試聽檔會給讀者的音色卡片使用。缺逐字稿的音色試聽時會自動開始用 ASR 補。</p>
             </div>
           </div>
 

@@ -12815,6 +12815,13 @@ body.focus-mode .tts-start-btn { display: none; }
 .admin-shell .tts-voicedir-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 3px 0; }
 .admin-shell .tts-voicedir-list code { overflow-wrap: anywhere; }
 .admin-shell .tts-voicedir-mark { flex: none; }
+.admin-shell .tts-voicedir-list li.tts-vd-item { display: block; padding: 4px 0; border-bottom: 1px solid var(--border-subtle); }
+.admin-shell .tts-vd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.admin-shell .tts-vd-meta { color: var(--text-muted); font-size: 12px; }
+.admin-shell .tts-vd-item details { margin: 4px 0 2px 1.6em; }
+.admin-shell .tts-vd-item summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
+.admin-shell .tts-vd-item textarea { width: 100%; min-height: 4.5em; margin-top: 4px; font-size: 13px; line-height: 1.5; resize: vertical; }
+.admin-shell .tts-vd-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .admin-shell .tts-admin-table th, .admin-shell .tts-admin-table td { padding: 6px 6px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; white-space: nowrap; }
 .admin-shell .tts-admin-table th { color: var(--text-muted); font-weight: 600; }
 .admin-shell .tts-admin-table input[type="text"] { min-width: 8em; width: 100%; }
