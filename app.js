@@ -18283,6 +18283,12 @@
     return m >= 60 ? `${Math.floor(m / 60)} 小時 ${m % 60} 分` : `${m} 分`;
   }
 
+  /** 讀者端實際看得到的音色：已開放、而且 audio.cpp 還有它的參考錄音（與伺服器 publicVoices 同一規則）。 */
+  function ttsAdminUsableVoices(d) {
+    const up = d && Array.isArray(d.upstreamVoices) ? new Set(d.upstreamVoices) : null;
+    return ((d && d.settings && d.settings.voices) || []).filter(v => v.enabled && (!up || up.has(v.voice)));
+  }
+
   /** 卡片狀態燈；總覽的「待處理」與導覽燈號從這裡來。 */
   function updateTtsAdminLights(d) {
     if (!d) return;
@@ -18291,6 +18297,7 @@
     else if (!s.baseUrl || !s.model) setAdminCardLight('tts', 'warn', '朗讀已開放，但還沒設定伺服器網址或模型');
     else if (!d.health.ok) setAdminCardLight('tts', 'bad', `朗讀服務無法使用：${d.health.error || '未知原因'}`);
     else if (!s.voices.some(v => v.enabled)) setAdminCardLight('tts', 'warn', '還沒有開放任何音色');
+    else if (!ttsAdminUsableVoices(d).length) setAdminCardLight('tts', 'bad', '開放的音色都找不到參考錄音（可能改名或刪除），讀者端的朗讀入口已全部隱藏；請在音色表勾選現有的音色並儲存');
     else if (!d.ffmpeg.ok) setAdminCardLight('tts', 'warn', '找不到 ffmpeg：音檔存成 WAV，約大十倍');
     else setAdminCardLight('tts', 'ok', `audio.cpp ${d.health.info && d.health.info.backend ? `（${d.health.info.backend}）` : ''}連線正常`);
     const chip = $('hwTtsStatus');
