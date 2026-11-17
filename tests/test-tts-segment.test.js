@@ -241,21 +241,21 @@ describe('口語化與讀音字典', () => {
     assert.equal(Seg.segmentDoc('舍利弗（智慧第一）白佛言世尊。\n', { readNotes: true }).units[0].spoken, '舍利弗（智慧第一）白佛言世尊。');
   });
 
-  test('「」不送去朗讀：只改 spoken，text 與切法不變', () => {
+  test('「」換成“”再送去朗讀：只改 spoken，text 與切法不變', () => {
     const doc = '佛告須菩提：「於意云何？可以身相見如來不？」「不也，世尊！不可以身相得見如來。」\n';
     const a = Seg.segmentDoc(doc).units.filter((u) => u.kind !== 'skip');
     assert.ok(a.length >= 2, '「…？」 裡的 ？ 仍要斷句');
     assert.ok(a.some((u) => /[「」]/.test(u.text)), '閱讀用的 text 保留引號');
     for (const u of a) assert.ok(!/[「」]/.test(u.spoken), u.spoken);
     assert.equal(a.map((u) => u.text).join(''), doc.trim());
-    assert.equal(a.map((u) => u.spoken).join(''), doc.trim().replace(/[「」]/g, ''));
+    assert.equal(a.map((u) => u.spoken).join(''), doc.trim().replace(/「/g, '“').replace(/」/g, '”'));
   });
 
-  test('「」在字典之後才捨去：字典可用 」 當上下文', () => {
+  test('「」在字典之後才替換：字典可用 」 當上下文', () => {
     const lex = [['不也」', '否也」'], ['不也，', '否也，']];
-    assert.equal(Seg.oralize('答言：「不也」', 'sent', { lexicon: lex }), '答言：否也');
-    assert.equal(Seg.oralize('「不也，世尊。」', 'sent', { lexicon: lex }), '否也，世尊。');
-    assert.equal(Seg.oralize('「善哉」', 'sent', { lexicon: [], readNotes: false }), '善哉');
+    assert.equal(Seg.oralize('答言：「不也」', 'sent', { lexicon: lex }), '答言：“否也”');
+    assert.equal(Seg.oralize('「不也，世尊。」', 'sent', { lexicon: lex }), '“否也，世尊。”');
+    assert.equal(Seg.oralize('「善哉」', 'sent', { lexicon: [], readNotes: false }), '“善哉”');
     // 『』未經確認，照舊送出
     assert.equal(Seg.oralize('『善哉』', 'sent', { lexicon: [] }), '『善哉』');
   });
@@ -263,7 +263,7 @@ describe('口語化與讀音字典', () => {
   test('只有引號的單位不朗讀；偈頌引號旁的空格仍變成停頓', () => {
     const u = Seg.segmentDoc('世尊說：\n\n」\n').units;
     assert.ok(u.every((x) => x.kind === 'skip' || !/^\s*$/.test(x.spoken)));
-    assert.equal(Seg.oralize('諸法從緣起」 「如來說是因', 'verse', { lexicon: [] }), '諸法從緣起，如來說是因');
+    assert.equal(Seg.oralize('諸法從緣起」 「如來說是因', 'verse', { lexicon: [] }), '諸法從緣起”，“如來說是因');
   });
 
   test('parseLexicon：全形與半形直線、註解、只保護不替換', () => {

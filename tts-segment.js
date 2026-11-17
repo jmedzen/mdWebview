@@ -38,8 +38,9 @@
   // 可能出現在罕見字讀音表裡的字：部首、擴充 A、相容字、第 2／3 平面（擴充 B 以後）
   const RARE_CHAR_RE = /[\u2E80-\u2FDF\u31C0-\u31EF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]/gu;
 
-  // 送朗讀前捨去的引號（只有「」；『』未經確認，照舊送出）
-  const QUOTE_STRIP_RE = /[「」]/g;
+  // 送朗讀前把「」換成大陸慣用的“”（語音模型以簡體語料訓練，「 會影響讀音）；『』未經確認，照舊送出
+  const QUOTE_MAP = { '「': '“', '」': '”' };
+  const QUOTE_RE = /[「」]/g;
 
   const STRONG = new Set('。！？；');
   const CLOSERS = new Set('」』）》〕】)”’');
@@ -251,9 +252,9 @@
     // 罕見字（𤦲、䟽…）語音模型多半不認得：換成讀音相同的常用字；字典先套，自訂讀法優先
     const map = o.charMap;
     if (map) s = s.replace(RARE_CHAR_RE, (c) => (Object.prototype.hasOwnProperty.call(map, c) ? map[c] : c));
-    // 「」會讓語音模型改變讀音（尤其開頭的「），一律不送。放在字典之後：字典可用 」 當上下文（不也」→否也」）。
+    // 「」會讓語音模型改變讀音（尤其開頭的「），換成“”再送。放在字典之後：字典可用 」 當上下文（不也」→否也」）。
     // 斷句已在原文上做完（「…。」照樣在 。」 斷開），這裡只改送去朗讀的文字，閱讀畫面不變。
-    s = s.replace(QUOTE_STRIP_RE, '');
+    s = s.replace(QUOTE_RE, (c) => QUOTE_MAP[c]);
     return s.trim();
   }
 

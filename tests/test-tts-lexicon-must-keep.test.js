@@ -51,8 +51,8 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
   const wrong = [];
   for (const [w, to] of MUST_KEEP) {
-    // 「」在送出前一律捨去（不也」｜否也」 這種以 」 當上下文的條目，實際送出的是「否也」）
-    const want = to.replace(/[「」]/g, '');
+    // 「」在送出前換成“”（不也」｜否也」 這種以 」 當上下文的條目，實際送出的是「否也”」）
+    const want = to.replace(/「/g, '“').replace(/」/g, '”');
     const got = say(w);
     if (got !== want) wrong.push(`${w}：應念「${want}」，實際送出「${got}」`);
   }
@@ -70,14 +70,14 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   assert.equal(say('杻械枷鎖'), '丑械枷鎖');
   // 乾闥婆→前踏婆、不？→否？、不也→否也（2026-11-17 使用者指定）；「不」只在這兩個片語改讀
   assert.equal(say('天龍八部、乾闥婆、阿修羅'), '天龍八部、前踏婆、阿修羅');
-  assert.equal(say('「於意云何？可以身相見如來不？」「不也，世尊！」'), '於意云何？可以身相見如來否？否也，世尊！');
+  assert.equal(say('「於意云何？可以身相見如來不？」「不也，世尊！」'), '“於意云何？可以身相見如來否？”“否也，世尊！”');
   assert.equal(say('得福多不?'), '得福多否?');
   assert.equal(say('不也世尊'), '否也世尊');
   assert.equal(say('不可思議，不二法門，如如不動'), '不可思議，不二法門，如如不動');
   assert.equal(say('不入於色'), '不入於色');
   assert.equal(say('不也！善現。'), '否也！善現。');
   assert.equal(say('答曰：不也。'), '答曰：否也。');
-  assert.equal(say('答言：「不也」'), '答言：否也');
+  assert.equal(say('答言：「不也」'), '答言：“否也”');
   assert.equal(say('不也；世尊'), '否也；世尊');
   // 白話「難道不也…」不是答語：「不也」後面沒有標點就不改
   assert.equal(say('這不也是假名安立嗎？'), '這不也是假名安立嗎？');
