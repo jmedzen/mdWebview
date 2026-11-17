@@ -19,7 +19,7 @@
   'use strict';
 
   /** 規則版本：只供除錯與後台顯示，不進快取鍵（規則改了只有切法變動的句子重生）。 */
-  const RULES_VERSION = '1';
+  const RULES_VERSION = '2'; // 2：編號咒語逐句切
 
   const DEFAULTS = {
     maxLen: 120,        // 句長硬上限（後台可調，40–200）
@@ -127,6 +127,49 @@
     return d >= 0.22 || (marks >= 3 && d >= 0.1);
   }
 
+  // 咒語句號：CBETA 把咒語逐句編號，夾注「(一)」「（二十一）」「(3)」寫在每句之後（如 T1060 大悲咒）
+  const MANTRA_NO_RE = /[（(]([〇零一二三四五六七八九十百千0-9０-９]{1,6})[)）]/g;
+  const MANTRA_PUNCT = /[，。；：！？、]/;
+  const CN_DIGIT = { 〇: 0, 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const CN_UNIT = { 十: 10, 百: 100, 千: 1000 };
+
+  /** 編號字串（一、二十一、一百五、21、２１）轉數字；無法解析回傳 NaN。 */
+  function markerNum(s) {
+    const w = s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    if (/^[0-9]+$/.test(w)) return Number(w);
+    let total = 0, cur = 0, last = 0;
+    for (const c of w) {
+      if (c in CN_DIGIT) { cur = CN_DIGIT[c]; last = 0; }
+      else if (c in CN_UNIT) { total += (cur || 1) * CN_UNIT[c]; cur = 0; last = CN_UNIT[c]; }
+      else return NaN;
+    }
+    // 「一百五」＝150、「二百二」＝220：單位後面只剩一個數字時，那個數字是下一位
+    if (cur && last >= 100) cur *= last / 10;
+    return total + cur;
+  }
+
+  /**
+   * 編號咒語：一行裡有 ≥ 3 個「(一)(二)(三)」式句號，而且像咒語（不像條列）：
+   * 第一個句號前已有音譯字（條列是號碼在前）、號碼大多逐一遞增、號碼之間的片段大多沒有句讀。
+   * 回傳每一句的結尾位移（句號與緊接的結尾引號之後）；不是編號咒語回傳 null。
+   */
+  function mantraNumbers(t) {
+    const re = new RegExp(MANTRA_NO_RE.source, 'g'); const ms = []; let m;
+    while ((m = re.exec(t))) ms.push({ i: m.index, e: m.index + m[0].length, n: markerNum(m[1]) });
+    if (ms.length < 3) return null;
+    const plain = (x) => x.replace(/（[^（）]*）|\([^()]*\)/g, '').replace(/[「」『』“”\s]/g, '');
+    if (!CJK_RE.test(plain(t.slice(0, ms[0].i)))) return null;
+    let seq = 0, ok = 0;
+    for (let x = 1; x < ms.length; x++) if (ms[x].n === ms[x - 1].n + 1) seq++;
+    if (seq < (ms.length - 1) * 2 / 3) return null;
+    for (let x = 0; x < ms.length; x++) {
+      const c = plain(t.slice(x ? ms[x - 1].e : 0, ms[x].i));
+      if (c && !MANTRA_PUNCT.test(c)) ok++;
+    }
+    if (ok < ms.length * 0.8) return null;
+    return ms.map((x) => { let k = x.e; while (k < t.length && CLOSERS.has(t[k])) k++; return k; });
+  }
+
   // depth[k] = 包住切點 k 的「同一行內真正成對」的括號層數。未配對的開、關引號忽略：
   // CBETA 的跨段引文每段開頭都有「而不收，若算進去整段都切不開。
   function matchedDepth(t) {
@@ -164,7 +207,7 @@
   }
 
   /** 切點與強度：5 句讀、4 問答引導冒號後、3 引號內句讀與發端詞前、2 逗頓與空白、1 句尾助詞後。 */
-  function cutPoints(t, prot) {
+  function cutPoints(t, prot, mantra) {
     const d = matchedDepth(t); const pts = new Map();
     const put = (k, s) => { if (k > 0 && k < t.length && !prot[k] && (pts.get(k) || 0) < s) pts.set(k, s); };
     for (let i = 0; i < t.length; i++) {
@@ -172,7 +215,7 @@
       while (k < t.length && CLOSERS.has(t[k])) k++;
       if (STRONG.has(c)) put(k, d[k] === 0 ? 5 : 3);
       else if ((c === '：' || c === ':') && d[i] === 0 && INTRO.test(t.slice(Math.max(0, i - 16), i + 1))) put(k, 4);
-      else if ((c === '，' || c === '、' || c === ' ') && d[k] === 0) put(k, 2);
+      else if ((c === '，' || c === '、' || c === ' ') && (d[k] === 0 || (mantra && c === ' '))) put(k, 2); // 咒語整段常包在「」裡，空白仍可切
       else if (PARTICLES.has(c) && k < t.length && '，。、；：'.indexOf(t[k]) < 0 && d[k] === 0) put(k, 1);
     }
     for (let s = 0; s < STARTERS.length; s++) {
@@ -199,10 +242,10 @@
     splitLong(t, a, best, pts, prot, out, st, o); splitLong(t, best, b, pts, prot, out, st, o);
   }
 
-  /** 一行散文的標準句：[{ a, b, kind: 'sent' | 'intro' }] */
-  function segmentProse(t, o, st) {
+  /** 一行散文的標準句：[{ a, b, kind: 'sent' | 'intro' }]。mantra＝咒語行（「」內的空白也是切點）。 */
+  function segmentProse(t, o, st, mantra) {
     const prot = protectedMask(t, o.lexicon);
-    const pts = cutPoints(t, prot);
+    const pts = cutPoints(t, prot, mantra);
     const strong = [];
     pts.forEach((s, k) => { if (s >= 4) strong.push(k); });
     strong.sort((x, y) => x - y); strong.push(t.length);
@@ -219,6 +262,28 @@
       if (l[1] - l[0] < o.minLen && l[1] - p[0] <= o.maxLen) { p[1] = l[1]; merged.pop(); }
     }
     return merged.map((r) => ({ a: r[0], b: r[1], kind: /[：:]$/.test(t.slice(r[0], r[1]).trim()) ? 'intro' : 'sent' }));
+  }
+
+  /**
+   * 編號咒語：每個「…(一)」是一句（句號留在畫面上，口語化時去掉）。
+   * 不併短句（「唵(七)」也自成一句，跟誦本一致）；超過句長上限的片段照咒語規則再切；
+   * 最後一個句號之後若還有音譯字（常見的收尾「娑婆訶」）自成一句，只剩引號就併入前句。
+   */
+  function segmentNumbered(t, ends, o, st) {
+    const prot = protectedMask(t, o.lexicon);
+    const pts = cutPoints(t, prot, true);
+    const out = []; let a = 0;
+    const cuts = ends.slice();
+    if (cuts[cuts.length - 1] < t.length) {
+      if (CJK_RE.test(t.slice(cuts[cuts.length - 1]))) cuts.push(t.length); else cuts[cuts.length - 1] = t.length;
+    }
+    for (let x = 0; x < cuts.length; x++) {
+      if (cuts[x] <= a) continue;
+      const pieces = []; splitLong(t, a, cuts[x], pts, prot, pieces, st, o);
+      for (let y = 0; y < pieces.length; y++) out.push({ a: pieces[y][0], b: pieces[y][1], kind: 'mantra' });
+      a = cuts[x];
+    }
+    return out;
   }
 
   /** 偈頌：四小句（一偈）一個單位。 */
@@ -240,7 +305,8 @@
   /** 口語化：斷句之後、雜湊之前套用。會改變文字的選項都必須是全站設定。 */
   function oralize(text, kind, o) {
     let s = text;
-    if (kind === 'mantra') s = s.replace(/（[^（）]*）|\([^()]*\)/g, ''); // 「（引）」「（二合）」等注音標記一律不讀
+    // 咒語：「（引）」「（二合）」等注音標記與「(一)(二)」句號一律不讀；引號對咒語沒有意義，逐句切開後只剩半邊，也去掉
+    if (kind === 'mantra') s = s.replace(/（[^（）]*）|\([^()]*\)/g, '').replace(/[「」『』“”]/g, '');
     else if (!o.readNotes) s = s.replace(/（[^（）]*）|\([^()]*\)/g, '');
     s = kind === 'verse'
       ? s.replace(/([㐀-鿿][」』]*) (?=[「『]*[㐀-鿿])/g, '$1，')
@@ -299,6 +365,7 @@
         const h = /^\s*(#{1,6})\s+/.exec(raw);
         if (h) { rec.kind = 'heading'; rec.level = h[1].length; } // 「# 一」這種純編號標題仍是標題
         else if (/^\[toc\]$/i.test(tr) || SKIP.test(nl.t) || NAV_LINE.test(tr)) rec.kind = 'skip';
+        else if ((rec.numbered = mantraNumbers(nl.t))) rec.kind = 'mantra';
         else { rec.verse = verseInfo(nl.t); if (mantraLike(nl.t)) rec.kind = 'mantra'; }
         L.push(rec);
       }
@@ -320,7 +387,7 @@
         const r = L[x]; const prev = R[R.length - 1];
         if (r.kind === 'verse' && prev && prev.kind === 'verse' && prev.group === r.group) {
           prev.segs.push({ k: r.k, start: prev.t.length + 1 }); prev.t += ' ' + r.t;
-        } else R.push({ kind: r.kind, t: r.t, level: r.level, strict: r.strict, group: r.group, segs: [{ k: r.k, start: 0 }] });
+        } else R.push({ kind: r.kind, t: r.t, level: r.level, strict: r.strict, group: r.group, numbered: r.numbered, segs: [{ k: r.k, start: 0 }] });
       }
       for (let x = 0; x < R.length; x++) {
         const r = R[x]; st.lines += r.segs.length;
@@ -336,7 +403,7 @@
           st.verseLines += r.segs.length;
           us = segmentVerse(r.t, o); for (let u = 0; u < us.length; u++) us[u].group = 'v' + r.group;
         } else {
-          us = segmentProse(r.t, o, st);
+          us = r.numbered ? segmentNumbered(r.t, r.numbered, o, st) : segmentProse(r.t, o, st, r.kind === 'mantra');
           if (r.kind === 'mantra') { st.mantraLines++; group++; for (let u = 0; u < us.length; u++) { us[u].kind = 'mantra'; us[u].group = 'm' + group; } }
           else if (x < R.length - 1 && !/[。！？；：」』）]$/.test(r.t)) st.softWrap++;
         }
@@ -516,5 +583,5 @@
     return out;
   }
 
-  return { RULES_VERSION, DEFAULTS, normalizeLine, segmentDoc, detectChapters, snapSelection, oralize, parseLexicon, verseInfo, mantraLike };
+  return { RULES_VERSION, DEFAULTS, normalizeLine, segmentDoc, detectChapters, snapSelection, oralize, parseLexicon, verseInfo, mantraLike, mantraNumbers };
 });

@@ -169,6 +169,76 @@ describe('偈頌與咒語', () => {
     assert.ok(!/[()引合]/.test(u[0].spoken), u[0].spoken);
     assert.equal(Seg.mantraLike('一時佛在舍衛國祇樹給孤獨園與大比丘眾千二百五十人俱'), false);
   });
+
+  // 以下咒語取自 CBETA T20n1060《千手千眼觀世音菩薩廣大圓滿無礙大悲心陀羅尼經》（夾注句號轉成 (一)(二)…，與語料 md 相同）
+  const T1060_HEAD = '「南無喝囉怛那哆囉夜㖿(一)　南無阿唎㖿(二)　婆盧羯帝爍鉢囉㖿(三)　菩提薩跢婆㖿(四)　摩訶薩跢婆㖿(五)　摩訶迦盧尼迦㖿(六)　唵(上聲)(七)　薩皤囉罰曳(八)';
+  const T1060_TAIL = '「深低帝屠蘇吒(一)　阿若蜜帝烏都吒(二)　深耆吒(三)　波賴帝(四)　耶彌若吒烏都吒(五)　拘羅帝吒耆摩吒(六)　沙婆訶」';
+
+  test('編號咒語（T1060）：每個「…(一)」一句，句號留在畫面、不讀', () => {
+    const u = Seg.segmentDoc('即說如是廣大圓滿無礙大悲心大陀羅尼神妙章句陀羅尼曰：\n\n' + T1060_HEAD + '」\n').units;
+    assert.equal(u[0].kind, 'intro');
+    const m = u.slice(1);
+    assert.deepEqual(m.map((x) => x.text), ['「南無喝囉怛那哆囉夜㖿(一)', '南無阿唎㖿(二)', '婆盧羯帝爍鉢囉㖿(三)', '菩提薩跢婆㖿(四)',
+      '摩訶薩跢婆㖿(五)', '摩訶迦盧尼迦㖿(六)', '唵(上聲)(七)', '薩皤囉罰曳(八)」']);
+    assert.deepEqual(m.map((x) => x.spoken), ['南無喝囉怛那哆囉夜㖿', '南無阿唎㖿', '婆盧羯帝爍鉢囉㖿', '菩提薩跢婆㖿',
+      '摩訶薩跢婆㖿', '摩訶迦盧尼迦㖿', '唵', '薩皤囉罰曳']);
+    assert.ok(m.every((x) => x.kind === 'mantra' && x.group === m[0].group));
+  });
+
+  test('編號咒語：位移對回畫面上的同一行（跟讀捲動與「這句唸錯了」用）', () => {
+    const raw = '> ' + T1060_HEAD;
+    const { t } = Seg.normalizeLine(raw);
+    const u = Seg.segmentDoc('前文一句話。\n\n' + raw + '\n').units.filter((x) => x.kind === 'mantra');
+    for (const x of u) { assert.equal(x.line, 3); assert.equal(x.endLine, 3); assert.equal(t.slice(x.a, x.b), x.text); }
+    for (let k = 1; k < u.length; k++) assert.ok(u[k].a >= u[k - 1].b); // 不重疊、依序
+  });
+
+  test('編號咒語：最後一個句號之後的「沙婆訶」自成一句；只剩引號就併入前句', () => {
+    const u = Seg.segmentDoc(T1060_TAIL + '\n').units;
+    assert.deepEqual(u.map((x) => x.spoken), ['深低帝屠蘇吒', '阿若蜜帝烏都吒', '深耆吒', '波賴帝', '耶彌若吒烏都吒', '拘羅帝吒耆摩吒', '沙婆訶']);
+    assert.equal(u[6].text, '沙婆訶」');
+    const v = Seg.segmentDoc('「深低帝屠蘇吒(一)　阿若蜜帝烏都吒(二)　深耆吒(三)」\n').units;
+    assert.deepEqual(v.map((x) => x.text), ['「深低帝屠蘇吒(一)', '阿若蜜帝烏都吒(二)', '深耆吒(三)」']);
+  });
+
+  test('編號咒語：開啟「讀夾注」也不讀句號；全形（一）與阿拉伯數字 (1)（１）都算', () => {
+    assert.deepEqual(Seg.segmentDoc(T1060_TAIL + '\n', { readNotes: true }).units.map((x) => x.spoken).slice(0, 2), ['深低帝屠蘇吒', '阿若蜜帝烏都吒']);
+    // 合成例（非語料原文）：全形括號與阿拉伯數字
+    const full = Seg.segmentDoc('怛姪他（一）唵伽伽那（二）毘舍羅（三）莎訶（四）\n').units;
+    assert.deepEqual(full.map((x) => [x.text, x.spoken]), [['怛姪他（一）', '怛姪他'], ['唵伽伽那（二）', '唵伽伽那'], ['毘舍羅（三）', '毘舍羅'], ['莎訶（四）', '莎訶']]);
+    const arab = Seg.segmentDoc('怛姪他(1) 唵伽伽那(2) 毘舍羅（３） 莎訶（４）\n').units;
+    assert.deepEqual(arab.map((x) => x.spoken), ['怛姪他', '唵伽伽那', '毘舍羅', '莎訶']);
+  });
+
+  test('編號咒語：過長的無編號片段照咒語規則切（「」裡的空白也是切點），不硬切', () => {
+    // 合成例：第一句後面接一長串沒有編號、以空白分隔的音譯
+    const long = Array.from({ length: 30 }, () => '薩婆薩婆').join(' ');
+    const r = Seg.segmentDoc('「怛姪他(一) 唵(二) ' + long + '(三) 娑婆訶(四)」\n', { maxLen: 40 });
+    assert.equal(r.stats.hardCuts, 0);
+    assert.ok(r.units.every((x) => x.text.length <= 40), r.units.map((x) => x.text).join('|'));
+    assert.ok(r.units.every((x) => !/[ ]$/.test(x.text) && !/^薩婆$|^婆薩/.test(x.text)));
+  });
+
+  test('未編號、整行包在「」裡的長咒語：在空白處切，不再每 36 字硬切', () => {
+    const line = '「' + Array.from({ length: 20 }, () => '唵嚩日囉吽 怛姪他').join(' ') + '」';
+    const r = Seg.segmentDoc(line + '\n');
+    assert.ok(r.units.every((x) => x.kind === 'mantra'));
+    assert.equal(r.stats.hardCuts, 0);
+    assert.ok(r.units.length > 1 && r.units.every((x) => x.text.length <= 120));
+  });
+
+  test('條列與一般夾注不當編號咒語', () => {
+    assert.equal(Seg.mantraNumbers('(一)色(二)受(三)想(四)行(五)識'), null); // 號碼在前＝條列
+    assert.equal(Seg.mantraNumbers('此有三義：初明因緣(一)，次明果報，廣說如經(二)，後結勸修行者當知(三)。'), null); // 片段有句讀
+    assert.equal(Seg.mantraNumbers('唵(引)阿里迦(二合)摩細娑嚩(二合引)賀'), null); // 注音不是句號
+    assert.equal(Seg.mantraNumbers('甲(一)乙(七)丙(三)丁(九)'), null); // 號碼不遞增
+    assert.deepEqual(kinds('有二種人：一者(一)利根，二者(二)鈍根，三者(三)中根。\n'), ['sent']);
+  });
+
+  test('句號數字解析到百位以上', () => {
+    const u = Seg.segmentDoc('娑婆訶(九十九) 南無喝囉怛那哆囉夜耶(一百) 唵(一百一) 悉殿都(一百零二)\n').units;
+    assert.deepEqual(u.map((x) => x.spoken), ['娑婆訶', '南無喝囉怛那哆囉夜耶', '唵', '悉殿都']);
+  });
 });
 
 describe('標題與章節四層後備', () => {
