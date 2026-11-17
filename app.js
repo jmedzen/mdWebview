@@ -13877,14 +13877,23 @@
       });
     }
 
-    // ── 專注模式：隱藏標題列與側邊欄，只留內文；只能按 Esc 離開 ──
+    // ── 專注模式：隱藏標題列與側邊欄，只留內文；按 Esc 或點右上角 pill 離開 ──
     const focusModeBtn = $('focusModeBtn');
     if (focusModeBtn) {
+      // 所有離開專注模式的路徑（Esc、pill、視窗變窄）都走這裡，狀態一致。
+      // restoreFocus：pill 消失後鍵盤焦點會掉到 body，改放回專注模式按鈕。
+      const exitFocusMode = ({ restoreFocus = false } = {}) => {
+        if (!document.body.classList.contains('focus-mode')) return;
+        document.body.classList.remove('focus-mode');
+        if (restoreFocus && document.activeElement === $('focusModeExit')) {
+          try { focusModeBtn.focus({ preventScroll: true }); } catch (_) {}
+        }
+      };
       // 手機寬度隱藏按鈕（見 style.css）。若在桌機進入專注模式後視窗縮到手機寬度
       // （例如平板轉直），就自動離開，免得沒有 Esc 可按而卡住。
       const focusModeNarrowMq = window.matchMedia('(max-width: 768px)');
       const exitFocusModeIfNarrow = () => {
-        if (focusModeNarrowMq.matches) document.body.classList.remove('focus-mode');
+        if (focusModeNarrowMq.matches) exitFocusMode();
       };
       focusModeNarrowMq.addEventListener('change', exitFocusModeIfNarrow);
       focusModeBtn.addEventListener('click', () => {
@@ -13892,17 +13901,17 @@
         document.body.classList.add('focus-mode');
         focusModeBtn.blur();
       });
-      // 觸控裝置沒有 Esc：點右上角的 pill 離開
+      // 右上角的 pill 是真正的 <button>：滑鼠點、觸控點、Enter／空白鍵都能離開
       const focusModeExit = $('focusModeExit');
       if (focusModeExit) {
         focusModeExit.addEventListener('click', () => {
-          document.body.classList.remove('focus-mode');
+          exitFocusMode({ restoreFocus: true });
         });
       }
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
         if (!document.body.classList.contains('focus-mode')) return;
-        document.body.classList.remove('focus-mode');
+        exitFocusMode({ restoreFocus: true });
         e.preventDefault();
       });
     }
