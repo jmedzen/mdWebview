@@ -663,6 +663,7 @@
       <!-- Settings Tabs Navigation (Pinned at top) -->
       <div class="settings-tabs-nav" id="userSettingsTabsNav" role="tablist" aria-label="偏好設定分頁">
         <button type="button" class="settings-tab-btn active" data-tab="appearance" id="settingsTab-appearance" role="tab" aria-controls="pane-appearance">🎨 視覺排版</button>
+        <button type="button" class="settings-tab-btn tts-settings-tab" data-tab="tts" id="settingsTab-tts" role="tab" aria-controls="pane-tts">🔊 朗讀</button>
         <button type="button" class="settings-tab-btn" data-tab="recommended" id="settingsTab-recommended" role="tab" aria-controls="pane-recommended">🪷 推薦經論</button>
         <button type="button" class="settings-tab-btn" data-tab="system" id="settingsTab-system" role="tab" aria-controls="pane-system">💾 備份與管理</button>
       </div>
@@ -789,9 +790,11 @@
             </label>
           </div>
 
-          <!-- 朗讀偏好（網站啟用朗讀時才顯示；與播放面板裡的設定同步，app.js §17c） -->
+        </div>
+
+        <!-- Tab: 朗讀（網站啟用朗讀時才顯示；與播放面板同步，app.js §17c） -->
+        <div class="settings-tab-pane" id="pane-tts" role="tabpanel" aria-labelledby="settingsTab-tts" style="display: none;">
           <div class="tts-settings" id="ttsSettings">
-            <div class="setting-section-header"><span>🔊 朗讀</span></div>
             <div class="setting-item-row">
               <label class="setting-item-label" for="settingTtsVoice"><span class="setting-title">預設音色</span></label>
               <select id="settingTtsVoice" class="setting-select"></select>
@@ -817,11 +820,19 @@
               <label class="toggle-switch" for="settingTtsFocusFollow" title="讓 VoiceOver 焦點跟著目前的句子"><input type="checkbox" id="settingTtsFocusFollow"><span class="toggle-slider"></span></label>
             </div>
             <div class="setting-item-row toggle-row">
-              <div class="setting-item-label"><span class="setting-title">讀完這一篇，接著讀下一篇</span><span class="setting-desc">同一個資料夾裡的下一篇</span></div>
-              <label class="toggle-switch" for="settingTtsContinue" title="讀完這一篇，接著讀下一篇"><input type="checkbox" id="settingTtsContinue"><span class="toggle-slider"></span></label>
+              <div class="setting-item-label"><span class="setting-title">讀完接下一篇</span><span class="setting-desc">同一個資料夾的下一篇</span></div>
+              <label class="toggle-switch" for="settingTtsContinue" title="讀完接下一篇"><input type="checkbox" id="settingTtsContinue"><span class="toggle-slider"></span></label>
             </div>
             <div class="setting-item-row toggle-row">
-              <div class="setting-item-label"><span class="setting-title">朗讀快捷鍵</span><span class="setting-desc">Alt（Option）+R 播放／暫停、Alt+←／→ 上／下一句、Alt+↑／↓ 語速、Esc 收合面板或離開誦經模式</span></div>
+              <div class="setting-item-label"><span class="setting-title">朗讀選取的文字後，繼續往下讀</span><span class="setting-desc">關掉就只讀選取的部分</span></div>
+              <label class="toggle-switch" for="settingTtsSelContinue" title="朗讀選取的文字後，繼續往下讀"><input type="checkbox" id="settingTtsSelContinue"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-item-row toggle-row">
+              <div class="setting-item-label"><span class="setting-title">朗讀選取時只讀我選的字</span><span class="setting-desc">不延伸到完整的句子</span></div>
+              <label class="toggle-switch" for="settingTtsExact" title="朗讀選取時只讀我選的字"><input type="checkbox" id="settingTtsExact"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-item-row toggle-row">
+              <div class="setting-item-label"><span class="setting-title">朗讀快捷鍵</span><span class="setting-desc">Alt+R 播放／暫停、Alt+←／→ 上／下一句、Alt+↑／↓ 語速、Esc 收合面板或離開誦經模式</span></div>
               <label class="toggle-switch" for="settingTtsShortcuts" title="朗讀快捷鍵"><input type="checkbox" id="settingTtsShortcuts"><span class="toggle-slider"></span></label>
             </div>
           </div>
@@ -2461,10 +2472,10 @@
               <p class="field-hint">讀者的瀏覽器不會直接連 audio.cpp：一律由本站代理，伺服器網址與音色名稱不會給讀者看到。</p>
               <div class="toggle-switch-wrapper compact-switch">
                 <label class="toggle-switch-label" for="adminTtsEnabled">
-                  <input type="checkbox" id="adminTtsEnabled">
+                  <input type="checkbox" id="adminTtsEnabled" aria-labelledby="adminTtsEnabledTitle">
                   <span class="toggle-switch-slider"></span>
                 </label>
-                <span class="toggle-switch-title">開放朗讀</span>
+                <span class="toggle-switch-title" id="adminTtsEnabledTitle">開放朗讀</span>
               </div>
               <p class="field-hint">關閉時讀者看不到任何朗讀入口；已生成的音檔保留。</p>
               <label class="field-hint" for="adminTtsBaseUrl">audio.cpp 伺服器網址</label>
@@ -2476,10 +2487,10 @@
               <div id="adminTtsVoiceDirStatus" class="account-list" aria-live="polite"></div>
               <div class="toggle-switch-wrapper compact-switch">
                 <label class="toggle-switch-label" for="adminTtsAutoTranscribe">
-                  <input type="checkbox" id="adminTtsAutoTranscribe">
+                  <input type="checkbox" id="adminTtsAutoTranscribe" aria-labelledby="adminTtsAutoTranscribeTitle">
                   <span class="toggle-switch-slider"></span>
                 </label>
-                <span class="toggle-switch-title">缺逐字稿時用 audio.cpp 的 ASR 自動補上</span>
+                <span class="toggle-switch-title" id="adminTtsAutoTranscribeTitle">缺逐字稿時用 audio.cpp 的 ASR 自動補上</span>
               </div>
               <p class="field-hint">音色資料夾一有新的 WAV（約 5 秒後）、打開這一頁時、以及每 2 分鐘都會檢查：沒有同名 <code>.txt</code>、也不在 <code>prompt_text</code> 裡的 WAV，送 audio.cpp 轉寫（轉成繁體），寫成 <code>&lt;名稱&gt;.txt</code>（不覆蓋已有的），再依各 <code>.txt</code> 重建 <code>prompt_text</code>（舊檔留成 <code>prompt_text.bak</code>）。audio.cpp 下一句就讀得到，不必重新啟動。ASR 可能有錯字，請在上面的清單裡點開逐字稿校對。</p>
               <label class="field-hint" for="adminTtsAsrModel">ASR 模型（audio.cpp 上的代號）</label>
@@ -2555,25 +2566,7 @@
             <div class="config-card-body">
               <p class="field-hint">語音合成常把佛經專有詞念成一般讀音（例如「般若」念成 bān ruò）。朗讀前會把這些詞換成同音、讀音單一的字再送去合成；<strong>讀者畫面上的經文不變</strong>。改了讀法的句子會自動重新生成，其他句子的快取不受影響。</p>
 
-              <div class="toggle-switch-wrapper compact-switch">
-                <label class="toggle-switch-label" for="adminTtsBuiltinLexicon">
-                  <input type="checkbox" id="adminTtsBuiltinLexicon">
-                  <span class="toggle-switch-slider"></span>
-                </label>
-                <span class="toggle-switch-title">使用內建佛經讀音表</span>
-              </div>
-              <p class="field-hint">內建表依教育部《重編國語辭典修訂本》與佛門誦讀慣例整理，每條都附注音與依據。要停用某一條，按該列的「停用」（會在下方自訂字典加上「詞｜詞」）。</p>
-              <p class="field-hint" id="adminTtsRareInfo">同一個開關也管「罕見字讀音表」：經文裡的罕見字（例如「車𤦲」的 𤦲）語音模型多半不認得，朗讀時換成異體正字或同音常用字（𤦲 → 璩）；查不到讀音的字略過不讀。要改某個字的讀法，在下方自訂字典寫「字｜改讀為」。</p>
-              <div class="account-inline-form">
-                <input type="search" id="adminTtsBuiltinFilter" data-no-dirty placeholder="篩選詞條，例如：伽" aria-label="篩選內建讀音表">
-                <span class="field-hint" id="adminTtsBuiltinInfo"></span>
-              </div>
-              <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-lex-table" id="adminTtsBuiltinTable">
-                <thead><tr><th scope="col">詞</th><th scope="col">改讀為</th><th scope="col">注音</th><th scope="col">依據</th><th scope="col">試聽</th><th scope="col">狀態</th></tr></thead>
-                <tbody></tbody>
-              </table></div>
-
-              <h4 class="tts-lex-sub">讀者回報</h4>
+              <h4 class="tts-lex-sub">讀者回報 <span class="tts-lex-count" id="adminTtsReportCount" hidden></span></h4>
               <p class="field-hint">讀者在播放面板按「這句念錯了」的句子（同一句合併計數）。試聽後把念錯的詞加進下方自訂字典，再按「已處理」。</p>
               <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-report-table" id="adminTtsReports">
                 <thead><tr><th scope="col">句子</th><th scope="col">讀者備註</th><th scope="col">次數</th><th scope="col">最後回報</th><th scope="col">動作</th></tr></thead>
@@ -2596,6 +2589,25 @@
                 <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewRawBtn" data-no-dirty>原讀法</button>
               </div>
               <p class="field-hint" id="adminTtsPreviewSpoken"></p>
+
+              <h4 class="tts-lex-sub">內建佛經讀音表</h4>
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsBuiltinLexicon">
+                  <input type="checkbox" id="adminTtsBuiltinLexicon" aria-labelledby="adminTtsBuiltinLexiconTitle">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title" id="adminTtsBuiltinLexiconTitle">使用內建佛經讀音表</span>
+              </div>
+              <p class="field-hint">內建表依教育部《重編國語辭典修訂本》與佛門誦讀慣例整理，每條都附注音與依據。要停用某一條，按該列的「停用」（會在上方自訂字典加上「詞｜詞」）。</p>
+              <p class="field-hint" id="adminTtsRareInfo">同一個開關也管「罕見字讀音表」：經文裡的罕見字（例如「車𤦲」的 𤦲）語音模型多半不認得，朗讀時換成異體正字或同音常用字（𤦲 → 璩）；查不到讀音的字略過不讀。要改某個字的讀法，在下方自訂字典寫「字｜改讀為」。</p>
+              <div class="account-inline-form">
+                <input type="search" id="adminTtsBuiltinFilter" data-no-dirty placeholder="篩選詞條，例如：伽" aria-label="篩選內建讀音表">
+                <span class="field-hint" id="adminTtsBuiltinInfo"></span>
+              </div>
+              <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-lex-table" id="adminTtsBuiltinTable">
+                <thead><tr><th scope="col">詞</th><th scope="col">改讀為</th><th scope="col">注音</th><th scope="col">依據</th><th scope="col">試聽</th><th scope="col">狀態</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
             </div>
           </div>
 
@@ -2629,9 +2641,9 @@
               <div class="account-inline-form">
                 <input type="text" id="adminTtsJobScope" data-no-dirty list="adminTtsPathList" placeholder="資料夾或經文路徑，例如 01-大正藏/03般若部類" aria-label="要預先生成的資料夾或經文">
                 <select id="adminTtsJobVoice" data-no-dirty aria-label="預先生成的音色"></select>
-                <label class="account-consent"><input type="checkbox" id="adminTtsJobPin" data-no-dirty><span>釘選（不被自動清除）</span></label>
                 <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsJobAddBtn" data-no-dirty>開始</button>
               </div>
+              <label class="tts-lcgen-check tts-job-pin"><input type="checkbox" id="adminTtsJobPin" data-no-dirty> 釘選（不被自動清除）</label>
               <datalist id="adminTtsPathList"></datalist>
               <!-- 聽經目錄一次全部預先生成（app.js §21.8 ttsLcGen；POST /api/admin/tts/jobs/estimate → /jobs scope=listen:catalog） -->
               <section class="tts-lcgen" id="adminTtsLcGen" aria-labelledby="adminTtsLcGenTitle">
@@ -3288,7 +3300,7 @@
       <button type="button" class="tts-chip" id="ttsSkipBtn" hidden>略過</button>
       <button type="button" class="tts-chip tts-chip-accent" id="ttsLoginBtn" hidden>登入後繼續</button>
       <button type="button" class="tts-chip tts-chip-accent" id="ttsBackBtn" hidden>回到朗讀位置</button>
-      <button type="button" class="tts-chip" id="ttsRateBtn">1×</button>
+      <button type="button" class="tts-chip" id="ttsRateBtn">1 倍</button>
       <button type="button" class="tts-chip tts-voice-chip" id="ttsVoiceBtn">音色</button>
       <button type="button" class="tts-btn" id="ttsExpandBtn" aria-expanded="false" aria-controls="ttsPanel" aria-label="展開朗讀設定">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10l4.5-4.5L12.5 10"/></svg>
@@ -3303,8 +3315,8 @@
       <!-- 進度：滑桿＋「第 N 句／共 M 句」 -->
       <div class="tts-sec tts-sec-seek">
         <input type="range" id="ttsSeek" min="1" max="1" step="1" value="1" aria-label="朗讀進度">
-        <div class="tts-seek-meta" aria-hidden="true"><span id="ttsSeekNow"></span><span id="ttsSeekTotal"></span></div>
         <div class="tts-report">
+          <span class="tts-seek-now" id="ttsSeekNow" aria-hidden="true"></span>
           <button type="button" class="tts-pill tts-report-btn" id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm">這句念錯了</button>
           <form class="tts-report-form" id="ttsReportForm" hidden>
             <input type="text" id="ttsReportNote" maxlength="60" placeholder="哪個字念錯？（可留空）" aria-label="哪個字念錯（可留空）">
@@ -3363,22 +3375,16 @@
             <button type="button" class="tts-pill" id="ttsOfflineCancel" aria-label="取消下載" hidden>取消</button>
             <button type="button" class="tts-pill" id="ttsOfflineRemove" aria-label="移除離線檔" hidden>移除</button>
           </li>
+          <li class="tts-row">
+            <button type="button" class="tts-row-main" id="ttsMoreBtn" aria-haspopup="dialog">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 10h12M4 14h12"/><circle cx="7.5" cy="6" r="1.6" fill="var(--bg-secondary, #fff)"/><circle cx="12.5" cy="10" r="1.6" fill="var(--bg-secondary, #fff)"/><circle cx="8.5" cy="14" r="1.6" fill="var(--bg-secondary, #fff)"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">更多朗讀設定</span><span class="tts-row-sub">選取朗讀、讀完接下一篇、跟著捲動、快捷鍵</span></span>
+              <span class="tts-row-chev" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg></span>
+            </button>
+          </li>
         </ul>
       </div>
 
-      <!-- 進階：收合，預設關 -->
-      <details class="tts-sec tts-more" id="ttsMore">
-        <summary class="tts-more-sum"><span>更多設定</span><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg></summary>
-        <div class="tts-list">
-          <label class="tts-switch tts-row"><span class="tts-switch-text">朗讀選取的文字後，繼續往下讀<span class="tts-row-sub">關掉就只讀選取的部分</span></span><input type="checkbox" id="ttsSelContinue" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
-          <label class="tts-switch tts-row"><span class="tts-switch-text">讀完這一篇，接著讀同一個資料夾的下一篇</span><input type="checkbox" id="ttsContinueNext" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
-          <label class="tts-switch tts-row"><span class="tts-switch-text">畫面跟著朗讀位置捲動</span><input type="checkbox" id="ttsFollow" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
-          <label class="tts-switch tts-row"><span class="tts-switch-text">朗讀選取時只讀我選的字<span class="tts-row-sub">不延伸到完整句</span></span><input type="checkbox" id="ttsExact" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
-          <label class="tts-switch tts-row"><span class="tts-switch-text">鍵盤快捷鍵<span class="tts-row-sub" id="ttsShortcutsDesc">Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></span><input type="checkbox" id="ttsShortcuts" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
-        </div>
-      </details>
-
-      <button type="button" class="tts-stop-btn" id="ttsStopBtn">停止朗讀</button>
     </div>
     <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
   </section>
@@ -3405,7 +3411,7 @@
       </div>
     </div>
     <div class="tts-menu-sep" role="separator"></div>
-    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="chant"><span class="tts-menu-title">誦經模式</span><span class="tts-menu-sub">大字全螢幕跟讀</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="chant"><span class="tts-menu-title">誦經模式</span><span class="tts-menu-sub">大字全螢幕，跟著念</span></button>
     <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="panel"><span class="tts-menu-title">播放面板與設定</span><span class="tts-menu-sub">音色、語速、睡眠計時、離線收聽</span></button>
   </div>
 

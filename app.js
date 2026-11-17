@@ -11123,7 +11123,7 @@
       const p = ttsPrefs(); p.continueNext = !p.continueNext; saveTtsPrefs();
       if (p.continueNext) ttsTrack('feature', { key: 'continue-next' });
       item.setAttribute('aria-checked', p.continueNext ? 'true' : 'false');
-      const c = $('ttsContinueNext'); if (c) c.checked = p.continueNext;
+      const c = $('settingTtsContinue'); if (c) c.checked = p.continueNext;
       ttsAnnounce(p.continueNext ? '讀完會接著讀下一篇' : '讀完這一篇就停');
       return;
     }
@@ -11524,7 +11524,7 @@
     $('ttsLoginBtn').hidden = !needLogin;
     const rate = ttsRate(); const v = ttsVoice();
     const rateBtn = $('ttsRateBtn');
-    rateBtn.textContent = `${rate}×`; rateBtn.setAttribute('aria-label', `語速 ${rate} 倍，按一下調整`);
+    rateBtn.textContent = `${rate} 倍`; rateBtn.setAttribute('aria-label', `語速 ${rate} 倍，按一下調整`);
     const voiceBtn = $('ttsVoiceBtn');
     voiceBtn.textContent = v ? ttsVoiceShortName(v.name) : '音色'; voiceBtn.title = v ? v.name : ''; voiceBtn.setAttribute('aria-label', `音色：${v ? v.name : '未選擇'}，按一下更換`);
     const away = state.currentFile !== ttsRt.path || (!!ttsRt.lastRange && !ttsRangeVisible(ttsRt.lastRange)) || (!ttsRt.lastRange && !!it);
@@ -11535,16 +11535,12 @@
     const remainTxt = ttsFmtRemain(ttsRemainingMs());
     seek.setAttribute('aria-valuetext', `第 ${n} 句，共 ${m}${open ? ' 句以上' : ' 句'}${remainTxt ? `，${remainTxt}` : ''}`);
     seek.style.setProperty('--fill', m > 1 ? `${Math.round((Math.max(1, n) - 1) / (m - 1) * 100)}%` : '0%');
-    $('ttsSeekNow').textContent = n ? `第 ${n} 句` : '';
-    $('ttsSeekTotal').textContent = remainTxt || (m ? `共 ${m}${open ? '+' : ''} 句` : '');
+    $('ttsSeekNow').textContent = n ? `第 ${n} 句` : ''; // 剩餘時間只在播放列顯示，面板不重複
     const rs = $('ttsRate');
     rs.max = String(TTS_RATES.length - 1); rs.value = String(Math.max(0, TTS_RATES.findIndex(r => r >= rate - 0.001)));
     rs.setAttribute('aria-valuetext', `${rate} 倍`);
     rs.style.setProperty('--fill', `${Math.round(Number(rs.value) / Math.max(1, Number(rs.max)) * 100)}%`);
     $('ttsRateOut').textContent = `${rate} 倍`;
-    const p = ttsPrefs();
-    $('ttsFollow').checked = p.follow; $('ttsShortcuts').checked = p.shortcuts; $('ttsExact').checked = p.exact;
-    $('ttsContinueNext').checked = p.continueNext; $('ttsSelContinue').checked = p.selContinue;
     const sl = $('ttsSleep'); if (sl && document.activeElement !== sl) sl.value = !ttsRt.sleep ? '' : ttsRt.sleep.section ? 'section' : sl.value || '';
     if (!$('ttsPanel').hidden && !ttsRt.offlineBusy) renderTtsOffline();
     renderTtsChant();
@@ -11606,8 +11602,15 @@
       pill.dataset.line = String(line);
       pill.hidden = false;
       const w = pill.offsetWidth || 90; const h = pill.offsetHeight || 36;
-      pill.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - w / 2)))}px`;
-      pill.style.top = `${Math.round(Math.max(56, e.clientY - h - 14))}px`;
+      // 寬螢幕：放在段落左邊的空白、對齊點的那一行，不蓋住經文；放不下（手機）才浮在點的位置上方
+      const br = block.getBoundingClientRect(); const cont = $('content'); const minLeft = (cont ? cont.getBoundingClientRect().left : 0) + 8;
+      if (br.left - w - 12 >= minLeft) {
+        pill.style.left = `${Math.round(br.left - w - 12)}px`;
+        pill.style.top = `${Math.round(Math.max(56, e.clientY - h / 2))}px`;
+      } else {
+        pill.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - w / 2)))}px`;
+        pill.style.top = `${Math.round(Math.max(56, e.clientY - h - 14))}px`;
+      }
       clearTimeout(ttsRt.jumpTimer);
       ttsRt.jumpTimer = setTimeout(() => { pill.hidden = true; }, 4000);
     });
@@ -11775,7 +11778,9 @@
     }
     const { n, m, open } = ttsCounts(); const v = ttsVoice();
     $('ttsChantTitle').textContent = ttsRt.title;
-    $('ttsChantMeta').textContent = `第 ${n}／${m}${open ? '+' : ''} 句${v ? `　${v.name}` : ''}${ttsRt.sleep ? `　${ttsSleepText()}` : ''}${ttsRt.waiting && ttsRt.playing ? '　生成中…' : ''}${ttsRt.error ? `　${ttsRt.error.msg}` : ''}`;
+    const remain = ttsFmtRemain(ttsRemainingMs());
+    // 與播放列一致：總句數還沒算完（「57+」）時改顯示剩下的時間
+    $('ttsChantMeta').textContent = `第 ${n}${open && remain ? '' : `／${m}${open ? '+' : ''}`} 句${remain ? `・${remain}` : ''}${v ? `　${v.name}` : ''}${ttsRt.sleep ? `　${ttsSleepText()}` : ''}${ttsRt.waiting && ttsRt.playing ? '　生成中…' : ''}${ttsRt.error ? `　${ttsRt.error.msg}` : ''}`;
     const play = $('ttsChantPlay');
     play.innerHTML = ttsRt.playing ? TTS_ICON.pause : TTS_ICON.play;
     play.setAttribute('aria-label', ttsRt.playing ? '暫停' : '播放');
@@ -11922,6 +11927,7 @@
     $('settingTtsSleep').value = p.sleepDefault || '';
     $('settingTtsFollow').checked = p.follow; $('settingTtsFocusFollow').checked = p.focusFollow;
     $('settingTtsContinue').checked = p.continueNext; $('settingTtsShortcuts').checked = p.shortcuts;
+    $('settingTtsSelContinue').checked = p.selContinue; $('settingTtsExact').checked = p.exact;
   }
 
   /** 大綱每一列加「朗讀本節」（hover／focus 才明顯；觸控一直可見）。 */
@@ -11945,8 +11951,8 @@
   function setupTtsPhase5() {
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
     on('ttsSleep', 'change', (e) => ttsSetSleep(e.target.value));
-    on('ttsContinueNext', 'change', (e) => { ttsPrefs().continueNext = e.target.checked; saveTtsPrefs(); if (e.target.checked) ttsTrack('feature', { key: 'continue-next' }); });
-    on('ttsSelContinue', 'change', (e) => { ttsPrefs().selContinue = e.target.checked; saveTtsPrefs(); });
+    // 面板只放音色、語速、聆聽方式；其他朗讀偏好集中在偏好設定的「朗讀」分頁
+    on('ttsMoreBtn', 'click', () => { const b = $('userMenuSettingsBtn'); if (b) b.click(); const t = $('settingsTab-tts'); if (t) { t.click(); t.focus(); } });
     on('ttsChantBtn', 'click', () => openTtsChant());
     // 偏好設定視窗的朗讀區（與面板同步）
     const prefSel = (id, key, cast) => on(id, 'change', (e) => { ttsPrefs()[key] = cast(e.target.value); saveTtsPrefs(); syncTtsSettings(); renderTtsBar(); });
@@ -11956,6 +11962,9 @@
     const prefChk = (id, key) => on(id, 'change', (e) => { ttsPrefs()[key] = e.target.checked; saveTtsPrefs(); renderTtsBar(); });
     prefChk('settingTtsFollow', 'follow'); prefChk('settingTtsFocusFollow', 'focusFollow');
     prefChk('settingTtsContinue', 'continueNext'); prefChk('settingTtsShortcuts', 'shortcuts');
+    prefChk('settingTtsSelContinue', 'selContinue'); prefChk('settingTtsExact', 'exact');
+    on('settingTtsContinue', 'change', (e) => { if (e.target.checked) ttsTrack('feature', { key: 'continue-next' }); });
+    on('settingTtsFollow', 'change', (e) => { if (e.target.checked) ttsBackToPosition(); });
     on('ttsChantClose', 'click', () => closeTtsChant());
     on('ttsChantPlay', 'click', () => { ttsTogglePlay(); renderTtsChant(); });
     on('ttsChantPrevBtn', 'click', () => ttsStep(-1));
@@ -11991,7 +12000,7 @@
   function localizeTtsShortcutLabels() {
     if (!TTS_IS_APPLE) return;
     for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
-    for (const sel of ['#ttsShortcutsDesc', '#ttsSettings .setting-desc']) {
+    for (const sel of ['#ttsSettings .setting-desc']) {
       document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
     }
   }
@@ -12005,7 +12014,6 @@
     on('ttsNextBtn', 'click', () => ttsStep(1));
     const stopAndRefocus = () => { ttsStop(); const b = $('ttsStartBtn'); if (b) b.focus(); };
     on('ttsCloseBtn', 'click', stopAndRefocus);
-    on('ttsStopBtn', 'click', stopAndRefocus);
     on('ttsBackBtn', 'click', () => ttsBackToPosition());
     on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsRt.failStreak = 0; const it = ttsRt.items[ttsRt.pos]; if (it) { it.retried = false; it.autoTries = 0; } ttsPlayAt(ttsRt.pos); });
     on('ttsLoginBtn', 'click', () => { ttsUnlock(); openAccountAuth('login', { afterLogin: 'tts' }); });
@@ -12035,9 +12043,6 @@
       for (let j = 0; j < ttsRt.items.length && want > 0; j++) if (ttsPlayable(ttsRt.items[j])) { want--; k = j; }
       if (k >= 0) { ttsUnlock(); ttsRt.userScrollAt = 0; try { ttsRt.audio.pause(); } catch (_) {} ttsPlayAt(k); }
     });
-    on('ttsFollow', 'change', (e) => { ttsPrefs().follow = e.target.checked; saveTtsPrefs(); if (e.target.checked) ttsBackToPosition(); });
-    on('ttsShortcuts', 'change', (e) => { ttsPrefs().shortcuts = e.target.checked; saveTtsPrefs(); });
-    on('ttsExact', 'change', (e) => { ttsPrefs().exact = e.target.checked; saveTtsPrefs(); });
     setupTtsStartMenu();
     window.addEventListener('pagehide', () => ttsFlushListen());
 
@@ -18315,14 +18320,14 @@
     const id = saved ? v.id : '';
     const rate = Number(v.rate) || 1;
     return `<tr data-voice="${escHtml(v.voice)}" data-id="${escHtml(id)}"${gone ? ' class="is-gone"' : ''}>
-      <td><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
-      <td><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
-      <td><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
-      <td><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
-      <td><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
-      <td><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
-      <td><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
-      <td><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id || !gone ? '' : 'disabled'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
+      <td data-label="開放"><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
+      <td data-label="預設"><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
+      <td data-label="名稱"><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
+      <td data-label="中文名"><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
+      <td data-label="標籤"><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
+      <td data-label="預設語速"><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
+      <td data-label="版本"><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
+      <td data-label="試聽"><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id || !gone ? '' : 'disabled'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
     </tr>`;
   }
 
@@ -18660,6 +18665,8 @@
           <button type="button" class="modal-btn secondary-btn small-btn tts-rep-done" data-no-dirty aria-label="標為已處理">已處理</button></td></tr>`;
     }).join('') || '<tr><td colspan="5" class="field-hint">目前沒有讀者回報。</td></tr>';
     ttsAdmin.reports = list;
+    const cnt = $('adminTtsReportCount'); // 待處理數放在標題旁，一打開這頁就看得到
+    if (cnt) { cnt.hidden = !list.length; cnt.textContent = list.length ? `${list.length} 則待處理` : ''; }
   }
 
   /** 讀音校正：自訂字典的文字框＋內建佛經讀音表。 */
@@ -19065,11 +19072,11 @@
         <div><b>${totals && totals.v ? Math.floor(totals.c / totals.v * 100) + '%' : '—'}</b><span>整個目錄已生成${totals ? `（${totals.c.toLocaleString()}／${totals.v.toLocaleString()} 句）` : ''}</span></div>
       </div>
       <div class="lc-bar" role="progressbar" aria-label="這部經已生成" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${one ? pct(one) : 0}"><i style="width:${one ? pct(one) : 0}%"></i></div>
-      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。工作在背景依序進行，進度在「朗讀（TTS）」頁的預先生成區。</p>
+      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。這裡用預設音色生成選中的這一部；整個目錄（可選多個音色、先估算時間與空間）在「朗讀（TTS）」頁的預先生成區。</p>
       <div class="lc-tool">
         <button type="button" class="modal-btn submit-btn small-btn" data-lc-act="gen-one" data-no-dirty ${it ? '' : 'disabled'}>預先生成這部經</button>
-        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="gen-all" data-no-dirty>整個目錄一起預先生成</button>
-        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 固定保留（不被快取清理刪掉）</label>
+        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 釘選（不被自動清除）</label>
+        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="goto-gen-all" data-no-dirty>整個目錄：到朗讀頁選音色、估算後生成…</button>
       </div>`}`;
   }
 
@@ -19145,12 +19152,18 @@
         lcChanged(); renderLcAdmin(); return;
       }
       if (act === 'redetect') { lcDetect(true); return; }
-      if (act === 'gen-one' || act === 'gen-all') {
+      if (act === 'gen-one') {
         const it = lcItem();
-        if (act === 'gen-one' && lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
-        const scope = act === 'gen-one' ? it.path : 'listen:catalog';
-        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
-        if (r.ok) showToast(`✅ 已排入預先生成（${act === 'gen-one' ? it.name : '整個目錄'}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        if (lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope: it.path, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
+        if (r.ok) showToast(`✅ 已排入預先生成（${it.name}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        return;
+      }
+      // 整個目錄只有一個入口：朗讀頁的「🎧 聽經目錄」區（可選音色、先估算），這裡帶過去
+      if (act === 'goto-gen-all') {
+        if (lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const nav = document.querySelector('#adminShell .admin-nav-item[data-page="tts"]'); if (nav) nav.click();
+        setTimeout(() => { const t = $('adminTtsLcGenTitle'); if (t) { t.scrollIntoView({ block: 'center' }); const f = document.querySelector('#adminTtsLcVoices input'); if (f) f.focus({ preventScroll: true }); } }, 300);
         return;
       }
       const pact = b.dataset.lcPact; const it = lcItem();

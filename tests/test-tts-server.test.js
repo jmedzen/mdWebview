@@ -67,6 +67,7 @@ function startFake() {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         fake.speech.push(body);
         setTimeout(() => {
+          if (fake.mode === 'reset') { req.socket.destroy(); return; }
           if (fake.mode === '500') return json(500, { error: { message: 'model exploded', type: 'server_error' } });
           if (fake.mode === 'noref') return json(400, { error: { message: 'Drama 3 reference audio requires reference_text', type: 'invalid_request_error' } });
           if (fake.mode === 'busy') return json(503, { error: { message: "model 'drama3' is busy", type: 'server_busy' } });
@@ -287,6 +288,14 @@ describe('朗讀（TTS）後端', () => {
         if (mode === 'busy') assert.equal(fake.speech.length, 3, '忙碌時多等一下、重試兩次');
       });
     }
+
+    test('audio.cpp 整台連不上（連線被切斷）：回報 unavailable，不是 failed', async () => {
+      fake.mode = 'reset'; tts._internals.failed.clear();
+      const r = await speak([5], { voice: 'v2' });
+      assert.equal(r.json.items[0].state, 'unavailable');
+      fake.mode = 'ok'; tts._internals.failed.clear();
+      assert.equal((await speak([5], { voice: 'v2' })).json.items[0].state, 'ready');
+    });
 
     test('失敗後恢復正常：可以重新生成', async () => {
       fake.mode = '500';
