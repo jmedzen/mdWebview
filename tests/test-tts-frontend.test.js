@@ -124,6 +124,18 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.deepEqual(run(['demo_1_man', 'demo_3_woman']), ['demo_1_man', 'demo_3_woman']);
   });
 
+  test('音色中文名自動去掉前後非中文字，結尾數字保留', () => {
+    const src = ttsSection.slice(ttsSection.indexOf('function tidyTtsVoiceName'), ttsSection.indexOf('async function refreshTtsStatus'));
+    const ctx = { String }; vm.createContext(ctx);
+    vm.runInContext(src + '\nthis.t = tidyTtsVoiceNames;', ctx);
+    const run = (names) => { const l = names.map(name => ({ name })); ctx.t(l); return l.map(x => x.name); };
+    assert.deepEqual(run(['RA-m-米陸', 'RA-f-芙蓉2', 'RA-female-芙蓉']), ['米陸', '芙蓉2', '芙蓉']);
+    assert.deepEqual(run(['RA-20261117 2']), ['20261117 2']); // 沒有中文：只去檔名前綴
+    assert.deepEqual(run(['芙蓉 (new)', '男聲・都']), ['芙蓉', '男聲・都']);
+    // 後台：未登記音色預填中文名、儲存時也套同一規則
+    assert.match(app, /name: trimTtsVoiceName\(tr\.querySelector\('\.tts-v-name'\)\.value\.trim\(\) \|\| tr\.dataset\.voice\)/);
+  });
+
   test('朗讀選取後預設繼續往下讀（可關）：選的句子讀完就接上後面的句子', () => {
     assert.match(ttsSection, /selContinue: p\.selContinue !== false/);
     assert.match(html, /<input type="checkbox" id="settingTtsSelContinue">/);

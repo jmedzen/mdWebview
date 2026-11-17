@@ -1172,3 +1172,15 @@ describe('lib/tts.js 純函式', () => {
     I.setFfmpeg({ ok: false });
   });
 });
+
+describe('音色中文名自動去掉前後非中文字', () => {
+  test('trimVoiceName 與 sanitizeVoices', () => {
+    const I = require('../lib/tts')._internals;
+    assert.equal(I.trimVoiceName('RA-m-米陸'), '米陸');
+    assert.equal(I.trimVoiceName('RA-female-芙蓉2'), '芙蓉2');
+    assert.equal(I.trimVoiceName('RA-male-都A1'), '都A1');
+    assert.equal(I.trimVoiceName('demo_1_man'), 'demo_1_man');
+    const out = I.sanitizeVoices([{ voice: 'RA-f-托瓦' }, { voice: 'RA-m-菩提', name: ' RA-m-菩提 ' }, { voice: 'x', name: '男聲・都' }]);
+    assert.deepEqual(out.map(v => v.name), ['托瓦', '菩提', '男聲・都']);
+  });
+});
