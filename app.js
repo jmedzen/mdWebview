@@ -11548,6 +11548,7 @@
     rs.setAttribute('aria-valuetext', `${rate} 倍`);
     rs.style.setProperty('--fill', `${Math.round(Number(rs.value) / Math.max(1, Number(rs.max)) * 100)}%`);
     $('ttsRateOut').textContent = `${rate} 倍`;
+    document.querySelectorAll('#ttsRatePresets [data-rate]').forEach(b => b.setAttribute('aria-pressed', Math.abs(Number(b.dataset.rate) - rate) < 0.001 ? 'true' : 'false'));
     const sl = $('ttsSleep'); if (sl && document.activeElement !== sl) sl.value = !ttsRt.sleep ? '' : ttsRt.sleep.section ? 'section' : sl.value || '';
     if (!$('ttsPanel').hidden && !ttsRt.offlineBusy) renderTtsOffline();
     renderTtsChant();
@@ -12045,6 +12046,7 @@
     });
     on('ttsSeek', 'input', (e) => { const r = e.target; r.style.setProperty('--fill', `${Math.round((Number(r.value) - 1) / Math.max(1, Number(r.max) - 1) * 100)}%`); });
     on('ttsRate', 'input', (e) => ttsSetRate(TTS_RATES[Number(e.target.value)] || 1));
+    on('ttsRatePresets', 'click', (e) => { const b = e.target.closest && e.target.closest('[data-rate]'); if (b) ttsSetRate(Number(b.dataset.rate)); });
     on('ttsSeek', 'change', (e) => { // 第 N 句（只算可朗讀的）
       let want = Number(e.target.value), k = -1;
       for (let j = 0; j < ttsRt.items.length && want > 0; j++) if (ttsPlayable(ttsRt.items[j])) { want--; k = j; }

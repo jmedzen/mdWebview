@@ -12986,6 +12986,16 @@ body.focus-mode .tts-start-btn { display: none; }
   background: var(--bg-secondary); border: 2px solid var(--tts-accent); box-shadow: 0 1px 3px var(--shadow-color);
 }
 .tts-sec-seek { gap: 2px; }
+/* 語速常用鍵：四等分膠囊；選中的實心朱色，字色和播放鍵一樣用 --tts-on-accent（亮色白字、暗色深字） */
+.tts-rate-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tts-rate-preset {
+  position: relative; min-height: 36px; padding: 0 6px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-secondary);
+  font: inherit; font-size: 0.9em; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.tts-rate-preset::after { content: ''; position: absolute; inset: -4px 0; } /* 點擊範圍 44px */
+.tts-rate-preset:hover { border-color: var(--tts-accent); color: var(--text-primary); }
+.tts-rate-preset[aria-pressed="true"] { background: var(--tts-accent); border-color: var(--tts-accent); color: var(--tts-on-accent); font-weight: 600; }
 .tts-seek-meta, .tts-scale { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* 音色：膠囊（原生 radio 疊在上面、透明，VoiceOver／鍵盤照常） */
@@ -13097,6 +13107,7 @@ div.tts-row-main { cursor: default; }
   .tts-switch-ui { border: 1px solid ButtonText; }
   .tts-switch input:checked + .tts-switch-ui { background: Highlight; }
   .tts-voice-card:has(input:checked) { border: 2px solid Highlight; }
+  .tts-rate-preset[aria-pressed="true"] { border: 2px solid Highlight; }
 }
 
 .tts-chant {
@@ -13401,15 +13412,44 @@ body.tts-chant-open { overflow: hidden; }
 .tts-hint button { flex: none; border: 0; border-radius: 8px; padding: 4px 10px; min-height: 32px; background: var(--tts-accent-bg); color: var(--tts-accent-text); font: inherit; cursor: pointer; }
 .tts-report { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
 .tts-seek-now { font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.tts-report-form { display: flex; gap: 8px; flex: 1 1 240px; }
+/* 「念錯了」：次要動作，不搶眼。旗子＋短字、無框，平常是淡字，滑過或展開才上朱色；外觀 28px、點擊範圍 44px */
+.tts-report-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 4px;
+  min-height: 28px; padding: 0 8px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--text-muted); font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.tts-report-btn::after { content: ''; position: absolute; inset: -8px -4px; }
+.tts-report-btn:hover, .tts-report-btn[aria-expanded="true"] { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+.tts-report-form { display: flex; gap: 8px; flex: 1 1 100%; }
 .tts-report-form[hidden] { display: none; }
 .tts-report-form input { flex: 1; min-width: 0; min-height: 36px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .tts-report-table .tts-report-text { max-width: 420px; }
 
-/* 桌面寬螢幕：面板分兩欄、矮一點，不要蓋住大半篇經文 */
-@media (min-width: 900px) {
-  .tts-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; max-height: min(52vh, 480px); }
-  .tts-panel > .tts-notice, .tts-panel > .tts-sec-seek { grid-column: 1 / -1; }
+/* 寬版面板（桌面、iPad 橫向）：看播放列本身的寬度（≥ 640px），不是視窗寬，
+   側欄打開、閱讀區變窄時自動回到窄版。
+   版面：進度橫跨兩欄；左欄「怎麼聽」＝音色（膠囊換行，不橫向捲動）＋語速，
+   右欄「聆聽方式」清單。DOM 順序（進度 → 音色 → 語速 → 聆聽方式）不變，
+   鍵盤與 VoiceOver 的順序就是左欄由上而下、再到右欄。 */
+@container tts-bar (min-width: 640px) {
+  .tts-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "notice notice" "seek seek" "voice listen" "rate listen";
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 24px; row-gap: 16px; align-items: start;
+    padding: 16px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    max-height: min(62vh, 540px);
+  }
+  /* 沒有提示訊息時拿掉那一列，免得空列還吃掉一個 row-gap */
+  .tts-panel:has(> .tts-notice[hidden]) { grid-template-areas: "seek seek" "voice listen" "rate listen"; grid-template-rows: auto auto 1fr; }
+  .tts-panel > .tts-notice { grid-area: notice; }
+  .tts-panel > .tts-sec-seek { grid-area: seek; }
+  .tts-panel > .tts-voices { grid-area: voice; }
+  .tts-panel > .tts-sec-rate { grid-area: rate; }
+  .tts-panel > .tts-sec-listen { grid-area: listen; }
+  .tts-voice-cards { flex-wrap: wrap; overflow: visible; margin: 0; padding: 0; scroll-snap-type: none; }
+  .tts-voice-card label { padding: 0 14px; }
+  .tts-voice-text { padding: 4px 0; }
+  .tts-sec-rate .tts-scale { display: none; } /* 有常用鍵與數值，「慢／快」不必再標 */
 }
 
 /* ── §20a 螢幕鍵盤避讓（iPad／iPhone，app.js §20a）──────────────

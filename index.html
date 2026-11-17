@@ -3319,15 +3319,15 @@
         <input type="range" id="ttsSeek" min="1" max="1" step="1" value="1" aria-label="朗讀進度">
         <div class="tts-report">
           <span class="tts-seek-now" id="ttsSeekNow" aria-hidden="true"></span>
-          <button type="button" class="tts-pill tts-report-btn" id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm">這句念錯了</button>
+          <button type="button" class="tts-report-btn" id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm" aria-label="這句念錯了，回報" title="這句念錯了，回報給管理員"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 14V2.5M3.5 3h8l-1.6 3 1.6 3h-8"/></svg><span>念錯了</span></button>
           <form class="tts-report-form" id="ttsReportForm" hidden>
             <input type="text" id="ttsReportNote" maxlength="60" placeholder="哪個字念錯？（可留空）" aria-label="哪個字念錯（可留空）">
-            <button type="submit" class="tts-pill">送出</button>
+            <button type="submit" class="tts-pill">回報</button>
           </form>
         </div>
       </div>
 
-      <!-- 音色：原生 radio 做成的膠囊選擇器，名稱不斷字；可橫向捲動 -->
+      <!-- 音色：原生 radio 做成的膠囊選擇器，名稱不斷字；窄版橫向捲動、寬版換行 -->
       <fieldset class="tts-sec tts-voices">
         <legend class="tts-sec-title">音色</legend>
         <div class="tts-voice-cards" id="ttsVoiceCards" role="radiogroup" aria-label="音色"></div>
@@ -3338,18 +3338,24 @@
         </label>
       </fieldset>
 
-      <!-- 語速 -->
-      <div class="tts-sec">
+      <!-- 語速：常用四段＋細調滑桿 -->
+      <div class="tts-sec tts-sec-rate">
         <div class="tts-sec-head">
           <label class="tts-sec-title" for="ttsRate">語速</label>
           <output class="tts-sec-value" id="ttsRateOut" for="ttsRate">1 倍</output>
+        </div>
+        <div class="tts-rate-presets" id="ttsRatePresets" role="group" aria-label="常用語速">
+          <button type="button" class="tts-rate-preset" data-rate="0.8" aria-pressed="false" aria-label="0.8 倍">0.8×</button>
+          <button type="button" class="tts-rate-preset" data-rate="1" aria-pressed="true" aria-label="1 倍">1×</button>
+          <button type="button" class="tts-rate-preset" data-rate="1.2" aria-pressed="false" aria-label="1.2 倍">1.2×</button>
+          <button type="button" class="tts-rate-preset" data-rate="1.5" aria-pressed="false" aria-label="1.5 倍">1.5×</button>
         </div>
         <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
         <div class="tts-scale" aria-hidden="true"><span>慢</span><span>快</span></div>
       </div>
 
       <!-- 聆聽方式：分組清單（每列 ≥ 52px，標題在左、操作在右） -->
-      <div class="tts-sec">
+      <div class="tts-sec tts-sec-listen">
         <h3 class="tts-sec-title" id="ttsListenTitle">聆聽方式</h3>
         <ul class="tts-list" aria-labelledby="ttsListenTitle">
           <li class="tts-row">
