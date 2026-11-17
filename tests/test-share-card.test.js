@@ -431,6 +431,20 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /SC\.PREVIEW_PIXELS/);
   });
 
+  test('手機長按預覽圖不存小圖，改開全尺寸存圖畫面；全尺寸 JPEG 品質 92', () => {
+    const css = fs.readFileSync(path.join(ROOT_DIR, 'style.css'), 'utf8');
+    const rule = css.match(/\.share-card-frame img \{[^}]*\}/);
+    assert.ok(rule, '.share-card-frame img 規則');
+    assert.match(rule[0], /-webkit-touch-callout: none/);
+    assert.match(appJs, /slides\.addEventListener\('touchstart'/);
+    assert.match(appJs, /slides\.addEventListener\('contextmenu'/);
+    assert.match(appJs, /const openFullFromSlide = sl => \{[\s\S]{0,200}saveShareImage\(\);/);
+    const draw = require('../lib/share-card-draw');
+    assert.equal(draw.JPEG_QUALITY, 92);
+    const scSrc = fs.readFileSync(path.join(ROOT_DIR, 'lib/share-card-server.js'), 'utf8');
+    assert.match(scSrc, /preview \? \[\] : \[`q\$\{JPEG_QUALITY\}`\]/, '全尺寸快取鍵記品質，舊 q88 快取不再命中');
+  });
+
   test('分享連結換 og:image；API 路由都接上', () => {
     assert.match(serverJs, /query\.verse && !query\.file/);
     assert.match(serverJs, /handleVerseShareLink/);
