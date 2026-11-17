@@ -32,6 +32,7 @@ test('必須保留清單本身有內容，且包含使用者指定的 縛→父�
   const map = new Map(MUST_KEEP);
   assert.equal(map.get('縛'), '父');
   assert.equal(map.get('闇'), '暗');
+  assert.equal(map.get('銀'), '吟');
   for (const [w, to] of MUST_KEEP) assert.ok(w && to, `格式錯誤：${w}｜${to}`);
 });
 
@@ -58,6 +59,9 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   assert.equal(say('解脫諸縛，破無明闇'), '解脫諸父，破無明暗');
   assert.equal(say('繫縛'), '繫父');
   assert.equal(say('闇冥'), '暗冥');
+  // 銀→吟（2026-11-17 使用者指定）；「銀行」的行要念 ㄏㄤˊ
+  assert.equal(say('金銀琉璃，白銀為地'), '金吟琉璃，白吟為地');
+  assert.equal(say('存入銀行'), '存入吟航');
 });
 
 test('整篇斷句後的朗讀文字也照清單念（segmentDoc 路徑）', () => {

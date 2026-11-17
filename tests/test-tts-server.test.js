@@ -869,6 +869,7 @@ describe('lib/tts.js 純函式', () => {
     assert.equal(say('毘盧遮那佛', true), '皮盧遮那佛');
     assert.equal(say('優婆塞、優婆夷', true), '優婆色、優婆夷');
     assert.equal(say('解脫諸縛，破無明闇', true), '解脫諸父，破無明暗');
+    assert.equal(say('金銀七寶', true), '金吟七寶');
     assert.equal(say('般若', false), '般若');                        // 關掉內建
     assert.notEqual(lx.version(true), lx.version(false));            // 開關內建會讓斷句快取重算
   });
