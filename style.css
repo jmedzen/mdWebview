@@ -12879,19 +12879,20 @@ body.focus-mode .tts-start-btn { display: none; }
   .admin-shell #adminTtsVoices, .admin-shell #adminTtsVoices tbody { display: block; }
   .admin-shell #adminTtsVoices thead { display: none; }
   .admin-shell #adminTtsVoices tr[data-voice] {
-    display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px 12px; align-items: center;
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
     padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary);
   }
   .admin-shell #adminTtsVoices tr[data-voice] > td { display: flex; align-items: center; gap: 6px; padding: 0; border: 0; min-width: 0; }
   .admin-shell #adminTtsVoices tr[data-voice] > td::before { content: attr(data-label); font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  /* 順序：名稱一整列 → 開放、預設 → 中文名 → 標籤 → 語速、版本、試聽 */
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3) { order: -1; flex: 1 1 100%; flex-wrap: wrap; overflow-wrap: anywhere; font-weight: 600; }
   .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3)::before { content: none; }
-  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3) { flex-wrap: wrap; overflow-wrap: anywhere; }
   .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(4),
-  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) { grid-column: 1 / -1; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) { flex: 1 1 100%; }
   .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(4) input,
   .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) input { flex: 1; min-width: 0; }
-  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(8) { justify-self: end; }
   .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(7) input { width: 64px; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(8) { margin-left: auto; }
   /* 卡片標題列：狀態文字太長時換到下一行，標題不被擠成直排 */
   .admin-shell .config-card-header { flex-wrap: wrap; }
   .admin-shell .config-card-header .config-card-title { white-space: nowrap; }
@@ -13144,7 +13145,7 @@ body.tts-chant-open { overflow: hidden; }
   /* 「回到朗讀位置」出現時：語速改在面板裡調，迷你列把位置留給標題 */
   .tts-mini:has(#ttsBackBtn:not([hidden])) #ttsRateBtn { display: none; }
   /* 手機：「回到朗讀位置」浮在播放列上方正中，不擠經名與進度 */
-  #ttsBackBtn { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); height: 36px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16); }
+  #ttsBackBtn { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); height: 36px; background: var(--bg-secondary); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16); }
   .tts-chip + #ttsBackBtn, #ttsBackBtn + .tts-chip { margin-left: 0; }
 }
 

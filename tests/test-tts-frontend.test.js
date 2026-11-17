@@ -482,6 +482,7 @@ describe('2026-11-17 介面審計修正（後台）', () => {
   test('手機音色表改成卡片：每格有 data-label，600px 以下不靠橫向捲動', () => {
     for (const lab of ['開放', '預設', '名稱', '中文名', '標籤', '預設語速', '版本', '試聽']) assert.match(app, new RegExp(`<td data-label="${lab}">`), lab);
     assert.match(css, /@media \(max-width: 600px\) \{\n  \.admin-shell #adminTtsVoices, \.admin-shell #adminTtsVoices tbody \{ display: block; \}/);
+    assert.match(css, /#adminTtsVoices tr\[data-voice\] > td:nth-child\(3\) \{ order: -1; flex: 1 1 100%;/);
   });
   test('讀音校正：讀者回報排在最前面並顯示待處理數，內建表放最後；「生效」用綠色', () => {
     const card = html.slice(html.indexOf('data-card="ttslexicon"'), html.indexOf('data-card="ttscache"'));
