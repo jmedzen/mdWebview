@@ -3076,7 +3076,7 @@
       date: shareRt.date, siteName: meta.siteName || state.siteName, host: meta.host || window.location.host,
       label: meta.label, qr: withQr ? meta.qrUrl : ''
     });
-    return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', preview ? 0.8 : 0.9));
+    return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', preview ? 0.8 : 0.92));
   }
 
   /** 取得某版型、某尺寸（preview｜portrait｜og）的卡片（Blob），同一次開面板內快取。 */
@@ -3665,8 +3665,42 @@
       }
     }, { passive: false });
     slides.addEventListener('click', e => {
+      if (Date.now() - slideLongPressAt < 700) return;   // 長按開了存圖畫面，放開時的 click 不要再處理
       const sl = e.target.closest('.share-card-slide');
       if (sl) { selectShareLayout(sl.dataset.layout, true); prefetchShareBlob(); }
+    });
+    // 手機長按預覽圖：預覽只有 540×675 的小圖，系統選單「加入照片／下載圖片」會存到低畫質。
+    // 改成打開「存圖片」的全尺寸大圖（1620×2025），讓使用者在那裡長按存下高畫質。
+    // iOS 的長按選單由 CSS -webkit-touch-callout: none 關掉；Android 擋 contextmenu。
+    let slideLongPressAt = 0, slidePress = null;
+    const openFullFromSlide = sl => {
+      slideLongPressAt = Date.now();
+      if (sl.dataset.layout !== shareRt.layout) selectShareLayout(sl.dataset.layout, true);
+      saveShareImage();
+    };
+    const cancelSlidePress = () => { if (slidePress) { clearTimeout(slidePress.timer); slidePress = null; } };
+    slides.addEventListener('touchstart', e => {
+      cancelSlidePress();
+      const sl = e.target.closest('.share-card-slide');
+      if (!sl || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      slidePress = { x: t.clientX, y: t.clientY, timer: setTimeout(() => { slidePress = null; openFullFromSlide(sl); }, 550) };
+    }, { passive: true });
+    slides.addEventListener('touchmove', e => {
+      if (!slidePress) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - slidePress.x) > 10 || Math.abs(t.clientY - slidePress.y) > 10) cancelSlidePress();
+    }, { passive: true });
+    slides.addEventListener('touchend', cancelSlidePress, { passive: true });
+    slides.addEventListener('touchcancel', cancelSlidePress, { passive: true });
+    slides.addEventListener('scroll', cancelSlidePress, { passive: true });
+    slides.addEventListener('contextmenu', e => {
+      const sl = e.target.closest('.share-card-slide');
+      if (!sl || !isPhoneOrTablet()) return;   // 桌機右鍵維持瀏覽器原本的選單；桌機請用「存圖片」按鈕
+      e.preventDefault();
+      if (Date.now() - slideLongPressAt < 700) return;   // 觸控長按已經打開了
+      cancelSlidePress();
+      openFullFromSlide(sl);
     });
     // 手機左右滑：停在哪張就選哪張
     let scrollTimer = null;

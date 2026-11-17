@@ -12237,7 +12237,11 @@ a.small-btn {
   box-shadow: 0 4px 14px var(--shadow-color);
   transition: outline-color 0.2s, transform 0.2s;
 }
-.share-card-frame img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.share-card-frame img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  /* 預覽是小圖：不讓系統長按選單存它（長按改開全尺寸存圖畫面，見 app.js） */
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none;
+}
 .share-card-frame.is-loading::after {
   content: '';
   position: absolute;
