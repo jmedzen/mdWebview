@@ -12742,7 +12742,8 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 .tts-bar:focus { outline: none; }
 .tts-progress { height: 3px; background: var(--border-subtle); border-radius: 14px 14px 0 0; overflow: hidden; }
 .tts-progress-fill { height: 100%; width: 0; background: var(--tts-accent); transition: width 0.25s ease; }
-.tts-mini { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
+/* 迷你列：上下各 6px＋44px 按鈕＝56px；左右 10px，讓前後兩端的圖示與圓角邊框等距 */
+.tts-mini { display: flex; align-items: center; gap: 4px; padding: 6px 10px; min-height: 56px; box-sizing: border-box; }
 .tts-btn {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 44px; height: 44px; padding: 0;
@@ -12755,12 +12756,14 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 .tts-btn.tts-play:hover { background: var(--tts-accent); color: var(--tts-on-accent); filter: brightness(0.94); }
 .tts-bar.is-waiting .tts-play { animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 50% { opacity: 0.55; } }
-.tts-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 0 6px; line-height: 1.3; }
+/* 標題區：和左邊的播放鍵多留一點距離，和右邊膠囊少一點，視覺上是一組 */
+.tts-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 0 8px 0 10px; line-height: 1.3; }
 .tts-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .tts-pos { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.86em; font-variant-numeric: tabular-nums; }
 .tts-bar.is-error .tts-pos { color: var(--danger, var(--tts-accent-text)); }
 .tts-chip {
-  flex: none; min-height: 32px; padding: 4px 10px;
+  position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  height: 32px; min-width: 44px; padding: 0 12px; box-sizing: border-box; line-height: 1;
   border: 1px solid var(--border); border-radius: 999px;
   background: var(--bg-primary); color: var(--text-secondary);
   font: inherit; font-size: 0.86em; cursor: pointer; white-space: nowrap;
@@ -12769,9 +12772,29 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 .tts-chip:hover { border-color: var(--tts-accent); color: var(--text-primary); }
 .tts-chip-accent { border-color: var(--tts-accent); color: var(--tts-accent-text); background: var(--tts-accent-bg); }
 .tts-chip[hidden] { display: none; }
-.tts-voice-chip { max-width: 8em; overflow: hidden; text-overflow: ellipsis; }
+.tts-chip::after { content: ''; position: absolute; inset: -6px -2px; } /* 外觀 32px，點擊範圍 44px */
+.tts-chip + .tts-chip { margin-left: 2px; } /* 膠囊之間 6px */
+.tts-chip + .tts-btn { margin-left: 4px; } /* 膠囊與展開鍵之間 8px */
+.tts-voice-chip { display: block; max-width: 8em; line-height: 30px; overflow: hidden; text-overflow: ellipsis; }
 .tts-bar.is-open #ttsExpandBtn svg { transform: rotate(180deg); }
 .tts-bar :is(button, select, input):focus-visible { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+
+/* 桌面：依播放列本身的寬度（不是視窗寬）決定要不要放寬，側欄打開、閱讀區變窄時不會擠壞標題 */
+.tts-bar { container: tts-bar / inline-size; }
+@media (min-width: 769px) { :root { --tts-bar-h: 72px; } }
+@container tts-bar (min-width: 640px) {
+  /* 上下 10px、左右 16px、按鈕間 6px、播放鍵 48px */
+  .tts-mini { gap: 6px; padding: 10px 16px; min-height: 68px; }
+  .tts-btn.tts-play { width: 48px; height: 48px; }
+  .tts-info { gap: 2px; padding: 0 16px 0 14px; }
+  .tts-chip { height: 34px; padding: 0 14px; }
+  .tts-chip + .tts-chip { margin-left: 2px; } /* 膠囊之間 8px */
+  .tts-chip + .tts-btn { margin-left: 8px; } /* 膠囊與展開鍵之間 14px */
+  .tts-voice-chip { max-width: 9em; line-height: 32px; }
+}
+@container tts-bar (max-width: 560px) {
+  .tts-voice-chip { display: none; } /* 播放列太窄：音色改在面板裡選，把位置留給標題 */
+}
 
 /* 播放列出現時：內文留白，其他浮動元件（前後科、前後條、回到頂部、Toast）往上讓 */
 body.tts-active #markdownBody { padding-bottom: calc(var(--tts-bar-h) + 40px); }
@@ -12782,14 +12805,17 @@ body.focus-mode .tts-start-btn { display: none; }
 
 @media (max-width: 768px) {
   .tts-bar { left: 0; right: 0; transform: none; width: auto; border-left: 0; border-right: 0; border-radius: 12px 12px 0 0; }
-  .tts-mini { gap: 2px; padding: 6px 4px; }
+  .tts-mini { gap: 2px; padding: 6px 6px; }
+  .tts-info { padding: 0 4px 0 6px; }
   .tts-title { font-size: 0.95em; }
-  .tts-chip { min-height: 44px; padding: 4px 8px; }
+  .tts-chip { padding: 0 9px; }
+  .tts-chip + .tts-btn { margin-left: 2px; }
   /* 窄螢幕：音色改在展開的面板裡選，迷你列留給進度與語速 */
   .tts-voice-chip { display: none; }
   body.tts-active.has-kepan .back-to-top { bottom: calc(var(--tts-bar-h) + 76px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
+  .tts-mini { padding: 6px 4px; }
   .tts-mini .tts-btn:not(.tts-play) { width: 40px; }
   #ttsCloseBtn { display: none; } /* 窄螢幕：停止改在展開的面板裡（Esc 或面板的「停止朗讀」） */
 }
