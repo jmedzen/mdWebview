@@ -105,7 +105,7 @@ const shareLink = require('./lib/share-link');
 const shareStats = require('./lib/share-stats');
 const tts = require('./lib/tts');
 const listenCatalog = require('./lib/listen-catalog');
-tts.init({ resolveMdPath, listenCatalogFiles: () => listenCatalog.catalogFiles() }); // resolveMdPath 是下方的函式宣告（已提升）
+tts.init({ resolveMdPath, listenCatalogFiles: () => listenCatalog.catalogJobEntries() }); // resolveMdPath 是下方的函式宣告（已提升）
 listenCatalog.init({ loadDoc: tts.loadDoc, coverage: tts.coverage });
 
 const {

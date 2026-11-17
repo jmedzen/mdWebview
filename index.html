@@ -2636,6 +2636,17 @@
                 <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsJobAddBtn" data-no-dirty>開始</button>
               </div>
               <datalist id="adminTtsPathList"></datalist>
+              <!-- 聽經目錄一次全部預先生成（app.js §21.8 ttsLcGen；POST /api/admin/tts/jobs/estimate → /jobs scope=listen:catalog） -->
+              <section class="tts-lcgen" id="adminTtsLcGen" aria-labelledby="adminTtsLcGenTitle">
+                <h4 id="adminTtsLcGenTitle">🎧 聽經目錄</h4>
+                <p class="field-hint">首頁「聽經」裡顯示中的每一部經（節錄的只生成那一段），一次排入預先生成。已經生成的句子會跳過，所以也可以用來補齊快取被清掉的句子。</p>
+                <fieldset class="tts-lcgen-voices" id="adminTtsLcVoices"><legend>音色</legend></fieldset>
+                <div class="tts-lcgen-row">
+                  <label class="tts-lcgen-check"><input type="checkbox" id="adminTtsLcPin" checked data-no-dirty> 釘選（不被自動清除）</label>
+                  <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsLcEstimateBtn" data-no-dirty>預先生成聽經目錄…</button>
+                </div>
+                <div id="adminTtsLcEstimate" class="tts-lcgen-est" aria-live="polite"></div>
+              </section>
               <div id="adminTtsJobs" class="account-list"></div>
             </div>
           </div>
