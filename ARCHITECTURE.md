@@ -1,8 +1,8 @@
 # 🏗️ mdWebview — Architecture Reference
 
-> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（v4.31.0：`app.js` 18,465、`server.js` 6,565、`style.css` 12,455、`index.html` 2,963，加上 `lib/` 32 個模組、根目錄 9 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
+> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（v4.34.0 dev：`app.js` 22,554、`server.js` 6,710、`style.css` 13,346、`index.html` 3,443，加上 `lib/` 39 個模組、根目錄 10 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 第一次看這份文件：先讀 [§0 檔案配置與資料位置](#0-檔案配置與資料位置v4310)，再依需要跳到各節。開發、測試、部署與分支流程見 [§23](#23-開發測試部署與分支流程)。
+> 第一次看這份文件：先讀 [§0 檔案配置與資料位置](#0-檔案配置與資料位置v4310)，再依需要跳到各節。開發、測試、部署與分支流程見 [§23](#23-開發測試部署與分支流程)。朗讀、聽經目錄、罕見字與無障礙是 v4.33 起新增的子系統，見 [§24](#24-朗讀tts)–[§27](#27-無障礙voiceover與螢幕鍵盤)。
 
 ---
 
@@ -53,6 +53,8 @@
 23. [開發、測試、部署與分支流程](#23-開發測試部署與分支流程)
 24. [朗讀（TTS）](#24-朗讀tts)
 25. [聽經目錄](#25-聽經目錄)
+26. [罕見字：顯示與朗讀](#26-罕見字顯示與朗讀)
+27. [無障礙（VoiceOver）與螢幕鍵盤](#27-無障礙voiceover與螢幕鍵盤)
 
 ---
 
@@ -63,12 +65,12 @@
 | 位置 | 跑在哪裡 | 內容 |
 | :--- | :--- | :--- |
 | `server.js` | Node 主執行緒 | HTTP 伺服器與主路由、檔案樹與監視、SEO、爬蟲 SSR、大檔分塊、章節索引、全文 Bigram 索引、辭典索引、首頁推薦與每日經文、早安圖 API、後台維護 API（段落見 §8.2） |
-| `lib/`（36 個模組） | Node | 從 `server.js` 抽出的模組：設定、日誌、統計、帳號與 session、寄信、報表、科判、早安圖、索引目錄、檔案監視過濾等（逐一見 §8.1） |
+| `lib/`（39 個 JS 模組＋2 份讀音表） | Node | 從 `server.js` 抽出的模組：設定、日誌、統計、帳號與 session、寄信、報表、科判、早安圖、朗讀、聽經目錄、索引目錄、檔案監視過濾等（逐一見 §8.1）；`tts-lexicon-buddhist.txt`（內建佛經讀音表）、`tts-lexicon-rare.txt`（罕見字讀音表，§26） |
 | `render-worker.js` | Node Worker | Markdown → HTML（SSR、`/api/render`、分塊） |
 | `index-worker.js` | Node Worker | Bigram 索引建置、章節解析、全文掃描 |
 | `lib/share-card-render-worker.js` | Node Worker | 早安圖畫圖（`@napi-rs/canvas`，按需開的執行緒池） |
 | `index.html` | 瀏覽器 | 單頁殼：閱讀器、側欄、彈窗，以及整個後台（`#adminShell`，見 §21） |
-| `app.js` | 瀏覽器 | 前端主程式（IIFE，§0–§23 段落見 §9）：目錄、閱讀、搜尋、辭典、偏好、書籤與歷程、劃重點、選字彈窗、後台 |
+| `app.js` | 瀏覽器 | 前端主程式（IIFE，§0–§23 段落見 §9）：目錄、閱讀、搜尋、辭典、偏好、書籤與歷程、劃重點、選字彈窗、朗讀（§17c）、聽經目錄（§17d）、螢幕鍵盤避讓（§20a）、無障礙補強、後台 |
 | `style.css` | 瀏覽器 | 全站樣式、八種配色、後台外觀（§31a–§31b 外框與總覽，§31e–§31f 為 v4.31.0 改版） |
 | `md-worker.js` | 瀏覽器 Web Worker | 前端備援的 Markdown 解析 |
 | `kepan-sidebar.js` | 瀏覽器 | 科判側欄（`window.MdwKepan`，見 §20） |
@@ -78,9 +80,9 @@
 | `share-card.js` | 瀏覽器＋Node 共用 | 早安圖版型與繪圖（伺服器用 `@napi-rs/canvas`，瀏覽器用 `<canvas>` 當備援） |
 | `sw.js`、`manifest.json` | 瀏覽器 | Service Worker 離線快取、PWA 設定 |
 | `i18n/` | 瀏覽器 | 繁簡顯示（`display-script.js`）、字組比對表（`search-variants.js`，由 `tools/build-search-variants.js` 產生）、介面字串（`zh-TW.js`／`zh-CN.js`） |
-| `vendor/` | 瀏覽器 | 自帶的第三方程式：KaTeX、Pele（Mermaid 語法圖表）、OpenCC、`qrcode`、手寫體字型 |
-| `tests/` | 開發 | `node --test` 測試（87 個檔案）；`tests/fixtures/make-test-corpus.js` 產生測試用經文庫 |
-| `tools/` | 開發 | `build-search-variants.js`、`sim-pic-pick.js`（早安圖挑圖機率模擬） |
+| `vendor/` | 瀏覽器 | 自帶的第三方程式：KaTeX、Pele（Mermaid 語法圖表）、OpenCC、`qrcode`、手寫體字型、罕見字後備字型 `fonts/rare/`（mdRare，§26） |
+| `tests/` | 開發 | `node --test` 測試（90 個檔案）；`tests/fixtures/make-test-corpus.js` 產生測試用經文庫 |
+| `tools/` | 開發 | `build-search-variants.js`、`sim-pic-pick.js`（早安圖挑圖機率模擬）、`rare-chars/`（掃語料、建罕見字子集字型與讀音表，Python；§26） |
 | `Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | 部署 | 見 §23.3 |
 | `.github/workflows/` | CI | `docker-image.yml`（建映像）、`cleanup-ghcr.yml`（清舊映像），見 §14 |
 
@@ -254,6 +256,7 @@ sequenceDiagram
 |----|------|------|
 | **資源指紋** | `index.html` 的每個 `?v=` 與 `sw.js` 的 `CACHE_VERSION` 都換成 `<package 版本>-<前端檔案內容雜湊>`（例：`4.31.8-94a269be93`）。內容有任何變動指紋就變，**不必記得升版號**。掃描範圍＝根目錄的 `.js/.css/.html/.json/.svg/.png/.ico/字型`（排除 `server.js`、`render-worker.js`、`index-worker.js`、`package*.json`、`config.json`）＋ `i18n/` ＋ `vendor/`；文件與 `lib/` 不納入。每 5 秒最多 stat 一次，size／mtime 簽章不變就不重讀。 | `lib/asset-version.js` |
 | **HTML** | `Cache-Control: no-cache`，不送 ETag（每次回應的 CSP nonce 不同）。 | `lib/static-cache.js` |
+| **罕見字字型分塊** | `vendor/fonts/rare/rare-*-<10 碼雜湊>.woff2` 檔名本身帶內容雜湊，由 `rare-font.css` 以相對網址引用、不帶 `?v=` → 一律 `immutable`（否則每換一頁要重新驗證幾十個字型檔）。見 §26 | `HASHED_FONT_RE` |
 | **帶 `?v=` 的資源** | `?v=` **等於目前指紋** → `public, max-age=31536000, immutable`；`?v=` 與目前指紋不同（舊頁面、手打網址）→ `no-cache`，避免舊網址把新內容永久釘在瀏覽器；沒有 `?v=` → `no-cache`（圖片 1 天）。Cache-Control 在**每次請求**依網址計算，不存進記憶體快取項目（否則先到的網址決定所有人的政策）。 | `staticCacheControl()` |
 | **ETag** | 內容雜湊（`W/"<sha1 前 20 碼>"`），不再用 `size-mtime`——同大小的修改搭配被正規化的 mtime 會被誤回 304。 | `contentEtag()` |
 | **Service Worker** | `sw.js` 不進記憶體快取，每次現讀現換 `CACHE_VERSION`（否則只改 `app.js` 時 sw.js 位元組不變，SW 永遠不更新）。請求的 `?v=` 與 SW 版本不同 → network-first，不會供應過期 JS／CSS。`md-worker.js` 也帶 `?v=`（其 `importScripts` 沿用同一個查詢字串）。 | `sw.js`、`md-worker.js` |
@@ -809,7 +812,7 @@ flowchart TD
 | `lib/tts.js` | 朗讀（§24）：audio.cpp 代理與健康檢查、優先佇列與 single-flight、回應驗證、ffmpeg 後製、文件斷句的記憶體快取、限額、`/api/tts/*` 與 `/api/admin/tts/*` 路由 | `init`, `start`, `stop`, `isTtsRoute`, `handle`, `getSettings` |
 | `lib/tts-store.js` | 朗讀音檔的內容定址快取與 `tts.db`（blob 索引、每日統計、LRU 清理） | `open`, `lookup`, `get`, `put`, `touch`, `gc`, `clear`, `usage` |
 | `lib/listen-catalog.js` | 聽經目錄（§25）：經目的驗證與存檔（`config.settings.listenCatalog`）、品卷偵測、錨點對位、`/api/listen/catalog` 與 `/api/admin/listen/*` | `init`, `isListenRoute`, `handle`, `publicCatalog`, `adminCatalog`, `detect`, `catalogFiles` |
-| `lib/tts-lexicon.js` | 朗讀讀音字典 `tts-lexicon.txt` 的讀取、熱重載與儲存 | `entries`, `version`, `describe`, `save` |
+| `lib/tts-lexicon.js` | 朗讀讀音字典：自訂字典 `tts-lexicon.txt` 的讀取、熱重載與儲存；疊上內建佛經讀音表 `tts-lexicon-buddhist.txt`（詞）與罕見字讀音表 `tts-lexicon-rare.txt`（逐字 `charMap`，§26），兩表同一個開關 `settings.tts.builtinLexicon` | `entries`, `charMap`, `version`, `describe`, `save` |
 | `lib/tts-segment-worker.js` | ≥ 1 MB 的檔案在 Worker 裡斷句（一次一個、做完即結束） | （Worker 進入點） |
 | `lib/kepan.js` | 從講記標題抽取科判樹（v4.20.0）：依「甲乙…→子丑…→天地玄黃…」字序判層級（**不看 `#` 數**）、一行多層拆段、跨卷重述同一科不重建、字序重複用字與「巳／己」誤植以「編號能否接續」判定；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；v4.30.0 起動態科判也掃不帶 `#` 的純文字干支行（`parseHeadingSegments(line, { plain: true })`）；依資料夾（檔案數＋最新 mtime）快取 | `LEVELS`, `MIN_NODES`, `MIN_NODES_FORCED`, `MIN_NODES_SINGLE`, `parseChapterHeading`, `usesChapters`, `buildChapterTree`, `pickScopeDepth`, `kepanFlag`, `groupFiles`, `linkRounds`, `topicOfTitle`, `bookOfTitle`, `roundTopic`, `describeRounds`, `buildFolder`, `cnNum`, `parseHeadingSegments`, `orderFiles`, `buildKepanTree`, `toClientPayload`, `getKepanForFile`, `clearKepanCache` |
 
@@ -939,6 +942,7 @@ flowchart TD
 | :--- | ---: | ---: | :--- | :--- |
 | `§0` | 62 | 566 | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
 | `§1` | 628 | 216 | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
+| `§16.4` | — | 約 110 | New Version Banner | `/api/version` 比對資源指紋，長時間開著的分頁顯示「重新載入」橫幅（見 §3「前端快取與新版本推送」） |
 | `§16.5` | 844 | 1,008 | PWA Install Prompt | 首頁安裝卡片、iOS 三步驟教學 Modal、設定常駐入口（見 §17） |
 | `§2` | 1,852 | 125 | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
 | `§3` | 1,977 | 120 | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
@@ -959,16 +963,18 @@ flowchart TD
 | `§17` | 9,234 | 66 | Bookmarks | 經本書籤收藏管理 |
 | `§17b` | 9,300 | 531 | Highlights | 劃重點（朱筆底線）：CSS Custom Highlight API 著色、錨定與隨書籤同步（見 §19「劃重點」） |
 | `§17c` | — | 約 900 | Read Aloud | 朗讀播放器（v4.33）：句子佇列、單一 `<audio>`、預取、跟讀高亮（`mdw-tts-current`）、Media Session、播放列與設定面板、選字「朗讀」、標題後「朗讀本節」、快捷鍵。狀態在閉包內的 `ttsRt`（不放進 `state`），偏好在 `STORAGE_KEYS.TTS_PREFS`（見 §24.11） |
+| `§17d` | — | 約 330 | Listen Catalog | 聽經目錄讀者頁（`/?listen`、`#listenView`）：經卡、品卷清單、聽經進度（見 §25.4） |
 | `§18` | 9,831 | 119 | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
 | `§18.5` | 9,950 | 263 | Preferences Backup | 使用者偏好匯出／匯入 JSON |
 | `§19` | 10,213 | 98 | Sidebar Resize | 側邊欄拖曳調整寬度 |
 | `§6.5` | 10,311 | 361 | Media Lightbox | 圖片全螢幕放大、拖曳、雙擊與雙指捏合縮放 |
+| `§20a` | — | 約 110 | Keyboard Avoidance | iPad／iPhone 螢幕鍵盤避讓：`setupKeyboardAvoidance()` 設 `html.kb-open`（見 §27.3） |
 | `§20` | 10,672 | 1,330 | Event Listeners | `setupEventListeners()`：全站事件綁定（全檔最大單一函式） |
 | `§21` | 12,002 | 5,808 | Admin & Accounts Panel | 後台管理面板與使用者帳號介面（§21.1-§21.7，見下） |
 | `§22` | 17,810 | 536 | Utilities | 通用轉義、時區格式化、通用 Helper |
 | `§23` | 18,346 | 5 | Boot Entry | DOMContentLoaded 初始化啟動入口 |
 
-> **編號非遞增**：實際排列為 §0 → §1 → §16.5 → §2 … → §19 → §6.5 → §20 → §21。
+> **編號非遞增**：實際排列為 §0 → §1 → §16.4 → §16.5 → §2 … → §17b → §17c → §17d → §18 … → §19 → §6.5 → §20a → §20 → §21（內部 §21.1–§21.6 → §21.8 → §21.9 → §21.7）→ §22 → §23。上表 §17c 之後的行號仍是 v4.27.15 的值，已大幅位移。
 > §6.5、§14b、§16.5、§17b、§21.7 都是後續功能插入時就地放置，未重排既有程式碼。搜尋時請用標題關鍵字。
 > **§14b 與 §17b 是獨立大區塊**（355 行與 531 行），不是 §14／§17 的附屬小節——跨裝置同步與劃重點都是完整子系統。
 
@@ -985,6 +991,8 @@ flowchart TD
 | §21.5 | 日誌與流量報表 | `openSettingsOverlay`、`filterLogEntries`、`fetchAdminLogs`、`loadAdminAnalytics`、`renderAdminAnalytics` |
 | §21.6 | 設定表單與 SEO | `setupAdminTabEvents`、`setupArticlePicker`、`setupSuggestFormEvents`、`loadSeoSettings`、`setupAdminSeoEvents` |
 | §21.7 | 使用者帳號（獨立大區塊，2,512 行） | `initAccounts`、登入／註冊／我的帳號、後台「使用者」與「帳號系統」分頁（見 §19） |
+| §21.8 | 朗讀（TTS）後台與讀音校正（約 510 行，位在 §21.7 之前） | `loadAdminTtsPane`、`ttsAdminApi`（依序送出、429 重試）；連線、音色、規則、讀音字典與讀者回報、快取、預先生成（見 §24.12） |
+| §21.9 | 聽經目錄後台（約 360 行） | `loadAdminListenPane`；經目編輯、品卷表、預先生成（見 §25.6） |
 
 #### 1.2 後台外框與頁面導覽（v4.4.0）
 
@@ -1006,6 +1014,7 @@ flowchart TD
 - `isNarrowScreen()`：整合行動裝置 User-Agent 識別與 `window.innerWidth <= 768` 判斷，全站統一響應式邊界判斷。
 - `getTodayDateIso()`：取得 ISO 格式今日日期字串（`YYYY-MM-DD`），用於公告 ack 比對與日誌校驗。
 - `log`：統一前端彩色控制台日誌工具（`info`, `warn`, `error`）。
+- `a11yAnnounce(msg)`：寫入共用的 `#a11yLive`（polite）做一次性螢幕閱讀器播報；`setupA11yBridges()`、`setupA11yTabs()`、`setupA11yTrees()` 是 §22 裡的無障礙補強（見 §27）。
 
 ### 9.2 State 物件欄位一覽
 
@@ -1150,6 +1159,7 @@ flowchart TD
 | `settings.suggestList.dailyWordRotateHour` | `number` | `12` | — | 每日法語輪換時間（小時，0-23） |
 | `settings.suggestList.dailyVerses` | `{text,source,path}[]` | （未設定＝預設七句） | — | 首頁每日經文清單；空陣列＝這個來源沒有經句（另有 sutra-quote/ 資料夾來源） |
 | `settings.tts` | 物件 | `{ enabled: false, … }` | `TTS_BASE_URL`、`TTS_MODEL`、`TTS_CACHE_MB` | 朗讀設定（伺服器網址、模型、音色白名單、句長上限、限額、快取上限…），欄位見 §24.6；由 `/api/admin/tts/settings` 讀寫，不經 `/api/admin/settings` |
+| `settings.listenCatalog` | 物件 | （未設定＝預設 16 部經、6 類） | — | 聽經目錄的分類與經目（§25.1）；匿名的 `/api/admin/status` 不回傳 |
 | `settings.suggestList.dailyVerseRotateHours` | number | `6` | 1–168 | 每日經文每幾小時換一句（從網站時區午夜起算） |
 | `settings.seoEnableSearchBox` | `boolean` | `false` | `SEO_ENABLE_SEARCH_BOX` | 是否於**首頁**注入 `WebSite` + `SearchAction` JSON-LD（詳見 §9.4）。單機模式一律不輸出 |
 | `settings.seoHomepageSummary` | `string` | `''` | `SEO_HOMEPAGE_SUMMARY` | 首頁爬蟲導言（爬蟲 SSR 用；空 = 退回 `seoSiteDescription`） |
@@ -1847,6 +1857,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 網站 | 🎨 閱讀預設 `reading` | `config` | `reading` | `config` | 同上 |
 | 網站 | 🏡 首頁頁尾與公告 `homepage` | `config` | `footer`、`announce` | `config` | 同上 |
 | 網站 | 📖 推薦閱讀 `suggest` | `suggest` | 整頁（推薦、熱門、每日法語、每日經文、早安圖、選句） | `suggest` | `/api/admin/settings`、`/api/admin/daily-verses`、`/api/admin/share-card`、`/api/admin/share-quotes` |
+| 網站 | 🎧 聽經目錄 `listen` | `listen` | 整頁 | —（頁內自己的「儲存」） | `/api/admin/listen/*`、`/api/admin/tts/jobs`（§25.3） |
 | 網站 | 🔍 搜尋引擎與分享 `seo` ※ | `seo` | 整頁 | `seo` | `/api/admin/settings`、`/api/admin/seo-stats`、`/api/admin/rebuild-sitemap` |
 | 讀者與登入 ※ | 👥 使用者 `users` | `users` | `users` | — | `/api/admin/users…` |
 | 讀者與登入 ※ | 📝 註冊與邀請碼 `registration` | `users` | `registration`、`invites` | `registration` | `/api/admin/registration`、`/api/admin/invites` |
@@ -1855,7 +1866,8 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 外部服務 ※ | 🚀 開站設定 `setup` | `accountsys` | `setup` | — | 引導寄信與 Turnstile |
 | 外部服務 ※ | ✉️ 寄信 `mail` | `accountsys` | `mail`、`maildns`、`mailtest` | `mail` | `/api/admin/mail…` |
 | 外部服務 ※ | 🛡️ Turnstile 人機驗證 `turnstile` | `accountsys` | `turnstile`、`turnstiletest` | `turnstile` | `/api/admin/turnstile…` |
-| 外部服務 | 🔊 朗讀（TTS）`tts` | `tts` | 整頁（`tts`、`ttsvoices`、`ttsrules`、`ttslexicon`、`ttscache`、`ttsjobs`） | `tts` | `/api/admin/tts/*`（§24.7） |
+| 外部服務 | 🔊 朗讀（TTS）`tts` | `tts` | `tts`、`ttsvoices`、`ttsrules`、`ttscache`、`ttsjobs` | `tts` | `/api/admin/tts/*`（§24.7） |
+| 外部服務 | 📖 讀音校正 `ttslexicon` | `tts` | `ttslexicon`（內建佛經讀音表、自訂字典、讀者回報） | `tts` | `/api/admin/tts/lexicon`、`/api/admin/tts/preview`、`/api/admin/tts/reports` |
 | 營運 ※ | 📊 數據分析 `analytics` | `analytics` | 整頁 | — | `/api/admin/analytics`、`/api/admin/analytics/export` |
 | 營運 ※ | 📬 報表信 `reports` | `reports` | 整頁 | `reports` | `/api/admin/reports…` |
 | 系統 | 🖥️ 系統狀態 `hardware` | `hardware` | 整頁（含重建索引等維護動作） | — | `/api/admin/hardware`、`/api/admin/rebuild-*`、`/api/admin/clear-cache` |
@@ -1968,7 +1980,7 @@ node --test tests/test-admin-shell.test.js   # 只跑一個檔案
 
 ## 24. 朗讀（TTS）
 
-> 狀態：後端（第二階段）與前端基本播放（第三階段）已完成；誦經模式、後台頁面在後續階段。本章記錄已實作的部分。
+> 狀態（2026-11-16，dev）：六個階段都已完成（#212 後端、#213 前端播放、#214 後台與預先生成、#215 誦經模式等、#216 無障礙），之後陸續加上朗讀選單與朗讀本句（#228、#230）、音色資料夾與 ASR 補逐字稿（#223、#226）、數據分析（#231）、佛經讀音表與「讀音校正」頁（#237、#238）、體驗審計三批修正（#239 等待提示／訪客登入／自動重試、#240 鎖屏預取／從上次位置繼續／剩餘時間、#241 喇叭一按就讀／點段落朗讀／回報念錯），以及罕見字讀音（#244，§26）。
 
 ### 24.1 定位與原則
 
@@ -2228,3 +2240,52 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 「網站」群組的「🎧 聽經目錄」。左邊經目依分類分組（燈號：綠正常、黃有錨點對不到、紅找不到檔案；刪除線＝不顯示；↑↓ 在同一分類內排序，鍵盤可用）；「分類…」可改名、加說明、排序、刪除空的分類。右邊編輯選取的經（名稱、副標、分類、檔案（`datalist` 列出全部經文）、顯示、範圍、分段方式），品卷表可改名、取消收錄、看起點（連到經文該行），手動模式可從標題清單加一段或刪除。最下面是預先生成（這部經／整個目錄、固定保留）。編輯的是本地副本，按「儲存」才送出（不走底部儲存列，輸入框都標 `data-no-dirty`）。
 
+
+## 26. 罕見字：顯示與朗讀
+
+大覺藏集語料裡有九千多個 Noto Serif TC 沒有的字（Unicode 擴充 A–I、相容字、部首，如 𤦲、䟽、𦦨），原本顯示成豆腐框，朗讀時 audio.cpp 也念不出來。PR #244 從顯示、分享卡、朗讀三處一起補上。
+
+### 26.1 後備字型 mdRare（`vendor/fonts/rare/`）
+
+- 來源：字雲 Jigmo（CC0，npm `fontpkg-jigmo`）的子集，只收語料中常用字以外的 9,347 字，共 40 塊 woff2、約 2.4 MB。最常出現的 600 字分在 3 個熱門塊（`rare-hot0..2-*`），其餘依碼位切塊（`rare-00..`），每塊在 `rare-font.css` 以 `@font-face` ＋ `unicode-range` 宣告，**瀏覽器只下載頁面上用到的那幾塊**。`font-display: swap`。
+- 套用：`style.css` 的 `--cjk-serif`／`--cjk-sans`（含簡體顯示的覆寫）最後一個字型是 `'mdRare'`，常用字仍由 Noto 顯示，只有前面字型都沒有的字才落到 mdRare。`index.html` 以 `vendor/fonts/rare/rare-font.css?v=__APP_VERSION__` 載入。
+- 快取：分塊檔名帶 10 碼內容雜湊，`lib/static-cache.js` 的 `HASHED_FONT_RE` 讓它們回 `immutable`（§3 的快取表）；Service Worker 原本的靜態資源快取會收進去，離線可用。
+- 分享卡（早安圖）：瀏覽器繪圖前 `document.fonts.load('40px "mdRare"', 句子)`；`share-card.js` 的 `SERIF` 把 mdRare 放在系統宋體之前，罕見字才不會被系統黑體搶先補上。伺服器繪圖（`lib/share-card-server.js`）另外以 `mdRare` 名稱註冊合併成一檔的 `server-rare-<雜湊>.woff2`（約 2 MB）——`@napi-rs/canvas` 同一字型名稱只會用一個檔，分塊行不通（已實測）。後台早安圖狀態多一欄 `rareFont`。
+- repo 因此多約 4.5 MB（瀏覽器分塊＋伺服器合併檔）。
+
+### 26.2 朗讀讀音（`lib/tts-lexicon-rare.txt`）
+
+- 9,347 字各一行「字｜改讀為｜讀音｜依據」，由工具產生、不手改。換字依序：語料上下文人工判讀（20 字，`tools/rare-chars/manual.tsv`）→ Unicode 相容字的正字 → 異體正字（教育部《異體字字典》等，資料來自 npm `@mandel59/mojidata`）→ 同音常用字 → 查不到就「-」＝略過不讀。以出現次數計，略過的約 13.5%（3,327 字，多為擴充 F 的咒語用字）。例：車𤦲 → 車璩、華嚴經䟽 → 疏、大𦦨肩佛 → 焰、無㝵 → 礙。
+- 套用：`tts-segment.js` 的 `oralize()` 多一個 `charMap` 選項，在詞典替換**之後**逐字查表（不走最長詞比對，九千多字也不拖慢）。`lib/tts-lexicon.js` `charMap(useBuiltin)` 與內建佛經讀音表共用 `settings.tts.builtinLexicon` 開關；自訂字典裡寫了讀法的單字（含「字｜字」）優先，該字從 `charMap` 拿掉。
+- 快取：`lexicon.version()` 含罕見字表的雜湊，改表會讓文件斷句快取重算；替換只改 `spoken`，所以只有含那些字的句子快取鍵改變、需要重生。後台「讀音校正」頁的說明顯示罕見字表的筆數與略過數（`describe().rare`）。
+
+### 26.3 重建（`tools/rare-chars/`）
+
+語料新增罕見字時照 `tools/rare-chars/README.md`：`scan.py` 掃語料產生 `chars.tsv` → `build-font.py`（用 `fontpkg-jigmo` 切塊、產生 `rare-font.css` 與伺服器合併檔）→ `build-readings.py`（用 `@mandel59/mojidata` 的 `moji.db`，加上 `manual.tsv`）產生 `lib/tts-lexicon-rare.txt`。測試在 `tests/test-rare-chars.test.js`。
+
+## 27. 無障礙（VoiceOver）與螢幕鍵盤
+
+2026-11-15 的 VoiceOver 審計之後分三個 PR 修正（#232、#234、#235），原則是**不改任何視覺樣式與滑鼠操作**，只補語意、焦點與鍵盤操作。朗讀本身的無障礙設計見 §24.14、聽經目錄見 §25.5。驗證方式是 axe（WCAG 2.2 AA）＋Playwright 焦點測試；真機 VoiceOver 檢核仍要人工。
+
+### 27.1 焦點與隱藏（#232，`setupA11yBridges()`）
+
+- 收起的左側欄、辭典、關閉的頁內搜尋框原本只用寬度 0 或 `opacity` 隱藏，Tab 會走進看不見的按鈕；一律加 `visibility: hidden`（淡出動畫保留）。
+- 模態視窗（偏好設定、後台、早安圖、登入、帳號、條款、媒體預覽等，`MODAL_IDS`）打開時焦點移入、Tab 不跑到背後，關閉後回到打開它的按鈕（從右上角選單開的回到選單鈕）。書籤抽屜、誦經模式自己管理焦點，不在名單內；視窗自己先聚焦了欄位就不搶。
+- 註腳：點註號或「↩」時焦點跟著跳過去（「↩」念「返回正文」）。側欄切換鈕同步 `aria-expanded`；後台燈號 `role="img"`。
+
+### 27.2 樹、分頁、選字選單（#234、#235）
+
+- **樹狀結構**（`setupA11yTrees()`）：檔案樹、本頁大綱、全文搜尋結果原本是 div＋click。渲染之後補 `tree`／`treeitem`、`aria-level`、`aria-expanded`、`aria-setsize`／`aria-posinset`；↑↓、→（展開／下一層）、←（收合／上一層）、Home／End、Enter 開啟；roving tabindex，整棵樹只佔一個 Tab 停駐點。大綱在大檔案時虛擬捲動，靠每列的 key 在重畫後把焦點放回同一列。篩選框與搜尋框按 ↓ 進入結果；`#a11yLive` 播報「找到 N 部／N 個結果」。
+- **開經後的焦點**：從檔案樹、搜尋結果、經文連結、首頁、書籤開經後焦點移到經名（從搜尋結果開則到命中的行）；開站自動恢復閱讀位置時不移動。點大綱後焦點跟到該標題。
+- **分頁**（`setupA11yTabs()`）：側欄（檔案／搜尋／大綱／科判）與偏好設定分頁是 `tablist`／`tab`／`tabpanel`，←→／Home／End 移動、Enter／空白鍵切換（手動啟用，避免切到搜尋分頁時焦點被搜尋框搶走）。
+- **選字選單**：選字後 `#a11yLive` 播報「已選取『…』，按 Alt+M 開啟…選單」；Alt+M 或選單鍵把焦點移進彈窗（`role="toolbar"`），Esc 收起並回到選取的段落。
+- **右上角選單**：拿掉不合規範的 `role="menu"`（axe critical），改成一般展開面板（`aria-expanded`／`aria-controls`），主題與繁簡按鈕用 `aria-pressed`。朗讀選單 `#ttsStartMenu` 仍是正規的 menu button（§24.11）。
+- **科判樹**：展開鈕念「展開 甲一 序分（分 3 科）」，列有 `aria-level`、`aria-expanded`，目前所在科 `aria-current`；完整方向鍵操作尚未做。
+
+### 27.3 iPad／iPhone 螢幕鍵盤避讓（#242，`app.js` §20a、`style.css` §20a）
+
+- 問題：iOS Safari 開鍵盤時只縮小 `visualViewport`，`100dvh` 的後台外框與 fixed 對話框高度不變，Safari 找不到該捲哪一層，靠下的欄位（例如「讀音校正」的自訂字典）被鍵盤蓋住。
+- `setupKeyboardAvoidance()`：文字欄位有焦點且 `innerHeight - visualViewport.height > 120`（且沒有雙指放大）時，`<html>` 加 `.kb-open` 並寫入 `--kb-vv-top`／`--kb-vv-height`；鍵盤打開、高度明顯改變或換欄位時，把焦點欄位捲進每一層捲動容器在鍵盤上方的可見區（比可見區還高的 textarea 頂端對齊）。
+- CSS：`.kb-open` 時 `#adminSettingsOverlay`／`.admin-shell`、⌘K 搜尋 `.admin-palette` 與所有 `.modal-overlay` 只佔鍵盤上方；一般對話框改成可捲、卡片靠上。
+- Android Chrome 預設會縮小版面、實體鍵盤不縮 `visualViewport`，兩者都不會觸發。
+- 測試方式：Chromium 沒有螢幕鍵盤，用 init script 把 `window.visualViewport` 換成高度＝`innerHeight − 鍵盤高` 的假物件再發 `resize`，逐一聚焦後台所有文字欄位檢查是否被蓋住（修正前 iPad 直向 14／31 個，修正後 0）。
