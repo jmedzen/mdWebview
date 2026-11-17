@@ -36,6 +36,12 @@ if [ "$(id -u)" = "0" ]; then
   # secrets.key：後台網頁填寫的寄信／Turnstile 金鑰的加密金鑰。
   for f in "$DB_FILE" "$DB_FILE-wal" "$DB_FILE-shm" "$(dirname "$DB_FILE")/secrets.key"; do [ -e "$f" ] && chown node:node "$f" 2>/dev/null || true; done
   chown -R node:node "$BACKUPS" 2>/dev/null || true
+  # 朗讀（TTS）音檔快取（blobs/、tmp/、tts.db）與讀音字典。只改資料夾本身與資料庫檔的擁有者：
+  # 快取可能有幾十萬個檔，每次啟動都遞迴 chown 會拖慢開機。
+  TTS_CACHE="${TTS_CACHE_DIR:-/data/tts-cache}"
+  mkdir -p "$TTS_CACHE/blobs" "$TTS_CACHE/tmp" 2>/dev/null || true
+  if [ "$(stat -c %U "$TTS_CACHE" 2>/dev/null)" != "node" ]; then chown -R node:node "$TTS_CACHE" 2>/dev/null || true; fi
+  for f in "${TTS_LEXICON_PATH:-$CONFIG_DIR/tts-lexicon.txt}"; do [ -e "$f" ] && chown node:node "$f" 2>/dev/null || true; done
 
   # su-exec execs the command directly (no intermediate shell or fork), so
   # node stays PID 1 and receives SIGTERM itself — graceful shutdown works.

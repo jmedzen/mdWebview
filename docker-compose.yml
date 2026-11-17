@@ -18,6 +18,9 @@ services:
       - LOG_DIR=/data/logs
       # 搜尋索引快取（.bin）放這裡；舊版寫在 logs/ 的索引，第一次啟動新版時會自動搬過來。
       - INDEX_DIR=/data/index
+      # 朗讀（TTS）音檔快取：昂貴的生成成果，建議備份。在 ./data 掛載點內；上限在後台「朗讀」頁調整（預設 20 GB）。
+      # audio.cpp 的網址與模型可在後台設定，或用 .env 的 TTS_BASE_URL／TTS_MODEL（有設定時優先，後台顯示鎖定）。
+      - TTS_CACHE_DIR=/data/tts-cache
       # Bigram 索引 .bin 快取約 650MB，建置峰值記憶體需 ≥ 索引大小之 2 倍。
       # 建議容器主機至少提供 4GB（建議 8GB）RAM。可透過 NODE_MAX_OLD_SPACE_MB 彈性調校 V8 heap 上限。
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-6144} --disable-warning=ExperimentalWarning
@@ -25,6 +28,7 @@ services:
       # Mount local ./data folder for config persistence
       # （也存放使用者帳號資料庫 users.db 與每日備份 backups/，請一併備份這個資料夾）
       # 每日經文的經句資料夾也在這裡：./data/sutra-quote/*.md（可用 SUTRA_QUOTE_DIR 改位置）
+      # 朗讀（TTS）的音檔快取 ./data/tts-cache/ 與讀音字典 ./data/tts-lexicon.txt 也在這裡
       # 早安圖背景圖也在這裡：./data/pic-card/（含所有子資料夾的 jpg/png/webp，可用 PIC_CARD_DIR 改位置）
       - ./data:/data
       # Mount local ./logs folder for 90-day log persistence

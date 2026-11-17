@@ -77,6 +77,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <!-- 罕見字後備字型（擴充 B 等 Noto Serif TC 沒有的字，例如 𤦲）；只下載頁面用到的塊 -->
+  <link rel="stylesheet" href="vendor/fonts/rare/rare-font.css?v=__APP_VERSION__">
   <link rel="stylesheet" href="style.css?v=__APP_VERSION__">
   <!-- 繁簡顯示開機前置：須同步執行，於 body 解析前決定是否先隱藏畫面並預載 OpenCC -->
   <script src="i18n/boot.js?v=__APP_VERSION__"></script>
@@ -88,7 +90,7 @@
     <!-- ── §HEADER ──────────────────────────────────────── -->
     <header class="app-header" id="appHeader">
       <div class="header-left">
-        <button class="sidebar-toggle" id="sidebarToggle" title="切換側邊欄">
+        <button class="sidebar-toggle" id="sidebarToggle" title="切換側邊欄" aria-label="切換側邊欄" aria-controls="sidebar" aria-expanded="true">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
             <rect y="2" width="18" height="2" rx="1" fill="currentColor"/>
             <rect y="8" width="18" height="2" rx="1" fill="currentColor"/>
@@ -110,6 +112,15 @@
             <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/>
           </svg>
         </button>
+        <!-- 朗讀選單：所有朗讀的啟動方式（網站啟用朗讀且開著經文時才顯示）；選單本體 #ttsStartMenu 在 body 末端 -->
+        <button id="ttsQuickBtn" class="control-btn tts-start-btn tts-quick-btn" type="button" title="從這裡朗讀（Alt+R）" aria-label="從這裡朗讀">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2.5 6.2v3.6h2.4L8.2 12.6V3.4L4.9 6.2z"/><path d="M10.4 5.8a3.2 3.2 0 010 4.4M12.2 4a5.8 5.8 0 010 8"/>
+          </svg>
+        </button>
+        <button id="ttsStartBtn" class="control-btn tts-start-btn tts-caret-btn" type="button" title="更多朗讀方式" aria-label="朗讀選單" aria-haspopup="menu" aria-expanded="false" aria-controls="ttsStartMenu">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>
+        </button>
         <button id="headerPageSearchBtn" class="control-btn search-trigger-btn" title="頁內搜尋 (Cmd+F / Ctrl+F)">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
@@ -126,7 +137,7 @@
         -->
         <div class="user-menu" id="userMenu">
           <button id="userMenuBtn" class="control-btn user-menu-btn" type="button"
-                  aria-haspopup="menu" aria-expanded="false" aria-controls="userMenuPanel"
+                  aria-expanded="false" aria-controls="userMenuPanel"
                   title="選單：帳號、繁簡、主題與設定" aria-label="選單：帳號、繁簡、主題與設定">
             <svg class="user-menu-icon user-menu-icon-person" width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1.5c-2.7 0-5.5 1.35-5.5 3.25V14h11v-1.25C13.5 10.85 10.7 9.5 8 9.5z"/>
@@ -136,7 +147,7 @@
             </svg>
             <span class="user-menu-initial" id="userMenuInitial" aria-hidden="true"></span>
           </button>
-          <div class="user-menu-panel" id="userMenuPanel" role="menu" aria-label="選單" hidden>
+          <div class="user-menu-panel" id="userMenuPanel" role="group" aria-label="選單" hidden>
             <div class="user-menu-account" id="userMenuAccount" hidden>
               <div class="user-menu-status">
                 <span class="user-menu-avatar" id="userMenuAvatar" aria-hidden="true"></span>
@@ -146,54 +157,54 @@
                 </div>
               </div>
               <div class="user-menu-auth" id="userMenuAuthRow">
-                <button type="button" class="user-menu-auth-btn primary" id="userMenuLoginBtn" role="menuitem">登入</button>
-                <button type="button" class="user-menu-auth-btn" id="userMenuRegisterBtn" role="menuitem">註冊</button>
+                <button type="button" class="user-menu-auth-btn primary" id="userMenuLoginBtn">登入</button>
+                <button type="button" class="user-menu-auth-btn" id="userMenuRegisterBtn">註冊</button>
               </div>
               <div class="user-menu-sep"></div>
             </div>
             <div class="user-menu-row">
               <span class="user-menu-label" data-i18n="settings.displayScript.title">繁簡顯示</span>
               <div class="user-menu-seg" id="userMenuScriptGroup" role="group" aria-label="繁簡顯示" data-no-t2s>
-                <button type="button" class="user-menu-seg-btn" data-value="hant" lang="zh-TW" role="menuitemradio" aria-checked="true">繁體</button>
-                <button type="button" class="user-menu-seg-btn" data-value="hans" lang="zh-Hans" role="menuitemradio" aria-checked="false">简体</button>
+                <button type="button" class="user-menu-seg-btn" data-value="hant" lang="zh-TW" aria-pressed="true">繁體</button>
+                <button type="button" class="user-menu-seg-btn" data-value="hans" lang="zh-Hans" aria-pressed="false">简体</button>
               </div>
             </div>
             <div class="user-menu-row">
               <span class="user-menu-label">主題</span>
               <div class="user-menu-themes" id="userMenuThemeGroup" role="group" aria-label="閱讀主題">
-                <button type="button" class="user-menu-theme" data-value="obsidian-light" role="menuitemradio" title="霧灰 Mist" aria-label="霧灰 Mist"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="paper" role="menuitemradio" title="素紙 Paper" aria-label="素紙 Paper"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="moon" role="menuitemradio" title="月白 Moon" aria-label="月白 Moon"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="bamboo" role="menuitemradio" title="竹青 Bamboo" aria-label="竹青 Bamboo"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="zen" role="menuitemradio" title="禪風 Zen" aria-label="禪風 Zen"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="obsidian-dark" role="menuitemradio" title="夜藍 Night" aria-label="夜藍 Night"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="solarized" role="menuitemradio" title="苔夜 Moss" aria-label="苔夜 Moss"><span class="swatch"></span></button>
-                <button type="button" class="user-menu-theme" data-value="gruvbox" role="menuitemradio" title="Gruvbox" aria-label="Gruvbox"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="obsidian-light" aria-pressed="false" title="霧灰 Mist" aria-label="霧灰 Mist"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="paper" aria-pressed="false" title="素紙 Paper" aria-label="素紙 Paper"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="moon" aria-pressed="false" title="月白 Moon" aria-label="月白 Moon"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="bamboo" aria-pressed="false" title="竹青 Bamboo" aria-label="竹青 Bamboo"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="zen" aria-pressed="false" title="禪風 Zen" aria-label="禪風 Zen"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="obsidian-dark" aria-pressed="false" title="夜藍 Night" aria-label="夜藍 Night"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="solarized" aria-pressed="false" title="苔夜 Moss" aria-label="苔夜 Moss"><span class="swatch"></span></button>
+                <button type="button" class="user-menu-theme" data-value="gruvbox" aria-pressed="false" title="Gruvbox" aria-label="Gruvbox"><span class="swatch"></span></button>
               </div>
             </div>
             <div class="user-menu-row">
               <span class="user-menu-label">字級</span>
               <div class="user-menu-font">
-                <button type="button" class="user-menu-font-btn" id="userMenuFontDec" role="menuitem" aria-label="縮小字級" title="縮小字級 (Ctrl −)">A<span aria-hidden="true">−</span></button>
+                <button type="button" class="user-menu-font-btn" id="userMenuFontDec" aria-label="縮小字級" title="縮小字級 (Ctrl −)">A<span aria-hidden="true">−</span></button>
                 <span class="user-menu-font-size" id="userMenuFontSize" aria-live="polite">16</span>
-                <button type="button" class="user-menu-font-btn" id="userMenuFontInc" role="menuitem" aria-label="放大字級" title="放大字級 (Ctrl +)">A<span aria-hidden="true">+</span></button>
+                <button type="button" class="user-menu-font-btn" id="userMenuFontInc" aria-label="放大字級" title="放大字級 (Ctrl +)">A<span aria-hidden="true">+</span></button>
               </div>
             </div>
             <div class="user-menu-sep"></div>
-            <button type="button" class="user-menu-item" id="userMenuLibraryBtn" role="menuitem" aria-haspopup="dialog" aria-controls="libraryDrawer">
+            <button type="button" class="user-menu-item" id="userMenuLibraryBtn" aria-haspopup="dialog" aria-controls="libraryDrawer">
               <span class="user-menu-item-icon" aria-hidden="true">🔖</span><span>書籤與歷程</span><span class="user-menu-count" id="userMenuLibraryCount"></span>
             </button>
-            <button type="button" class="user-menu-item" id="userMenuSettingsBtn" role="menuitem">
+            <button type="button" class="user-menu-item" id="userMenuSettingsBtn">
               <span class="user-menu-item-icon" aria-hidden="true">⚙️</span><span>偏好設定</span><small>排版、紀錄、備份</small>
             </button>
-            <button type="button" class="user-menu-item" id="userMenuAccountBtn" role="menuitem" hidden>
+            <button type="button" class="user-menu-item" id="userMenuAccountBtn" hidden>
               <span class="user-menu-item-icon" aria-hidden="true">👤</span><span>我的帳號</span>
             </button>
-            <button type="button" class="user-menu-item" id="userMenuAdminBtn" role="menuitem" hidden>
+            <button type="button" class="user-menu-item" id="userMenuAdminBtn" hidden>
               <span class="user-menu-item-icon" aria-hidden="true">🛠️</span><span id="userMenuAdminLabel">後台系統設定</span>
             </button>
             <div class="user-menu-sep" id="userMenuLogoutSep" hidden></div>
-            <button type="button" class="user-menu-item" id="userMenuLogoutBtn" role="menuitem" hidden>
+            <button type="button" class="user-menu-item" id="userMenuLogoutBtn" hidden>
               <span class="user-menu-item-icon" aria-hidden="true">↪</span><span>登出</span>
             </button>
           </div>
@@ -208,26 +219,26 @@
 
       <!-- ── §SIDEBAR ─────────────────────────────────────── -->
       <aside class="sidebar" id="sidebar">
-        <div class="sidebar-tabs" id="sidebarTabs">
-          <button class="sidebar-tab active" data-tab="files" title="檔案瀏覽器">
+        <div class="sidebar-tabs" id="sidebarTabs" role="tablist" aria-label="側欄">
+          <button class="sidebar-tab active" data-tab="files" id="sidebarTab-files" role="tab" aria-controls="panelFiles" title="檔案瀏覽器">
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.62 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
             </svg>
             <span class="tab-label">檔案</span>
           </button>
-          <button class="sidebar-tab" data-tab="search" title="全文搜尋">
+          <button class="sidebar-tab" data-tab="search" id="sidebarTab-search" role="tab" aria-controls="panelSearch" title="全文搜尋">
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
             </svg>
             <span class="tab-label">搜尋</span>
           </button>
-          <button class="sidebar-tab" data-tab="toc" title="本頁大綱">
+          <button class="sidebar-tab" data-tab="toc" id="sidebarTab-toc" role="tab" aria-controls="panelToc" title="本頁大綱">
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path fill-rule="evenodd" d="M2 4a1 1 0 100-2 1 1 0 000 2zm3.75-1.5a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zm0 5a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zm0 5a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5zM3 8a1 1 0 11-2 0 1 1 0 012 0zm-1 5a1 1 0 100-2 1 1 0 000 2z"/>
             </svg>
             <span class="tab-label">大綱</span>
           </button>
-          <button class="sidebar-tab" data-tab="kepan" title="科判：整部論的科判樹" hidden>
+          <button class="sidebar-tab" data-tab="kepan" id="sidebarTab-kepan" role="tab" aria-controls="panelKepan" title="科判：整部論的科判樹" hidden>
             <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
               <path d="M2.5 2.5h4M5 5h4.5M5 8h4.5M7.5 10.5h6M7.5 13h6M3 2.5v0M3.5 3v2h1.5M3.5 5v3h1.5M6 8.5v4.5h1.5"/>
             </svg>
@@ -236,7 +247,7 @@
         </div>
 
         <!-- Files Panel -->
-        <div class="sidebar-panel active" id="panelFiles" data-panel="files">
+        <div class="sidebar-panel active" id="panelFiles" role="tabpanel" aria-labelledby="sidebarTab-files" data-panel="files">
           <div class="panel-header">
             <h3>檔案瀏覽器</h3>
             <div class="panel-actions">
@@ -272,7 +283,7 @@
         </div>
 
         <!-- Search Panel -->
-        <div class="sidebar-panel" id="panelSearch" data-panel="search">
+        <div class="sidebar-panel" id="panelSearch" role="tabpanel" aria-labelledby="sidebarTab-search" data-panel="search">
           <div class="panel-header">
             <h3>全文搜尋</h3>
             <div class="panel-actions">
@@ -325,7 +336,7 @@
         </div>
 
         <!-- TOC Panel -->
-        <div class="sidebar-panel" id="panelToc" data-panel="toc">
+        <div class="sidebar-panel" id="panelToc" role="tabpanel" aria-labelledby="sidebarTab-toc" data-panel="toc">
           <div class="panel-header">
             <h3>本頁大綱</h3>
             <div class="panel-actions">
@@ -347,7 +358,7 @@
         </div>
 
         <!-- Kepan Panel（科判系列時取代大綱，kepan-sidebar.js） -->
-        <div class="sidebar-panel" id="panelKepan" data-panel="kepan">
+        <div class="sidebar-panel" id="panelKepan" role="tabpanel" aria-labelledby="sidebarTab-kepan" data-panel="kepan">
           <div class="kepan-scope">
             <div class="kepan-rounds" id="kepanRounds" hidden></div>
             <select id="kepanScope" title="切換科判範圍：只看其中一段，或看全文" aria-label="科判範圍"></select>
@@ -413,6 +424,8 @@
             <div class="home-quick">
               <button type="button" class="home-chip" id="homeRandom">隨手翻一卷</button>
               <button type="button" class="home-chip" id="homeBrowse">瀏覽全部經目</button>
+              <button type="button" class="home-chip home-chip-listen" id="homeResume" hidden><span aria-hidden="true">▶ </span><span id="homeResumeText">繼續聽</span></button>
+              <button type="button" class="home-chip home-chip-listen" id="homeListen" hidden><span aria-hidden="true">🎧 </span>聽經</button>
             </div>
             <button type="button" class="home-scroll-cue" id="homeScrollCue" hidden>向下 · 我的書架與今日</button>
           </div>
@@ -480,6 +493,9 @@
           </div>
         </div>
 
+        <!-- 聽經目錄（/?listen，app.js §17d） -->
+        <div class="listen-view" id="listenView" hidden></div>
+
         <!-- File Content -->
         <div class="content-wrapper" id="contentWrapper" style="display:none">
           <div class="content-header" id="contentHeader"></div>
@@ -494,7 +510,7 @@
             <span class="kepan-nav-sep" aria-hidden="true"></span>
             <button type="button" class="entry-nav-btn kepan-nav-btn" id="kepanNext" title="後一科"><span class="kepan-nav-name">後一科</span><span class="kepan-nav-arrow" aria-hidden="true">→</span></button>
           </nav>
-          <button class="back-to-top" id="backToTop" title="回到頂部">↑</button>
+          <button class="back-to-top" id="backToTop" title="回到頂部" aria-label="回到頂部">↑</button>
           <div class="entry-nav" id="entryNav" style="display:none">
             <button class="entry-nav-btn" id="entryNavPrev" title="前一條">← 前一條</button>
             <span class="entry-nav-label" id="entryNavLabel"></span>
@@ -523,7 +539,7 @@
               </svg>
             </button>
           </div>
-          <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉">✕</button>
+          <button class="dict-sidebar-close" id="dictSidebarClose" title="關閉" aria-label="關閉辭典">✕</button>
         </div>
         <div class="dict-tabs" id="dictTabs">
           <button class="dict-tab active" data-mode="prefix">詞條</button>
@@ -564,11 +580,11 @@
   <!-- ── §MODALS ───────────────────────────────────────── -->
   
   <!-- 1. Admin Setup Overlay (Full screen) -->
-  <div class="modal-overlay" id="adminSetupOverlay" style="display: none;">
+  <div class="modal-overlay" id="adminSetupOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="adminSetupTitle">
     <div class="modal-card">
       <div class="modal-header">
         <span class="modal-icon">🪷</span>
-        <h2>設定管理員帳戶</h2>
+        <h2 id="adminSetupTitle">設定管理員帳戶</h2>
       </div>
       <p class="modal-desc">首次使用 mdWebview，請先設定您的後台管理員帳號、密碼與網站網址。Email 與帳號名稱至少填一個。</p>
       <form id="adminSetupForm" class="modal-form">
@@ -635,12 +651,12 @@
   </aside>
 
   <!-- User Settings & Preferences Menu Modal -->
-  <div class="modal-overlay" id="userSettingsOverlay" style="display: none;">
+  <div class="modal-overlay" id="userSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="userSettingsTitle">
     <div class="modal-card user-settings-card">
       <div class="modal-header">
         <span class="modal-icon">⚙️</span>
-        <h2>偏好設定與閱讀管理</h2>
-        <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉">
+        <h2 id="userSettingsTitle">偏好設定與閱讀管理</h2>
+        <button type="button" class="modal-close-btn" id="userSettingsCloseBtn" title="關閉" aria-label="關閉偏好設定">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
           </svg>
@@ -648,22 +664,22 @@
       </div>
 
       <!-- Settings Tabs Navigation (Pinned at top) -->
-      <div class="settings-tabs-nav" id="userSettingsTabsNav">
-        <button type="button" class="settings-tab-btn active" data-tab="appearance">🎨 視覺排版</button>
-        <button type="button" class="settings-tab-btn" data-tab="recommended">🪷 推薦經論</button>
-        <button type="button" class="settings-tab-btn" data-tab="system">💾 備份與管理</button>
+      <div class="settings-tabs-nav" id="userSettingsTabsNav" role="tablist" aria-label="偏好設定分頁">
+        <button type="button" class="settings-tab-btn active" data-tab="appearance" id="settingsTab-appearance" role="tab" aria-controls="pane-appearance">🎨 視覺排版</button>
+        <button type="button" class="settings-tab-btn" data-tab="recommended" id="settingsTab-recommended" role="tab" aria-controls="pane-recommended">🪷 推薦經論</button>
+        <button type="button" class="settings-tab-btn" data-tab="system" id="settingsTab-system" role="tab" aria-controls="pane-system">💾 備份與管理</button>
       </div>
 
       <div class="settings-menu-body">
         <!-- Tab 1: 視覺排版 (Appearance) -->
-        <div class="settings-tab-pane active" id="pane-appearance">
+        <div class="settings-tab-pane active" id="pane-appearance" role="tabpanel" aria-labelledby="settingsTab-appearance">
           <!-- Theme -->
           <div class="setting-item-row">
             <div class="setting-item-label">
               <span class="setting-title">閱讀主題</span>
               <span class="setting-desc">切換專屬配色風格 </span>
             </div>
-            <select id="settingThemeSelect" class="setting-select">
+            <select id="settingThemeSelect" class="setting-select" aria-label="閱讀主題">
               <option value="obsidian-dark">🌌 夜藍 Night</option>
               <option value="obsidian-light">🌫️ 霧灰 Mist</option>
               <option value="paper">📜 素紙 Paper</option>
@@ -747,7 +763,7 @@
               <span class="setting-desc">全文搜尋時忽略標點、空白與換行，如搜尋「佛法僧」也能找到「佛法，僧」、「佛法　僧」。關閉為精確比對（完全照原文字面）；與搜尋面板的 ≈／= 按鈕同步</span>
             </div>
             <label class="toggle-switch" for="settingLooseSearchCheck" title="寬鬆比對">
-              <input type="checkbox" id="settingLooseSearchCheck">
+              <input type="checkbox" id="settingLooseSearchCheck" aria-label="寬鬆比對">
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -759,7 +775,7 @@
               <span class="setting-desc">搜尋、辭典與本頁搜尋時，簡體與繁體字形互相命中（如 后／後、发／發／髮）；簡體顯示時一律開啟</span>
             </div>
             <label class="toggle-switch" for="settingAutoS2TCheck" title="簡繁字形一併比對">
-              <input type="checkbox" id="settingAutoS2TCheck">
+              <input type="checkbox" id="settingAutoS2TCheck" aria-label="簡繁字形一併比對">
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -775,10 +791,47 @@
               <span class="toggle-slider"></span>
             </label>
           </div>
+
+          <!-- 朗讀偏好（網站啟用朗讀時才顯示；與播放面板裡的設定同步，app.js §17c） -->
+          <div class="tts-settings" id="ttsSettings">
+            <div class="setting-section-header"><span>🔊 朗讀</span></div>
+            <div class="setting-item-row">
+              <label class="setting-item-label" for="settingTtsVoice"><span class="setting-title">預設音色</span></label>
+              <select id="settingTtsVoice" class="setting-select"></select>
+            </div>
+            <div class="setting-item-row">
+              <label class="setting-item-label" for="settingTtsRate"><span class="setting-title">語速</span></label>
+              <select id="settingTtsRate" class="setting-select">
+                <option value="0">用音色的預設語速</option><option value="0.7">0.7 倍</option><option value="0.8">0.8 倍</option><option value="0.9">0.9 倍</option><option value="1">1 倍</option><option value="1.1">1.1 倍</option><option value="1.2">1.2 倍</option><option value="1.3">1.3 倍</option><option value="1.5">1.5 倍</option><option value="1.7">1.7 倍</option><option value="2">2 倍</option>
+              </select>
+            </div>
+            <div class="setting-item-row">
+              <label class="setting-item-label" for="settingTtsSleep"><span class="setting-title">睡眠計時預設</span><span class="setting-desc">每次開始朗讀時套用</span></label>
+              <select id="settingTtsSleep" class="setting-select">
+                <option value="">不設定</option><option value="15">15 分鐘</option><option value="30">30 分鐘</option><option value="60">60 分鐘</option><option value="section">讀完本節</option>
+              </select>
+            </div>
+            <div class="setting-item-row toggle-row">
+              <div class="setting-item-label"><span class="setting-title">畫面跟著朗讀位置捲動</span></div>
+              <label class="toggle-switch" for="settingTtsFollow" title="畫面跟著朗讀位置捲動"><input type="checkbox" id="settingTtsFollow"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-item-row toggle-row">
+              <div class="setting-item-label"><span class="setting-title">讓 VoiceOver 焦點跟著目前的句子</span><span class="setting-desc">預設關閉：開啟後每換一句，螢幕閱讀器的焦點會移到那一段</span></div>
+              <label class="toggle-switch" for="settingTtsFocusFollow" title="讓 VoiceOver 焦點跟著目前的句子"><input type="checkbox" id="settingTtsFocusFollow"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-item-row toggle-row">
+              <div class="setting-item-label"><span class="setting-title">讀完這一篇，接著讀下一篇</span><span class="setting-desc">同一個資料夾裡的下一篇</span></div>
+              <label class="toggle-switch" for="settingTtsContinue" title="讀完這一篇，接著讀下一篇"><input type="checkbox" id="settingTtsContinue"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="setting-item-row toggle-row">
+              <div class="setting-item-label"><span class="setting-title">朗讀快捷鍵</span><span class="setting-desc">Alt（Option）+R 播放／暫停、Alt+←／→ 上／下一句、Alt+↑／↓ 語速、Esc 收合面板或離開誦經模式</span></div>
+              <label class="toggle-switch" for="settingTtsShortcuts" title="朗讀快捷鍵"><input type="checkbox" id="settingTtsShortcuts"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
         </div>
 
         <!-- Tab 2: 推薦經論 (Recommended & Hot) -->
-        <div class="settings-tab-pane" id="pane-recommended" style="display: none;">
+        <div class="settings-tab-pane" id="pane-recommended" role="tabpanel" aria-labelledby="settingsTab-recommended" style="display: none;">
           <div class="setting-section-header">
             <span>📖 成多聞慧，成無漏慧（熱門與推薦經論）</span>
           </div>
@@ -786,7 +839,7 @@
         </div>
 
         <!-- Tab 3: 備份與管理 (Backup & Admin) -->
-        <div class="settings-tab-pane" id="pane-system" style="display: none;">
+        <div class="settings-tab-pane" id="pane-system" role="tabpanel" aria-labelledby="settingsTab-system" style="display: none;">
           <div class="user-backup-box" id="userBackupBox">
             <div class="setting-section-header">
               <span>💾 個人偏好備份與還原</span>
@@ -1173,7 +1226,7 @@
   </div>
 
   <!-- 3. Admin Settings Overlay：全頁後台（左側分組導覽、右側一頁一件事；手機先看清單再進頁面） -->
-  <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;">
+  <div class="modal-overlay" id="adminSettingsOverlay" style="display: none;" role="dialog" aria-modal="true" aria-label="後台">
     <div class="admin-shell" id="adminShell" data-view="page">
       <aside class="admin-side" aria-label="後台導覽">
         <div class="admin-side-top">
@@ -1194,6 +1247,7 @@
             <button type="button" class="admin-nav-item" data-page="reading" data-save="config" data-pane="config" data-cards="reading"><span class="admin-nav-icon" aria-hidden="true">🎨</span><span class="admin-nav-label">閱讀預設</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="homepage" data-save="config" data-pane="config" data-cards="footer,announce"><span class="admin-nav-icon" aria-hidden="true">🏡</span><span class="admin-nav-label">首頁頁尾與公告</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="suggest" data-save="suggest" data-pane="suggest" data-cards=""><span class="admin-nav-icon" aria-hidden="true">📖</span><span class="admin-nav-label">推薦閱讀</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="listen" data-pane="listen" data-cards=""><span class="admin-nav-icon" aria-hidden="true">🎧</span><span class="admin-nav-label">聽經目錄</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="seo" data-save="seo" data-pane="seo" data-cards="" data-web-only><span class="admin-nav-icon" aria-hidden="true">🔍</span><span class="admin-nav-label">搜尋引擎與分享</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
@@ -1203,11 +1257,13 @@
             <button type="button" class="admin-nav-item" data-page="sso" data-save="sso" data-pane="accountsys" data-cards="sso"><span class="admin-nav-icon" aria-hidden="true">🔑</span><span class="admin-nav-label">登入方式</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
             <button type="button" class="admin-nav-item" data-page="legal" data-save="legal" data-pane="accountsys" data-cards="legal"><span class="admin-nav-icon" aria-hidden="true">📄</span><span class="admin-nav-label">條款與隱私</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
-          <div class="admin-nav-group" data-web-only>
+          <div class="admin-nav-group">
             <div class="admin-nav-group-title">外部服務</div>
-            <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="mail" data-save="mail" data-pane="accountsys" data-cards="mail,maildns,mailtest"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
-            <button type="button" class="admin-nav-item" data-page="turnstile" data-save="turnstile" data-pane="accountsys" data-cards="turnstile,turnstiletest"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="setup" data-pane="accountsys" data-web-only data-cards="setup"><span class="admin-nav-icon" aria-hidden="true">🚀</span><span class="admin-nav-label">開站設定</span> <span class="admin-tab-dot" id="adminAccountSysDot" hidden title="開站設定尚未完成"></span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="mail" data-save="mail" data-pane="accountsys" data-web-only data-cards="mail,maildns,mailtest"><span class="admin-nav-icon" aria-hidden="true">✉️</span><span class="admin-nav-label">寄信</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="turnstile" data-save="turnstile" data-pane="accountsys" data-web-only data-cards="turnstile,turnstiletest"><span class="admin-nav-icon" aria-hidden="true">🛡️</span><span class="admin-nav-label">Turnstile 人機驗證</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="tts" data-save="tts" data-pane="tts" data-cards="tts,ttsvoices,ttsrules,ttscache,ttsjobs"><span class="admin-nav-icon" aria-hidden="true">🔊</span><span class="admin-nav-label">朗讀（TTS）</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="admin-nav-item" data-page="ttslexicon" data-save="tts" data-pane="tts" data-cards="ttslexicon"><span class="admin-nav-icon" aria-hidden="true">📖</span><span class="admin-nav-label">讀音校正</span><span class="admin-nav-light" aria-hidden="true"></span><span class="admin-nav-chev" aria-hidden="true">›</span></button>
           </div>
           <div class="admin-nav-group" data-web-only>
             <div class="admin-nav-group-title">營運</div>
@@ -1652,6 +1708,7 @@
           <div class="hardware-title-group">
             <span class="hardware-badge-docker" id="hwDockerBadge">🐳 Docker 容器環境</span>
             <span class="hardware-title-hint" id="hwUptimeText">系統已運作: 載入中…</span>
+            <button type="button" class="ov-link hw-tts-status" id="hwTtsStatus" data-goto-page="tts" hidden><span class="admin-nav-light" aria-hidden="true"></span><span class="hw-tts-status-text">朗讀服務</span></button>
           </div>
           <div class="hardware-refresh-controls">
             <button type="button" class="action-btn text-action-btn" id="hwClearCacheBtn" title="清空記憶體靜態檔案快取、搜尋快取與 Sitemap 快取">🧹 清除快取</button>
@@ -2357,6 +2414,234 @@
         </div>
       </div>
 
+      <!-- 朗讀（TTS）：audio.cpp 連線、音色白名單、朗讀規則、讀音字典、快取與預先生成（app.js §21.8，ARCHITECTURE §24） -->
+      <!-- 聽經目錄（app.js §21.9、lib/listen-catalog.js）：自己的儲存鈕，不走底部儲存列 -->
+      <div class="admin-tab-pane" id="adminPaneListen" style="display: none;">
+        <div class="lc-admin" id="adminListen">
+          <p class="field-hint lc-intro">讀者端「聽經」頁的經目。只放常誦的經；每部經可依品或卷分段，讀者點一段就從那裡開始朗讀。目錄存在網站設定裡，會跟著「設定備份」一起匯出。</p>
+          <div class="lc-cols">
+            <div data-card="listenlist" class="config-card lc-list-card">
+              <div class="config-card-header">
+                <span class="config-card-icon">📜</span>
+                <h3 class="config-card-title">經目</h3>
+                <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
+              </div>
+              <div class="config-card-body">
+                <div class="lc-tool">
+                  <button type="button" class="modal-btn submit-btn small-btn" id="lcAddBtn" data-no-dirty>＋ 加入經</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="lcCatsBtn" data-no-dirty aria-expanded="false" aria-controls="lcCats">分類…</button>
+                </div>
+                <div class="lc-cats" id="lcCats" hidden></div>
+                <div id="lcList" class="lc-list"></div>
+                <p class="field-hint">用 ↑↓ 排序。燈號：綠＝正常、黃＝檔案改過或有品卷對不到、紅＝找不到檔案；刪除線＝暫不顯示。</p>
+              </div>
+            </div>
+            <div class="lc-right">
+              <div data-card="listenedit" class="config-card" id="lcEditCard"><div class="config-card-body" id="lcEdit"></div></div>
+              <div data-card="listenparts" class="config-card" id="lcPartsCard"><div class="config-card-body" id="lcParts"></div></div>
+              <div data-card="listengen" class="config-card" id="lcGenCard"><div class="config-card-body" id="lcGen"></div></div>
+            </div>
+          </div>
+          <div class="lc-savebar">
+            <span class="lc-dirty" id="lcDirty" role="status" aria-live="polite"></span>
+            <button type="button" class="modal-btn secondary-btn" id="lcPreviewBtn" data-no-dirty>看讀者頁</button>
+            <button type="button" class="modal-btn cancel-btn" id="lcRevertBtn" data-no-dirty>放棄變更</button>
+            <button type="button" class="modal-btn submit-btn" id="lcSaveBtn" data-no-dirty>儲存</button>
+          </div>
+          <datalist id="lcPathList"></datalist>
+        </div>
+      </div>
+
+      <div class="admin-tab-pane" id="adminPaneTts" style="display: none;">
+        <div class="admin-config-grid">
+          <div data-card="tts" class="config-card full-width" id="adminTtsCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🔊</span>
+              <h3 class="config-card-title">朗讀服務</h3>
+              <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">讀者的瀏覽器不會直接連 audio.cpp：一律由本站代理，伺服器網址與音色名稱不會給讀者看到。</p>
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsEnabled">
+                  <input type="checkbox" id="adminTtsEnabled">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">開放朗讀</span>
+              </div>
+              <p class="field-hint">關閉時讀者看不到任何朗讀入口；已生成的音檔保留。</p>
+              <label class="field-hint" for="adminTtsBaseUrl">audio.cpp 伺服器網址</label>
+              <input type="url" id="adminTtsBaseUrl" placeholder="http://192.168.1.10:8301" spellcheck="false" autocomplete="off">
+              <p class="field-hint" id="adminTtsBaseUrlLock" hidden></p>
+              <label class="field-hint" for="adminTtsVoiceDir">audio.cpp 音色資料夾（<code>--voice-dir</code>）</label>
+              <input type="text" id="adminTtsVoiceDir" placeholder="/Users/me/voices" spellcheck="false" autocomplete="off" aria-describedby="adminTtsVoiceDirHint">
+              <p class="field-hint" id="adminTtsVoiceDirHint">填 audio.cpp 啟動時 <code>--voice-dir</code> 指向的資料夾。本站<strong>不會</strong>改 audio.cpp 的啟動參數：換資料夾要重新啟動 audio.cpp 才生效。audio.cpp 跟本站在同一台主機時，這裡會檢查資料夾、列出參考錄音，並對照 <code>prompt_text</code> 看哪個音色缺逐字稿（drama3 沒有逐字稿會失敗）。</p>
+              <div id="adminTtsVoiceDirStatus" class="account-list" aria-live="polite"></div>
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsAutoTranscribe">
+                  <input type="checkbox" id="adminTtsAutoTranscribe">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">缺逐字稿時用 audio.cpp 的 ASR 自動補上</span>
+              </div>
+              <p class="field-hint">音色資料夾一有新的 WAV（約 5 秒後）、打開這一頁時、以及每 2 分鐘都會檢查：沒有同名 <code>.txt</code>、也不在 <code>prompt_text</code> 裡的 WAV，送 audio.cpp 轉寫（轉成繁體），寫成 <code>&lt;名稱&gt;.txt</code>（不覆蓋已有的），再依各 <code>.txt</code> 重建 <code>prompt_text</code>（舊檔留成 <code>prompt_text.bak</code>）。audio.cpp 下一句就讀得到，不必重新啟動。ASR 可能有錯字，請在上面的清單裡點開逐字稿校對。</p>
+              <label class="field-hint" for="adminTtsAsrModel">ASR 模型（audio.cpp 上的代號）</label>
+              <select id="adminTtsAsrModel"></select>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsTranscribeBtn" data-no-dirty>立即補逐字稿</button>
+              </div>
+              <label class="field-hint" for="adminTtsModel">模型（只列出朗讀用的模型）</label>
+              <select id="adminTtsModel"></select>
+              <p class="field-hint" id="adminTtsModelLock" hidden></p>
+              <div id="adminTtsHealth" class="account-list"></div>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsCheckBtn" data-no-dirty>重新檢查連線</button>
+                <button type="button" class="modal-btn submit-btn small-btn admin-legacy-save" id="adminTtsSaveBtn">儲存並檢查</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="ttsvoices" class="config-card full-width" id="adminTtsVoicesCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🎙️</span>
+              <h3 class="config-card-title">音色</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">勾選要開放給讀者的音色，填上中文名與標籤。音色就是 audio.cpp 音色資料夾（<code>--voice-dir</code>）裡的參考錄音；換了錄音請用新檔名，或把「版本」加一，舊的音檔才不會混進來。每多開放一個音色，快取與生成時間都會多一倍。</p>
+              <div class="tts-admin-table-wrap"><table class="tts-admin-table" id="adminTtsVoices">
+                <thead><tr><th scope="col">開放</th><th scope="col">預設</th><th scope="col">audio.cpp 名稱</th><th scope="col">中文名</th><th scope="col">標籤（以頓號分隔）</th><th scope="col">預設語速</th><th scope="col">版本</th><th scope="col">試聽</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsAddVoice" data-no-dirty placeholder="手動加入音色名稱（模型內建、清單沒列出的）" aria-label="手動加入音色名稱" spellcheck="false">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsAddVoiceBtn" data-no-dirty>加入</button>
+              </div>
+              <p class="field-hint">試聽句：「<span id="adminTtsSampleText">應無所住，而生其心。</span>」。還沒儲存的新音色也能先試聽；儲存後的試聽檔會給讀者的音色卡片使用。缺逐字稿的音色試聽時會自動開始用 ASR 補。</p>
+            </div>
+          </div>
+
+          <div data-card="ttsrules" class="config-card full-width" id="adminTtsRulesCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">📏</span>
+              <h3 class="config-card-title">朗讀規則與限額</h3>
+            </div>
+            <div class="config-card-body">
+              <div class="setup-form-row">
+                <div><label class="field-hint" for="adminTtsMaxChars">每句最多幾個字（40–200）</label><input type="number" id="adminTtsMaxChars" min="40" max="200" step="1"></div>
+                <div><label class="field-hint" for="adminTtsConcurrency">同時送往 audio.cpp 的句數（1–4）</label><input type="number" id="adminTtsConcurrency" min="1" max="4" step="1"></div>
+              </div>
+              <p class="field-hint">句子越長，第一句要等越久（實測 120 字約 17 秒）。調整後只有超過新上限的長句會重新切、重新生成。</p>
+              <label class="account-consent"><input type="checkbox" id="adminTtsReadNotes"><span>朗讀夾注（括號裡的小字）</span></label>
+              <label class="account-consent"><input type="checkbox" id="adminTtsReadMantra"><span>朗讀咒語與陀羅尼</span></label>
+              <label class="account-consent"><input type="checkbox" id="adminTtsReadNonScripture"><span>朗讀「版權說明」「目錄」等非經文段落</span></label>
+              <p class="field-hint">以上三項會改變朗讀的文字，所以是全站設定：改了之後受影響的句子要重新生成。</p>
+              <div data-web-only>
+                <label class="account-consent"><input type="checkbox" id="adminTtsGuestGenerate"><span>訪客也能生成新的朗讀音檔（關閉時訪客只能聽已經生成過的）</span></label>
+                <div class="setup-form-row">
+                  <div><label class="field-hint" for="adminTtsPerUser">每位使用者每小時最多生成幾句</label><input type="number" id="adminTtsPerUser" min="10" step="10"></div>
+                  <div><label class="field-hint" for="adminTtsPerIp">每個 IP 每小時最多生成幾句</label><input type="number" id="adminTtsPerIp" min="10" step="10"></div>
+                </div>
+              </div>
+              <label class="account-consent"><input type="checkbox" id="adminTtsWarmup"><span>讀者開始朗讀後，順便把後面 5 句先生成</span></label>
+              <div class="setup-form-row">
+                <div><label class="account-consent"><input type="checkbox" id="adminTtsKeepWarm"><span>保溫：有人在聽時，避免 audio.cpp 閒置變慢</span></label></div>
+                <div><label class="field-hint" for="adminTtsKeepWarmMinutes">最後一次朗讀後保溫幾分鐘</label><input type="number" id="adminTtsKeepWarmMinutes" min="5" max="240" step="5"></div>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="ttslexicon" class="config-card full-width" id="adminTtsLexiconCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">📖</span>
+              <h3 class="config-card-title">讀音校正</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">語音合成常把佛經專有詞念成一般讀音（例如「般若」念成 bān ruò）。朗讀前會把這些詞換成同音、讀音單一的字再送去合成；<strong>讀者畫面上的經文不變</strong>。改了讀法的句子會自動重新生成，其他句子的快取不受影響。</p>
+
+              <div class="toggle-switch-wrapper compact-switch">
+                <label class="toggle-switch-label" for="adminTtsBuiltinLexicon">
+                  <input type="checkbox" id="adminTtsBuiltinLexicon">
+                  <span class="toggle-switch-slider"></span>
+                </label>
+                <span class="toggle-switch-title">使用內建佛經讀音表</span>
+              </div>
+              <p class="field-hint">內建表依教育部《重編國語辭典修訂本》與佛門誦讀慣例整理，每條都附注音與依據。要停用某一條，按該列的「停用」（會在下方自訂字典加上「詞｜詞」）。</p>
+              <p class="field-hint" id="adminTtsRareInfo">同一個開關也管「罕見字讀音表」：經文裡的罕見字（例如「車𤦲」的 𤦲）語音模型多半不認得，朗讀時換成異體正字或同音常用字（𤦲 → 璩）；查不到讀音的字略過不讀。要改某個字的讀法，在下方自訂字典寫「字｜改讀為」。</p>
+              <div class="account-inline-form">
+                <input type="search" id="adminTtsBuiltinFilter" data-no-dirty placeholder="篩選詞條，例如：伽" aria-label="篩選內建讀音表">
+                <span class="field-hint" id="adminTtsBuiltinInfo"></span>
+              </div>
+              <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-lex-table" id="adminTtsBuiltinTable">
+                <thead><tr><th scope="col">詞</th><th scope="col">改讀為</th><th scope="col">注音</th><th scope="col">依據</th><th scope="col">試聽</th><th scope="col">狀態</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+
+              <h4 class="tts-lex-sub">讀者回報</h4>
+              <p class="field-hint">讀者在播放面板按「這句念錯了」的句子（同一句合併計數）。試聽後把念錯的詞加進下方自訂字典，再按「已處理」。</p>
+              <div class="tts-admin-table-wrap"><table class="tts-admin-table tts-report-table" id="adminTtsReports">
+                <thead><tr><th scope="col">句子</th><th scope="col">讀者備註</th><th scope="col">次數</th><th scope="col">最後回報</th><th scope="col">動作</th></tr></thead>
+                <tbody><tr><td colspan="5" class="field-hint">讀取中…</td></tr></tbody>
+              </table></div>
+
+              <h4 class="tts-lex-sub">自訂字典</h4>
+              <p class="field-hint">一行一條「詞｜讀法」，例如「般若｜波惹」；寫「詞｜詞」表示照原字念（可用來停用內建的某一條）；只寫詞表示朗讀時不在這個詞中間斷句。以 # 開頭是註解。自訂的讀法優先於內建表。</p>
+              <textarea id="adminTtsLexicon" rows="10" spellcheck="false" data-no-dirty aria-label="自訂讀音字典"></textarea>
+              <div class="account-inline-form">
+                <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsLexiconSaveBtn" data-no-dirty>儲存字典</button>
+                <span class="field-hint" id="adminTtsLexiconInfo"></span>
+              </div>
+
+              <h4 class="tts-lex-sub">試聽</h4>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsPreviewText" data-no-dirty placeholder="輸入一句試聽，例如：般若波羅蜜多" aria-label="試聽句子">
+                <select id="adminTtsPreviewVoice" data-no-dirty aria-label="試聽音色"></select>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewBtn" data-no-dirty>試聽（校正後）</button>
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsPreviewRawBtn" data-no-dirty>原讀法</button>
+              </div>
+              <p class="field-hint" id="adminTtsPreviewSpoken"></p>
+            </div>
+          </div>
+
+          <div data-card="ttscache" class="config-card full-width" id="adminTtsCacheCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">🗄️</span>
+              <h3 class="config-card-title">音檔快取</h3>
+              <span class="status-light off" role="img" aria-label="狀態：讀取中"></span><span class="status-light-text"></span>
+            </div>
+            <div class="config-card-body">
+              <div id="adminTtsCacheStats" class="account-list"></div>
+              <label class="field-hint" for="adminTtsCacheMb">快取上限（MB，20480 = 20 GB）</label>
+              <input type="number" id="adminTtsCacheMb" min="64" step="1024">
+              <p class="field-hint" id="adminTtsCacheMbLock" hidden></p>
+              <p class="field-hint">超過上限時，先刪「只讀我選的字」產生的臨時檔，再刪最久沒播的；試聽檔與預先生成時「釘選」的不刪。音檔是很花時間生成的成果，建議備份快取資料夾。</p>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsClearPath" data-no-dirty list="adminTtsPathList" placeholder="經文路徑，例如 01-大正藏/…/T0235….md" aria-label="要清除快取的經文路徑">
+                <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsClearPathBtn" data-no-dirty>清除這一篇</button>
+                <button type="button" class="modal-btn cancel-btn small-btn" id="adminTtsClearAllBtn" data-no-dirty>清除全部</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-card="ttsjobs" class="config-card full-width" id="adminTtsJobsCard">
+            <div class="config-card-header">
+              <span class="config-card-icon">⏳</span>
+              <h3 class="config-card-title">預先生成</h3>
+            </div>
+            <div class="config-card-body">
+              <p class="field-hint">選一篇經文或一個資料夾，在背景依序生成。讀者的朗讀永遠優先；服務中斷時會等它恢復再繼續，重開機後也會接著做。</p>
+              <div class="account-inline-form">
+                <input type="text" id="adminTtsJobScope" data-no-dirty list="adminTtsPathList" placeholder="資料夾或經文路徑，例如 01-大正藏/03般若部類" aria-label="要預先生成的資料夾或經文">
+                <select id="adminTtsJobVoice" data-no-dirty aria-label="預先生成的音色"></select>
+                <label class="account-consent"><input type="checkbox" id="adminTtsJobPin" data-no-dirty><span>釘選（不被自動清除）</span></label>
+                <button type="button" class="modal-btn submit-btn small-btn" id="adminTtsJobAddBtn" data-no-dirty>開始</button>
+              </div>
+              <datalist id="adminTtsPathList"></datalist>
+              <div id="adminTtsJobs" class="account-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tab 2: System Logs -->
       <div class="admin-tab-pane" id="adminPaneLogs" style="display: none;">
         <div class="admin-logs-header">
@@ -2462,6 +2747,13 @@
             <div class="analytics-chart-wrapper" id="analyticsTrendChartWrapper" style="position: relative;">
               <div class="search-loading"><div class="spinner"></div><span>繪製圖表中…</span></div>
             </div>
+          </div>
+
+          <!-- 朗讀（TTS）：匿名彙總，資料來自 tts.db（app.js loadTtsAnalytics） -->
+          <div class="analytics-section tts-analytics" id="analyticsTts" hidden>
+            <h3 class="analytics-section-title">🔊 朗讀（TTS）</h3>
+            <p class="field-hint tts-analytics-note">匿名彙總：只記啟動方式、音色、收聽時間、功能與熱門文件，不記帳號、IP 或選取的文字；「收聽人數」以每日更換的隨機鹽去重。</p>
+            <div id="analyticsTtsBody"></div>
           </div>
 
           <!-- Popular Files Table -->
@@ -2963,6 +3255,173 @@
   </div>
 
   <!-- ── §TOAST ─────────────────────────────────────────── -->
+  <!--
+    朗讀播放器（app.js §17c）。底部迷你列：上一句、播放／暫停、下一句、第 N／M 句、語速、音色、展開；
+    展開後是設定面板。是一個地標（VoiceOver 轉輪「地標」找得到），播放／暫停是同一顆按鈕切換 aria-label。
+  -->
+  <a class="tts-skip-link" id="ttsSkipLink" href="#ttsBar" hidden>跳到朗讀播放器</a>
+  <button type="button" class="tts-jump-pill" id="ttsJumpPill" hidden>從這段讀</button>
+  <div class="tts-hint" id="ttsHint" role="note" hidden><span>點喇叭從畫面上這一段開始聽；旁邊的 ▾ 有朗讀本節、聽經目錄、睡眠計時等更多方式。</span><button type="button" id="ttsHintClose" aria-label="知道了">知道了</button></div>
+  <section class="tts-bar" id="ttsBar" aria-label="朗讀播放器" tabindex="-1" hidden>
+    <div class="tts-progress" aria-hidden="true"><div class="tts-progress-fill" id="ttsProgressFill"></div></div>
+    <div class="tts-mini">
+      <button type="button" class="tts-btn" id="ttsPrevBtn" aria-label="上一句" title="上一句（Alt+←）">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2.5" y="3" width="1.8" height="10" rx=".8"/><path d="M13.2 3.4v9.2a.5.5 0 01-.78.42L5.6 8.4a.5.5 0 010-.82l6.82-4.6a.5.5 0 01.78.42z"/></svg>
+      </button>
+      <button type="button" class="tts-btn tts-play" id="ttsPlayBtn" aria-label="播放"></button>
+      <button type="button" class="tts-btn" id="ttsNextBtn" aria-label="下一句" title="下一句（Alt+→）">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="11.7" y="3" width="1.8" height="10" rx=".8"/><path d="M2.8 3.4v9.2a.5.5 0 00.78.42L10.4 8.4a.5.5 0 000-.82L3.58 2.98a.5.5 0 00-.78.42z"/></svg>
+      </button>
+      <div class="tts-info">
+        <span class="tts-title" id="ttsTitle"></span>
+        <span class="tts-pos" id="ttsPos"></span>
+      </div>
+      <button type="button" class="tts-chip tts-chip-accent" id="ttsRetryBtn" hidden>重試</button>
+      <button type="button" class="tts-chip" id="ttsSkipBtn" hidden>略過</button>
+      <button type="button" class="tts-chip tts-chip-accent" id="ttsLoginBtn" hidden>登入後繼續</button>
+      <button type="button" class="tts-chip tts-chip-accent" id="ttsBackBtn" hidden>回到朗讀位置</button>
+      <button type="button" class="tts-chip" id="ttsRateBtn">1×</button>
+      <button type="button" class="tts-chip tts-voice-chip" id="ttsVoiceBtn">音色</button>
+      <button type="button" class="tts-btn" id="ttsExpandBtn" aria-expanded="false" aria-controls="ttsPanel" aria-label="展開朗讀設定">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10l4.5-4.5L12.5 10"/></svg>
+      </button>
+      <button type="button" class="tts-btn" id="ttsCloseBtn" aria-label="停止朗讀並關閉播放器" title="停止朗讀">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="tts-panel" id="ttsPanel" hidden>
+      <p class="tts-notice" id="ttsNotice" hidden></p>
+
+      <!-- 進度：滑桿＋「第 N 句／共 M 句」 -->
+      <div class="tts-sec tts-sec-seek">
+        <input type="range" id="ttsSeek" min="1" max="1" step="1" value="1" aria-label="朗讀進度">
+        <div class="tts-seek-meta" aria-hidden="true"><span id="ttsSeekNow"></span><span id="ttsSeekTotal"></span></div>
+        <div class="tts-report">
+          <button type="button" class="tts-pill tts-report-btn" id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm">這句念錯了</button>
+          <form class="tts-report-form" id="ttsReportForm" hidden>
+            <input type="text" id="ttsReportNote" maxlength="60" placeholder="哪個字念錯？（可留空）" aria-label="哪個字念錯（可留空）">
+            <button type="submit" class="tts-pill">送出</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- 音色：原生 radio 做成的膠囊選擇器，名稱不斷字；可橫向捲動 -->
+      <fieldset class="tts-sec tts-voices">
+        <legend class="tts-sec-title">音色</legend>
+        <div class="tts-voice-cards" id="ttsVoiceCards" role="radiogroup" aria-label="音色"></div>
+        <label class="tts-switch">
+          <span class="tts-switch-text">這部經固定用這個音色</span>
+          <input type="checkbox" id="ttsPinVoice" role="switch">
+          <span class="tts-switch-ui" aria-hidden="true"></span>
+        </label>
+      </fieldset>
+
+      <!-- 語速 -->
+      <div class="tts-sec">
+        <div class="tts-sec-head">
+          <label class="tts-sec-title" for="ttsRate">語速</label>
+          <output class="tts-sec-value" id="ttsRateOut" for="ttsRate">1 倍</output>
+        </div>
+        <input type="range" id="ttsRate" min="0" max="9" step="1" value="3" aria-label="語速">
+        <div class="tts-scale" aria-hidden="true"><span>慢</span><span>快</span></div>
+      </div>
+
+      <!-- 聆聽方式：分組清單（每列 ≥ 52px，標題在左、操作在右） -->
+      <div class="tts-sec">
+        <h3 class="tts-sec-title" id="ttsListenTitle">聆聽方式</h3>
+        <ul class="tts-list" aria-labelledby="ttsListenTitle">
+          <li class="tts-row">
+            <button type="button" class="tts-row-main" id="ttsChantBtn">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M6 8h8M6 12h5"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">誦經模式</span><span class="tts-row-sub">大字全螢幕，跟著念</span></span>
+              <span class="tts-row-chev" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg></span>
+            </button>
+          </li>
+          <li class="tts-row">
+            <label class="tts-row-main" for="ttsSleep">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 12.2A7 7 0 017.8 3.5a7 7 0 108.7 8.7z"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">睡眠計時</span></span>
+            </label>
+            <select id="ttsSleep" class="tts-row-select" aria-label="睡眠計時">
+              <option value="">不設定</option><option value="15">15 分鐘</option><option value="30">30 分鐘</option><option value="60">60 分鐘</option><option value="section">讀完本節</option>
+            </select>
+          </li>
+          <li class="tts-row tts-offline" id="ttsOffline">
+            <div class="tts-row-main">
+              <span class="tts-row-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9M6 8.5l4 4 4-4M4 16.5h12"/></svg></span>
+              <span class="tts-row-text"><span class="tts-row-title">離線收聽</span><span class="tts-row-sub" id="ttsOfflineInfo"></span></span>
+            </div>
+            <button type="button" class="tts-pill" id="ttsOfflineBtn" aria-label="下載整篇以離線收聽">下載</button>
+            <button type="button" class="tts-pill" id="ttsOfflineCancel" aria-label="取消下載" hidden>取消</button>
+            <button type="button" class="tts-pill" id="ttsOfflineRemove" aria-label="移除離線檔" hidden>移除</button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 進階：收合，預設關 -->
+      <details class="tts-sec tts-more" id="ttsMore">
+        <summary class="tts-more-sum"><span>更多設定</span><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg></summary>
+        <div class="tts-list">
+          <label class="tts-switch tts-row"><span class="tts-switch-text">朗讀選取的文字後，繼續往下讀<span class="tts-row-sub">關掉就只讀選取的部分</span></span><input type="checkbox" id="ttsSelContinue" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">讀完這一篇，接著讀同一個資料夾的下一篇</span><input type="checkbox" id="ttsContinueNext" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">畫面跟著朗讀位置捲動</span><input type="checkbox" id="ttsFollow" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">朗讀選取時只讀我選的字<span class="tts-row-sub">不延伸到完整句</span></span><input type="checkbox" id="ttsExact" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+          <label class="tts-switch tts-row"><span class="tts-switch-text">鍵盤快捷鍵<span class="tts-row-sub" id="ttsShortcutsDesc">Alt+R 播放／暫停，Alt+←／→ 上／下一句，Alt+↑／↓ 語速</span></span><input type="checkbox" id="ttsShortcuts" role="switch"><span class="tts-switch-ui" aria-hidden="true"></span></label>
+        </div>
+      </details>
+
+      <button type="button" class="tts-stop-btn" id="ttsStopBtn">停止朗讀</button>
+    </div>
+    <span class="tts-sr-only" id="ttsLive" role="status" aria-live="polite"></span>
+  </section>
+
+  <!-- 朗讀選單（右上角喇叭）：標準 menu button；↑↓ 移動、Enter 執行、Esc 關閉 -->
+  <div class="tts-menu" id="ttsStartMenu" role="menu" aria-label="朗讀" hidden>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="toggle" hidden><span class="tts-menu-title" id="ttsMenuToggleText">暫停</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="resume" hidden><span class="tts-menu-title">從上次位置繼續</span><span class="tts-menu-sub" id="ttsMenuResumeSub"></span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="here"><span class="tts-menu-title">從這裡讀到結尾</span><span class="tts-menu-sub">從畫面上第一句開始</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="section"><span class="tts-menu-title">朗讀本節</span><span class="tts-menu-sub">讀到下一個同級標題為止</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="sentence"><span class="tts-menu-title">朗讀本句</span><span class="tts-menu-sub" id="ttsMenuSentenceSub">只讀畫面上第一句，讀完就停</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="top"><span class="tts-menu-title">從頭朗讀整篇</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="listen" hidden><span class="tts-menu-title">聽經目錄…</span><span class="tts-menu-sub">常誦經典，依品卷收聽</span></button>
+    <div class="tts-menu-sep" role="separator"></div>
+    <button type="button" role="menuitemcheckbox" aria-checked="false" class="tts-menu-item tts-menu-check" data-tts-act="next" id="ttsMenuNext"><span class="tts-menu-title">讀完接下一篇</span><span class="tts-menu-sub">同一個資料夾的下一篇</span><span class="tts-menu-tick" aria-hidden="true"></span></button>
+    <div class="tts-menu-group" role="group" aria-labelledby="ttsMenuSleepLabel">
+      <span class="tts-menu-label" id="ttsMenuSleepLabel">睡眠計時</span>
+      <div class="tts-menu-chips">
+        <button type="button" role="menuitemradio" aria-checked="true" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="" aria-label="睡眠計時：不設定">關</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="15" aria-label="睡眠計時：15 分鐘">15 分</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="30" aria-label="睡眠計時：30 分鐘">30 分</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="60" aria-label="睡眠計時：60 分鐘">60 分</button>
+        <button type="button" role="menuitemradio" aria-checked="false" class="tts-menu-item tts-menu-chip" data-tts-act="sleep" data-sleep="section" aria-label="睡眠計時：讀完本節">本節</button>
+      </div>
+    </div>
+    <div class="tts-menu-sep" role="separator"></div>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="chant"><span class="tts-menu-title">誦經模式</span><span class="tts-menu-sub">大字全螢幕跟讀</span></button>
+    <button type="button" role="menuitem" class="tts-menu-item" data-tts-act="panel"><span class="tts-menu-title">播放面板與設定</span><span class="tts-menu-sub">音色、語速、睡眠計時、離線收聽</span></button>
+  </div>
+
+  <!-- 誦經模式（B 方案）：全螢幕大字跟讀。開啟時背景 inert、焦點移入，Esc 或「離開」回到原處 -->
+  <div class="tts-chant" id="ttsChant" role="dialog" aria-modal="true" aria-labelledby="ttsChantTitle" hidden>
+    <button type="button" class="tts-chant-close" id="ttsChantClose" aria-label="離開誦經模式">離開</button>
+    <div class="tts-chant-stage">
+      <p class="tts-chant-side" id="ttsChantPrev" aria-hidden="true"></p>
+      <p class="tts-chant-current" id="ttsChantCurrent"></p>
+      <p class="tts-chant-side" id="ttsChantNext" aria-hidden="true"></p>
+    </div>
+    <div class="tts-chant-controls">
+      <button type="button" class="tts-chant-btn" id="ttsChantPrevBtn" aria-label="上一句">
+        <svg width="26" height="26" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="2.5" y="3" width="1.8" height="10" rx=".8"/><path d="M13.2 3.4v9.2a.5.5 0 01-.78.42L5.6 8.4a.5.5 0 010-.82l6.82-4.6a.5.5 0 01.78.42z"/></svg>
+      </button>
+      <button type="button" class="tts-chant-btn tts-chant-play" id="ttsChantPlay" aria-label="播放"></button>
+      <button type="button" class="tts-chant-btn" id="ttsChantNextBtn" aria-label="下一句">
+        <svg width="26" height="26" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="11.7" y="3" width="1.8" height="10" rx=".8"/><path d="M2.8 3.4v9.2a.5.5 0 00.78.42L10.4 8.4a.5.5 0 000-.82L3.58 2.98a.5.5 0 00-.78.42z"/></svg>
+      </button>
+    </div>
+    <div class="tts-chant-foot"><h2 class="tts-chant-title" id="ttsChantTitle"></h2><span class="tts-chant-meta" id="ttsChantMeta"></span></div>
+  </div>
+
+  <span id="a11yLive" class="tts-sr-only" role="status" aria-live="polite"></span>
   <div id="toastContainer" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <!-- ── §SCRIPTS ───────────────────────────────────────── -->

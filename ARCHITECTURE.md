@@ -1,8 +1,8 @@
 # 🏗️ mdWebview — Architecture Reference
 
-> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（v4.31.0：`app.js` 18,465、`server.js` 6,565、`style.css` 12,455、`index.html` 2,963，加上 `lib/` 32 個模組、根目錄 9 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
+> **目的**：讓 AI 模型與開發者在 **不需要通讀近四萬行程式碼**（v4.34.0 dev：`app.js` 22,554、`server.js` 6,710、`style.css` 13,346、`index.html` 3,443，加上 `lib/` 39 個模組、根目錄 10 個前端／Worker 檔）的情況下，快速理解整個系統的架構、資料流與關鍵設計決策。
 >
-> 第一次看這份文件：先讀 [§0 檔案配置與資料位置](#0-檔案配置與資料位置v4310)，再依需要跳到各節。開發、測試、部署與分支流程見 [§23](#23-開發測試部署與分支流程)。
+> 第一次看這份文件：先讀 [§0 檔案配置與資料位置](#0-檔案配置與資料位置v4310)，再依需要跳到各節。開發、測試、部署與分支流程見 [§23](#23-開發測試部署與分支流程)。朗讀、聽經目錄、罕見字與無障礙是 v4.33 起新增的子系統，見 [§24](#24-朗讀tts)–[§27](#27-無障礙voiceover與螢幕鍵盤)。
 
 ---
 
@@ -51,6 +51,10 @@
 21. [後台介面結構](#21-後台介面結構v4310)
 22. [資料流總覽：一份經文從磁碟到畫面](#22-資料流總覽一份經文從磁碟到畫面)
 23. [開發、測試、部署與分支流程](#23-開發測試部署與分支流程)
+24. [朗讀（TTS）](#24-朗讀tts)
+25. [聽經目錄](#25-聽經目錄)
+26. [罕見字：顯示與朗讀](#26-罕見字顯示與朗讀)
+27. [無障礙（VoiceOver）與螢幕鍵盤](#27-無障礙voiceover與螢幕鍵盤)
 
 ---
 
@@ -61,23 +65,24 @@
 | 位置 | 跑在哪裡 | 內容 |
 | :--- | :--- | :--- |
 | `server.js` | Node 主執行緒 | HTTP 伺服器與主路由、檔案樹與監視、SEO、爬蟲 SSR、大檔分塊、章節索引、全文 Bigram 索引、辭典索引、首頁推薦與每日經文、早安圖 API、後台維護 API（段落見 §8.2） |
-| `lib/`（32 個模組） | Node | 從 `server.js` 抽出的模組：設定、日誌、統計、帳號與 session、寄信、報表、科判、早安圖、索引目錄、檔案監視過濾等（逐一見 §8.1） |
+| `lib/`（39 個 JS 模組＋2 份讀音表） | Node | 從 `server.js` 抽出的模組：設定、日誌、統計、帳號與 session、寄信、報表、科判、早安圖、朗讀、聽經目錄、索引目錄、檔案監視過濾等（逐一見 §8.1）；`tts-lexicon-buddhist.txt`（內建佛經讀音表）、`tts-lexicon-rare.txt`（罕見字讀音表，§26） |
 | `render-worker.js` | Node Worker | Markdown → HTML（SSR、`/api/render`、分塊） |
 | `index-worker.js` | Node Worker | Bigram 索引建置、章節解析、全文掃描 |
 | `lib/share-card-render-worker.js` | Node Worker | 早安圖畫圖（`@napi-rs/canvas`，按需開的執行緒池） |
 | `index.html` | 瀏覽器 | 單頁殼：閱讀器、側欄、彈窗，以及整個後台（`#adminShell`，見 §21） |
-| `app.js` | 瀏覽器 | 前端主程式（IIFE，§0–§23 段落見 §9）：目錄、閱讀、搜尋、辭典、偏好、書籤與歷程、劃重點、選字彈窗、後台 |
+| `app.js` | 瀏覽器 | 前端主程式（IIFE，§0–§23 段落見 §9）：目錄、閱讀、搜尋、辭典、偏好、書籤與歷程、劃重點、選字彈窗、朗讀（§17c）、聽經目錄（§17d）、螢幕鍵盤避讓（§20a）、無障礙補強、後台 |
 | `style.css` | 瀏覽器 | 全站樣式、八種配色、後台外觀（§31a–§31b 外框與總覽，§31e–§31f 為 v4.31.0 改版） |
 | `md-worker.js` | 瀏覽器 Web Worker | 前端備援的 Markdown 解析 |
 | `kepan-sidebar.js` | 瀏覽器 | 科判側欄（`window.MdwKepan`，見 §20） |
+| `tts-segment.js` | 瀏覽器＋Node 共用 | 朗讀的標準斷句、章節後備、選取吸附（純函式，`MdwTtsSegment`；見 §24） |
 | `highlights.js` | 瀏覽器＋Node 共用 | 劃重點的定位與合併規則（純函式，`MdwHighlights`；伺服器由 `lib/library-store.js` 引用） |
 | `library-sync.js` | 瀏覽器＋Node 共用 | 書籤與歷程的同步規則（last-write-wins＋墓碑，`MdwLibrarySync`） |
 | `share-card.js` | 瀏覽器＋Node 共用 | 早安圖版型與繪圖（伺服器用 `@napi-rs/canvas`，瀏覽器用 `<canvas>` 當備援） |
 | `sw.js`、`manifest.json` | 瀏覽器 | Service Worker 離線快取、PWA 設定 |
 | `i18n/` | 瀏覽器 | 繁簡顯示（`display-script.js`）、字組比對表（`search-variants.js`，由 `tools/build-search-variants.js` 產生）、介面字串（`zh-TW.js`／`zh-CN.js`） |
-| `vendor/` | 瀏覽器 | 自帶的第三方程式：KaTeX、Pele（Mermaid 語法圖表）、OpenCC、`qrcode`、手寫體字型 |
-| `tests/` | 開發 | `node --test` 測試（75 個檔案）；`tests/fixtures/make-test-corpus.js` 產生測試用經文庫 |
-| `tools/` | 開發 | `build-search-variants.js`、`sim-pic-pick.js`（早安圖挑圖機率模擬） |
+| `vendor/` | 瀏覽器 | 自帶的第三方程式：KaTeX、Pele（Mermaid 語法圖表）、OpenCC、`qrcode`、手寫體字型、罕見字後備字型 `fonts/rare/`（mdRare，§26） |
+| `tests/` | 開發 | `node --test` 測試（90 個檔案）；`tests/fixtures/make-test-corpus.js` 產生測試用經文庫 |
+| `tools/` | 開發 | `build-search-variants.js`、`sim-pic-pick.js`（早安圖挑圖機率模擬）、`rare-chars/`（掃語料、建罕見字子集字型與讀音表，Python；§26） |
 | `Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | 部署 | 見 §23.3 |
 | `.github/workflows/` | CI | `docker-image.yml`（建映像）、`cleanup-ghcr.yml`（清舊映像），見 §14 |
 
@@ -98,6 +103,8 @@
 | 早安圖字型 | `/data/fonts/` → `/app/fonts/`（建置時下載 Noto Serif TC）→ `vendor/fonts/` | `SHARE_CARD_FONT_DIR` 優先 | 選擇性 |
 | 存取日誌與統計 | `/data/logs/`（`access-*.jsonl`、`analytics-aggregates.json`） | `LOG_DIR` | 想留統計就備份 |
 | 索引快取 | `/data/index/`（`search-index-cache.bin`、`dict-index-cache.bin`、`section-index-cache.bin`、`dict-section-index-cache.bin`） | `INDEX_DIR`；v4.19.0 以前在 `LOG_DIR`，啟動時自動搬（`lib/index-dir.js`） | 不必，可重建 |
+| 朗讀音檔快取 | `/data/tts-cache/`（`blobs/`、`tmp/`、`tts.db`） | `TTS_CACHE_DIR`、上限 `settings.tts.cacheMb`（預設 20480，`TTS_CACHE_MB` 優先） | 建議（可重生但很花 GPU 時間） |
+| 朗讀讀音字典 | `/data/tts-lexicon.txt` | `TTS_LEXICON_PATH`（預設與 `config.json` 同目錄） | ✅ |
 | 早安圖成品快取 | `/data/index/share-card/` | `SHARE_CARD_CACHE_DIR`（`off` 關閉）、上限 `SHARE_CARD_CACHE_MB`（預設 200） | 不必 |
 
 非 Docker 執行時，以上 `/data` 換成 `MDW_USER_DATA`（預設為程式目錄）。
@@ -249,6 +256,7 @@ sequenceDiagram
 |----|------|------|
 | **資源指紋** | `index.html` 的每個 `?v=` 與 `sw.js` 的 `CACHE_VERSION` 都換成 `<package 版本>-<前端檔案內容雜湊>`（例：`4.31.8-94a269be93`）。內容有任何變動指紋就變，**不必記得升版號**。掃描範圍＝根目錄的 `.js/.css/.html/.json/.svg/.png/.ico/字型`（排除 `server.js`、`render-worker.js`、`index-worker.js`、`package*.json`、`config.json`）＋ `i18n/` ＋ `vendor/`；文件與 `lib/` 不納入。每 5 秒最多 stat 一次，size／mtime 簽章不變就不重讀。 | `lib/asset-version.js` |
 | **HTML** | `Cache-Control: no-cache`，不送 ETag（每次回應的 CSP nonce 不同）。 | `lib/static-cache.js` |
+| **罕見字字型分塊** | `vendor/fonts/rare/rare-*-<10 碼雜湊>.woff2` 檔名本身帶內容雜湊，由 `rare-font.css` 以相對網址引用、不帶 `?v=` → 一律 `immutable`（否則每換一頁要重新驗證幾十個字型檔）。見 §26 | `HASHED_FONT_RE` |
 | **帶 `?v=` 的資源** | `?v=` **等於目前指紋** → `public, max-age=31536000, immutable`；`?v=` 與目前指紋不同（舊頁面、手打網址）→ `no-cache`，避免舊網址把新內容永久釘在瀏覽器；沒有 `?v=` → `no-cache`（圖片 1 天）。Cache-Control 在**每次請求**依網址計算，不存進記憶體快取項目（否則先到的網址決定所有人的政策）。 | `staticCacheControl()` |
 | **ETag** | 內容雜湊（`W/"<sha1 前 20 碼>"`），不再用 `size-mtime`——同大小的修改搭配被正規化的 mtime 會被誤回 304。 | `contentEtag()` |
 | **Service Worker** | `sw.js` 不進記憶體快取，每次現讀現換 `CACHE_VERSION`（否則只改 `app.js` 時 sw.js 位元組不變，SW 永遠不更新）。請求的 `?v=` 與 SW 版本不同 → network-first，不會供應過期 JS／CSS。`md-worker.js` 也帶 `?v=`（其 `importScripts` 沿用同一個查詢字串）。 | `sw.js`、`md-worker.js` |
@@ -713,6 +721,7 @@ if (existing === 'true' || existing === 'false') return false;
 **載入與防閃爍**
 
 - OpenCC（`vendor/opencc/t2cn.js`，opencc-js 1.4.2，約 110 KB，MIT／Apache-2.0）只在簡體顯示時才下載；Service Worker 仍預快取，離線時也能切換。
+- OpenCC 簡→繁（`vendor/opencc/cn2t.js`，opencc-js 1.4.2，約 1.1 MB）只在伺服器端用：audio.cpp ASR（qwen3-asr）回的簡體逐字稿轉成台灣繁體再寫進 `<音色>.txt`；第一次轉寫時才載入，瀏覽器不下載。
 - `i18n/boot.js` 於 `<head>` 同步執行：預判本次為簡體時先設 `data-display-script="hans"` 並預載 OpenCC，CSS 隱藏 body；`app.js` 轉換完成後設 `data-t2s-ready` 才顯示，4 秒保底。
 - 簡體顯示改用系統簡體字型（`--cjk-serif`／`--cjk-sans`），避免 Noto Serif TC 以台灣字形畫簡體字。
 - `<html lang>` 隨之切換為 `zh-Hans`／`zh-TW`；前端日期格式改用 `activeLocale()`。OpenCC 載入失敗時畫面退回繁體並提示，但不改寫偏好，下次進站再試。
@@ -745,7 +754,7 @@ if (existing === 'true' || existing === 'false') return false;
 
 ### 8.1 lib/ 原生模組職責劃分
 
-`lib/` 目前共 **32 個原生模組**（下表逐一列出）。下圖只畫出最常被引用的核心，其餘（帳號／科判／早安圖／首頁／整合金鑰等）見表格：
+`lib/` 目前共 **36 個原生模組**（下表逐一列出）。下圖只畫出最常被引用的核心，其餘（帳號／科判／早安圖／首頁／整合金鑰等）見表格：
 
 ```mermaid
 flowchart TD
@@ -801,6 +810,11 @@ flowchart TD
 | `lib/share-card-render-worker.js` | 早安圖的畫圖工作執行緒（v4.24.0）：`ShareCard.draw` 是同步的，8 張壓在主執行緒會讓全站卡 0.4–1.6 秒，搬到這裡後主執行緒只收發訊息；v4.30.0 起 Worker 是按需開的執行緒池（`SHARE_CARD_WORKERS`，預設可用核心數 − 1、上限 4，Docker 有 CPU 限制時跟著縮），8 張預覽可多條並行；每條各留一份背景圖解碼快取（約 100MB） | （Worker 入口，無具名導出） |
 | `lib/share-card-server.js` | 早安圖伺服器端：`pic-card/` 背景圖庫遞迴掃描（每分鐘最多重掃一次）、依「經句＋日期」雜湊挑圖、`@napi-rs/canvas` 延遲載入（失敗＝不能畫，回 503）、字型註冊、成品磁碟快取與 Worker 管理 | `picDir`, `fontDirs`, `listPics`, `describePics`, `readImageSize`, `pickPic`, `resolvePic`, `isRealPicPath`, `available`, `status`, `render`, `cacheDir`, `cacheStatus`, `shutdown`, `decodeCount` |
 | `lib/share-stats.js` | 早安圖事件定義與統計彙整：事件寫成 `tag = 'ShareCard'` 的結構化日誌、聚合成趨勢列；不記帳號與問候語 | `TREND_FIELDS`, `SHARE_TAG`, `SHARE_EVENTS`, `CLIENT_EVENTS`, `SEND_EVENTS`, `ERROR_STAGES`, `sanitizeShareFields`, `shareFieldsOf`, `isShareServerEntry`, `shareKeysOf`, `summarizeShareMap`, `emptyShareSummary`, `withVerseTexts`, `emptyTrendRow`, `addEventToTrendRow`, `addShareMapToTrendRow`, `emptyHourBins` |
+| `lib/tts.js` | 朗讀（§24）：audio.cpp 代理與健康檢查、優先佇列與 single-flight、回應驗證、ffmpeg 後製、文件斷句的記憶體快取、限額、`/api/tts/*` 與 `/api/admin/tts/*` 路由 | `init`, `start`, `stop`, `isTtsRoute`, `handle`, `getSettings` |
+| `lib/tts-store.js` | 朗讀音檔的內容定址快取與 `tts.db`（blob 索引、每日統計、LRU 清理） | `open`, `lookup`, `get`, `put`, `touch`, `gc`, `clear`, `usage` |
+| `lib/listen-catalog.js` | 聽經目錄（§25）：經目的驗證與存檔（`config.settings.listenCatalog`）、品卷偵測、錨點對位、`/api/listen/catalog` 與 `/api/admin/listen/*` | `init`, `isListenRoute`, `handle`, `publicCatalog`, `adminCatalog`, `detect`, `catalogFiles` |
+| `lib/tts-lexicon.js` | 朗讀讀音字典：自訂字典 `tts-lexicon.txt` 的讀取、熱重載與儲存；疊上內建佛經讀音表 `tts-lexicon-buddhist.txt`（詞）與罕見字讀音表 `tts-lexicon-rare.txt`（逐字 `charMap`，§26），兩表同一個開關 `settings.tts.builtinLexicon` | `entries`, `charMap`, `version`, `describe`, `save` |
+| `lib/tts-segment-worker.js` | ≥ 1 MB 的檔案在 Worker 裡斷句（一次一個、做完即結束） | （Worker 進入點） |
 | `lib/kepan.js` | 從講記標題抽取科判樹（v4.20.0）：依「甲乙…→子丑…→天地玄黃…」字序判層級（**不看 `#` 數**）、一行多層拆段、跨卷重述同一科不重建、字序重複用字與「巳／己」誤植以「編號能否接續」判定；frontmatter `round`／`kepan` 分講輪與合輯、各輪另講對照、章節式標題（v4.25.0）；v4.30.0 起動態科判也掃不帶 `#` 的純文字干支行（`parseHeadingSegments(line, { plain: true })`）；依資料夾（檔案數＋最新 mtime）快取 | `LEVELS`, `MIN_NODES`, `MIN_NODES_FORCED`, `MIN_NODES_SINGLE`, `parseChapterHeading`, `usesChapters`, `buildChapterTree`, `pickScopeDepth`, `kepanFlag`, `groupFiles`, `linkRounds`, `topicOfTitle`, `bookOfTitle`, `roundTopic`, `describeRounds`, `buildFolder`, `cnNum`, `parseHeadingSegments`, `orderFiles`, `buildKepanTree`, `toClientPayload`, `getKepanForFile`, `clearKepanCache` |
 
 
@@ -908,6 +922,8 @@ flowchart TD
 | `/api/admin/bot-stats`、`/api/admin/auth-events`、`/api/admin/lockouts…` | 安全與攔截 |
 | `/api/admin/db-backups…` | 帳號資料庫備份下載與還原 |
 | `/api/admin/reports…` | 報表信設定、預覽、寄送（`lib/reports.js`） |
+| `/api/tts/status`、`/api/tts/doc`、`/api/tts/resolve`、`/api/tts/speak`、`/api/tts/audio/<sha>` | 朗讀（`lib/tts.js`，逐條說明見 §24.7）；不需登入，生成新音檔受 `settings.tts.guestGenerate` 與每小時限額管制 |
+| `/api/admin/tts/settings`、`/health`、`/sample`、`/preview`、`/lexicon`、`/cache`、`/cache/clear` | 朗讀的後台設定、連線檢查、試聽、讀音字典、快取用量與清除（需管理員） |
 
 後台各頁對應哪些 API 見 §21.2。
 
@@ -927,6 +943,7 @@ flowchart TD
 | :--- | ---: | ---: | :--- | :--- |
 | `§0` | 62 | 566 | Globals & State | 全域集中 `STORAGE_KEYS`、`storage` 安全封裝、LRU 快取、`state` 物件 |
 | `§1` | 628 | 216 | Init & Boot Hooks | `loadSettings()`、`initUI()`、URL 參數解析（`parseUrlParams()`） |
+| `§16.4` | — | 約 110 | New Version Banner | `/api/version` 比對資源指紋，長時間開著的分頁顯示「重新載入」橫幅（見 §3「前端快取與新版本推送」） |
 | `§16.5` | 844 | 1,008 | PWA Install Prompt | 首頁安裝卡片、iOS 三步驟教學 Modal、設定常駐入口（見 §17） |
 | `§2` | 1,852 | 125 | Site Name & Footer | 站台名稱即時更新、頁尾版本與公告控制 |
 | `§3` | 1,977 | 120 | Suggest List | 首頁推薦經論、熱門榜與每日單詞（PRNG 輪換） |
@@ -946,16 +963,19 @@ flowchart TD
 | `§16` | 9,137 | 97 | Toast Notifications | 全域浮動提示通知（`showToast`） |
 | `§17` | 9,234 | 66 | Bookmarks | 經本書籤收藏管理 |
 | `§17b` | 9,300 | 531 | Highlights | 劃重點（朱筆底線）：CSS Custom Highlight API 著色、錨定與隨書籤同步（見 §19「劃重點」） |
+| `§17c` | — | 約 900 | Read Aloud | 朗讀播放器（v4.33）：句子佇列、單一 `<audio>`、預取、跟讀高亮（`mdw-tts-current`）、Media Session、播放列與設定面板、選字「朗讀」、標題後「朗讀本節」、快捷鍵。狀態在閉包內的 `ttsRt`（不放進 `state`），偏好在 `STORAGE_KEYS.TTS_PREFS`（見 §24.11） |
+| `§17d` | — | 約 330 | Listen Catalog | 聽經目錄讀者頁（`/?listen`、`#listenView`）：經卡、品卷清單、聽經進度（見 §25.4） |
 | `§18` | 9,831 | 119 | Read Progress | 閱讀進度二分搜尋測量與自動恢復 |
 | `§18.5` | 9,950 | 263 | Preferences Backup | 使用者偏好匯出／匯入 JSON |
 | `§19` | 10,213 | 98 | Sidebar Resize | 側邊欄拖曳調整寬度 |
 | `§6.5` | 10,311 | 361 | Media Lightbox | 圖片全螢幕放大、拖曳、雙擊與雙指捏合縮放 |
+| `§20a` | — | 約 110 | Keyboard Avoidance | iPad／iPhone 螢幕鍵盤避讓：`setupKeyboardAvoidance()` 設 `html.kb-open`（見 §27.3） |
 | `§20` | 10,672 | 1,330 | Event Listeners | `setupEventListeners()`：全站事件綁定（全檔最大單一函式） |
 | `§21` | 12,002 | 5,808 | Admin & Accounts Panel | 後台管理面板與使用者帳號介面（§21.1-§21.7，見下） |
 | `§22` | 17,810 | 536 | Utilities | 通用轉義、時區格式化、通用 Helper |
 | `§23` | 18,346 | 5 | Boot Entry | DOMContentLoaded 初始化啟動入口 |
 
-> **編號非遞增**：實際排列為 §0 → §1 → §16.5 → §2 … → §19 → §6.5 → §20 → §21。
+> **編號非遞增**：實際排列為 §0 → §1 → §16.4 → §16.5 → §2 … → §17b → §17c → §17d → §18 … → §19 → §6.5 → §20a → §20 → §21（內部 §21.1–§21.6 → §21.8 → §21.9 → §21.7）→ §22 → §23。上表 §17c 之後的行號仍是 v4.27.15 的值，已大幅位移。
 > §6.5、§14b、§16.5、§17b、§21.7 都是後續功能插入時就地放置，未重排既有程式碼。搜尋時請用標題關鍵字。
 > **§14b 與 §17b 是獨立大區塊**（355 行與 531 行），不是 §14／§17 的附屬小節——跨裝置同步與劃重點都是完整子系統。
 
@@ -972,6 +992,8 @@ flowchart TD
 | §21.5 | 日誌與流量報表 | `openSettingsOverlay`、`filterLogEntries`、`fetchAdminLogs`、`loadAdminAnalytics`、`renderAdminAnalytics` |
 | §21.6 | 設定表單與 SEO | `setupAdminTabEvents`、`setupArticlePicker`、`setupSuggestFormEvents`、`loadSeoSettings`、`setupAdminSeoEvents` |
 | §21.7 | 使用者帳號（獨立大區塊，2,512 行） | `initAccounts`、登入／註冊／我的帳號、後台「使用者」與「帳號系統」分頁（見 §19） |
+| §21.8 | 朗讀（TTS）後台與讀音校正（約 510 行，位在 §21.7 之前） | `loadAdminTtsPane`、`ttsAdminApi`（依序送出、429 重試）；連線、音色、規則、讀音字典與讀者回報、快取、預先生成（見 §24.12） |
+| §21.9 | 聽經目錄後台（約 360 行） | `loadAdminListenPane`；經目編輯、品卷表、預先生成（見 §25.6） |
 
 #### 1.2 後台外框與頁面導覽（v4.4.0）
 
@@ -993,6 +1015,7 @@ flowchart TD
 - `isNarrowScreen()`：整合行動裝置 User-Agent 識別與 `window.innerWidth <= 768` 判斷，全站統一響應式邊界判斷。
 - `getTodayDateIso()`：取得 ISO 格式今日日期字串（`YYYY-MM-DD`），用於公告 ack 比對與日誌校驗。
 - `log`：統一前端彩色控制台日誌工具（`info`, `warn`, `error`）。
+- `a11yAnnounce(msg)`：寫入共用的 `#a11yLive`（polite）做一次性螢幕閱讀器播報；`setupA11yBridges()`、`setupA11yTabs()`、`setupA11yTrees()` 是 §22 裡的無障礙補強（見 §27）。
 
 ### 9.2 State 物件欄位一覽
 
@@ -1136,6 +1159,8 @@ flowchart TD
 | `settings.suggestList.dailyWordDicts` | `string[]` | `[]` | — | 每日法語來源辭典清單 |
 | `settings.suggestList.dailyWordRotateHour` | `number` | `12` | — | 每日法語輪換時間（小時，0-23） |
 | `settings.suggestList.dailyVerses` | `{text,source,path}[]` | （未設定＝預設七句） | — | 首頁每日經文清單；空陣列＝這個來源沒有經句（另有 sutra-quote/ 資料夾來源） |
+| `settings.tts` | 物件 | `{ enabled: false, … }` | `TTS_BASE_URL`、`TTS_MODEL`、`TTS_CACHE_MB` | 朗讀設定（伺服器網址、模型、音色白名單、句長上限、限額、快取上限…），欄位見 §24.6；由 `/api/admin/tts/settings` 讀寫，不經 `/api/admin/settings` |
+| `settings.listenCatalog` | 物件 | （未設定＝預設 16 部經、6 類） | — | 聽經目錄的分類與經目（§25.1）；匿名的 `/api/admin/status` 不回傳 |
 | `settings.suggestList.dailyVerseRotateHours` | number | `6` | 1–168 | 每日經文每幾小時換一句（從網站時區午夜起算） |
 | `settings.seoEnableSearchBox` | `boolean` | `false` | `SEO_ENABLE_SEARCH_BOX` | 是否於**首頁**注入 `WebSite` + `SearchAction` JSON-LD（詳見 §9.4）。單機模式一律不輸出 |
 | `settings.seoHomepageSummary` | `string` | `''` | `SEO_HOMEPAGE_SUMMARY` | 首頁爬蟲導言（爬蟲 SSR 用；空 = 退回 `seoSiteDescription`） |
@@ -1168,6 +1193,8 @@ flowchart TD
 | 路徑 | `DICTIONARY_PATH` | 經文庫旁的 `dicts/` | `settings.dictionaryPath` 的預設值 |
 | 路徑 | `LOG_DIR`、`INDEX_DIR` | `<MDW_USER_DATA>/logs`、`/index` | 日誌與統計、索引快取 |
 | 路徑 | `USERS_DB_PATH`、`DB_BACKUP_DIR` | `config.json` 旁的 `users.db`、`backups/` | 帳號資料庫與每日備份（`lib/db.js`） |
+| 路徑 | `TTS_CACHE_DIR`、`TTS_LEXICON_PATH`、`TTS_FFMPEG` | `<MDW_USER_DATA>/tts-cache`（Docker 映像 `/data/tts-cache`）、`config.json` 旁的 `tts-lexicon.txt`、從 PATH 找 | 朗讀音檔快取、讀音字典、ffmpeg 路徑（`off`＝不轉檔，存 WAV）；見 §24 |
+| 朗讀 | `TTS_BASE_URL`、`TTS_MODEL`、`TTS_CACHE_MB` | — | audio.cpp 位址、模型、快取上限；有設定時優先於後台並顯示鎖定（`lib/tts.js`） |
 | 路徑 | `SUTRA_QUOTE_DIR`、`PIC_CARD_DIR`、`SHARE_CARD_FONT_DIR` | `config.json` 旁的 `sutra-quote/`、`pic-card/`、`fonts/` | 每日經文資料夾、早安圖背景圖庫與字型 |
 | 網路 | `PORT`、`HOST` | `8330`、`0.0.0.0`（單機模式 `127.0.0.1`） | 監聽埠與位址 |
 | 網路 | `MDW_PORT_SCAN` | 關 | 埠被占用時往後找 10 個 |
@@ -1831,6 +1858,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 網站 | 🎨 閱讀預設 `reading` | `config` | `reading` | `config` | 同上 |
 | 網站 | 🏡 首頁頁尾與公告 `homepage` | `config` | `footer`、`announce` | `config` | 同上 |
 | 網站 | 📖 推薦閱讀 `suggest` | `suggest` | 整頁（推薦、熱門、每日法語、每日經文、早安圖、選句） | `suggest` | `/api/admin/settings`、`/api/admin/daily-verses`、`/api/admin/share-card`、`/api/admin/share-quotes` |
+| 網站 | 🎧 聽經目錄 `listen` | `listen` | 整頁 | —（頁內自己的「儲存」） | `/api/admin/listen/*`、`/api/admin/tts/jobs`（§25.3） |
 | 網站 | 🔍 搜尋引擎與分享 `seo` ※ | `seo` | 整頁 | `seo` | `/api/admin/settings`、`/api/admin/seo-stats`、`/api/admin/rebuild-sitemap` |
 | 讀者與登入 ※ | 👥 使用者 `users` | `users` | `users` | — | `/api/admin/users…` |
 | 讀者與登入 ※ | 📝 註冊與邀請碼 `registration` | `users` | `registration`、`invites` | `registration` | `/api/admin/registration`、`/api/admin/invites` |
@@ -1839,6 +1867,8 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 外部服務 ※ | 🚀 開站設定 `setup` | `accountsys` | `setup` | — | 引導寄信與 Turnstile |
 | 外部服務 ※ | ✉️ 寄信 `mail` | `accountsys` | `mail`、`maildns`、`mailtest` | `mail` | `/api/admin/mail…` |
 | 外部服務 ※ | 🛡️ Turnstile 人機驗證 `turnstile` | `accountsys` | `turnstile`、`turnstiletest` | `turnstile` | `/api/admin/turnstile…` |
+| 外部服務 | 🔊 朗讀（TTS）`tts` | `tts` | `tts`、`ttsvoices`、`ttsrules`、`ttscache`、`ttsjobs` | `tts` | `/api/admin/tts/*`（§24.7） |
+| 外部服務 | 📖 讀音校正 `ttslexicon` | `tts` | `ttslexicon`（內建佛經讀音表、自訂字典、讀者回報） | `tts` | `/api/admin/tts/lexicon`、`/api/admin/tts/preview`、`/api/admin/tts/reports` |
 | 營運 ※ | 📊 數據分析 `analytics` | `analytics` | 整頁 | — | `/api/admin/analytics`、`/api/admin/analytics/export` |
 | 營運 ※ | 📬 報表信 `reports` | `reports` | 整頁 | `reports` | `/api/admin/reports…` |
 | 系統 | 🖥️ 系統狀態 `hardware` | `hardware` | 整頁（含重建索引等維護動作） | — | `/api/admin/hardware`、`/api/admin/rebuild-*`、`/api/admin/clear-cache` |
@@ -1846,7 +1876,7 @@ v3.10.4 曾完整評估「把過長的 `app.js`（11,300 行）與 `server.js`�
 | 系統 | 📜 日誌 `logs` | `logs` | 整頁 | — | `/api/admin/logs` |
 | 系統 | 💾 備份與還原 `backup` | `backup` | `cfgbackup`、`db` | — | 設定匯出入、`/api/admin/db-backups…` |
 
-※ 帶 `data-web-only`，單機模式（`MDW_DEPLOY_TARGET` 非 `web`）不顯示。
+※ 帶 `data-web-only`，單機模式（`MDW_DEPLOY_TARGET` 非 `web`）不顯示。「外部服務」分組的 `data-web-only` 改標在開站設定、寄信、Turnstile 三個項目上，因為朗讀頁單機版也要用（單機版只藏起訪客與限額的欄位）。
 
 ### 21.3 新增後台頁面或卡片時
 
@@ -1935,8 +1965,8 @@ node --test tests/test-admin-shell.test.js   # 只跑一個檔案
 
 ### 23.3 Docker 部署
 
-- `Dockerfile`：`node:24-alpine`，`npm ci --omit=dev`，建置時下載 Noto Serif TC（早安圖用，失敗不擋建置），`EXPOSE 8330`，`HEALTHCHECK` 打 `/api/health`（帳號資料庫不可用回 503）。預設環境變數：`PORT=8330`、`CONFIG_PATH=/data/config.json`、`LOG_DIR=/data/logs`、`INDEX_DIR=/data/index`、`MD_ROOT=/data/md`、`DICTIONARY_PATH=/data/dicts`、`TRUST_PROXY=true`、`NODE_OPTIONS=--max-old-space-size=6144`。
-- `docker-entrypoint.sh`：以 root 啟動時只把會寫入的路徑（設定檔與其目錄、logs、index、`users.db`、backups、`secrets.key`）交給 `node` 使用者，再 `su-exec node` 降權；經文庫與辭典的擁有者不動。
+- `Dockerfile`：`node:24-alpine`，`npm ci --omit=dev`，另裝 `ffmpeg`（朗讀轉 AAC 用，§24），建置時下載 Noto Serif TC（早安圖用，失敗不擋建置），`EXPOSE 8330`，`HEALTHCHECK` 打 `/api/health`（帳號資料庫不可用回 503）。預設環境變數：`PORT=8330`、`CONFIG_PATH=/data/config.json`、`LOG_DIR=/data/logs`、`INDEX_DIR=/data/index`、`MD_ROOT=/data/md`、`DICTIONARY_PATH=/data/dicts`、`TRUST_PROXY=true`、`NODE_OPTIONS=--max-old-space-size=6144`。
+- `docker-entrypoint.sh`：以 root 啟動時只把會寫入的路徑（設定檔與其目錄、logs、index、`users.db`、backups、`secrets.key`、朗讀的 `tts-cache/` 與 `tts-lexicon.txt`）交給 `node` 使用者，再 `su-exec node` 降權；經文庫與辭典的擁有者不動。
 - `docker-compose.yml`：埠 `8330:8330`；掛載 `./data`、`./logs`、`./index`、`./md`、`./dicts`；金鑰放 `.env`（範本 `.env.example`），`NODE_MAX_OLD_SPACE_MB` 調 V8 heap。
 - 映像由 CI 發到 `ghcr.io/jmedzen/mdwebview`（§14）：`dev` 分支 → `:dev`，`main` → `:latest`／`:main`，`v*.*.*` tag → 版本號。
 
@@ -1946,3 +1976,319 @@ node --test tests/test-admin-shell.test.js   # 只跑一個檔案
 2. 升版用獨立的小 PR（`chore/bump-X.Y.Z`，提交訊息「版本 A → B」），只改 `package.json` 與 `package-lock.json`。
 3. `dev` 驗證過後，以 `dev → main` 的 PR 發布；`main` 推上去後 CI 產出 `:latest`。
 4. 不直接推 `main`。
+
+---
+
+## 24. 朗讀（TTS）
+
+> 狀態（2026-11-16，dev）：六個階段都已完成（#212 後端、#213 前端播放、#214 後台與預先生成、#215 誦經模式等、#216 無障礙），之後陸續加上朗讀選單與朗讀本句（#228、#230）、音色資料夾與 ASR 補逐字稿（#223、#226）、數據分析（#231）、佛經讀音表與「讀音校正」頁（#237、#238）、體驗審計三批修正（#239 等待提示／訪客登入／自動重試、#240 鎖屏預取／從上次位置繼續／剩餘時間、#241 喇叭一按就讀／點段落朗讀／回報念錯），以及罕見字讀音（#244，§26）。
+
+### 24.1 定位與原則
+
+- 朗讀由區域網路上的 **audio.cpp**（github.com/0xShug0/audio.cpp）生成，**一律由 mdWebview 代理**：瀏覽器不直接連 audio.cpp（避免 HTTPS 頁面呼叫區網 http 的 mixed content、CORS，以及把模型管理端點暴露給讀者）。
+- 讀者端只能傳「路徑、位置、音色代號、句子序號」。伺服器網址、模型、audio.cpp 的 voice 名稱只在後台設定；**不接受任何 URL、voice 路徑、`voice_ref` 或任意文字**——朗讀的文字一律由伺服器從原檔取得。
+- 同一句、同一音色只生成一次，全站共用（內容定址）。文件改版只重生改動的句子；搬移或改名不必處理。
+- 對盲人與視障讀者的價值是「比 VoiceOver 更自然的音色、佛學名詞讀音正確、可長時間背景聽經、鎖屏控制」，設計原則是不和 VoiceOver 搶話、所有功能都能不看螢幕完成（前端階段實作）。
+
+### 24.2 資料流
+
+```mermaid
+flowchart TD
+    B["瀏覽器\n(路徑、位置、音色代號、句子序號)"] -->|"GET /api/tts/doc\nPOST /api/tts/resolve"| S["lib/tts.js\nloadDoc()：依 path+mtime+size+全站設定\n在記憶體快取斷句結果"]
+    S --> SEG["tts-segment.js\nsegmentDoc / detectChapters / snapSelection\n(≥ 1MB 的檔在 lib/tts-segment-worker.js)"]
+    B -->|"POST /api/tts/speak {ids}"| SP["handleSpeak()\n權限與限額 → 查 tts.db"]
+    SP -- 已快取 --> R["回 ready + /api/tts/audio/<sha>"]
+    SP -- 未快取 --> Q["enqueue()\n優先序 now > prefetch > warm > bulk\nsingle-flight（同 sha 合併）"]
+    Q --> UP["requestSpeech()\nPOST <baseUrl>/v1/audio/speech\n{model, input, voice, seed, busy_timeout_ms}"]
+    UP --> V{"200、audio/*、\n合法 WAV、時長合理？"}
+    V -- 否 --> F["重試一次 → failed\n(不寫快取，30 秒內不再重試)"]
+    V -- 是 --> T["transcode()：ffmpeg\n裁頭尾靜音 → 響度 -18 LUFS →\nAAC-LC 64k 單聲道 m4a (+faststart)"]
+    T --> ST["lib/tts-store.js put()\ntmp/ → blobs/ab/<sha>.m4a\n登記 tts.db → 超過上限就 LRU 清理"]
+    ST --> R
+    B -->|"GET /api/tts/audio/<sha>\n(Range)"| A["handleAudio()\n強 ETag、immutable、206/416"]
+```
+
+### 24.3 audio.cpp 實測（2026-11-11，`http://192.168.2.66:8301`，Metal，模型 `drama3`，git `04a58777`）
+
+| 項目 | 實測結果 |
+| :--- | :--- |
+| `GET /health` | `{"status":"ok","backend":"metal","models":2,"ui":true,"ui_management":true,"version":"dev","git":"04a58777","git_date":"2026-11-06"}` |
+| `GET /v1/models`（`?include_params=true`） | `data[]`：`id`、`family`、`task`（`tts`／`asr`）、`mode`（`offline`）、`loaded`、`configured`、`path`；加參數後多 `params[]`（`name`、`type`、`default`、`min`、`max`、`description`）。`drama3` 有 `seed`、`temperature`、`top_p`、`top_k`、`max_tokens`、`text_chunk_size`（128），**沒有** `speed`、`language` |
+| `GET /v1/audio/voices` | `{"voices":["demo_1_man","demo_2_man","demo_3_woman","demo_4_woman"]}`，只有名稱；`?model=` 回同樣內容；`/v1/audio/voices/<model>` 回 404。模型內建音色不會列出 |
+| `POST /v1/audio/speech` | 200 `audio/wav`：PCM 16-bit、44.1 kHz、單聲道（每秒 88.2 KB）。回應標頭 `x-audiocpp-audio-duration-ms`、`x-audiocpp-wall-ms`、`x-audiocpp-rtf` |
+| `response_format` | `mp3`、`opus` 都被忽略，仍回 WAV（這個 build 沒有 `mp3_encode` 模組）→ 由 mdWebview 用 ffmpeg 轉檔 |
+| `speed` | 500 `{"error":{"message":"speed is not supported by this model","type":"server_error"}}` → 語速一律用前端 `playbackRate`（不進快取鍵） |
+| `language` | 被忽略（輸出逐位元相同） |
+| `seed` | 同文字、同音色、同 seed 的輸出逐位元相同 → 固定 seed 並納入快取鍵 |
+| 錯誤 | 一律 `application/json`：`{"error":{"message","type"}}`。空字串 400、未知音色 400、未知模型 500、忙碌 503 `server_busy` |
+| 併發 | 同一模型一次只跑一個請求；`busy_timeout_ms` 逾時回 503 |
+| 串流 | `drama3` 是 offline 模式，不支援 → 逐句生成＋預取 |
+| 輸入長度 | 模型自行每 128 字切塊，HTTP body 上限 2 GiB；我們自己限制每句 ≤ `maxSentenceChars` |
+| 延遲 | 10 字 2.3 秒音檔／生成 2.1–2.4 秒；50 字 11.9 秒／7.1 秒；116 字 31.2 秒／16.8 秒。約「1 秒固定開銷＋音檔長度 × 0.5」，每字約 0.25 秒 |
+| 冷啟動 | 閒置數分鐘後的第一個請求要 35–45 秒（之後恢復每句 2–4 秒），與音色無關；超過 `speak` 的 25 秒長輪詢時該句回 `pending`，前端再問一次即可。閒置 3 分鐘內仍是熱的（實測 90 秒後 3.0 秒、180 秒後 4.9 秒）→ 保溫機制見 §24.6 `keepWarm` |
+| 音訊特性 | 開頭靜音 60–70 ms、結尾 140–215 ms；各句響度落差約 10 dB（RMS -29 到 -19 dBFS）→ 後製裁靜音並正規化到 -18 LUFS（實測落差降到 0.9 dB） |
+| 轉檔後大小 | AAC 64 kbps 約為 WAV 的 9.5%（每秒約 8.3 KB）；轉檔每句 0.06–0.5 秒 |
+
+換伺服器、模型或顯示卡後，用後台的「儲存並檢查」（`GET /api/admin/tts/health`）重新確認模型與音色；延遲數字需要重測。
+
+### 24.4 標準句（`tts-segment.js`）
+
+核心不變式：**斷句只看「空行分隔的段落」本身（散文更只看一行）**，結果與使用者選了什麼、從哪裡開始讀、整篇預先生成或單句即時生成完全無關。判斷條件都是檔案開頭的常數，並有對應測試（`tests/test-tts-segment.test.js`）。
+
+1. **不產生單位**：YAML front matter、`//` 開頭的 CBETA 頁首、程式碼區塊、表格分隔列。
+2. **正規化（逐行）**：去掉 Markdown 記號、註腳標號（`[^1]`、`[1]`、`[0001a01]`）、HTML 標籤、圖片；連結與 `[[檔名|顯示字]]` 只留顯示字；連續空白收成一個。一律用磁碟上的繁體原文（簡繁讀者共用快取）。
+3. **行的分類**：
+   - `skip`（不朗讀，但留在清單裡維持位置對照）：純編號、`[TOC]`、`No. 37 …`、`Tape66`、`PAGE 28`、Email、電話、沒有任何漢字或英數字的行；以及「版權／目錄／編輯說明／凡例／校勘／參考書目／索引」標題之下的內容（`readNonScripture` 關閉時）。
+   - `heading`：`#` 標題；或「整段只有這一行、≤ 30 字、沒有 ，。；？！、符合 卷／品／分／章／會／門第Ｘ、卷上中下、序品，或『數字＋空白＋短語』」的文字行（`level: 0`；前三種為 `strict`，才當章節起點）。
+   - `verse`：同段內連續的整齊行（每小句 4、5 或 7 字且等長）。多行合計 ≥ 4 小句；單行時有標點需 ≥ 4 小句、空白分隔需 ≥ 2 小句、且 ≤ 400 字。四小句一個單位，可跨行（`line`≠`endLine`）。
+   - `mantra`：音譯專用字佔該行漢字 ≥ 22%，或有 ≥ 3 個「二合／引」標記且密度 ≥ 10%。整行是一個語義組，組內照散文規則切。
+   - 其餘是散文（`sent`；以冒號結尾的是 `intro`）。
+4. **散文切點（強 → 弱）**：5＝成對括號外的 。！？；（結尾引號黏在前句）；4＝問答引導冒號之後；3＝引號內的句讀、發端詞（爾時、是時、復次、佛告）之前；2＝，、與空白；1＝句尾助詞（也者矣焉哉）之後。先在強度 ≥ 4 處切開；超過 `maxSentenceChars` 的片段取「最高強度中最靠近中點」的切點對分；完全沒有切點時每 36 字硬切。硬切超過單位數 1% 的文件標 `guessed`（後台顯示「斷句為自動推測」）。
+5. **不切開**：讀音字典的詞（最長匹配）、連續英數字、短夾注內部、UTF-16 代理對。引號配對只算同一行內真正成對的——段首未收的「視為不存在（CBETA 跨段引文慣例）。
+6. **合併**：不足 8 字的片段併入同一行的下一句（行尾的併入前一句），不超過上限、不跨行。
+7. **口語化**（斷句之後、雜湊之前）：套讀音字典；`readNotes` 關閉時去掉夾注；咒語一律去掉「（引）（二合）」等注音括號；偈頌中的空白換成「，」。**會改變口語化文字的選項都是全站設定**，個人設定（音色、語速、停頓）不改變文字。
+
+章節四層後備（`detectChapters`）：① `#` 標題 ≥ 4 個；② 有 `strict` 的卷品文字行（卷尾重複的標題或以「終」結尾的不開新章）；③ 段首發端詞且前一章已累積 ≥ 1500 字；④ 每 ≥ 2500 字的下一個段落邊界（單一段落超過 4000 字退到句子邊界）。任一章超過 5000 字就用下一層再細切。章節只用於惰性載入、「朗讀本節」的範圍與進度顯示。
+
+選取吸附（`snapSelection`）：擴展到標準句 → 整組偈頌／咒語（≤ 600 字）→ 引導句納入後文（可跨段）、引文納入前面的引導句 → 引號平衡（只在同一段落內；補全後超過 200 字就放棄並標 `incomplete`）→ 不足 15 字補句（先往後）→ 不越過標題。
+
+語料驗證（205 篇分層抽樣，句長上限 120）：章節層 1／2／3／4 各佔 35%／20%／9%／36%；句長中位數 18 字、P90 49、P99 106；硬切佔 0.6%，集中在無標點的文件；選取模擬 2,999 次，播放的句子 100% 與整篇斷句相同，改一個字只影響 1 句。`tests/test-tts-corpus.test.js` 對本機經文庫重跑這些不變式。
+
+### 24.5 快取（`lib/tts-store.js`）
+
+```text
+TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
+├── blobs/ab/<sha256>.m4a   內容定址音檔（沒有 ffmpeg 時是 .wav）
+├── tmp/                    生成中的檔，驗證後 rename 進 blobs/（啟動時清空）
+└── tts.db                  blobs 索引與每日統計（node:sqlite，WAL）
+```
+
+- **快取鍵** `sha256("v1\n" + 口語化文字 + "\n" + 模型 + "\n" + audio.cpp voice（`rev` > 1 時加 `#rev`）+ "\n" + seed + "\n" + 後製版本)`。後製版本是 `aac64-ln18-1`（有 ffmpeg）或 `wav-1`。**讀音字典版本、斷句規則版本、語速都不進鍵**。
+- **不寫文件清單到磁碟**（與第一階段設計不同）：斷句每 MB 約 100 ms，結果以 `path＋mtime＋size＋全站設定` 為鍵放在記憶體 LRU（最多 12 篇、80 萬個單位）；「這一句是否已快取」直接用 sha 查 `tts.db`。因此文件改版、搬移、改名都不需要任何對帳。
+- `blobs` 表：`sha`、`ext`、`bytes`、`duration_ms`、`chars`、`voice`、`flags`（1＝試聽檔，GC 不刪；2＝臨時檔，GC 優先刪、24 小時後清）、`created_at`、`last_played_at`（每小時最多更新一次）、`plays`。`stats` 表：每日 `hits`、`misses`、`generated`、`failed`、`gen_ms`。
+- **GC**：每次寫入後，用量超過 `cacheMb` 就刪到 95%：先刪臨時檔，再刪最久沒播的。
+- 快取在第一次需要時才開啟；沒啟用朗讀的站不會多出資料夾。
+
+### 24.6 設定（`config.settings.tts`）
+
+| 欄位 | 預設 | 說明 |
+| :--- | :--- | :--- |
+| `enabled` | `false` | 總開關 |
+| `baseUrl`、`model` | — | audio.cpp 位址（只存 origin）與模型代號；環境變數 `TTS_BASE_URL`、`TTS_MODEL` 優先，後台顯示鎖定 |
+| `voices` | `[]` | `[{ id, voice, rev, name, tags, rate, enabled }]`：`id` 是給讀者的代號（`v` 開頭），`voice` 是 audio.cpp 的名稱（不可含路徑），`rev` 是參考錄音的版本（預設 1，見 §24.10） |
+| `defaultVoice` | — | 預設音色代號 |
+| `seed` | `1234` | 固定 seed（進快取鍵） |
+| `concurrency` | `1` | 同時送往 audio.cpp 的請求數（1–4） |
+| `maxSentenceChars` | `120` | 句長硬上限（40–200）。調整後只有超過新上限的長句會重切、重生 |
+| `guestGenerate` | `false` | 訪客能否生成新音檔（否則只能播已快取的） |
+| `perUserHour`、`perIpHour` | `600`、`900` | 每小時可生成的句數；快取命中不計；單機模式不限 |
+| `cacheMb` | `20480` | 快取上限（MB）；`TTS_CACHE_MB` 優先 |
+| `readNotes`、`readMantra`、`readNonScripture` | `false`、`true`、`false` | 全站口語化設定（夾注、咒語、非經文區段） |
+| `warmup` | `true` | 即時請求之後，以較低優先序先生成後面 5 句 |
+| `maxSelectionChars` | `3000` | 一次選取朗讀回傳的上限，其餘由前端沿句子序號續取 |
+| `busyTimeoutMs` | `120000` | 傳給 audio.cpp 的 `busy_timeout_ms`。要比冷啟動（35–45 秒）長：推論時間超過這個值時，audio.cpp 會把排在後面的請求以「前一個請求疑似卡住」立刻回 503 |
+| `keepWarm`、`keepWarmMinutes` | `true`、`30` | 保溫：最後一次朗讀活動後的 N 分鐘內，每次健康檢查（2 分鐘）若已閒置 100 秒且佇列是空的，就送一句「南無阿彌陀佛」給 audio.cpp（結果丟棄、不進快取）。讀者一開啟朗讀（`/api/tts/doc`）也會先暖機一次 |
+
+匿名的 `GET /api/admin/status` 會把 `settings.tts` 拿掉（不洩漏區網位址）。讀音字典在 `TTS_LEXICON_PATH`（預設 `config.json` 旁的 `tts-lexicon.txt`），一行一條「詞｜替換」，只寫詞＝只保護不切開；10 秒內熱重載。
+
+### 24.7 API
+
+讀者端（不需登入；POST 需同源）：
+
+| 路由 | 說明 |
+| :--- | :--- |
+| `GET /api/tts/status` | `{ enabled, available, canGenerate, generateBlocked: ''\|'login'\|'quota', voices: [{ id, name, tags, rate, sample }], defaultVoice, limits, format, sampleText }`。`available:false`＝朗讀服務暫時無法使用（已快取的照常播） |
+| `GET /api/tts/doc?path=&voice=` | 章節表 `{ layer, guessed, total, chapters: [{ i, title, part, line, from, to, chars, layer }] }` |
+| `GET /api/tts/doc?path=&voice=&chapter=N`（或 `&line=N`，可加 `&offset=`） | 該章的句子 `[{ i, line, endLine, a, b, kind, text, g?, level?, sha?, cached?, ms? }]`，一次最多 600 句（`more:true` 時用 `offset` 續取）。`line` 找含該行的章（「從目前位置朗讀」） |
+| `POST /api/tts/resolve` `{ path, voice, start: {line, off}, end: {line, off}, exact? }` | 選取吸附：`{ from, to, selFrom, selTo, flags, truncatedAt, sentences }`。`exact:true`（只讀我選的）時頭尾殘句是臨時句子（`temp:true`、`id:"x…"`，10 分鐘內有效） |
+| `POST /api/tts/speak` `{ path, voice, ids: [句子序號或臨時 id…], priority: 'now'\|'prefetch' }` | 一次最多 8 句，長輪詢最多 25 秒。每句 `state`：`ready`（附 `url`、`ms`）、`pending`（再問一次）、`failed`、`skip`、`gone`、`login`、`quota`、`unavailable` |
+| `GET\|HEAD /api/tts/audio/<sha>` | 只服務快取裡的檔。強 ETag、`Cache-Control: public, max-age=31536000, immutable`、`Accept-Ranges`、Range 206／416（`parseByteRange`） |
+
+後台（需管理員）：`GET|POST /api/admin/tts/jobs`（預先生成工作：`{ scope, voice, pin }`）與 `POST /api/admin/tts/jobs/<id>` `{ action: pause|resume|cancel|delete }`、`GET|POST /api/admin/tts/settings`（`check:true` 時回 `probe`：健康狀態、TTS 模型、音色名稱；不回模型路徑）、`GET /api/admin/tts/health`、`POST /api/admin/tts/sample {voice}`（生成固定經句「應無所住，而生其心。」的試聽檔）、`GET|POST /api/admin/tts/lexicon`、`POST /api/admin/tts/preview {voice, text}`（套字典後試聽一句）、`GET /api/admin/tts/cache`（用量、每日命中與生成、佇列、ffmpeg 狀態）、`POST /api/admin/tts/cache/clear {scope:'all'|'path', path}`。
+
+### 24.8 安全
+
+- **SSRF**：對外只連 `baseUrl` 的五條寫死路徑（`/health`、`/v1/models`、`/v1/audio/voices`、`/v1/audio/speech`，以及只有管理員觸發的 `/v1/audio/transcriptions`），不跟隨轉址；`baseUrl` 只接受 http／https、不含帳密。模型管理端點不碰。
+- **任意文字**：`speak` 只接受「已存在於該檔的句子序號」或伺服器自己發的臨時 id；`text`、`input`、`voice_ref`、`model`、`seed` 等欄位一律忽略。
+- **路徑**：走 `resolveMdPath()`（只服務 `.md`、禁隱藏路徑、禁庫外、symlink 檢查）；音檔路由的 `<sha>` 必須是 64 個小寫 hex。
+- **錯誤內容不進快取**：必須是 200、`Content-Type: audio/*`、合法 PCM WAV、時長在「每字 40–1500 ms」的合理範圍；轉檔後檢查是合法的 m4a。
+- `tts-cache/` 在靜態檔的敏感資料夾黑名單內。
+
+### 24.9 尚未實作（後續階段）
+
+最近朗讀與收藏（`users.db`）；大綱與科判樹節點的「朗讀本節」（目前只有內文標題後的按鈕）；VoiceOver 實機檢核（第六階段）。
+
+### 24.10 音色管理（參考錄音）
+
+`drama3`（Fish Audio Drama 3）是聲音複製模型：每個音色就是 audio.cpp 那一側的一段**參考錄音＋逐字稿**，mdWebview 只認名稱。
+
+- audio.cpp 的音色庫是一個資料夾（`--voice-dir <資料夾>` 或設定檔的 `voice_dir`；沒指定時用內建的 `webui/native/demo_voices/`）：每個音色一個 `<名稱>.wav`，加上一個檔名就叫 `prompt_text`（沒有副檔名）的對照檔，一行一個 `<名稱>|<錄音的逐字稿>`。`GET /v1/audio/voices` 列出的就是這些名稱。
+- mdWebview 這一側：後台從 audio.cpp 抓回名稱，管理員勾選要開放的，填中文顯示名、標籤、預設語速，並產生試聽。讀者只看得到代號（`v…`）與顯示名。
+- **參考錄音不要原地覆蓋**：快取鍵只含名稱，同名換了錄音，舊快取仍會被當成同一個音色播出來，同一篇裡會忽然換聲音。換錄音時用新檔名（如 `huiyin_v2.wav`），或把該音色的 `rev` 加一（舊音檔會隨 LRU 自然淘汰）。
+- **音色資料夾設定**（`settings.tts.voiceDir`，後台「朗讀服務」卡在伺服器網址下方）：只是記錄與檢查，mdWebview 不能改 audio.cpp 的啟動參數，換資料夾要自己重啟 audio.cpp。`inspectVoiceDir()` 在路徑於本機存在時列出參考錄音（wav／mp3／flac／ogg／opus／m4a），對照 `prompt_text`（`名稱|逐字稿`）標出缺逐字稿的音色（同名 `.txt` 存在但沒寫進 `prompt_text` 也會提示），以及 `prompt_text` 裡有但沒有錄音檔的名稱；後台再和 audio.cpp `/v1/audio/voices` 比對，標出還沒被 audio.cpp 列出的。只讀檔名與 `prompt_text`、最多 500 項；路徑必須是絕對路徑，只有管理員看得到。audio.cpp 在別台機器或容器內時看不到路徑是正常的。
+- **缺逐字稿自動補（ASR）**（`settings.tts.autoTranscribe`，預設開；`asrModel` 預設 `qwen3-asr`）：打開後台朗讀頁（`GET /api/admin/tts/settings`）或按「立即補逐字稿」（`POST /api/admin/tts/voicedir/transcribe`）時，`startVoiceTranscribe()` 在背景把沒有同名 `.txt`、也不在 `prompt_text` 的 WAV 以 multipart 送 audio.cpp `POST /v1/audio/transcriptions`，結果寫成 `<名稱>.txt`（`wx`，不覆蓋），再由 `rebuildPromptText()` 依各 `.txt`（沒有就沿用舊行）重建 `prompt_text`：每個錄音一行、去掉已無錄音的舊名、舊檔留 `prompt_text.bak`、內容沒變不寫。單一工作、60 秒內不重跑；後台每 3 秒只更新資料夾那一塊。audio.cpp 會即時讀新的 `prompt_text`（實測不用重啟）。ASR 模型要在 audio.cpp 註冊（本機 `server-8301.json` 已設 lazy）。逐字稿可能有錯字或簡體字，後台提醒校對。
+- **參考錄音已刪除的音色**：健康檢查（每 2 分鐘）與後台檢查會順便抓 `/v1/audio/voices` 存進 `upstreamVoices`（連不上時沿用上一次，換伺服器網址時作廢）。白名單裡 audio.cpp 已不再列出的音色由 `voiceGone()` 判定：`/api/tts/status` 不列出、`findVoice()` 不接受（不能生成）、預設音色改用第一個還在的；後台表格標「已不存在」排在最後，「移除」直接從白名單刪掉並存檔。
+- **讀音校正／內建佛經讀音表**（後台獨立頁「讀音校正」＝`#admin/ttslexicon`，同一個 tts pane 的 `ttslexicon` 卡）：`lib/tts-lexicon-buddhist.txt` 每行「詞｜改讀為｜注音｜依據」，依據以教育部《重編國語辭典修訂本》為主（附條目 ID），辭典未收者依佛門誦讀慣例。`settings.tts.builtinLexicon`（預設開）時 `lexicon.entries(true)` 把內建表疊在自訂字典之下、長詞先換；自訂字典同一個詞有讀法就以自訂為準，「詞｜詞」＝停用該條，只寫詞（斷句保護）不擋內建讀法。替換只發生在 `spoken`，讀者畫面不變；`spoken` 進快取鍵，所以只有被換到的句子重新生成；`lexicon.version(on)` 含內建表雜湊與開關，文件斷句快取跟著重算。後台每條可試聽「校正後／原讀法」（preview 的 `raw: true` 不套字典）、停用／恢復。同日依聽經目錄 15 部經（含普門品）全面校對，補 34 條（乘 ㄕㄥˋ、維摩詰、稽首、毘、曇、伽、塞、頗、裓等），共 70 條，在這 15 部經裡套用 1822 處；咒語用字與傳承不一的讀法不自動改，列在 PR 待人工確認。2026-11-16 以 drama3＋qwen3-asr 逐條比對：南無、般若、伽、迦葉、闍、祇、給、犍等原本念錯的都改正（祇改用「旗」而非「奇」，因「奇」也讀 jī）。
+- 音色從白名單移除或停用：已快取的音檔保留，但不再提供新生成。
+- **參考錄音太長會截斷每一句**：audio.cpp 給 drama3 的 context 預設 2048 格（`fish_drama3.context_length`），參考錄音（每秒約 21.5 格）＋逐字稿（每字約 0.3 格）＋這一句的文字要先放進去，剩下的才是生成長度（每句再上限 1024 格≈48 秒）。用完時 audio.cpp 仍回 200，只在 log 寫 `generation budget reached`，所以 mdWebview 用 `estimateRefBudget()` 自己估（2026-11-17 實測：76 秒＋1178 字的參考錄音只剩約 85 格≈4 秒，每句都停在半句）。`inspectVoiceDir()` 每個音色附 `budget`（以句長上限的一句計），後台在「每句最多約 N 秒」小於句長上限時標警告；`requestSpeech()` 在長度碰到估算上限又明顯過短（每字不到 0.18 秒）時視為截斷、不進快取，試聽回 `REF_TOO_LONG`。context 不是 2048 時設環境變數 `TTS_DRAMA3_CONTEXT`。
+- **剪成約 20 秒**（後台音色資料夾，超過 30 秒的 WAV 才有按鈕；`POST /api/admin/tts/voicedir/trim`，需要 ffmpeg 與 ASR）：`silencedetect` 找 12–28 秒間最接近 20 秒的停頓切開（沒有就切在 20 秒並淡出），原檔與舊 `.txt` 移到資料夾內的 `_原始錄音/`（audio.cpp 與本站都不掃子資料夾），剪好的檔用原檔名，接著 ASR 重做逐字稿並重建 `prompt_text`，白名單裡用這個錄音的音色 `rev` 加一讓被截短的舊快取失效。
+- 讀者端不能上傳或指定參考錄音（`voice_ref` 不開放）。
+
+### 24.11 前端（`app.js` §17c、`index.html` `#ttsBar`、`style.css` §27c、`sw.js`）
+
+- **入口**：右上角「從目前位置朗讀」（`#ttsStartBtn`，從畫面上第一個可見的行開始；盲人最常用）；選字彈窗的「朗讀」（`#selectionReadBtn`）；內文每個標題旁的「朗讀本節」按鈕（`.tts-head-btn`，由 `decorateTtsHeadings()` 在渲染後插入到標題**前面**當兄弟元素，`float: right` 靠右對齊標題第一行（`alignTtsHeadButtons()` 量出 margin-top，`ResizeObserver` 在字級／行寬改變時重算），不另佔一行；不放在標題裡，標題的無障礙名稱保持乾淨，VoiceOver 從標題往前滑一下就是它；只有圖示、沒有文字節點，不影響劃線定位與大綱；`aria-label="朗讀本節：<標題>"`；大小跟著所在標題：按鈕 font-size＝該層標題字級（`:has(+ h1)`…），按鈕框就是喇叭圖形（`TTS_ICON.speakTight`，viewBox 裁到圖形含線寬，0.9em 見方），右緣在每層標題都貼齊內文右緣、中心對齊標題第一行；hover 底色用 box-shadow 外擴，`::after` 把點擊範圍補到至少 44px，不增加版面高度）。快捷鍵 Alt+R 播放／暫停、Alt+←／→ 上下句、Alt+↑／↓ 語速、Esc 收合面板（焦點在播放列時停止）；用 `e.code` 判斷，不碰 Ctrl／Cmd，輸入框內不生效，可在面板關閉。網站沒有啟用朗讀時（`/api/tts/status` 回 `enabled:false`）所有入口都藏起（`body.tts-enabled`）。
+- **選取的位置**：前端把選取端點換成 `{ line, n }`（`n`＝該行中這一點之前的非空白字數），伺服器在該行的句子上對位（`resolveStrippedPos`）。畫面文字與正規化文字的空白、Markdown 記號不同，但非空白字的順序相同。選到半句時面板顯示「已延伸至完整句」，補讀的句子用較淡的 `mdw-tts-padded` 底色。
+- **播放**：只有一個重複使用的 `Audio`，第一次在使用者手勢的同步呼叫內先播 `/api/tts/silence.wav`（0.1 秒靜音，用 `data:` URI 會被 CSP 擋下）解鎖，之後換 `src`。`ended` 時接下一句；句間停頓只在頁面可見時用計時器插入（背景時計時器會被凍結，直接接）。後 3 句用 `/api/tts/speak` 的 `priority:'prefetch'` 先生成，並 `fetch` 一次讓 Service Worker 存起來。換 `src` 後重設 `playbackRate`（iOS 會重設）並開 `preservesPitch`。
+- **等待與失敗**（2026-11-16 體驗審計）：解鎖用的靜音檔播放時不清掉等待狀態，第一句生成中一律顯示「生成中…」，超過 8 秒（`TTS_SLOW_WAIT_MS`）改顯示「朗讀服務暖機或忙碌中」。一句失敗時 `ttsRecover()` 先自動重試（`TTS_RETRY_MS` 5／15／35 秒；最後一次要等過伺服器 30 秒的失敗記憶），仍失敗就略過並播報一次；前一句已放棄時後面的句子只再試一次；連續 3 句失敗、服務連不上或網路中斷才停（Media Session 改為暫停，鎖屏按播放即重試）。伺服器回 `login`（訪客不能生成）時錯誤列顯示「登入後繼續」而不是重試，登入成功後 `ttsResumeAfterLogin()` 從那一句接著讀；登入、登出都會重新取得 `/api/tts/status`。
+- **長時間聽經**（體驗審計第二批）：切到背景／鎖屏時 `ttsPrefetch()` 改為備好約 2 分鐘的音檔（`TTS_BG_AHEAD_MS`，最多 24 句，每 8 句一批），下一章接上來後再補足；`visibilitychange` 轉 hidden 時立刻擴大一次。一般經文（非聽經目錄）每換一句把行號記進 `STORAGE_KEYS.TTS_RESUME`（每篇一筆、最多 60 篇、30 秒內同一行不重寫），整篇讀完才清掉；朗讀選單第一項「從上次位置繼續」、首頁 `#homeResume`「繼續聽：<經名>」（點擊內先解鎖再開經）。播放列與進度滑桿顯示「約剩 N 分鐘」（`ttsRemainingMs()`：已載入的句子用實際字數或已生成的長度，未載入的章用 `/api/tts/doc` 章節表的字數，每字約 0.25 秒，除以語速）；總句數還沒算完時不再顯示「57+」。
+- **入口與互動**（體驗審計第三批）：右上角改成兩顆：`#ttsQuickBtn`（喇叭，一按就從畫面上第一行朗讀；朗讀中是暫停／繼續，名稱跟著切換）與 `#ttsStartBtn`（▾，完整的朗讀選單，menu button 語意不變）。第一次看到入口時 `#ttsHint` 提示一次（`mdWebview-tts-hint-seen`，按過喇叭或「知道了」就不再出現）。播放中點一下內文的段落（不含連結、按鈕、腳註、選字中），旁邊出現 `#ttsJumpPill`「從這段讀」4 秒（啟動方式 `tap`）。面板進度列下方「這句念錯了」：`POST /api/tts/report {path, i, voice, note}`（同源、每 IP 每小時 20 次；文字由伺服器從原檔取，備註 ≤ 60 字並去掉角括號），存進 `tts.db` 的 `reports`（同一句合併計數，最多 500 筆）；後台「讀音校正」頁的「讀者回報」表可試聽、放進試聽欄、標為已處理（`GET /api/admin/tts/reports`、`POST /api/admin/tts/reports/delete`）。寬螢幕（≥ 900px）面板分兩欄、高度上限 52vh，展開時若蓋住目前句就把內文捲到播放列上方。
+- **朗讀本節**：遇到同級或更高級的標題就停；本節可能跨好幾章，`ttsFillSection()` 在背景把句子接上來，「第 N／M 句」才算得出本節的總數。從目前位置朗讀則讀到底，自動接下一章。
+- **跟讀高亮**：`mdw-tts-current`（淡朱底色＋朱筆底線）。用該句的 `line`／`endLine` 在 `buildHighlightTextIndex()`（與劃重點共用）的文字裡找，去掉空白比對，找不到就退回整行；內文重畫（虛擬捲動、繁簡切換）時由劃重點的 MutationObserver 一併重畫。不支援 Custom Highlight 的瀏覽器在該區塊加 `.tts-line-current`。跟讀捲動只在句子離開視窗中段時才捲；使用者自己捲動（wheel／touchmove）後 4 秒內不跟，播放列出現「回到朗讀位置」。`prefers-reduced-motion` 時不平滑捲動。
+- **無障礙**：播放列 `<section aria-label="朗讀播放器">`（地標）＋略過連結；播放／暫停是同一顆按鈕切換 `aria-label`；進度與語速是 `input[type=range]`，`aria-valuetext`「第 N 句，共 M 句」「1.2 倍」；音色用原生 `<select>`；只有一個 `aria-live="polite"` 的狀態區，只在使用者操作後寫入（已暫停、語速、朗讀範圍已延伸、無法連到朗讀服務），換句時不播報。高亮純視覺，不移動焦點。
+- **Media Session**：`play`／`pause`／`previoustrack`／`nexttrack`／`stop`；`metadata` 是經名、目前章名、站名與音色、網站圖示。
+- **個人偏好**：`STORAGE_KEYS.TTS_PREFS`＝`{ voice, rate, follow, shortcuts, exact }`，納入偏好匯出入（`preferences.tts`）。語速 0.7–2 倍，0＝用音色的預設語速。
+- **Service Worker**：`/api/tts/audio/<sha>` 走 Cache-First，快取名 `mdwebview-tts-v1` 不綁 app 版本（`activate` 只清 `mdwebview-shell-`／`mdwebview-content-` 開頭的舊快取），最多 6000 筆（約 240 MB）。快取裡存完整的 200，`<audio>` 的 Range 請求由 SW 切出 206／416（`parseTtsRange` 與伺服器的 `parseByteRange` 有對照測試）。
+- **介面字串**：照本專案慣例直接寫在 `index.html`／`app.js`，簡體顯示由 `display-script.js` 即時轉換；沒有需要依語系改寫措辭的字串，所以沒有加進 `i18n/zh-TW.js`、`zh-CN.js`。
+
+- **展開面板（2026-11-15 改版）**：由上而下＝進度（滑桿＋「第 N 句／共 M 句」）→ 音色（原生 radio 疊在膠囊上，名稱單行不斷字、可橫向捲動；`tidyTtsVoiceNames()` 對沒填中文名的音色去掉 `Ref-Audio-`、`male-` 與共同的檔名式前綴）→ 語速 → 「聆聽方式」分組清單（誦經模式、睡眠計時、離線收聽）→ `<details>`「更多設定」（四個開關，原生 checkbox＋`role="switch"`）→ 停止。間距 4／8／12／16／20／24，群組圓角 12，全部走主題變數。
+
+- **朗讀選取後繼續往下讀**（`prefs.selContinue`，預設開；面板「更多設定」可關）：選取的句子讀完時，`ttsContinueAfterSelection()` 用最後一句的行號向 `/api/tts/doc?line=` 要那一章，接上序號比它大的句子、清掉 `endIndex`／`stopAtUnit`／選取標記，之後照一般朗讀接下一批、下一章，以及「讀完接下一篇」。
+
+- **右上角朗讀選單**（`#ttsStartBtn` menu button＋`#ttsStartMenu` role=menu，`setupTtsStartMenu()`）：暫停／繼續（朗讀中才出現）、從這裡讀到結尾、朗讀本節（畫面上第一行所在的節，`ttsStartSectionHere()`）、朗讀本句（有選取＝只讀選取，`selOnly` 不往下接；沒選取＝畫面上第一句，`endIndex` 設成那一句）、從頭朗讀整篇、讀完接下一篇（menuitemcheckbox，選單不關）、睡眠計時（menuitemradio：關／15／30／60 分／本節）、誦經模式、播放面板與設定。開選單時先存下內文的選取（點選單時有些瀏覽器會清掉）。↑↓／Home／End 移動、Esc 關閉並把焦點還給按鈕、點外面關閉。標題旁的喇叭仍是一按就朗讀本節。
+
+- **使用統計（數據分析）**：讀者端 `ttsTrack()` 以 `POST /api/tts/event`（同源、每 IP 每分鐘 120 筆）送匿名事件：`start`（啟動方式白名單＋音色代號＋文件路徑，路徑經 `resolveMdPath` 驗證）、`listen`（累積的收聽毫秒與句數，每分鐘或停止／切到背景時送）、`feature`（睡眠計時、讀完接下一篇、誦經、離線下載、固定音色、播放面板、換音色）、`end`（讀完／停止／睡眠計時）。伺服器只按日彙總進 `tts.db` 的 `usage(day, kind, key, n)`；當日收聽人數用「每日隨機鹽（只在記憶體）＋IP＋UA」的雜湊在 `listeners` 去重，雜湊兩天後刪除，彙總保留 400 天。後台 `GET /api/admin/tts/analytics?range=` 合併 `usage` 與既有的 `stats`（快取命中、生成數、生成時間、失敗），數據分析頁的「朗讀」區塊顯示指標卡、每日趨勢、啟動方式／音色／功能／結束方式分布與熱門文件。
+
+### 24.12 後台頁與預先生成（第四階段）
+
+- **後台「朗讀（TTS）」頁**（`app.js` §21.8，`#adminPaneTts`，`#admin/tts`）：朗讀服務（開關、伺服器網址、模型下拉、連線與 ffmpeg 狀態、「重新檢查連線」）、音色（audio.cpp 回報的名稱＋已存的白名單：開放、預設、中文名、標籤、預設語速、版本 `rev`、試聽）、朗讀規則與限額、讀音字典（編輯、存檔、套字典試聽一句）、音檔快取（用量、近 7 天命中率、清除單篇或全部、上限）、預先生成。前三張卡片走底部儲存列（`data-save="tts"`，「儲存並檢查」）；字典、清除、預先生成是立即動作（`data-no-dirty`）。開後台時各頁一起載入容易撞到每秒 30 次的 API 限流，這一頁的請求依序送出並在 429 時重試（`ttsAdminApi`）。
+- **狀態燈**：開放朗讀但連不上、或模型不在 audio.cpp 上 → 紅燈；沒有開放音色、沒有 ffmpeg → 黃燈。總覽載入時一併查詢，列入「待處理」；系統狀態頁標題列有朗讀服務的小燈（`#hwTtsStatus`）。健康檢查除了 `/health` 也比對 `/v1/models`：audio.cpp 換成別的模型時（`max_loaded_models` 會把舊的卸載），`available:false`，讀者端顯示「朗讀服務暫時無法使用」，已快取的照常播。
+- **預先生成**（`lib/tts.js` `runJobs`）：工作存在 `tts.db` 的 `jobs` 表（`scope`、`voice`、`pin`、`state`：queued／running／paused／done／cancelled、檔案清單、進度）。同時只跑一個工作，逐句以最低的 `bulk` 優先序排入佇列，讀者的請求永遠排在前面；但並行數為 1 時，讀者最多要等正在生成的那一句（幾秒）。已快取的句子直接略過；服務中斷時每 30 秒重試、不把句子算失敗；暫停／取消每一句都檢查；重開機後從斷點接著做。資料夾最多 5000 篇。`pin` 的工作把生成與已存在的音檔都加上 `FLAG_PIN`（4），LRU 清理不刪。
+- **讀者端音色卡片**：面板裡的音色是原生 radio 組成的卡片（`role="radiogroup"`），有管理員產生過的試聽檔就附試聽鈕（另一個 `Audio`，會先暫停朗讀）。「這部經固定用這個音色」存在 `TTS_PREFS.byPath`（最多 300 篇），開這部經時優先於一般偏好。
+
+### 24.13 誦經模式、睡眠計時、離線下載、接續下一篇（第五階段）
+
+- **誦經模式**（B 方案，`#ttsChant`）：全螢幕大字跟讀，目前句放大置中（換句時淡入，`prefers-reduced-motion` 時不動），前後句淡化並 `aria-hidden`；按鈕播放 76px、上下句 56px、離開 44px 以上；底部是經名、第 N／M 句、音色、睡眠計時。`role="dialog" aria-modal="true"`，開啟時 `.app` 與播放列設 `inert`、焦點移到播放鍵、Tab 留在對話框內；Esc 或「離開」關閉並把焦點還給開啟前的元素（被藏起時退回播放鍵），畫面捲回朗讀位置。
+- **睡眠計時**：15／30／60 分或「讀完本節」（下一個標題前停）。前景用計時器準時停（讓這一句讀完）；背景時計時器會被凍結，所以每換一句也檢查一次時間。剩餘時間顯示在播放列與誦經模式。不存檔，每次朗讀重設。
+- **接續下一篇**（偏好 `continueNext`，預設關）：整篇讀完（沒有更多章節、不是選取朗讀或朗讀本節）就開目錄樹中同一資料夾的下一篇，從頭讀。目前沒有依科判的前後科跨篇。
+- **離線下載整篇**：面板的「下載整篇以離線收聽」逐章取得目前音色下的所有句子，先估算大小並確認；還沒生成的句子以 `prefetch` 優先序生成（受訪客與限額規則限制），再把音檔存進 `mdwebview-tts-offline-v1`（與一般播放留下的 `mdwebview-tts-v1` 分開，SW 不自動清理、先從這裡找）。紀錄存在 `STORAGE_KEYS.TTS_OFFLINE`（`'<音色>|<路徑>'` → `{ shas, bytes, at }`），「移除離線檔」只刪沒有被其他下載用到的音檔。
+
+### 24.14 無障礙（第六階段）
+
+定位：盲人讀者本來就有 VoiceOver，朗讀對他們的價值是更自然的音色、佛學名詞讀音正確、可長時間背景聽經與鎖屏控制。原則是**不和 VoiceOver 搶話、所有功能都能不看螢幕完成**。
+
+- **入口不依賴選字**：右上角「從目前位置朗讀」、內文每個標題後與大綱每一列的「朗讀本節」（`aria-label="朗讀本節：<標題>"`，觸控時一直可見、點擊範圍 ≥44pt）、Alt+R。
+- **地標與結構**：播放列是有名稱的 `<section>`＋「跳到朗讀播放器」略過連結；誦經模式是 `aria-modal` 對話框（背景 `inert`、焦點圈、Esc、焦點歸還）。
+- **控制元件**：播放／暫停是同一顆按鈕切換名稱；進度與語速是 slider，`aria-valuetext` 用中文；音色是原生 radio 卡片；所有圖示按鈕都有中文名稱。
+- **不打斷音訊**：只有一個 polite 狀態區，只在使用者操作後播報；換句時不播報、不移動焦點。偏好「讓 VoiceOver 焦點跟著目前的句子」（預設關）開啟時才把焦點移到該段落（`preventScroll`）。
+- **語言**：`#markdownBody` 與誦經模式依繁簡顯示標 `lang="zh-Hant"`／`zh-Hans`。
+- **偏好設定**：設定視窗「閱讀」頁有完整的朗讀區（預設音色、語速、睡眠計時預設、跟讀捲動、焦點跟隨、讀完接下一篇、快捷鍵），與播放面板同步，納入偏好匯出入。
+- **低視力**：觸控目標 ≥ 44pt；播放列字級用 `font: -apple-system-body`（跟隨系統文字大小）；`prefers-contrast: more`、`forced-colors`、`prefers-reduced-motion` 都有對應；亮色主題朱色對比由測試把關。
+- **實機檢核**：VoiceOver（macOS Safari、iOS／iPadOS Safari 與加到主畫面的 PWA）的流程檢核表在 PR #216 的說明裡；這部分需要真機，內建瀏覽器與自動測試做不到。
+
+## 25. 聽經目錄
+
+一般讀者不會從七千多篇的檔案樹裡找經來聽。聽經目錄是一份管理員挑選的經目（分類 → 經 → 品／卷），點一品就用 §24 的朗讀從那裡開始讀。**不另做播放器**：讀誦就是「開啟經文 → `ttsStartFromLine(line, false, { stopLine })`」。
+
+### 25.1 資料（`config.settings.listenCatalog`，跟著設定備份）
+
+```
+{ categories: [{ id, name, note }],
+  items: [{ id, name, sub, cat, path, enabled, split, range, parts }], updatedAt }
+```
+
+- `split`：`auto`（有兩個以上的品就依品、卷當分組；否則依卷）、`juan`、`none`、`manual`。
+- `range`：節錄（普門品＝法華經第二十五品）：`{ from: 錨點, to: 錨點|null }`，`to` 不含。
+- `parts`：自動模式只存覆寫（改名 `title`、不收錄 `on:false`）；手動模式就是分段本身。
+- **錨點** `{ head, line }`＝該段開頭的文字（去空白）＋存檔時的行號。檔案改版後先找文字完全相同、離原行號最近的單位，再找以它開頭的；都找不到就回報問題（後台黃燈），不會默默讀錯地方。
+- 沒有存過時用 `DEFAULT_ITEMS`（16 部常誦經，6 類；檔案不在經文庫裡的自動略過）。壇經的品名是「行由第一」這種不含「品」字的獨立行，偵測不到，預設就是手動 10 段。
+
+### 25.2 品卷偵測（`lib/listen-catalog.js`）
+
+斷句沿用朗讀的 `tts.loadDoc()`（同一份標準句與記憶體快取），所以起點行號、字數都和實際朗讀一致。只看 `kind:'heading'` 的單位（`#` 標題或 strict 的卷品文字行）：`…卷第N`／`卷上中下` 是卷（與上一個卷號相同的是卷尾，略過），`…品第N(之N)` 或八字內的 `…第N` 是品。名稱去掉三字以上的經名前綴（「妙法蓮華經方便品第二」→「方便品第二」，「持經品」不動）。每段長度＝到下一段（不收錄的段仍是邊界）之間可朗讀的字數，第一段之前的經名與譯者算在第一段。解析結果依「項目設定＋檔案簽章」快取。
+
+實測（真實語料）：法華 7 卷 28 品、地藏 13 品、維摩 14 品、楞嚴 10 卷、無量壽 2 卷、八十華嚴 80 卷約 40 品、四十華嚴 40 卷；心經、金剛、阿彌陀、藥師、觀無量壽、圓覺、遺教、八大人覺、盂蘭盆沒有品卷標題，整部一段。
+
+### 25.3 API
+
+| 路由 | 說明 |
+|---|---|
+| `GET /api/listen/catalog` | 讀者端：`{ categories, items: [{ id, name, sub, cat, path, line, endLine, lastLine, chars, unit, parts: [{ t, juan, line, endLine, chars }] }] }`。只列顯示中且檔案存在的經；空的分類不列。`endLine`＝停止的行（不含），0＝讀到檔尾 |
+| `GET /api/listen/ready?voice=` | 讀者端：每部經在該音色下已生成的百分比 `{ available, items: { <id>: 0–100 } }`，依音色快取 10 分鐘。前端只在 `canGenerate:false`（訪客）時查詢，在目錄上標「可直接聽」「已備好 N%」「登入後可聽」 |
+| `GET /api/admin/listen/catalog` | 後台：完整目錄＋每部經的解析結果與問題（`status[id].issues`：`missing`、`range-start`、`range-end`、`part:<文字>`） |
+| `POST /api/admin/listen/catalog {catalog}` | 驗證後存檔（`sanitizeCatalog`：沒有名稱或不是 `.md` 的丟掉、未知分類歸第一類、id 重複會換掉；上限 200 部、每部 400 段、30 類） |
+| `POST /api/admin/listen/catalog/reset` | 回到預設經目 |
+| `POST /api/admin/listen/detect {path, split, range, parts}` | 不存檔，依目前（還沒存的）設定偵測；另回傳所有可當錨點的標題與獨立成行的「…第N」，供手動分段與節錄挑選 |
+| `GET /api/admin/listen/coverage?voice=` | 每部經在某音色下已生成幾句（`tts.coverage()`，重複句只算一次） |
+
+預先生成沿用 `/api/admin/tts/jobs`：`scope` 是單篇路徑，或 `listen:catalog`（目錄裡所有顯示中的經）。匿名的 `/api/admin/status` 不回傳 `listenCatalog`。
+
+### 25.4 讀者端（`app.js` §17d、`index.html` `#listenView`、`style.css` §27d）
+
+- 網址 `/?listen`（`parseUrlParams` → `isListen`），內容在 `#content` 裡（`goHome(false)` 後藏起首頁）；`openFile()` 與 `goHome()` 都會 `closeListenView()`。上一頁回到聽經頁。
+- 入口：首頁膠囊「🎧 聽經」與右上角朗讀選單「聽經目錄…」，網站有開朗讀且目錄有經時才出現。
+- 每部經一張卡：從頭讀誦、選擇品（N）、看經文；展開後品依卷分組。「點一品：讀到經末／只讀這品」存在 `STORAGE_KEYS.LISTEN_PREFS`。
+- 播放：`listenPlay()` 先開經文，設 `ttsRt.nextListen`（`ttsResetSession()` 收下成 `ttsRt.listen`），再 `ttsStartFromLine(line, false, { stopLine })`。`stopLine`＝只讀這品時的下一品起點，或節錄的終點；`ttsFillToLine()` 在背景把句子接到那一行，「第 N／M 句」才有總數。聽經的經讀完就停（不接同資料夾的下一篇），播報「…讀誦圓滿」。
+- 進度：`listenOnPlay()` 在每換一句時更新播放列標題（「經名 · 品名」），每換一品或每 5 秒把 `{ part, line, pct, done[] }` 存進 `STORAGE_KEYS.LISTEN_PROGRESS`（最多 200 部）。頁首「繼續收聽」取最近一部沒聽完的；整部聽完記 `times`。
+- 長度：可朗讀字數 ÷ 每秒 4.2 字 ÷ 語速，一律標「約」。
+
+### 25.5 無障礙（WAI-ARIA 標準做法）
+
+- `h1`「聽經」（開頁時焦點移到這裡並播報「聽經目錄，N 部經」）→ 分類 `h2` → 每部經 `h3`：轉子的「標題」可逐部跳。
+- 品卷是**揭露按鈕**（`aria-expanded`＋`aria-controls`）加有序清單，不用 `role="tree"`：每部經有「讀誦、展開、看經文」多個動作，樹狀項目裡不能放按鈕；揭露＋清單在 iOS VoiceOver 最穩定，清單讓 VoiceOver 自己說「第 N 項，共 M 項」。
+- 每一品的按鈕名稱完整：「從閻浮眾生業感品第四開始讀誦，約 10 分鐘，上次聽到這裡」。
+- 篩選膠囊是 `aria-pressed` 按鈕組，切換後用 `#a11yLive` 播報「淨土，4 部經」。Esc 在品清單內收起並把焦點還給展開鈕。觸控目標 ≥ 44px；`forced-colors`、`prefers-reduced-motion` 有對應。
+- 按下讀誦後開啟經文（PR #234 的做法：焦點到經名標題），另用朗讀的狀態區播報一次「開始讀誦 …」，之後換句不播報。
+
+### 25.6 後台（`app.js` §21.9、`#adminPaneListen`）
+
+「網站」群組的「🎧 聽經目錄」。左邊經目依分類分組（燈號：綠正常、黃有錨點對不到、紅找不到檔案；刪除線＝不顯示；↑↓ 在同一分類內排序，鍵盤可用）；「分類…」可改名、加說明、排序、刪除空的分類。右邊編輯選取的經（名稱、副標、分類、檔案（`datalist` 列出全部經文）、顯示、範圍、分段方式），品卷表可改名、取消收錄、看起點（連到經文該行），手動模式可從標題清單加一段或刪除。最下面是預先生成（這部經／整個目錄、固定保留）。編輯的是本地副本，按「儲存」才送出（不走底部儲存列，輸入框都標 `data-no-dirty`）。
+
+
+## 26. 罕見字：顯示與朗讀
+
+大覺藏集語料裡有九千多個 Noto Serif TC 沒有的字（Unicode 擴充 A–I、相容字、部首，如 𤦲、䟽、𦦨），原本顯示成豆腐框，朗讀時 audio.cpp 也念不出來。PR #244 從顯示、分享卡、朗讀三處一起補上。
+
+### 26.1 後備字型 mdRare（`vendor/fonts/rare/`）
+
+- 來源：字雲 Jigmo（CC0，npm `fontpkg-jigmo`）的子集，只收語料中常用字以外的 9,347 字，共 40 塊 woff2、約 2.4 MB。最常出現的 600 字分在 3 個熱門塊（`rare-hot0..2-*`），其餘依碼位切塊（`rare-00..`），每塊在 `rare-font.css` 以 `@font-face` ＋ `unicode-range` 宣告，**瀏覽器只下載頁面上用到的那幾塊**。`font-display: swap`。
+- 套用：`style.css` 的 `--cjk-serif`／`--cjk-sans`（含簡體顯示的覆寫）最後一個字型是 `'mdRare'`，常用字仍由 Noto 顯示，只有前面字型都沒有的字才落到 mdRare。`index.html` 以 `vendor/fonts/rare/rare-font.css?v=__APP_VERSION__` 載入。
+- 快取：分塊檔名帶 10 碼內容雜湊，`lib/static-cache.js` 的 `HASHED_FONT_RE` 讓它們回 `immutable`（§3 的快取表）；Service Worker 原本的靜態資源快取會收進去，離線可用。
+- 分享卡（早安圖）：瀏覽器繪圖前 `document.fonts.load('40px "mdRare"', 句子)`；`share-card.js` 的 `SERIF` 把 mdRare 放在系統宋體之前，罕見字才不會被系統黑體搶先補上。伺服器繪圖（`lib/share-card-server.js`）另外以 `mdRare` 名稱註冊合併成一檔的 `server-rare-<雜湊>.woff2`（約 2 MB）——`@napi-rs/canvas` 同一字型名稱只會用一個檔，分塊行不通（已實測）。後台早安圖狀態多一欄 `rareFont`。
+- repo 因此多約 4.5 MB（瀏覽器分塊＋伺服器合併檔）。
+
+### 26.2 朗讀讀音（`lib/tts-lexicon-rare.txt`）
+
+- 9,347 字各一行「字｜改讀為｜讀音｜依據」，由工具產生、不手改。換字依序：語料上下文人工判讀（20 字，`tools/rare-chars/manual.tsv`）→ Unicode 相容字的正字 → 異體正字（教育部《異體字字典》等，資料來自 npm `@mandel59/mojidata`）→ 同音常用字 → 查不到就「-」＝略過不讀。以出現次數計，略過的約 13.5%（3,327 字，多為擴充 F 的咒語用字）。例：車𤦲 → 車璩、華嚴經䟽 → 疏、大𦦨肩佛 → 焰、無㝵 → 礙。
+- 套用：`tts-segment.js` 的 `oralize()` 多一個 `charMap` 選項，在詞典替換**之後**逐字查表（不走最長詞比對，九千多字也不拖慢）。`lib/tts-lexicon.js` `charMap(useBuiltin)` 與內建佛經讀音表共用 `settings.tts.builtinLexicon` 開關；自訂字典裡寫了讀法的單字（含「字｜字」）優先，該字從 `charMap` 拿掉。
+- 快取：`lexicon.version()` 含罕見字表的雜湊，改表會讓文件斷句快取重算；替換只改 `spoken`，所以只有含那些字的句子快取鍵改變、需要重生。後台「讀音校正」頁的說明顯示罕見字表的筆數與略過數（`describe().rare`）。
+
+### 26.3 重建（`tools/rare-chars/`）
+
+語料新增罕見字時照 `tools/rare-chars/README.md`：`scan.py` 掃語料產生 `chars.tsv` → `build-font.py`（用 `fontpkg-jigmo` 切塊、產生 `rare-font.css` 與伺服器合併檔）→ `build-readings.py`（用 `@mandel59/mojidata` 的 `moji.db`，加上 `manual.tsv`）產生 `lib/tts-lexicon-rare.txt`。測試在 `tests/test-rare-chars.test.js`。
+
+## 27. 無障礙（VoiceOver）與螢幕鍵盤
+
+2026-11-15 的 VoiceOver 審計之後分三個 PR 修正（#232、#234、#235），原則是**不改任何視覺樣式與滑鼠操作**，只補語意、焦點與鍵盤操作。朗讀本身的無障礙設計見 §24.14、聽經目錄見 §25.5。驗證方式是 axe（WCAG 2.2 AA）＋Playwright 焦點測試；真機 VoiceOver 檢核仍要人工。
+
+### 27.1 焦點與隱藏（#232，`setupA11yBridges()`）
+
+- 收起的左側欄、辭典、關閉的頁內搜尋框原本只用寬度 0 或 `opacity` 隱藏，Tab 會走進看不見的按鈕；一律加 `visibility: hidden`（淡出動畫保留）。
+- 模態視窗（偏好設定、後台、早安圖、登入、帳號、條款、媒體預覽等，`MODAL_IDS`）打開時焦點移入、Tab 不跑到背後，關閉後回到打開它的按鈕（從右上角選單開的回到選單鈕）。書籤抽屜、誦經模式自己管理焦點，不在名單內；視窗自己先聚焦了欄位就不搶。
+- 註腳：點註號或「↩」時焦點跟著跳過去（「↩」念「返回正文」）。側欄切換鈕同步 `aria-expanded`；後台燈號 `role="img"`。
+
+### 27.2 樹、分頁、選字選單（#234、#235）
+
+- **樹狀結構**（`setupA11yTrees()`）：檔案樹、本頁大綱、全文搜尋結果原本是 div＋click。渲染之後補 `tree`／`treeitem`、`aria-level`、`aria-expanded`、`aria-setsize`／`aria-posinset`；↑↓、→（展開／下一層）、←（收合／上一層）、Home／End、Enter 開啟；roving tabindex，整棵樹只佔一個 Tab 停駐點。大綱在大檔案時虛擬捲動，靠每列的 key 在重畫後把焦點放回同一列。篩選框與搜尋框按 ↓ 進入結果；`#a11yLive` 播報「找到 N 部／N 個結果」。
+- **開經後的焦點**：從檔案樹、搜尋結果、經文連結、首頁、書籤開經後焦點移到經名（從搜尋結果開則到命中的行）；開站自動恢復閱讀位置時不移動。點大綱後焦點跟到該標題。
+- **分頁**（`setupA11yTabs()`）：側欄（檔案／搜尋／大綱／科判）與偏好設定分頁是 `tablist`／`tab`／`tabpanel`，←→／Home／End 移動、Enter／空白鍵切換（手動啟用，避免切到搜尋分頁時焦點被搜尋框搶走）。
+- **選字選單**：選字後 `#a11yLive` 播報「已選取『…』，按 Alt+M 開啟…選單」；Alt+M 或選單鍵把焦點移進彈窗（`role="toolbar"`），Esc 收起並回到選取的段落。
+- **右上角選單**：拿掉不合規範的 `role="menu"`（axe critical），改成一般展開面板（`aria-expanded`／`aria-controls`），主題與繁簡按鈕用 `aria-pressed`。朗讀選單 `#ttsStartMenu` 仍是正規的 menu button（§24.11）。
+- **科判樹**：展開鈕念「展開 甲一 序分（分 3 科）」，列有 `aria-level`、`aria-expanded`，目前所在科 `aria-current`；完整方向鍵操作尚未做。
+
+### 27.3 iPad／iPhone 螢幕鍵盤避讓（#242，`app.js` §20a、`style.css` §20a）
+
+- 問題：iOS Safari 開鍵盤時只縮小 `visualViewport`，`100dvh` 的後台外框與 fixed 對話框高度不變，Safari 找不到該捲哪一層，靠下的欄位（例如「讀音校正」的自訂字典）被鍵盤蓋住。
+- `setupKeyboardAvoidance()`：文字欄位有焦點且 `innerHeight - visualViewport.height > 120`（且沒有雙指放大）時，`<html>` 加 `.kb-open` 並寫入 `--kb-vv-top`／`--kb-vv-height`；鍵盤打開、高度明顯改變或換欄位時，把焦點欄位捲進每一層捲動容器在鍵盤上方的可見區（比可見區還高的 textarea 頂端對齊）。
+- CSS：`.kb-open` 時 `#adminSettingsOverlay`／`.admin-shell`、⌘K 搜尋 `.admin-palette` 與所有 `.modal-overlay` 只佔鍵盤上方；一般對話框改成可捲、卡片靠上。
+- Android Chrome 預設會縮小版面、實體鍵盤不縮 `visualViewport`，兩者都不會觸發。
+- 測試方式：Chromium 沒有螢幕鍵盤，用 init script 把 `window.visualViewport` 換成高度＝`innerHeight − 鍵盤高` 的假物件再發 `resize`，逐一聚焦後台所有文字欄位檢查是否被蓋住（修正前 iPad 直向 14／31 個，修正後 0）。

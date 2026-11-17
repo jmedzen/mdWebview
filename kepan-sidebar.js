@@ -531,9 +531,9 @@
       for (let a = 0; a < lv; a++) if (a < FULL_LEVELS || a === lv - 1) guides += `<i class="kepan-guide" style="left:${indentFor(a) + 15}px"></i>`;
       const cls = (kids ? 'is-branch' : 'is-leaf') + (id === S.hereId ? ' is-here' : onPath.has(id) ? ' is-onpath' : '');
       const toggle = kids
-        ? `<button type="button" class="kepan-toggle" data-toggle title="${open ? '收合' : '展開'}（分${kids}科）" aria-expanded="${open}">${open ? '−' : '+'}</button>`
+        ? `<button type="button" class="kepan-toggle" data-toggle title="${open ? '收合' : '展開'}（分${kids}科）" aria-label="${open ? '收合' : '展開'} ${esc(n.m + ' ' + shortTitle(n.t, (n.k || []).length))}（分${kids}科）" aria-expanded="${open}">${open ? '−' : '+'}</button>`
         : `<span class="kepan-leaf" title="末端科，點選閱讀">${LEAF_ICON}</span>`;
-      html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層${kids ? `；雙擊${open ? '收合' : '展開'}` : ''}）">`
+      html += `<div class="kepan-row ${cls}" data-id="${id}" role="treeitem" aria-level="${n.d + 1}"${kids ? ` aria-expanded="${open}"` : ''}${id === S.hereId ? ' aria-current="location"' : ''} style="top:${i * ROW_HEIGHT}px;padding-left:${indentFor(lv) + 8}px" title="${esc(n.m + '、' + n.t)}（第 ${n.d + 1} 層${kids ? `；雙擊${open ? '收合' : '展開'}` : ''}）">`
         + guides + toggle + `<span class="kepan-mark">${esc(n.m)}</span><span class="kepan-title">${esc(shortTitle(n.t, (n.k || []).length))}</span>`
         + (alt && alt[id] && alt[id].length ? `<span class="kepan-alt-dot" title="其他講次也講到這一科：${esc(alt[id].map(h => (S.payload.rounds[h[0]] || {}).label).join('、'))}"></span>` : '')
         + (kids && !open ? `<span class="kepan-count">分${kids}</span>` : '') + '</div>';

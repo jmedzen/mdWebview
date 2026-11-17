@@ -13,6 +13,9 @@ logs/*
 index/*
 !index/.gitkeep
 tests/logs/
+# 朗讀（TTS）音檔快取與讀音字典（非 Docker 執行時在程式目錄）
+tts-cache/
+tts-lexicon.txt
 .DS_Store
 .agents
 md/*

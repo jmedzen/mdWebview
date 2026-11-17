@@ -61,8 +61,9 @@ html {
   --content-max-width: calc(var(--content-font-size, 16px) * 40 + 96px);
   /* 中文字型：繁體顯示用 Noto Serif TC；簡體顯示改用系統的簡體字型（見 §38），
      避免 TC 字型以台灣字形畫簡體字，或缺字時混用不同字型 */
-  --cjk-serif: 'Noto Serif TC';
-  --cjk-sans: 'Noto Sans TC';
+  /* mdRare：罕見字後備字型（vendor/fonts/rare/，字雲 Jigmo 子集），只補前面字型沒有的字 */
+  --cjk-serif: 'Noto Serif TC', 'mdRare';
+  --cjk-sans: 'Noto Sans TC', 'mdRare';
   /* Global fallbacks for undefined variable references */
   --text-normal: var(--text-primary);
   --border-color: var(--border);
@@ -739,6 +740,8 @@ body,
   min-width: 0;
   border-right: none;
   overflow: hidden;
+  /* 收起後寬度為 0，但裡面的按鈕仍可 Tab 到、VoiceOver 也會念；藏起來讓輔助科技跳過 */
+  visibility: hidden;
 }
 
 /* ── Sidebar Tabs ──────────────────────────────────────────── */
@@ -3974,12 +3977,17 @@ kbd {
   right: calc(20px + env(safe-area-inset-right, 0px));
   z-index: 200;
   opacity: 0;
+  /* 只用 opacity 隱藏時，輸入框仍可 Tab 到、VoiceOver 也會念出「在本頁搜尋」；
+     關閉時等淡出結束才隱藏，打開時立刻可見、可聚焦 */
+  visibility: hidden;
   transform: translateY(-10px) scale(0.97);
   pointer-events: none;
-  transition: all 0.2s ease;
+  transition: all 0.2s ease, visibility 0s linear 0.2s;
 }
 
 .page-search-bar.visible {
+  visibility: visible;
+  transition: all 0.2s ease, visibility 0s;
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: all;
@@ -8243,7 +8251,8 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 }
 
 /* ── §32 Admin Analytics ────────────────────────────────────── */
-.admin-tz-select {
+.admin-tz-select,
+#adminTtsModel {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -9089,6 +9098,8 @@ details.callout[open] > summary .callout-fold-icon {
   width: 0;
   border-left: none;
   overflow: hidden;
+  /* 同左側欄：收起時不讓 Tab 與 VoiceOver 進到看不見的辭典 */
+  visibility: hidden;
 }
 
 /* ── Dictionary Resize Handle (left edge of the right panel) ── */
@@ -10505,8 +10516,8 @@ html[data-display-script="hans"]:not([data-t2s-ready]) body {
 }
 
 html[data-display-script="hans"] {
-  --cjk-serif: 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', 'Noto Serif TC';
-  --cjk-sans: 'Noto Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans TC';
+  --cjk-serif: 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun', 'Noto Serif TC', 'mdRare';
+  --cjk-sans: 'Noto Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans TC', 'mdRare';
 }
 
 /* ================================================================
@@ -12604,4 +12615,739 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
   /* 手機上路徑最多露出三行，其餘在列內捲動，不擋住正文 */
   .kepan-path { max-height: 5.2em; }
   .kepan-progress { width: 72px; }
+}
+
+/* ================================================================
+   §27c 朗讀（TTS）播放器 — app.js §17c
+   以「素紙」為設計基準：紙色底、墨色字、朱色強調。強調色走 --tts-* 變數，
+   亮色與暗色主題各一組；朱色只上在圖形（進度、底線、播放鍵），文字用較深的
+   --tts-accent-text（在各亮色主題的 --bg-secondary 上對比 ≥ 4.5:1）。
+   ================================================================ */
+:root {
+  --tts-accent: #c8442b;
+  --tts-accent-text: #a63a2b;
+  --tts-accent-bg: rgba(200, 68, 43, 0.14);
+  --tts-padded-bg: rgba(200, 68, 43, 0.07);
+  --tts-on-accent: #ffffff;
+  --tts-bar-h: 60px;
+}
+[data-theme="obsidian-dark"],
+[data-theme="solarized"],
+[data-theme="gruvbox"] {
+  --tts-accent: #f08a78;
+  --tts-accent-text: #f08a78;
+  --tts-accent-bg: rgba(240, 138, 120, 0.22);
+  --tts-padded-bg: rgba(240, 138, 120, 0.1);
+  --tts-on-accent: #1b1410;
+}
+
+/* 跟讀高亮：目前句＝淡朱底色＋朱筆底線；補讀的句子＝更淡的底色。和劃重點（mdw-hl-*）可疊加 */
+::highlight(mdw-tts-padded) { background-color: var(--tts-padded-bg); }
+::highlight(mdw-tts-current) {
+  background-color: var(--tts-accent-bg);
+  text-decoration: underline 2px var(--tts-accent);
+}
+/* 不支援 Custom Highlight 的瀏覽器：在那一行的區塊上標示 */
+.markdown-body .tts-line-current {
+  background: var(--tts-accent-bg);
+  box-shadow: inset 3px 0 0 var(--tts-accent);
+}
+
+/* 入口：網站沒有啟用朗讀時全部藏起 */
+.tts-start-btn, #selectionReadBtn, .tts-head-btn { display: none; }
+body.tts-enabled .tts-start-btn { display: flex; }
+body.tts-enabled #selectionReadBtn { display: inline-flex; }
+body:not(.tts-enabled) #ttsSettings { display: none; }
+.toc-tts-btn { display: none; }
+body.tts-enabled .toc-tts-btn {
+  display: inline-flex; flex: none; align-items: center; justify-content: center; margin-left: auto;
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-muted); opacity: 0; cursor: pointer;
+}
+body.tts-enabled .toc-item-row:hover .toc-tts-btn, body.tts-enabled .toc-tts-btn:focus-visible { opacity: 1; color: var(--tts-accent-text); }
+@media (hover: none) { body.tts-enabled .toc-tts-btn { opacity: 0.8; width: 44px; height: 44px; } }
+body.tts-enabled:not(.tts-has-file):not(.tts-active) .tts-start-btn { display: none; }
+body.tts-active .tts-start-btn { color: var(--tts-accent-text); }
+
+/* 標題旁的「朗讀本節」：放在標題前面、浮動靠右，對齊標題第一行（JS 量 margin-top），不另佔一行。
+   大小跟著所在標題：按鈕的 font-size 等於該層標題的字級（同一個父層的 em）。
+   按鈕框就是喇叭圖形本身（裁掉留白的 viewBox，0.9em 見方）：右緣在每一層標題都對齊內文右緣，
+   框的中心＝圖形的視覺中心，跟標題第一行置中。點擊範圍用 ::after 補到至少 44px，不增加版面高度。 */
+body.tts-enabled .markdown-body .tts-head-btn {
+  --tts-head-size: 0.9em;
+  display: inline-flex; align-items: center; justify-content: center;
+  float: right; clear: right; position: relative; z-index: 1;
+  width: var(--tts-head-size); height: var(--tts-head-size); margin: 0 0 0 0.5em; padding: 0;
+  border: 0; border-radius: 0.2em;
+  background: transparent; color: var(--text-muted);
+  font-size: 1em; line-height: 1; cursor: pointer; opacity: 0.7;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none; -webkit-user-select: none;
+}
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h1) { font-size: 1.75em; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h2) { font-size: 1.45em; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h3) { font-size: 1.2em; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ h4) { font-size: 1.05em; }
+body.tts-enabled .markdown-body .tts-head-btn svg { width: 100%; height: 100%; display: block; overflow: visible; }
+body.tts-enabled .markdown-body .tts-head-btn::after {
+  content: ''; position: absolute; inset: min(-4px, calc((var(--tts-head-size) - 44px) / 2));
+}
+body.tts-enabled .markdown-body .tts-head-btn + :is(h1, h2, h3, h4, h5, h6) { clear: none; }
+/* 按鈕佔了第一個子元素的位置：原本第一個標題的上邊距歸零規則要跟著過去 */
+.markdown-body > .tts-head-btn:first-child + :is(h1, h2, h3, h4, h5, h6) { margin-top: 0; }
+body.tts-enabled .markdown-body .tts-head-btn:has(+ :is(h1, h2, h3, h4, h5, h6):hover),
+body.tts-enabled .markdown-body .tts-head-btn:hover,
+body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
+  /* 底色往外擴一圈（box-shadow，不佔版面），圖形位置不動 */
+  opacity: 1; color: var(--tts-accent-text); background: var(--tts-accent-bg);
+  box-shadow: 0 0 0 0.22em var(--tts-accent-bg);
+}
+@media (hover: none) {
+  /* 觸控沒有 hover：按鈕一直清楚可見（大小同桌機，跟著標題；點擊範圍 ≥ 44px） */
+  body.tts-enabled .markdown-body .tts-head-btn,
+  body.tts-enabled .markdown-body .tts-head-btn:hover {
+    opacity: 0.9; color: var(--tts-accent-text); background: transparent; box-shadow: none;
+  }
+}
+
+.tts-sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.tts-skip-link {
+  position: fixed; top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px; z-index: 10001;
+  padding: 8px 14px; border-radius: 8px;
+  background: var(--bg-secondary); color: var(--text-primary); border: 2px solid var(--tts-accent);
+  font-size: 14px; text-decoration: none;
+  transform: translateY(-200%);
+}
+.tts-skip-link:focus { transform: none; }
+
+/* 播放列：貼齊底部 safe-area，對齊閱讀區中線（--reading-center 由 app.js syncFloatingNavCenter 提供） */
+.tts-bar {
+  position: fixed; left: var(--reading-center, 50%); bottom: 0; transform: translateX(-50%);
+  width: min(760px, calc(var(--reading-width, 100vw) - 24px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); border-bottom: 0; border-radius: 14px 14px 0 0;
+  box-shadow: 0 -4px 20px var(--shadow-color);
+  font: -apple-system-body; font-family: inherit; font-size: 0.875rem;
+  z-index: 60;
+}
+.tts-bar[hidden] { display: none; }
+.tts-bar:focus { outline: none; }
+.tts-progress { height: 3px; background: var(--border-subtle); border-radius: 14px 14px 0 0; overflow: hidden; }
+.tts-progress-fill { height: 100%; width: 0; background: var(--tts-accent); transition: width 0.25s ease; }
+.tts-mini { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
+.tts-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0;
+  border: 1px solid transparent; border-radius: 999px;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tts-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.tts-btn.tts-play { background: var(--tts-accent); color: var(--tts-on-accent); border-color: var(--tts-accent); }
+.tts-btn.tts-play:hover { background: var(--tts-accent); color: var(--tts-on-accent); filter: brightness(0.94); }
+.tts-bar.is-waiting .tts-play { animation: tts-pulse 1.2s ease-in-out infinite; }
+@keyframes tts-pulse { 50% { opacity: 0.55; } }
+.tts-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 0 6px; line-height: 1.3; }
+.tts-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.tts-pos { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.86em; font-variant-numeric: tabular-nums; }
+.tts-bar.is-error .tts-pos { color: var(--danger, var(--tts-accent-text)); }
+.tts-chip {
+  flex: none; min-height: 32px; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-primary); color: var(--text-secondary);
+  font: inherit; font-size: 0.86em; cursor: pointer; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tts-chip:hover { border-color: var(--tts-accent); color: var(--text-primary); }
+.tts-chip-accent { border-color: var(--tts-accent); color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+.tts-chip[hidden] { display: none; }
+.tts-voice-chip { max-width: 8em; overflow: hidden; text-overflow: ellipsis; }
+.tts-bar.is-open #ttsExpandBtn svg { transform: rotate(180deg); }
+.tts-bar :is(button, select, input):focus-visible { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+
+/* 播放列出現時：內文留白，其他浮動元件（前後科、前後條、回到頂部、Toast）往上讓 */
+body.tts-active #markdownBody { padding-bottom: calc(var(--tts-bar-h) + 40px); }
+body.tts-active .entry-nav,
+body.tts-active .toast-container { bottom: calc(var(--tts-bar-h) + 20px + env(safe-area-inset-bottom, 0px)); }
+body.tts-active .back-to-top { bottom: calc(var(--tts-bar-h) + 20px + env(safe-area-inset-bottom, 0px)); }
+body.focus-mode .tts-start-btn { display: none; }
+
+@media (max-width: 768px) {
+  .tts-bar { left: 0; right: 0; transform: none; width: auto; border-left: 0; border-right: 0; border-radius: 12px 12px 0 0; }
+  .tts-mini { gap: 2px; padding: 6px 4px; }
+  .tts-title { font-size: 0.95em; }
+  .tts-chip { min-height: 44px; padding: 4px 8px; }
+  /* 窄螢幕：音色改在展開的面板裡選，迷你列留給進度與語速 */
+  .tts-voice-chip { display: none; }
+  body.tts-active.has-kepan .back-to-top { bottom: calc(var(--tts-bar-h) + 76px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 380px) {
+  .tts-mini .tts-btn:not(.tts-play) { width: 40px; }
+  #ttsCloseBtn { display: none; } /* 窄螢幕：停止改在展開的面板裡（Esc 或面板的「停止朗讀」） */
+}
+@media (prefers-reduced-motion: reduce) {
+  .tts-progress-fill, .tts-head-btn { transition: none; }
+  .tts-bar.is-waiting .tts-play { animation: none; opacity: 0.7; }
+}
+@media (prefers-contrast: more) {
+  .tts-bar { border-color: var(--text-primary); }
+  .tts-chip, .tts-btn { border-color: var(--text-secondary); }
+  ::highlight(mdw-tts-current) { text-decoration: underline 3px var(--tts-accent); }
+}
+@media (forced-colors: active) {
+  .tts-btn.tts-play { border: 2px solid ButtonText; }
+  .tts-progress-fill { background: Highlight; }
+  ::highlight(mdw-tts-current) { background-color: Highlight; color: HighlightText; }
+}
+@media print { .tts-bar, .tts-head-btn, .tts-skip-link { display: none !important; } }
+
+/* §27c 朗讀後台（#adminPaneTts） */
+.admin-shell .tts-admin-table-wrap { overflow-x: auto; margin: 8px 0; }
+.admin-shell .tts-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-shell .tts-admin-table tr.is-gone td { opacity: 0.75; }
+.admin-shell .tts-admin-table tr.is-gone td:nth-child(3) { opacity: 1; }
+.admin-shell .tts-v-gone { display: inline-block; margin: 0 4px; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--tts-accent-bg); color: var(--tts-accent-text); }
+.admin-shell .tts-voicedir-list { list-style: none; margin: 4px 0; padding: 0; font-size: 13px; }
+.admin-shell .tts-voicedir-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 3px 0; }
+.admin-shell .tts-voicedir-list code { overflow-wrap: anywhere; }
+.admin-shell .tts-voicedir-mark { flex: none; }
+.admin-shell .tts-voicedir-list li.tts-vd-item { display: block; padding: 4px 0; border-bottom: 1px solid var(--border-subtle); }
+.admin-shell .tts-vd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.admin-shell .tts-vd-meta { color: var(--text-muted); font-size: 12px; }
+.admin-shell .tts-vd-item details { margin: 4px 0 2px 1.6em; }
+.admin-shell .tts-vd-item summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
+.admin-shell .tts-vd-item textarea { width: 100%; min-height: 4.5em; margin-top: 4px; font-size: 13px; line-height: 1.5; resize: vertical; }
+.admin-shell .tts-vd-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.admin-shell .tts-admin-table th, .admin-shell .tts-admin-table td { padding: 6px 6px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; white-space: nowrap; }
+.admin-shell .tts-admin-table th { color: var(--text-muted); font-weight: 600; }
+.admin-shell .tts-admin-table input[type="text"] { min-width: 8em; width: 100%; }
+.admin-shell .tts-admin-table input[type="number"] { width: 4.5em; }
+.admin-shell .tts-job progress { width: 100%; height: 6px; accent-color: var(--tts-accent); }
+.admin-shell #adminTtsLexicon { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.hw-tts-status { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+
+/* §27c 朗讀：展開面板（2026-11 重新設計）
+   層級：進度 → 音色 → 語速 → 聆聽方式（分組清單）→ 更多設定（收合）→ 停止。
+   間距只用 4／8／12／16／20／24；圓角：群組 12、膠囊 999；色彩全走既有主題變數。 */
+.tts-panel {
+  --tts-gap: 20px; --tts-radius: 12px; --tts-row-h: 52px;
+  display: grid; gap: var(--tts-gap);
+  padding: 16px 20px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-subtle);
+  max-height: min(70vh, 640px); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.tts-panel[hidden] { display: none; }
+.tts-notice { margin: 0; padding: 10px 12px; border-radius: var(--tts-radius); background: var(--tts-accent-bg); color: var(--text-primary); font-size: 0.92em; line-height: 1.5; }
+.tts-notice[hidden] { display: none; }
+
+.tts-sec { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.tts-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.tts-sec-title {
+  margin: 0; padding: 0; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--text-muted); text-transform: none;
+}
+.tts-sec-value { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* 滑桿：細軌＋實心圓鈕，朱色已走過的部分 */
+.tts-panel input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer;
+  --fill: 0%;
+}
+.tts-panel input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px;
+  background: linear-gradient(to right, var(--tts-accent) var(--fill), var(--border) var(--fill));
+}
+.tts-panel input[type="range"]::-moz-range-track { height: 4px; border-radius: 999px; background: var(--border); }
+.tts-panel input[type="range"]::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--tts-accent); }
+.tts-panel input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%;
+  background: var(--bg-secondary); border: 2px solid var(--tts-accent); box-shadow: 0 1px 3px var(--shadow-color);
+}
+.tts-panel input[type="range"]::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--bg-secondary); border: 2px solid var(--tts-accent); box-shadow: 0 1px 3px var(--shadow-color);
+}
+.tts-sec-seek { gap: 2px; }
+.tts-seek-meta, .tts-scale { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* 音色：膠囊（原生 radio 疊在上面、透明，VoiceOver／鍵盤照常） */
+.tts-voices legend { margin-bottom: 8px; }
+.tts-voice-cards {
+  display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; margin: -2px -2px 0;
+  scroll-snap-type: x proximity; scrollbar-width: none;
+}
+.tts-voice-cards::-webkit-scrollbar { display: none; }
+.tts-voice-card {
+  position: relative; flex: none; display: flex; align-items: center; scroll-snap-align: start;
+  min-height: 44px; max-width: 16em; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-primary); color: var(--text-primary);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tts-voice-card:has(input:checked) { border-color: var(--tts-accent); background: var(--tts-accent-bg); }
+.tts-voice-card:has(input:focus-visible) { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+.tts-voice-card label {
+  position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 0 16px; cursor: pointer;
+}
+.tts-voice-card:has(.tts-voice-sample) label { padding-right: 6px; }
+.tts-voice-card input[type="radio"] {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer;
+}
+.tts-voice-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--text-muted); }
+.tts-voice-card:has(input:checked) .tts-voice-dot { border-color: var(--tts-accent); background: var(--tts-accent); }
+/* 名稱與標籤分兩行，名稱不再被截斷；標籤用次要字色（對比 ≥ 4.5:1） */
+.tts-voice-text { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; padding: 6px 0; }
+.tts-voice-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; line-height: 1.3; }
+.tts-voice-tags { font-size: 0.85em; color: var(--text-secondary); line-height: 1.3; }
+.tts-voice-sample {
+  position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin-right: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--tts-accent-text); cursor: pointer;
+}
+.tts-voice-sample::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; border-left: 1px solid var(--border-subtle); }
+.tts-voice-sample svg { width: 14px; height: 14px; }
+.tts-voice-sample:hover { background: var(--hover-bg); }
+
+/* 開關（原生 checkbox，role="switch"；外觀畫在相鄰的 span 上） */
+.tts-switch { position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; color: var(--text-primary); }
+.tts-switch-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.4; }
+.tts-switch input { position: absolute; right: 0; top: 50%; width: 44px; height: 44px; margin: -22px 0 0; opacity: 0; cursor: pointer; z-index: 1; }
+.tts-switch-ui {
+  position: relative; flex: none; width: 40px; height: 24px; border-radius: 999px;
+  background: var(--border); transition: background 0.18s ease;
+}
+.tts-switch-ui::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.18s ease;
+}
+.tts-switch input:checked + .tts-switch-ui { background: var(--tts-accent); }
+.tts-switch input:checked + .tts-switch-ui::after { transform: translateX(16px); }
+.tts-switch input:focus-visible + .tts-switch-ui { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+.tts-switch input:disabled + .tts-switch-ui { opacity: 0.4; }
+.tts-voices > .tts-switch { color: var(--text-secondary); font-size: 0.92em; }
+
+/* 分組清單：一張紙卡、內縮分隔線 */
+.tts-list {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--border-subtle); border-radius: var(--tts-radius);
+  background: var(--bg-primary); overflow: hidden;
+}
+.tts-row { position: relative; display: flex; align-items: center; gap: 8px; min-height: var(--tts-row-h); padding: 0 12px 0 0; }
+.tts-row + .tts-row::before { content: ''; position: absolute; top: 0; left: 52px; right: 0; border-top: 1px solid var(--border-subtle); }
+.tts-row-main {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px;
+  min-height: var(--tts-row-h); padding: 8px 0 8px 14px;
+  border: 0; background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer;
+}
+button.tts-row-main { padding-right: 0; }
+button.tts-row-main:hover { color: var(--tts-accent-text); }
+div.tts-row-main { cursor: default; }
+.tts-row-icon {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; background: var(--tts-accent-bg); color: var(--tts-accent-text);
+}
+.tts-row-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.35; }
+.tts-row-title { font-weight: 600; }
+.tts-row-sub { font-size: 0.82em; font-weight: 400; color: var(--text-muted); }
+.tts-row-chev { flex: none; color: var(--text-muted); display: inline-flex; padding-right: 4px; }
+.tts-row-select {
+  flex: none; min-height: 36px; max-width: 9em; padding: 4px 28px 4px 12px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-primary); font: inherit; font-size: 0.92em; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  background: var(--bg-secondary) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 6l4.5 4.5L12.5 6'/%3E%3C/svg%3E") no-repeat right 10px center;
+}
+.tts-pill {
+  flex: none; min-height: 36px; min-width: 56px; padding: 4px 14px; border-radius: 999px;
+  border: 1px solid var(--tts-accent); background: transparent; color: var(--tts-accent-text);
+  font: inherit; font-size: 0.92em; font-weight: 600; cursor: pointer; position: relative;
+}
+.tts-pill::after { content: ''; position: absolute; inset: -4px; } /* 點擊範圍 ≥ 44 */
+.tts-pill:hover { background: var(--tts-accent-bg); }
+.tts-pill[hidden] { display: none; }
+.tts-list .tts-switch { padding-left: 14px; }
+.tts-list .tts-switch + .tts-switch::before { left: 14px; }
+
+/* 更多設定 */
+.tts-more { gap: 0; }
+.tts-more-sum {
+  display: flex; align-items: center; justify-content: space-between; min-height: 44px;
+  list-style: none; cursor: pointer; color: var(--text-secondary); font-weight: 600; font-size: 0.92em;
+}
+.tts-more-sum::-webkit-details-marker { display: none; }
+.tts-more-sum svg { transition: transform 0.18s ease; color: var(--text-muted); }
+.tts-more[open] .tts-more-sum svg { transform: rotate(180deg); }
+.tts-more[open] .tts-more-sum { margin-bottom: 8px; }
+
+.tts-stop-btn {
+  justify-self: stretch; min-height: 44px; padding: 8px 16px; border-radius: var(--tts-radius);
+  border: 1px solid var(--border-subtle); background: transparent; color: var(--tts-accent-text);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.tts-stop-btn:hover { background: var(--tts-accent-bg); border-color: var(--tts-accent); }
+.tts-panel :is(button, select, summary):focus-visible { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+
+@media (max-width: 480px) {
+  .tts-panel { --tts-gap: 18px; padding-left: 16px; padding-right: 16px; max-height: 72vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tts-switch-ui, .tts-switch-ui::after, .tts-more-sum svg, .tts-voice-card { transition: none; }
+}
+@media (forced-colors: active) {
+  .tts-switch-ui { border: 1px solid ButtonText; }
+  .tts-switch input:checked + .tts-switch-ui { background: Highlight; }
+  .tts-voice-card:has(input:checked) { border: 2px solid Highlight; }
+}
+
+.tts-chant {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; flex-direction: column;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
+  background: var(--bg-primary); color: var(--text-primary);
+}
+.tts-chant[hidden] { display: none; }
+body.tts-chant-open { overflow: hidden; }
+.tts-chant-close {
+  align-self: flex-end; min-width: 64px; min-height: 44px; padding: 6px 18px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font: inherit; cursor: pointer;
+}
+.tts-chant-stage {
+  flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.6em;
+  width: min(900px, 100%); margin: 0 auto; text-align: center;
+  font-family: var(--cjk-serif, serif);
+}
+.tts-chant-side { margin: 0; font-size: clamp(16px, 2.2vw, 22px); line-height: 1.7; color: var(--text-muted); opacity: 0.55; max-height: 3.4em; overflow: hidden; }
+.tts-chant-current {
+  margin: 0; font-size: clamp(26px, 4.6vw, 46px); line-height: 1.75; font-weight: 500;
+  padding: 0.3em 0.5em; border-radius: 14px; background: var(--tts-accent-bg);
+  text-decoration: underline 2px var(--tts-accent); text-underline-offset: 0.3em;
+}
+.tts-chant-current.is-verse { white-space: pre-wrap; word-spacing: 0.6em; }
+.tts-chant-current.is-heading { color: var(--heading-color, var(--text-primary)); font-weight: 700; }
+.tts-chant-current.tts-fade { animation: tts-chant-in 0.45s ease; }
+@keyframes tts-chant-in { from { opacity: 0.2; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.tts-chant-controls { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 12px 0; }
+.tts-chant-btn {
+  width: 56px; height: 56px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.tts-chant-btn.tts-chant-play { width: 76px; height: 76px; background: var(--tts-accent); color: var(--tts-on-accent); border-color: var(--tts-accent); }
+.tts-chant-btn.tts-chant-play svg { width: 30px; height: 30px; }
+.tts-chant :is(button):focus-visible { outline: 3px solid var(--tts-accent); outline-offset: 3px; }
+.tts-chant-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--text-muted); font-size: 0.95rem; }
+.tts-chant-title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
+.tts-chant-meta { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .tts-chant-current.tts-fade { animation: none; } }
+@media (forced-colors: active) { .tts-chant-current { background: Canvas; border: 2px solid Highlight; } }
+@media (max-height: 500px) { .tts-chant-side { display: none; } .tts-chant-current { font-size: clamp(20px, 4vw, 30px); } }
+@media (max-width: 480px) {
+  /* 「回到朗讀位置」出現時：語速改在面板裡調，迷你列把位置留給標題 */
+  .tts-mini:has(#ttsBackBtn:not([hidden])) #ttsRateBtn { display: none; }
+}
+
+/* §27c 朗讀選單（右上角喇叭）：浮在按鈕下方的紙卡；每項 ≥ 44px，標題＋副標 */
+.tts-menu {
+  position: fixed; z-index: 1100; width: min(300px, calc(100vw - 16px));
+  max-height: calc(100vh - 80px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px; border-radius: 14px;
+  background: var(--bg-secondary); color: var(--text-primary);
+  border: 1px solid var(--border); box-shadow: 0 12px 32px var(--shadow-color), 0 2px 6px var(--shadow-color);
+  font-size: 0.9rem;
+}
+.tts-menu[hidden] { display: none; }
+.tts-menu-item {
+  position: relative; display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  width: 100%; min-height: 44px; padding: 6px 12px; border: 0; border-radius: 9px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.tts-menu-item[hidden] { display: none; }
+.tts-menu-item:hover, .tts-menu-item:focus-visible { background: var(--tts-accent-bg); outline: none; }
+.tts-menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--tts-accent); }
+.tts-menu-title { font-weight: 600; }
+.tts-menu-sub { font-size: 0.82em; color: var(--text-muted); }
+.tts-menu-sep { height: 1px; margin: 6px 8px; background: var(--border-subtle); }
+.tts-menu-check { padding-right: 52px; }
+.tts-menu-tick {
+  position: absolute; right: 12px; top: 50%; width: 36px; height: 22px; margin-top: -11px; border-radius: 999px;
+  background: var(--border); transition: background 0.18s ease;
+}
+.tts-menu-tick::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.18s ease;
+}
+.tts-menu-check[aria-checked="true"] .tts-menu-tick { background: var(--tts-accent); }
+.tts-menu-check[aria-checked="true"] .tts-menu-tick::after { transform: translateX(14px); }
+.tts-menu-group { padding: 6px 12px 8px; }
+.tts-menu-label { display: block; margin-bottom: 6px; font-weight: 600; }
+.tts-menu-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.tts-menu-chip {
+  align-items: center; min-height: 44px; padding: 4px 0; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 0.86em; text-align: center; font-variant-numeric: tabular-nums;
+}
+.tts-menu-chip[aria-checked="true"] { border-color: var(--tts-accent); background: var(--tts-accent-bg); color: var(--tts-accent-text); font-weight: 600; }
+#ttsStartBtn[aria-expanded="true"] { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+@media (prefers-reduced-motion: reduce) { .tts-menu-tick, .tts-menu-tick::after { transition: none; } }
+@media (forced-colors: active) { .tts-menu { border: 1px solid CanvasText; } .tts-menu-chip[aria-checked="true"] { border: 2px solid Highlight; } }
+@media print { .tts-menu { display: none !important; } }
+
+/* §27c 數據分析：朗讀 */
+.tts-analytics-note { margin: 0 0 12px; }
+.tts-analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
+.tts-analytics-sub { margin: 0 0 8px; font-size: 0.95em; color: var(--text-secondary); }
+.tts-analytics-trend { margin: 16px 0 0; }
+.tts-analytics-trend svg { width: 100%; height: auto; max-height: 180px; display: block; }
+.tts-trend-starts { fill: var(--tts-accent); opacity: 0.85; }
+.tts-trend-listeners { fill: var(--bg-secondary); stroke: var(--text-primary); stroke-width: 1.5; }
+.tts-trend-axis { stroke: var(--border); }
+.tts-trend-label { font-size: 11px; fill: var(--text-muted); }
+.tts-analytics-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.tts-legend-starts, .tts-legend-listeners { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--tts-accent); }
+.tts-legend-listeners { border-radius: 50%; background: var(--bg-secondary); border: 1.5px solid var(--text-primary); margin-left: 8px; }
+
+/* ── 無障礙：側欄樹狀列（檔案樹、大綱、搜尋結果）的鍵盤焦點框 ── */
+#fileTree [role="treeitem"]:focus-visible,
+#tocList [role="treeitem"]:focus-visible,
+#searchResults [role="treeitem"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+#markdownBody [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+
+/* ============================================================
+   §27d 聽經目錄（/?listen）— app.js §17d、後台 #adminPaneListen
+   ============================================================ */
+.listen-view { min-height: 100%; }
+.listen-view[hidden] { display: none !important; }
+.listen-page { max-width: 1080px; margin: 0 auto; padding: 36px 40px 160px; color: var(--text-primary); font-family: var(--cjk-serif, serif); }
+.listen-head h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: .08em; color: var(--heading-color, var(--text-primary)); }
+.listen-head h1:focus { outline: none; }
+.listen-head h1:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.listen-head p { margin: 0; color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
+.listen-head .listen-warn { margin-top: 8px; color: var(--text-muted); font-size: 14px; }
+.listen-empty { color: var(--text-muted); font-size: 15px; margin: 32px 0; }
+.listen-resume { margin: 22px 0 18px; display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 14px;
+  background: var(--tts-accent-bg, var(--accent-dim)); border: 1px solid var(--border); }
+.listen-resume-icon { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--tts-accent, var(--accent)); color: var(--tts-on-accent, var(--bg-primary)); flex: none; }
+.listen-resume-text { flex: 1; min-width: 0; }
+.listen-resume-k { font-size: 12px; color: var(--text-muted); letter-spacing: .1em; }
+.listen-resume-t { font-size: 17px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listen-resume-s { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.listen-btn { font: inherit; font-size: 15px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-primary);
+  min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
+.listen-btn:hover { background: var(--hover-bg); }
+.listen-btn.primary { background: var(--tts-accent, var(--accent)); border-color: transparent; color: var(--tts-on-accent, var(--bg-primary)); font-weight: 600; }
+.listen-btn.primary:hover { filter: brightness(1.06); }
+.listen-btn.ghost { border-color: transparent; color: var(--text-secondary); padding: 0 8px; margin-left: auto; text-decoration: underline; text-underline-offset: 4px; }
+.listen-btn:focus-visible, .listen-part:focus-visible, .listen-filter button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.listen-view.no-tts .listen-btn.primary, .listen-view.no-tts .listen-part { opacity: .55; pointer-events: none; }
+.listen-filter { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 8px; }
+.listen-filter button { font: inherit; font-size: 14px; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); cursor: pointer; }
+.listen-filter button[aria-pressed="true"] { background: var(--text-primary); color: var(--bg-primary); border-color: transparent; }
+.listen-cat h2 { font-size: 18px; margin: 26px 0 10px; color: var(--text-secondary); letter-spacing: .12em; display: flex; align-items: baseline; gap: 10px; }
+.listen-cat h2 small { font-size: 12.5px; color: var(--text-muted); letter-spacing: 0; font-weight: 400; }
+.listen-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.listen-item { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-secondary); padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+.listen-item.open { grid-column: 1 / -1; }
+.listen-item-head h3 { margin: 0; font-size: 18px; letter-spacing: .04em; }
+.listen-meta { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); font-family: system-ui, -apple-system, sans-serif; }
+.listen-meta b { color: var(--tts-accent-text, var(--accent)); font-weight: 500; }
+/* 訪客不能生成時：哪些經已經備好可以直接聽（app.js listenReadyBadge） */
+.listen-ready { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; border: 1px solid var(--border-color); color: var(--text-secondary); white-space: nowrap; }
+.listen-ready.ok { border-color: var(--tts-accent, var(--accent)); color: var(--tts-accent-text, var(--accent)); }
+.listen-actions { display: flex; gap: 8px; align-items: center; }
+.listen-actions .listen-btn { min-height: 40px; font-size: 14px; padding: 0 14px; }
+.listen-actions .listen-btn.ghost { padding: 0 6px; }
+.listen-chev { transition: transform .2s; }
+.listen-btn[aria-expanded="true"] .listen-chev { transform: rotate(180deg); }
+.listen-parts { border-top: 1px dashed var(--border); padding-top: 10px; }
+.listen-scope { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13.5px; color: var(--text-secondary); margin: 0 0 6px; border: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+.listen-scope legend { float: left; margin-right: 6px; padding: 0; }
+.listen-scope label { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); cursor: pointer; }
+.listen-scope label.on { border-color: var(--tts-accent, var(--accent)); color: var(--text-primary); background: var(--tts-accent-bg, transparent); }
+.listen-scope input { accent-color: var(--tts-accent, var(--accent)); margin: 0; }
+.listen-scope label:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+.listen-juan { font-size: 12.5px; color: var(--text-muted); margin: 10px 0 4px; letter-spacing: .12em; font-family: system-ui, -apple-system, sans-serif; font-weight: 500; }
+.listen-plist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 14px; }
+.listen-part { font: inherit; width: 100%; text-align: left; min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 10px;
+  background: transparent; border: 0; color: var(--text-primary); font-size: 15.5px; cursor: pointer; }
+.listen-part:hover { background: var(--hover-bg); }
+.listen-pn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listen-pm { font-size: 12.5px; color: var(--text-muted); font-family: system-ui, -apple-system, sans-serif; flex: none; }
+.listen-pi { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); display: grid; place-items: center; flex: none; color: var(--text-secondary); }
+.listen-part.now { background: var(--tts-accent-bg, var(--accent-dim)); }
+.listen-part.now .listen-pi { background: var(--tts-accent, var(--accent)); color: var(--tts-on-accent, var(--bg-primary)); border-color: transparent; }
+.listen-part.now .listen-pm { color: var(--tts-accent-text, var(--accent)); }
+.listen-part.done .listen-pn { color: var(--text-secondary); }
+.listen-part.done .listen-pi { color: var(--success, #3fb950); }
+.home-chip.home-chip-listen { border-color: var(--tts-accent, var(--accent)); color: var(--tts-accent-text, var(--accent)); }
+@media (max-width: 640px) {
+  .listen-page { padding: 18px 14px 150px; }
+  .listen-head h1 { font-size: 24px; }
+  .listen-head p { font-size: 14px; }
+  .listen-resume { padding: 12px; gap: 12px; }
+  .listen-resume .listen-btn { padding: 0 14px; }
+  .listen-filter { flex-wrap: nowrap; overflow-x: auto; margin-right: -14px; padding-right: 14px; scrollbar-width: none; }
+  .listen-filter button { flex: none; }
+  .listen-list, .listen-plist { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .listen-chev { transition: none; } }
+@media (forced-colors: active) { .listen-part.now, .listen-filter button[aria-pressed="true"] { outline: 2px solid CanvasText; } }
+
+/* 聽經目錄後台（#adminPaneListen） */
+.lc-admin { padding-bottom: 16px; }
+.lc-intro { margin: 0 0 14px; }
+.lc-cols { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 16px; align-items: start; }
+.lc-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lc-tool { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.lc-in { font: inherit; font-size: 14px; background: var(--input-bg, var(--bg-primary)); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+.lc-in:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lc-catname { font-size: 12px; color: var(--text-muted); margin: 12px 0 4px; letter-spacing: .08em; }
+.lc-catname span { letter-spacing: 0; }
+.lc-rows { list-style: none; margin: 0; padding: 0; }
+.lc-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 8px; }
+.lc-row.sel { background: var(--active-bg, var(--hover-bg)); box-shadow: inset 0 0 0 1px var(--accent); }
+.lc-row .status-light { flex: none; }
+.lc-row-name { font: inherit; font-size: 14px; flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: var(--text-primary); padding: 8px 4px; cursor: pointer;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-radius: 6px; }
+.lc-row-name small { color: var(--text-muted); margin-left: 6px; font-size: 12px; }
+.lc-row.off .lc-row-name { color: var(--text-muted); text-decoration: line-through; }
+.lc-row-name:focus-visible, .lc-mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lc-mini { font: inherit; font-size: 13px; min-width: 32px; min-height: 32px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.lc-mini:disabled { opacity: .35; cursor: default; }
+.lc-cats { border: 1px dashed var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.lc-cat-edit { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lc-cat-edit li { display: flex; gap: 6px; align-items: center; }
+.lc-cat-edit .lc-in { flex: 1; width: 0; }
+.lc-cat-edit .lc-in-note { flex: 1.3; }
+.lc-edit-title { margin: 0 0 12px; font-size: 17px; }
+.lc-form { display: grid; grid-template-columns: 96px 1fr; gap: 10px 12px; align-items: center; }
+.lc-form > label, .lc-form .lc-label { color: var(--text-secondary); font-size: 13.5px; align-self: start; padding-top: 8px; }
+.lc-form .field-hint { margin: 6px 0 0; }
+.lc-path { display: flex; gap: 6px; align-items: center; }
+.lc-path .lc-in { flex: 1; }
+.lc-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--text-primary); }
+.lc-seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.lc-seg label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; color: var(--text-secondary); cursor: pointer; border-right: 1px solid var(--border); }
+.lc-seg label:last-child { border-right: 0; }
+.lc-seg label:has(input:checked) { background: var(--accent); color: var(--bg-primary); font-weight: 600; }
+.lc-seg input { accent-color: var(--bg-primary); margin: 0; }
+.lc-seg label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lc-range { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--text-secondary); }
+.lc-range label { display: flex; gap: 8px; align-items: center; }
+.lc-range .lc-in { flex: 1; }
+.lc-edit-foot { margin-top: 14px; display: flex; justify-content: flex-end; }
+.lc-parts-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.lc-parts-head h3 { margin: 0; font-size: 15px; flex: 1; }
+.lc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lc-table th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 6px; border-bottom: 1px solid var(--border); }
+.lc-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.lc-table td .lc-in { width: 100%; box-sizing: border-box; padding: 4px 8px; }
+.lc-table tr.lc-juan td { color: var(--text-muted); font-size: 12px; letter-spacing: .1em; background: var(--bg-tertiary, transparent); }
+.lc-table tr.off td { opacity: .55; }
+.lc-num { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lc-num a { color: inherit; }
+.lc-err { color: var(--danger); }
+.lc-addpart { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--text-secondary); flex-wrap: wrap; }
+.lc-addpart .lc-in { flex: 1; min-width: 200px; }
+.lc-stat { display: flex; gap: 24px; flex-wrap: wrap; }
+.lc-stat b { display: block; font-size: 20px; }
+.lc-stat span { color: var(--text-muted); font-size: 12px; }
+.lc-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin: 10px 0; }
+.lc-bar i { display: block; height: 100%; background: var(--accent); }
+.lc-savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 0 4px; margin-top: 12px;
+  background: linear-gradient(transparent, var(--bg-primary) 35%); }
+.lc-dirty { flex: 1; color: var(--text-muted); font-size: 13px; }
+@media (max-width: 900px) { .lc-cols { grid-template-columns: 1fr; } .lc-form { grid-template-columns: 1fr; } .lc-form > label, .lc-form .lc-label { padding-top: 0; } }
+.lc-list-card .config-card-title { white-space: nowrap; }
+.lc-list-card .status-light-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-row.sel .lc-row-name small { color: var(--text-secondary); }
+
+/* §27c 後台：讀音校正 */
+.admin-shell .tts-lex-sub { margin: 18px 0 6px; font-size: 0.95em; }
+.admin-shell .tts-lex-table td { vertical-align: middle; }
+.admin-shell .tts-lex-table tr.is-off td:not(.tts-lex-act) { opacity: 0.55; }
+.admin-shell .tts-lex-bpmf { white-space: nowrap; font-size: 0.92em; }
+.admin-shell .tts-lex-table td.tts-lex-src { font-size: 0.85em; color: var(--text-muted); min-width: 10em; max-width: 16em; white-space: normal; line-height: 1.4; }
+.admin-shell .tts-lex-play, .admin-shell .tts-lex-act { white-space: nowrap; }
+.admin-shell .tts-lex-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+.admin-shell .tts-lex-state.on { background: var(--tts-accent-bg); color: var(--tts-accent-text); }
+.admin-shell .tts-lex-state.off { background: var(--hover-bg); color: var(--text-muted); }
+
+/* ── 朗讀體驗審計第三批：喇叭＋▾、點段落朗讀、首次提示、回報念錯、桌面面板 ── */
+.tts-caret-btn { min-width: 22px; padding: 0 3px; margin-left: -4px; }
+.tts-quick-btn.is-playing { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+@media (hover: none) { .tts-caret-btn { min-width: 24px; } }
+.tts-jump-pill {
+  position: fixed; z-index: 70; padding: 6px 14px; min-height: 36px;
+  border: 1px solid var(--tts-accent); border-radius: 999px;
+  background: var(--bg-secondary); color: var(--tts-accent-text);
+  font: inherit; font-size: 14px; box-shadow: 0 4px 14px var(--shadow-color); cursor: pointer;
+}
+.tts-jump-pill[hidden] { display: none; }
+@media (hover: none) { .tts-jump-pill { min-height: 44px; } }
+.tts-hint {
+  position: fixed; z-index: 75; max-width: min(320px, calc(100vw - 16px));
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 12px; border: 1px solid var(--tts-accent);
+  background: var(--bg-secondary); color: var(--text-primary);
+  font-size: 13.5px; line-height: 1.55; box-shadow: 0 6px 20px var(--shadow-color);
+}
+.tts-hint[hidden] { display: none; }
+.tts-hint button { flex: none; border: 0; border-radius: 8px; padding: 4px 10px; min-height: 32px; background: var(--tts-accent-bg); color: var(--tts-accent-text); font: inherit; cursor: pointer; }
+.tts-report { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.tts-report-form { display: flex; gap: 8px; flex: 1 1 240px; }
+.tts-report-form[hidden] { display: none; }
+.tts-report-form input { flex: 1; min-width: 0; min-height: 36px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.tts-report-table .tts-report-text { max-width: 420px; }
+
+/* 桌面寬螢幕：面板分兩欄、矮一點，不要蓋住大半篇經文 */
+@media (min-width: 900px) {
+  .tts-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; max-height: min(52vh, 480px); }
+  .tts-panel > .tts-notice, .tts-panel > .tts-sec-seek, .tts-panel > .tts-more, .tts-panel > .tts-stop-btn { grid-column: 1 / -1; }
+}
+
+/* ── §20a 螢幕鍵盤避讓（iPad／iPhone，app.js §20a）──────────────
+   iOS 跳出鍵盤時 100dvh 不變，只有 visualViewport 變矮。鍵盤打開時
+   html 會加上 .kb-open，並給 --kb-vv-top／--kb-vv-height（可見範圍）；
+   滿版的後台、後台搜尋與各對話框改成只佔鍵盤上方，裡面的捲動區才捲得到
+   正在輸入的欄位。 */
+html.kb-open .modal-overlay,
+html.kb-open .admin-palette {
+  top: var(--kb-vv-top, 0px);
+  bottom: auto;
+  height: var(--kb-vv-height, 100%);
+}
+
+/* 後台外框原本固定 100dvh，改為跟著外層（=鍵盤上方）的高度 */
+html.kb-open .admin-shell {
+  height: auto;
+}
+
+/* 一般對話框：可見範圍比卡片矮時，外層可捲、卡片靠上（margin:auto 置中不會切掉上緣） */
+html.kb-open .modal-overlay:not(#adminSettingsOverlay) {
+  overflow-y: auto;
+  align-items: flex-start !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+html.kb-open .modal-overlay:not(#adminSettingsOverlay) > * {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+/* 後台搜尋（⌘K）：結果清單留在鍵盤上方 */
+html.kb-open .admin-palette {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+html.kb-open .admin-palette-box {
+  max-height: 100%;
 }
