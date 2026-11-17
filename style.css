@@ -13508,3 +13508,7 @@ html.kb-open .admin-palette-box {
   font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.6;
 }
 .tts-admin-note[hidden] { display: none; }
+/* 讀音校正後的補生成提示 */
+.tts-refresh p { margin: 0 0 6px; }
+.tts-refresh .tts-refresh-words { color: var(--text-secondary); }
+.tts-refresh .account-inline-form { margin-top: 4px; }
