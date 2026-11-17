@@ -18337,6 +18337,46 @@
       || '<tr><td colspan="8" class="field-hint">還沒有音色。按「重新檢查連線」從 audio.cpp 抓回音色清單。</td></tr>';
     const opts = s.voices.filter(v => v.enabled).map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('');
     $('adminTtsJobVoice').innerHTML = opts; $('adminTtsPreviewVoice').innerHTML = opts;
+    renderTtsLcVoices();
+  }
+
+  // ── 聽經目錄一次預先生成：選音色 → 估算（已有／缺幾句、時間、空間）→ 開始（每個音色一個工作，依序跑）──
+  function renderTtsLcVoices() {
+    const box = $('adminTtsLcVoices'); const d = ttsAdmin.data; if (!box || !d) return;
+    const s = d.settings;
+    const prev = new Set([...box.querySelectorAll('input:checked')].map(i => i.value));
+    const list = s.voices.filter(v => v.enabled);
+    const pick = (v) => prev.size ? prev.has(v.id) : v.id === s.defaultVoice || (!list.some(x => x.id === s.defaultVoice) && v === list[0]);
+    box.innerHTML = '<legend>音色</legend>' + (list.length ? list.map(v => `<label class="tts-lcgen-check"><input type="checkbox" value="${escHtml(v.id)}" data-no-dirty ${pick(v) ? 'checked' : ''}> ${escHtml(v.name)}${v.id === s.defaultVoice ? '（預設）' : ''}</label>`).join('')
+      : '<span class="field-hint">還沒有開放的音色。</span>');
+  }
+
+  /** 預估時間：不到一分鐘、幾分、幾小時、超過兩天改說幾天。 */
+  function fmtTtsEta(ms) {
+    if (ms < 60000) return '不到 1 分鐘';
+    if (ms >= 48 * 3600000) return `約 ${(ms / 86400000).toFixed(1)} 天`;
+    return '約 ' + fmtTtsDuration(ms);
+  }
+
+  function ttsLcSelectedVoices() { return [...document.querySelectorAll('#adminTtsLcVoices input:checked')].map(i => i.value); }
+
+  function renderTtsLcEstimate(e) {
+    const el = $('adminTtsLcEstimate');
+    if (!e) { el.innerHTML = ''; return; }
+    const t = e.total;
+    const row = (v) => `<tr><th scope="row">${escHtml(v.name)}</th><td>${v.sentences.toLocaleString()}</td><td>${v.cached.toLocaleString()}</td><td><strong>${v.missing.toLocaleString()}</strong></td><td>${v.missingChars.toLocaleString()}</td><td>${v.missing ? fmtTtsEta(v.estMs) : '—'}</td><td>${v.missing ? '約 ' + fmtTtsBytes(v.estBytes) : '—'}</td></tr>`;
+    const after = e.cache.usedBytes + t.estBytes;
+    const over = e.cache.limitBytes && after > e.cache.limitBytes;
+    el.innerHTML = `<table class="tts-lcgen-table">
+        <caption>聽經目錄 ${e.files} 部經${e.missingFiles ? `（另有 ${e.missingFiles} 部找不到檔案，會略過）` : ''}，聽完一遍約 ${fmtTtsDuration(e.voices.length ? e.voices[0].audioMs : 0)}</caption>
+        <thead><tr><th scope="col">音色</th><th scope="col">句數</th><th scope="col">已生成</th><th scope="col">還缺</th><th scope="col">缺的字數</th><th scope="col">預估時間</th><th scope="col">預估空間</th></tr></thead>
+        <tbody>${e.voices.map(row).join('')}</tbody></table>
+      <p class="field-hint">${t.missing ? `共要生成 ${t.missing.toLocaleString()} 句，${fmtTtsEta(t.estMs)}、約 ${fmtTtsBytes(t.estBytes)}。` : '全部都已經生成好了，不用再生成。'}${e.rates.measured ? '依這台伺服器最近的生成速度估算。' : '還沒有足夠的生成紀錄，先用一般速度估算。'}一次只跑一個工作、依序生成，讀者的朗讀永遠優先；可隨時暫停、繼續。</p>
+      ${over ? `<p class="field-hint lc-err" role="alert">⚠️ 生成完約 ${fmtTtsBytes(after)}，超過快取上限 ${fmtTtsBytes(e.cache.limitBytes)}。建議勾「釘選」或先調高上限，不然較舊的音檔會被清掉。</p>` : ''}
+      <div class="account-inline-form">
+        ${t.missing ? `<button type="button" class="modal-btn submit-btn small-btn" id="adminTtsLcStartBtn" data-no-dirty>開始生成 ${t.missing.toLocaleString()} 句</button>` : ''}
+        <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsLcCloseBtn" data-no-dirty>${t.missing ? '取消' : '關閉'}</button>
+      </div>`;
   }
 
   function renderTtsAdminHealth() {
@@ -18568,16 +18608,22 @@
     const voices = (ttsAdmin.data && ttsAdmin.data.settings.voices) || [];
     const vname = (id) => (voices.find(v => v.id === id) || {}).name || id;
     el.innerHTML = d.jobs.length ? d.jobs.map(j => {
-      const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
+      const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.label || j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
       const acts = [];
       if (j.state === 'running' || j.state === 'queued') acts.push(['pause', '暫停']);
       if (j.state === 'paused') acts.push(['resume', '繼續']);
       if (j.state !== 'done' && j.state !== 'cancelled') acts.push(['cancel', '取消']);
+      if ((j.state === 'done' || j.state === 'cancelled') && j.failed > 0) acts.push(['retry', '重試失敗的句子']);
       if (j.state !== 'running') acts.push(['delete', '移除紀錄']);
+      // 完成報告：失敗的句子列出經名、行號、開頭幾個字和原因；被截斷（PR #250 起不存入快取）另外標出
+      const fails = j.failures || [];
+      const report = (j.state === 'done' || j.state === 'cancelled') ? `<div class="field-hint tts-job-report">${j.state === 'done' ? '✅ 完成' : '已取消'}：處理 ${j.sentencesDone.toLocaleString()} 句，新生成 ${j.generated.toLocaleString()} 句，原本已有 ${Math.max(0, j.sentencesDone - j.generated - j.failed).toLocaleString()} 句${j.failed ? `，<strong>失敗 ${j.failed} 句</strong>${j.truncated ? `（其中 ${j.truncated} 句聲音被截斷）` : ''}` : '，沒有失敗'}。</div>
+        ${fails.length ? `<details class="tts-job-fails"><summary>看失敗的句子（${fails.length}${j.failed > fails.length ? `／${j.failed}` : ''}）</summary><ul>${fails.map(f => `<li><a href="/?file=${encodeURIComponent(f.path)}&line=${f.line}" target="_blank" rel="noopener">${escHtml(f.label)} 第 ${f.line} 行</a>「${escHtml(f.text)}」— ${escHtml(f.reason)}</li>`).join('')}</ul></details>` : ''}` : '';
       return `<div class="account-row tts-job" data-job="${j.id}">
         <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
           <div class="field-hint">${TTS_JOB_STATE[j.state] || j.state}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
           <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
+          ${report}
         </div>
         <div class="account-inline-form">${acts.map(([a, label]) => `<button type="button" class="modal-btn ${a === 'cancel' ? 'cancel-btn' : 'secondary-btn'} small-btn" data-job-action="${a}" data-no-dirty>${label}</button>`).join('')}</div>
       </div>`;
@@ -18821,6 +18867,29 @@
       const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope, voice: $('adminTtsJobVoice').value, pin: $('adminTtsJobPin').checked } });
       if (!r.ok) { showToast(`❌ ${r.data.error || '無法建立工作'}`, 'error', 5000); return; }
       $('adminTtsJobScope').value = '';
+      renderTtsAdminJobs(r.data);
+    });
+    $('adminTtsLcEstimateBtn').addEventListener('click', async () => {
+      const voices = ttsLcSelectedVoices();
+      if (!voices.length) { showToast('請至少勾一個音色', 'info'); return; }
+      const b = $('adminTtsLcEstimateBtn'); b.disabled = true;
+      $('adminTtsLcEstimate').innerHTML = '<p class="field-hint">估算中…（逐句比對快取）</p>';
+      const r = await ttsAdminApi('/api/admin/tts/jobs/estimate', { method: 'POST', body: { scope: 'listen:catalog', voices } });
+      b.disabled = false;
+      if (!r.ok) { $('adminTtsLcEstimate').innerHTML = `<p class="field-hint lc-err" role="alert">${escHtml(r.data.error || '無法估算')}</p>`; return; }
+      ttsAdmin.lcVoices = voices;
+      renderTtsLcEstimate(r.data);
+      const start = $('adminTtsLcStartBtn'); (start || $('adminTtsLcCloseBtn')).focus();
+    });
+    $('adminTtsLcEstimate').addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.id === 'adminTtsLcCloseBtn') { renderTtsLcEstimate(null); $('adminTtsLcEstimateBtn').focus(); return; }
+      if (b.id !== 'adminTtsLcStartBtn') return;
+      b.disabled = true;
+      const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope: 'listen:catalog', voices: ttsAdmin.lcVoices || ttsLcSelectedVoices(), pin: $('adminTtsLcPin').checked } });
+      if (!r.ok) { b.disabled = false; showToast(`❌ ${r.data.error || '無法建立工作'}`, 'error', 5000); return; }
+      renderTtsLcEstimate(null);
+      showToast(`✅ 已排入 ${r.data.ids.length} 個預先生成工作（聽經目錄）`, 'success');
       renderTtsAdminJobs(r.data);
     });
     $('adminTtsJobs').addEventListener('click', async (e) => {

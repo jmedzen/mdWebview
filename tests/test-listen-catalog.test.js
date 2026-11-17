@@ -231,3 +231,21 @@ describe('前端契約', () => {
     assert.match(html, /data-page="listen" data-pane="listen"/);
   });
 });
+
+describe('後台：聽經目錄一次預先生成（app.js §21.8）', () => {
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  test('預先生成卡片裡有聽經目錄區：音色勾選、釘選、先估算再開始', () => {
+    const card = html.slice(html.indexOf('id="adminTtsJobsCard"'), html.indexOf('id="adminTtsJobs"'));
+    assert.match(card, /id="adminTtsLcVoices"/);
+    assert.match(card, /id="adminTtsLcPin" checked/);
+    assert.match(card, /id="adminTtsLcEstimateBtn"[^>]*>預先生成聽經目錄…</);
+    assert.match(card, /id="adminTtsLcEstimate"[^>]*aria-live="polite"/);
+  });
+  test('估算與開始都用 listen:catalog，多音色以 voices 送出；完成報告列出失敗並可重試', () => {
+    assert.match(app, /'\/api\/admin\/tts\/jobs\/estimate', \{ method: 'POST', body: \{ scope: 'listen:catalog', voices \}/);
+    assert.match(app, /body: \{ scope: 'listen:catalog', voices: ttsAdmin\.lcVoices/);
+    assert.match(app, /acts\.push\(\['retry', '重試失敗的句子'\]\)/);
+    assert.match(app, /聲音被截斷/);
+  });
+});

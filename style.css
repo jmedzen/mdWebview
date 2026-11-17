@@ -12831,6 +12831,28 @@ body.focus-mode .tts-start-btn { display: none; }
 .admin-shell .tts-admin-table input[type="text"] { min-width: 8em; width: 100%; }
 .admin-shell .tts-admin-table input[type="number"] { width: 4.5em; }
 .admin-shell .tts-job progress { width: 100%; height: 6px; accent-color: var(--tts-accent); }
+.admin-shell .tts-job-report { margin-top: 4px; }
+.admin-shell .tts-job > div:first-child { flex: 1 1 auto; min-width: 0; }
+.admin-shell .tts-job > .account-inline-form { flex: 0 0 auto; align-self: flex-start; }
+.admin-shell .tts-job [data-job-action] { white-space: nowrap; }
+@media (max-width: 600px) {
+  .admin-shell .tts-job { flex-wrap: wrap; }
+  .admin-shell .tts-job > .account-inline-form { flex-basis: 100%; flex-wrap: wrap; }
+}
+.admin-shell .tts-job-fails summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
+.admin-shell .tts-job-fails ul { margin: 4px 0 0; padding: 6px 8px 6px 1.6em; border: 1px solid var(--border-subtle); border-radius: 8px; word-break: normal; font-size: 12px; line-height: 1.6; max-height: 14em; overflow: auto; }
+.admin-shell .tts-lcgen { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.admin-shell .tts-lcgen h4 { margin: 0 0 4px; font-size: 14px; }
+.admin-shell .tts-lcgen-voices { border: 0; margin: 6px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.admin-shell .tts-lcgen-voices legend { float: left; margin-right: 8px; color: var(--text-muted); font-size: 13px; }
+.admin-shell .tts-lcgen-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.admin-shell .tts-lcgen-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 6px; }
+.admin-shell .tts-lcgen-est:empty { display: none; }
+.admin-shell .tts-lcgen-est { margin-top: 8px; overflow-x: auto; }
+.admin-shell .tts-lcgen-table { border-collapse: collapse; font-size: 13px; }
+.admin-shell .tts-lcgen-table caption { text-align: left; color: var(--text-muted); padding-bottom: 4px; }
+.admin-shell .tts-lcgen-table th, .admin-shell .tts-lcgen-table td { padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); text-align: right; white-space: nowrap; }
+.admin-shell .tts-lcgen-table th[scope="row"], .admin-shell .tts-lcgen-table thead th:first-child { text-align: left; }
 .admin-shell #adminTtsLexicon { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .hw-tts-status { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
 

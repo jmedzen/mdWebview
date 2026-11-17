@@ -825,6 +825,98 @@ describe('朗讀（TTS）後端', () => {
       store.clear();
     });
 
+    test('聽經目錄一次預先生成：估算、多音色依序、節錄只生成那一段、失敗報告與重試', async () => {
+      fs.mkdirSync(path.join(VAULT, 'lc'), { recursive: true });
+      // 節錄：只取「普門品」那一段；另一部整部收錄
+      fs.writeFileSync(path.join(VAULT, 'lc', 'lotus.md'), [
+        '# 妙法蓮華經', '## 序品第一', '如是我聞，一時佛住王舍城耆闍崛山中。', '## 觀世音菩薩普門品第二十五',
+        '爾時無盡意菩薩，即從座起，偏袒右肩。', '若有無量百千萬億眾生，受諸苦惱。', '## 陀羅尼品第二十六', '爾時藥王菩薩即從座起。'
+      ].join('\n\n') + '\n');
+      fs.writeFileSync(path.join(VAULT, 'lc', 'heart.md'), '觀自在菩薩，行深般若波羅蜜多時。照見五蘊皆空，度一切苦厄。\n');
+      const lcMod = require('../lib/listen-catalog.js');
+      const lines = fs.readFileSync(path.join(VAULT, 'lc', 'lotus.md'), 'utf8').split('\n');
+      const ln = (t) => lines.findIndex((x) => x.includes(t)) + 1;
+      config.settings.listenCatalog = lcMod.sanitizeCatalog({
+        categories: [{ id: 'f', name: '經' }],
+        items: [
+          { id: 'p', name: '普門品', path: 'lc/lotus.md', cat: 'f', split: 'none',
+            range: { from: { head: '觀世音菩薩普門品第二十五', line: ln('普門品') }, to: { head: '陀羅尼品第二十六', line: ln('陀羅尼品') } } },
+          { id: 'h', name: '心經', path: 'lc/heart.md', cat: 'f' },
+          { id: 'x', name: '隱藏', path: 'sub/a.md', cat: 'f', enabled: false }
+        ]
+      });
+      lcMod._internals.resolvedCache.clear();
+      const ents = await lcMod.catalogJobEntries();
+      assert.deepEqual(ents.map((e) => e.name), ['普門品', '心經'], '隱藏的不排');
+      assert.ok(ents[0].from > 1 && ents[0].to > ents[0].from, JSON.stringify(ents[0]));
+
+      // 估算：還沒生成；兩個音色各算一份
+      assert.equal((await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v9'] }, admin)).status, 400, '未開放的音色');
+      const e1 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v2'] }, admin);
+      assert.equal(e1.status, 200, JSON.stringify(e1.json));
+      assert.equal(e1.json.files, 2);
+      assert.deepEqual(e1.json.voices.map((v) => v.voice), ['v1', 'v2']);
+      const n = e1.json.voices[0].sentences;
+      assert.ok(n >= 4, JSON.stringify(e1.json));
+      assert.equal(e1.json.voices[0].cached, 0); assert.equal(e1.json.voices[0].missing, n);
+      assert.equal(e1.json.total.missing, n * 2);
+      assert.ok(e1.json.total.estMs > 0 && e1.json.total.estBytes > 0);
+      assert.equal(fake.speech.length, 0, '估算不會生成');
+
+      // 先讓 v1 的一句已經在快取：估算要扣掉
+      const hs = (await request('/api/tts/doc?chapter=0&voice=v1&path=lc/heart.md')).json.sentences.filter((x) => x.sha);
+      await post('/api/tts/speak', { path: 'lc/heart.md', voice: 'v1', ids: [hs[0].id], priority: 'now' });
+      const e2 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1'] }, admin);
+      assert.equal(e2.json.voices[0].cached, 1); assert.equal(e2.json.voices[0].missing, n - 1);
+
+      // 開始：v1 一切正常；v2 生成失敗（時長異常）→ 報告裡列出失敗的句子
+      fake.speech.length = 0;
+      const r = await post('/api/admin/tts/jobs', { scope: 'listen:catalog', voices: ['v1', 'v2'], pin: true }, admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.ids.length, 2);
+      const wait = async () => { for (let i = 0; i < 300 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 20)); };
+      // 第二個音色先暫停：等第一個跑完，再讓 audio.cpp 回時長異常的音檔，然後繼續
+      await post(`/api/admin/tts/jobs/${r.json.ids[1]}`, { action: 'pause' }, admin);
+      await wait();
+      fake.mode = 'tooshort';
+      await post(`/api/admin/tts/jobs/${r.json.ids[1]}`, { action: 'resume' }, admin);
+      await wait();
+      const jobs = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs;
+      const j1 = jobs.find((x) => x.id === r.json.ids[0]); const j2 = jobs.find((x) => x.id === r.json.ids[1]);
+      assert.equal(j1.scope, '聽經目錄');
+      assert.equal(j1.state, 'done'); assert.equal(j1.failed, 0); assert.equal(j1.generated, n - 1, '已快取的句子跳過');
+      assert.ok(fake.speech.every((b) => !/序品|如是我聞|藥王/.test(b.input)), '節錄範圍外的句子不生成');
+      assert.equal(j2.state, 'done'); assert.equal(j2.failed, n);
+      assert.equal(j2.failures.length, n);
+      assert.ok(j2.failures.every((f) => f.kind === 'duration' && f.line > 0 && f.label && f.reason));
+      assert.ok(!('sha' in j2.failures[0]), '報告不外露 sha');
+      assert.ok(j2.failures.some((f) => f.label === '普門品' && f.path === 'lc/lotus.md'));
+
+      // 重試失敗的句子：只重做失敗的
+      fake.mode = 'ok'; fake.speech.length = 0;
+      assert.equal((await post(`/api/admin/tts/jobs/${j1.id}`, { action: 'retry' }, admin)).status, 400, '沒有失敗就不能重試');
+      const rr = await post(`/api/admin/tts/jobs/${j2.id}`, { action: 'retry' }, admin);
+      assert.equal(rr.status, 200);
+      await wait();
+      const j3 = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((x) => x.id === rr.json.id);
+      assert.equal(j3.scope, '聽經目錄（重試）');
+      assert.equal(j3.state, 'done'); assert.equal(j3.failed, 0); assert.equal(j3.generated, n);
+      const e3 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v2'] }, admin);
+      assert.equal(e3.json.total.missing, 0);
+      for (const j of [j1, j2, j3]) await post(`/api/admin/tts/jobs/${j.id}`, { action: 'delete' }, admin);
+      delete config.settings.listenCatalog;
+      store.clear();
+    });
+
+    test('失敗原因：被截斷的聲音另外標出', () => {
+      const { failureReason, jobEntry } = tts._internals;
+      assert.equal(failureReason(Object.assign(new Error('truncated: reference recording too long'), { truncated: true })).kind, 'truncated');
+      assert.equal(failureReason(new Error('implausible duration 10 ms for 20 chars')).kind, 'duration');
+      assert.equal(failureReason(new Error('HTTP 500')).kind, 'error');
+      assert.deepEqual(jobEntry('a/b.md'), { path: 'a/b.md', from: 0, to: 0, label: 'b.md' });
+      assert.deepEqual(jobEntry({ p: 'a/b.md', from: 3, to: 9, name: '普門品' }), { path: 'a/b.md', from: 3, to: 9, label: '普門品' });
+    });
+
     test('快取用量與清除單篇', async () => {
       await speak([1, 2]);
       const u = await request('/api/admin/tts/cache', { headers: admin });
