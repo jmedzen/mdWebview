@@ -51,8 +51,10 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
   const wrong = [];
   for (const [w, to] of MUST_KEEP) {
+    // 「」在送出前換成“”（不也」｜否也」 這種以 」 當上下文的條目，實際送出的是「否也”」）
+    const want = to.replace(/「/g, '“').replace(/」/g, '”');
     const got = say(w);
-    if (got !== to) wrong.push(`${w}：應念「${to}」，實際送出「${got}」`);
+    if (got !== want) wrong.push(`${w}：應念「${want}」，實際送出「${got}」`);
   }
   assert.deepEqual(wrong, [], wrong.join('\n'));
   // 句子裡的情況
@@ -62,6 +64,33 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   // 銀→吟（2026-11-17 使用者指定）；「銀行」的行要念 ㄏㄤˊ
   assert.equal(say('金銀琉璃，白銀為地'), '金吟琉璃，白吟為地');
   assert.equal(say('存入銀行'), '存入吟航');
+  // 嶮→顯、杻→丑（2026-11-17 使用者指定）；罕見字 𡽗（嶮的異體）也要念「顯」
+  assert.equal(say('險嶮之道'), '險顯之道');
+  assert.equal(say('𡽗峻'), '顯峻');
+  assert.equal(say('杻械枷鎖'), '丑械枷鎖');
+  // 誑→狂（2026-11-17 使用者指定）；含「誑」的詞都念「狂」，罕見字 㾠（癲㾠）念「狂」，𣴥（烏光反）念「汪」
+  assert.equal(say('不誑語者，不欺誑人'), '不狂語者，不欺狂人');
+  assert.equal(say('誑惑眾生，諂誑妄語'), '狂惑眾生，諂狂妄語');
+  assert.equal(say('𣴥水'), '汪水');
+  assert.equal(say('㾠'), '狂');
+  // 讀誦→獨送（2026-11-17 使用者指定）；含「讀誦」的詞都念「獨送」，單獨的「讀」「誦」不變（大乘的乘另有 乘→聖）
+  assert.equal(say('受持讀誦，為他人說'), '受持獨送，為他人說');
+  assert.equal(say('讀誦大乘，書寫讀誦經典'), '獨送大聖，書寫獨送經典');
+  assert.equal(say('讀經念佛，誦咒持名'), '讀經念佛，誦咒持名');
+  // 乾闥婆→前踏婆、不？→否？、不也→否也（2026-11-17 使用者指定）；「不」只在這兩個片語改讀
+  assert.equal(say('天龍八部、乾闥婆、阿修羅'), '天龍八部、前踏婆、阿修羅');
+  assert.equal(say('「於意云何？可以身相見如來不？」「不也，世尊！」'), '“於意云何？可以身相見如來否？”“否也，世尊！”');
+  assert.equal(say('得福多不?'), '得福多否?');
+  assert.equal(say('不也世尊'), '否也世尊');
+  assert.equal(say('不可思議，不二法門，如如不動'), '不可思議，不二法門，如如不動');
+  assert.equal(say('不入於色'), '不入於色');
+  assert.equal(say('不也！善現。'), '否也！善現。');
+  assert.equal(say('答曰：不也。'), '答曰：否也。');
+  assert.equal(say('答言：「不也」'), '答言：“否也”');
+  assert.equal(say('不也；世尊'), '否也；世尊');
+  // 白話「難道不也…」不是答語：「不也」後面沒有標點就不改
+  assert.equal(say('這不也是假名安立嗎？'), '這不也是假名安立嗎？');
+  assert.equal(say('豈不也很精進？'), '豈不也很精進？');
 });
 
 test('整篇斷句後的朗讀文字也照清單念（segmentDoc 路徑）', () => {

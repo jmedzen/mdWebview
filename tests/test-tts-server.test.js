@@ -67,6 +67,7 @@ function startFake() {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         fake.speech.push(body);
         setTimeout(() => {
+          if (fake.mode === 'reset') { req.socket.destroy(); return; }
           if (fake.mode === '500') return json(500, { error: { message: 'model exploded', type: 'server_error' } });
           if (fake.mode === 'noref') return json(400, { error: { message: 'Drama 3 reference audio requires reference_text', type: 'invalid_request_error' } });
           if (fake.mode === 'busy') return json(503, { error: { message: "model 'drama3' is busy", type: 'server_busy' } });
@@ -288,6 +289,14 @@ describe('朗讀（TTS）後端', () => {
       });
     }
 
+    test('audio.cpp 整台連不上（連線被切斷）：回報 unavailable，不是 failed', async () => {
+      fake.mode = 'reset'; tts._internals.failed.clear();
+      const r = await speak([5], { voice: 'v2' });
+      assert.equal(r.json.items[0].state, 'unavailable');
+      fake.mode = 'ok'; tts._internals.failed.clear();
+      assert.equal((await speak([5], { voice: 'v2' })).json.items[0].state, 'ready');
+    });
+
     test('失敗後恢復正常：可以重新生成', async () => {
       fake.mode = '500';
       assert.equal((await speak([5], { voice: 'v2' })).json.items[0].state, 'failed');
@@ -497,6 +506,135 @@ describe('朗讀（TTS）後端', () => {
       assert.equal(fake.speech[fake.speech.length - 1].input, '波惹波羅蜜多甚深微妙，諸菩薩摩訶薩應如是學。');
       fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true });
       lexicon.resetCache(); tts._internals.docCache.clear();
+    });
+  });
+
+  describe('換音色後舊音色不再佔用 audio.cpp', () => {
+    const L = 'tab0123456789abcdef';
+    const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+    const voicesAfter = (n) => fake.speech.slice(n).map((b) => b.voice);
+    /** 送出請求、等到伺服器收到後就中斷連線（模擬前端 AbortController.abort()） */
+    function speakThenAbort(body, afterMs) {
+      return new Promise((resolve) => {
+        const req = http.request(new URL('/api/tts/speak', baseUrl), { method: 'POST', agent: false, headers: { 'Content-Type': 'application/json', Connection: 'close' } });
+        req.on('error', () => resolve());
+        req.end(JSON.stringify(body));
+        setTimeout(() => { req.destroy(); resolve(); }, afterMs);
+      });
+    }
+
+    test('用音色 A 播放、預取排隊中換成音色 B：之後 audio.cpp 只再收到 A 正在生成的那一句', async () => {
+      fake.delayMs = 150;
+      const pre = speak([1, 2, 3, 5], { priority: 'prefetch', listener: L, gen: 1 });
+      await sleepMs(60); // 第一句已送到 audio.cpp，其餘三句在排隊
+      assert.equal(fake.speech.length, 1);
+      const switchAt = fake.speech.length;
+      const now = await speak([1], { voice: 'v2', listener: L, gen: 2 });
+      assert.equal(now.json.items[0].state, 'ready');
+      const old = await pre;
+      const after = voicesAfter(switchAt);
+      assert.deepEqual(after, ['demo_1_man'], `換音色後送出的請求：${after.join(', ')}`);
+      assert.equal(fake.speech.filter((b) => b.voice === 'demo_3_woman').length, 1, '舊音色只有換之前已在生成的那一句');
+      assert.deepEqual(old.json.items.map((x) => x.state), ['ready', 'cancelled', 'cancelled', 'cancelled']);
+      assert.ok(tts._internals.queueStats().cancelled >= 3);
+      // 已生成的舊音色那一句留在快取
+      const back = await speak([1], { listener: L, gen: 3 });
+      assert.equal(back.json.items[0].state, 'ready');
+      assert.equal(fake.speech.filter((b) => b.voice === 'demo_3_woman').length, 1, '換回音色 A 時直接命中快取');
+      assert.equal(tts._internals.queueStats().queued, 0);
+    });
+
+    test('/api/tts/cancel（停止朗讀）把這位讀者排隊中的句子移出佇列', async () => {
+      fake.delayMs = 150;
+      const pre = speak([1, 2, 3, 5], { priority: 'prefetch', listener: L, gen: 1 });
+      await sleepMs(60);
+      const c = await post('/api/tts/cancel', { listener: L, gen: 2 });
+      assert.equal(c.status, 200); assert.equal(c.json.dropped, 3);
+      await pre;
+      assert.equal(fake.speech.length, 1);
+      assert.equal((await post('/api/tts/cancel', { gen: 2 })).status, 400, '缺 listener');
+    });
+
+    test('前端中斷請求（關頁、斷線）且沒有再來：寬限期後排隊的句子撤銷，上游只跑完已開始的那一句', async () => {
+      tts._internals.setListenerGrace(20);
+      try {
+        fake.delayMs = 150;
+        await speakThenAbort({ path: P, voice: 'v1', ids: [1, 2, 3, 5], priority: 'prefetch', listener: L, gen: 1 }, 60);
+        await sleepMs(500);
+        assert.equal(fake.speech.length, 1, fake.speech.map((b) => b.input).join(' / '));
+        assert.equal(tts._internals.queueStats().queued, 0);
+        assert.equal(tts._internals.queueStats().running, 0);
+      } finally { tts._internals.setListenerGrace(3000); }
+    });
+
+    test('中斷後馬上用新的請求接上（換音色的正常流程）：不撤銷新的請求', async () => {
+      tts._internals.setListenerGrace(100);
+      try {
+        fake.delayMs = 80;
+        await speakThenAbort({ path: P, voice: 'v1', ids: [1, 2], priority: 'prefetch', listener: L, gen: 1 }, 30);
+        const r = await speak([3, 5], { voice: 'v2', priority: 'prefetch', listener: L, gen: 2 });
+        assert.deepEqual(r.json.items.map((x) => x.state), ['ready', 'ready']);
+        assert.deepEqual(fake.speech.map((b) => b.voice), ['demo_3_woman', 'demo_1_man', 'demo_1_man']);
+      } finally { tts._internals.setListenerGrace(3000); }
+    });
+
+    test('慢到的舊 gen 請求（亂序）不再排新工作', async () => {
+      await post('/api/tts/cancel', { listener: L, gen: 5 });
+      const r = await speak([2], { listener: L, gen: 4 });
+      assert.equal(r.json.items[0].state, 'cancelled');
+      assert.equal(fake.speech.length, 0);
+    });
+
+    test('別的讀者（或離線下載）也在等同一句：一位讀者換音色不影響他', async () => {
+      fake.delayMs = 100;
+      const other = speak([1, 2, 3], { priority: 'prefetch', listener: 'offline0123456789ab', gen: 1 });
+      const mine = speak([1, 2, 3], { priority: 'prefetch', listener: L, gen: 1 });
+      await sleepMs(30);
+      await post('/api/tts/cancel', { listener: L, gen: 2 });
+      const o = await other; await mine;
+      assert.deepEqual(o.json.items.map((x) => x.state), ['ready', 'ready', 'ready']);
+      assert.equal(fake.speech.length, 3, '沒有重複生成');
+    });
+
+    test('舊版前端（沒帶 listener）：照舊排進去就跑完', async () => {
+      fake.delayMs = 50;
+      const r = await speak([1, 2, 3], { priority: 'prefetch' });
+      assert.deepEqual(r.json.items.map((x) => x.state), ['ready', 'ready', 'ready']);
+      assert.equal(fake.speech.length, 3);
+    });
+
+    test('後台預生成工作：讀者撤銷不影響；管理員暫停時排隊的那一句移出佇列', async () => {
+      fake.delayMs = 120;
+      const { enqueue, releaseClaims, queueStats } = tts._internals;
+      const s = tts.getSettings();
+      const v1 = s.voices.find((v) => v.id === 'v1');
+      const mk = (txt) => ({ sha: tts._internals.blobSha(txt, tts._internals.voiceKey(s, v1)), spoken: txt, voiceName: v1.voice, voiceId: 'v1', flags: 0 });
+      const blocker = enqueue(mk('第一句佔住生成名額。'), 'now', { key: 'l:' + L, gen: 1 });
+      await sleepMs(20); // 已送到 audio.cpp
+      const bulk = enqueue(mk('預生成的一句經文。'), 'bulk', { key: 'job:77', gen: 0 });
+      const shared = mk('讀者與預生成都要的一句。');
+      const pShared = enqueue(shared, 'bulk', { key: 'job:77', gen: 0 });
+      enqueue(shared, 'now', { key: 'l:' + L, gen: 1 }); // 讀者把它提前
+      assert.equal(releaseClaims('l:' + L, Infinity), 0, '背景工作還在等，不移除');
+      assert.equal(queueStats().byPriority[0], 0, '只剩背景工作在等：退回 bulk 優先序');
+      assert.equal(releaseClaims('job:77', Infinity), 2, '管理員暫停：兩句都移出佇列');
+      await assert.rejects(bulk, (e) => e.cancelled === true);
+      await assert.rejects(pShared, (e) => e.cancelled === true);
+      await blocker;
+      assert.equal(fake.speech.length, 1);
+    });
+
+    test('同一範圍、同一音色的預生成工作不重複排', async () => {
+      const admin = session('dupjob-tok', 'admin');
+      fs.writeFileSync(path.join(VAULT, 'sub', 'b.md'), '# 乙\n\n如是我聞。\n');
+      const a = await post('/api/admin/tts/jobs', { scope: 'sub/b.md', voice: 'v1' }, admin);
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'pause' }, admin);
+      const b = await post('/api/admin/tts/jobs', { scope: 'sub/b.md', voice: 'v1' }, admin);
+      assert.equal(b.status, 200);
+      assert.equal(b.json.id, a.json.id, '沿用已排的工作');
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'cancel' }, admin);
+      await post(`/api/admin/tts/jobs/${a.json.id}`, { action: 'delete' }, admin);
+      fs.unlinkSync(path.join(VAULT, 'sub', 'b.md'));
     });
   });
 
@@ -825,6 +963,98 @@ describe('朗讀（TTS）後端', () => {
       store.clear();
     });
 
+    test('聽經目錄一次預先生成：估算、多音色依序、節錄只生成那一段、失敗報告與重試', async () => {
+      fs.mkdirSync(path.join(VAULT, 'lc'), { recursive: true });
+      // 節錄：只取「普門品」那一段；另一部整部收錄
+      fs.writeFileSync(path.join(VAULT, 'lc', 'lotus.md'), [
+        '# 妙法蓮華經', '## 序品第一', '如是我聞，一時佛住王舍城耆闍崛山中。', '## 觀世音菩薩普門品第二十五',
+        '爾時無盡意菩薩，即從座起，偏袒右肩。', '若有無量百千萬億眾生，受諸苦惱。', '## 陀羅尼品第二十六', '爾時藥王菩薩即從座起。'
+      ].join('\n\n') + '\n');
+      fs.writeFileSync(path.join(VAULT, 'lc', 'heart.md'), '觀自在菩薩，行深般若波羅蜜多時。照見五蘊皆空，度一切苦厄。\n');
+      const lcMod = require('../lib/listen-catalog.js');
+      const lines = fs.readFileSync(path.join(VAULT, 'lc', 'lotus.md'), 'utf8').split('\n');
+      const ln = (t) => lines.findIndex((x) => x.includes(t)) + 1;
+      config.settings.listenCatalog = lcMod.sanitizeCatalog({
+        categories: [{ id: 'f', name: '經' }],
+        items: [
+          { id: 'p', name: '普門品', path: 'lc/lotus.md', cat: 'f', split: 'none',
+            range: { from: { head: '觀世音菩薩普門品第二十五', line: ln('普門品') }, to: { head: '陀羅尼品第二十六', line: ln('陀羅尼品') } } },
+          { id: 'h', name: '心經', path: 'lc/heart.md', cat: 'f' },
+          { id: 'x', name: '隱藏', path: 'sub/a.md', cat: 'f', enabled: false }
+        ]
+      });
+      lcMod._internals.resolvedCache.clear();
+      const ents = await lcMod.catalogJobEntries();
+      assert.deepEqual(ents.map((e) => e.name), ['普門品', '心經'], '隱藏的不排');
+      assert.ok(ents[0].from > 1 && ents[0].to > ents[0].from, JSON.stringify(ents[0]));
+
+      // 估算：還沒生成；兩個音色各算一份
+      assert.equal((await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v9'] }, admin)).status, 400, '未開放的音色');
+      const e1 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v2'] }, admin);
+      assert.equal(e1.status, 200, JSON.stringify(e1.json));
+      assert.equal(e1.json.files, 2);
+      assert.deepEqual(e1.json.voices.map((v) => v.voice), ['v1', 'v2']);
+      const n = e1.json.voices[0].sentences;
+      assert.ok(n >= 4, JSON.stringify(e1.json));
+      assert.equal(e1.json.voices[0].cached, 0); assert.equal(e1.json.voices[0].missing, n);
+      assert.equal(e1.json.total.missing, n * 2);
+      assert.ok(e1.json.total.estMs > 0 && e1.json.total.estBytes > 0);
+      assert.equal(fake.speech.length, 0, '估算不會生成');
+
+      // 先讓 v1 的一句已經在快取：估算要扣掉
+      const hs = (await request('/api/tts/doc?chapter=0&voice=v1&path=lc/heart.md')).json.sentences.filter((x) => x.sha);
+      await post('/api/tts/speak', { path: 'lc/heart.md', voice: 'v1', ids: [hs[0].id], priority: 'now' });
+      const e2 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1'] }, admin);
+      assert.equal(e2.json.voices[0].cached, 1); assert.equal(e2.json.voices[0].missing, n - 1);
+
+      // 開始：v1 一切正常；v2 生成失敗（時長異常）→ 報告裡列出失敗的句子
+      fake.speech.length = 0;
+      const r = await post('/api/admin/tts/jobs', { scope: 'listen:catalog', voices: ['v1', 'v2'], pin: true }, admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.ids.length, 2);
+      const wait = async () => { for (let i = 0; i < 300 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 20)); };
+      // 第二個音色先暫停：等第一個跑完，再讓 audio.cpp 回時長異常的音檔，然後繼續
+      await post(`/api/admin/tts/jobs/${r.json.ids[1]}`, { action: 'pause' }, admin);
+      await wait();
+      fake.mode = 'tooshort';
+      await post(`/api/admin/tts/jobs/${r.json.ids[1]}`, { action: 'resume' }, admin);
+      await wait();
+      const jobs = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs;
+      const j1 = jobs.find((x) => x.id === r.json.ids[0]); const j2 = jobs.find((x) => x.id === r.json.ids[1]);
+      assert.equal(j1.scope, '聽經目錄');
+      assert.equal(j1.state, 'done'); assert.equal(j1.failed, 0); assert.equal(j1.generated, n - 1, '已快取的句子跳過');
+      assert.ok(fake.speech.every((b) => !/序品|如是我聞|藥王/.test(b.input)), '節錄範圍外的句子不生成');
+      assert.equal(j2.state, 'done'); assert.equal(j2.failed, n);
+      assert.equal(j2.failures.length, n);
+      assert.ok(j2.failures.every((f) => f.kind === 'duration' && f.line > 0 && f.label && f.reason));
+      assert.ok(!('sha' in j2.failures[0]), '報告不外露 sha');
+      assert.ok(j2.failures.some((f) => f.label === '普門品' && f.path === 'lc/lotus.md'));
+
+      // 重試失敗的句子：只重做失敗的
+      fake.mode = 'ok'; fake.speech.length = 0;
+      assert.equal((await post(`/api/admin/tts/jobs/${j1.id}`, { action: 'retry' }, admin)).status, 400, '沒有失敗就不能重試');
+      const rr = await post(`/api/admin/tts/jobs/${j2.id}`, { action: 'retry' }, admin);
+      assert.equal(rr.status, 200);
+      await wait();
+      const j3 = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((x) => x.id === rr.json.id);
+      assert.equal(j3.scope, '聽經目錄（重試）');
+      assert.equal(j3.state, 'done'); assert.equal(j3.failed, 0); assert.equal(j3.generated, n);
+      const e3 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v2'] }, admin);
+      assert.equal(e3.json.total.missing, 0);
+      for (const j of [j1, j2, j3]) await post(`/api/admin/tts/jobs/${j.id}`, { action: 'delete' }, admin);
+      delete config.settings.listenCatalog;
+      store.clear();
+    });
+
+    test('失敗原因：被截斷的聲音另外標出', () => {
+      const { failureReason, jobEntry } = tts._internals;
+      assert.equal(failureReason(Object.assign(new Error('truncated: reference recording too long'), { truncated: true })).kind, 'truncated');
+      assert.equal(failureReason(new Error('implausible duration 10 ms for 20 chars')).kind, 'duration');
+      assert.equal(failureReason(new Error('HTTP 500')).kind, 'error');
+      assert.deepEqual(jobEntry('a/b.md'), { path: 'a/b.md', from: 0, to: 0, label: 'b.md' });
+      assert.deepEqual(jobEntry({ p: 'a/b.md', from: 3, to: 9, name: '普門品' }), { path: 'a/b.md', from: 3, to: 9, label: '普門品' });
+    });
+
     test('快取用量與清除單篇', async () => {
       await speak([1, 2]);
       const u = await request('/api/admin/tts/cache', { headers: admin });
@@ -1069,5 +1299,17 @@ describe('lib/tts.js 純函式', () => {
     I.setFfmpeg({ ok: true, path: 'ffmpeg' });
     assert.notEqual(I.blobSha('應無所住，而生其心。', I.voiceKey(s, v)), base);
     I.setFfmpeg({ ok: false });
+  });
+});
+
+describe('音色中文名自動去掉前後非中文字', () => {
+  test('trimVoiceName 與 sanitizeVoices', () => {
+    const I = require('../lib/tts')._internals;
+    assert.equal(I.trimVoiceName('RA-m-米陸'), '米陸');
+    assert.equal(I.trimVoiceName('RA-female-芙蓉2'), '芙蓉2');
+    assert.equal(I.trimVoiceName('RA-male-都A1'), '都A1');
+    assert.equal(I.trimVoiceName('demo_1_man'), 'demo_1_man');
+    const out = I.sanitizeVoices([{ voice: 'RA-f-托瓦' }, { voice: 'RA-m-菩提', name: ' RA-m-菩提 ' }, { voice: 'x', name: '男聲・都' }]);
+    assert.deepEqual(out.map(v => v.name), ['托瓦', '菩提', '男聲・都']);
   });
 });

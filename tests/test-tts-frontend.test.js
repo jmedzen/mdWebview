@@ -82,7 +82,7 @@ describe('朗讀播放器的無障礙語意', () => {
 
   test('朗讀中換一段新的（選字、朗讀本節）：馬上停掉正在播的舊句，ended 不會把新的第一句跳過', () => {
     const halt = ttsSection.slice(ttsSection.indexOf('function ttsHaltCurrent'), ttsSection.indexOf('async function ttsBegin'));
-    assert.match(halt, /ttsRt\.token\+\+/);
+    assert.match(halt, /ttsBumpToken\(\)/);
     assert.match(halt, /clearTimeout\(ttsRt\.gapTimer\)/);
     assert.match(halt, /a\.dataset\.ttsSha = ''/);
     assert.match(halt, /a\.pause\(\)/);
@@ -91,11 +91,21 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.ok(begin.indexOf('ttsHaltCurrent()') >= 0 && begin.indexOf('ttsHaltCurrent()') < begin.indexOf('ttsUnlock()'), '先停舊句再解鎖、再 await');
   });
 
-  test('展開面板：分組層級；開關是原生 checkbox（role=switch）；進階設定收合；音色名稱不斷字', () => {
-    for (const id of ['ttsPinVoice', 'ttsContinueNext', 'ttsFollow', 'ttsExact', 'ttsShortcuts']) {
-      assert.match(playerHtml, new RegExp(`<input type="checkbox" id="${id}" role="switch">`), id);
+  test('展開面板只放音色、語速、聆聽方式；其他偏好集中在偏好設定的「朗讀」分頁（不重複）', () => {
+    assert.match(playerHtml, /<input type="checkbox" id="ttsPinVoice" role="switch">/);
+    for (const id of ['ttsContinueNext', 'ttsFollow', 'ttsExact', 'ttsShortcuts', 'ttsSelContinue', 'ttsMore', 'ttsStopBtn', 'ttsSeekTotal']) {
+      assert.doesNotMatch(playerHtml, new RegExp(`id="${id}"`), `${id} 已移出面板`);
+      assert.doesNotMatch(ttsSection, new RegExp(`\\$\\('${id}'\\)`), `${id} 不再被程式引用`);
     }
-    assert.match(playerHtml, /<details class="tts-sec tts-more" id="ttsMore">/);
+    assert.match(playerHtml, /id="ttsMoreBtn"[^>]*>[\s\S]*?更多朗讀設定/);
+    assert.match(ttsSection, /on\('ttsMoreBtn', 'click'[^\n]*settingsTab-tts/);
+    const pane = html.slice(html.indexOf('id="pane-tts"'), html.indexOf('<!-- Tab 2: 推薦經論'));
+    for (const id of ['settingTtsContinue', 'settingTtsFollow', 'settingTtsShortcuts', 'settingTtsSelContinue', 'settingTtsExact', 'settingTtsSleep']) assert.match(pane, new RegExp(`id="${id}"`), id);
+    assert.match(html, /data-tab="tts" id="settingsTab-tts" role="tab" aria-controls="pane-tts">🔊 朗讀</);
+    assert.match(css, /body:not\(\.tts-enabled\) \.tts-settings-tab \{ display: none; \}|body:not\(\.tts-enabled\) #ttsSettings, body:not\(\.tts-enabled\) \.tts-settings-tab \{ display: none; \}/);
+    // 同一件事全站同一句話
+    assert.equal((html.match(/大字全螢幕，跟著念/g) || []).length, 2);
+    assert.doesNotMatch(html, /大字全螢幕跟讀|讀完這一篇，接著讀/);
     assert.match(playerHtml, /<select id="ttsSleep"[^>]*aria-label="睡眠計時"/);
     assert.match(playerHtml, /id="ttsOfflineBtn" aria-label="下載整篇以離線收聽"/);
     assert.match(css, /\.tts-voice-name \{[^}]*overflow-wrap: anywhere;/);
@@ -114,9 +124,22 @@ describe('朗讀播放器的無障礙語意', () => {
     assert.deepEqual(run(['demo_1_man', 'demo_3_woman']), ['demo_1_man', 'demo_3_woman']);
   });
 
+  test('音色中文名自動去掉前後非中文字，結尾數字保留', () => {
+    const src = ttsSection.slice(ttsSection.indexOf('function tidyTtsVoiceName'), ttsSection.indexOf('async function refreshTtsStatus'));
+    const ctx = { String }; vm.createContext(ctx);
+    vm.runInContext(src + '\nthis.t = tidyTtsVoiceNames;', ctx);
+    const run = (names) => { const l = names.map(name => ({ name })); ctx.t(l); return l.map(x => x.name); };
+    assert.deepEqual(run(['RA-m-米陸', 'RA-f-芙蓉2', 'RA-female-芙蓉']), ['米陸', '芙蓉2', '芙蓉']);
+    assert.deepEqual(run(['RA-20261117 2']), ['20261117 2']); // 沒有中文：只去檔名前綴
+    assert.deepEqual(run(['芙蓉 (new)', '男聲・都']), ['芙蓉', '男聲・都']);
+    // 後台：未登記音色預填中文名、儲存時也套同一規則
+    assert.match(app, /name: trimTtsVoiceName\(tr\.querySelector\('\.tts-v-name'\)\.value\.trim\(\) \|\| tr\.dataset\.voice\)/);
+  });
+
   test('朗讀選取後預設繼續往下讀（可關）：選的句子讀完就接上後面的句子', () => {
     assert.match(ttsSection, /selContinue: p\.selContinue !== false/);
-    assert.match(playerHtml, /<input type="checkbox" id="ttsSelContinue" role="switch">/);
+    assert.match(html, /<input type="checkbox" id="settingTtsSelContinue">/);
+    assert.match(ttsSection, /prefChk\('settingTtsSelContinue', 'selContinue'\)/);
     const ended = ttsSection.slice(ttsSection.indexOf('async function onTtsEnded'), ttsSection.indexOf('function ttsFinish'));
     assert.match(ended, /ttsPrefs\(\)\.selContinue/);
     assert.ok(ended.indexOf('ttsContinueAfterSelection(token)') < ended.indexOf('ttsContinueNextDoc()'), '先接本篇後面的句子，才考慮下一篇');
@@ -384,11 +407,20 @@ describe('長時間聽經（2026-11-16 體驗審計第二批）', () => {
 });
 
 describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
-  test('右上角：喇叭一按就從這裡朗讀（朗讀中是暫停／繼續），▾ 才是選單', () => {
-    assert.match(html, /id="ttsQuickBtn"[^>]*aria-label="從這裡朗讀"/);
-    const fn = ttsSection.slice(ttsSection.indexOf('function setupTtsQuickEntry'));
-    assert.match(fn.slice(0, 400), /if \(ttsRt\.active\) return ttsTogglePlay\(\);\s*ttsSetStartMode\('here'\);\s*ttsStartFromVisible\(\);/);
-    assert.match(ttsSection, /const label = !ttsRt\.active \? '從這裡朗讀' : ttsRt\.playing \? '暫停朗讀' : '繼續朗讀';/);
+  test('右上角只有一顆喇叭：一按就開選單（沒有 ▾），原本的「從這裡讀／暫停」是選單第一項', () => {
+    assert.doesNotMatch(html, /id="ttsQuickBtn"/);
+    assert.doesNotMatch(html, /tts-caret-btn/);
+    assert.doesNotMatch(ttsSection, /ttsQuickBtn/);
+    const btn = html.match(/<button id="ttsStartBtn"[\s\S]*?<\/button>/)[0];
+    assert.match(btn, /aria-haspopup="menu" aria-expanded="false" aria-controls="ttsStartMenu"/);
+    assert.match(btn, /<path d="M2\.5 6\.2v3\.6h2\.4L8\.2 12\.6V3\.4L4\.9 6\.2z"\/>/, '喇叭圖示');
+    const menu = html.slice(html.indexOf('id="ttsStartMenu"'));
+    const acts = [...menu.matchAll(/data-tts-act="(\w+)"/g)].map(m => m[1]);
+    assert.deepEqual(acts.slice(0, 3), ['toggle', 'here', 'resume'], '朗讀中第一項是暫停／繼續；沒在讀時第一項是從這裡讀');
+    assert.match(ttsSection, /const label = `朗讀選單\$\{st\}`;/);
+    assert.match(ttsSection, /btn\.addEventListener\('click', \(\) => \{ hideTtsHint\(true\); if \(menu\.hidden\)/);
+    assert.match(ttsSection, /e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); closeTtsStartMenu\(true\);/);
+    assert.match(ttsSection, /if \(e\.code === 'KeyR'\) \{ e\.preventDefault\(\); if \(state\.currentFile \|\| ttsRt\.active\) ttsTogglePlay\(\); \}/, 'Alt+R 仍可直接開始／暫停');
   });
 
   test('播放中點段落出現「從這段讀」；不攔截連結、按鈕與選字', () => {
@@ -398,7 +430,10 @@ describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
   });
 
   test('「這句念錯了」只送路徑與句子序號（文字由伺服器取）', () => {
-    assert.match(html, /id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm">這句念錯了<\/button>/);
+    assert.match(html, /class="tts-report-btn" id="ttsReportBtn" aria-expanded="false" aria-controls="ttsReportForm" aria-label="這句念錯了，回報"[^>]*>[\s\S]*?<span>念錯了<\/span><\/button>/);
+    // 次要動作：無框淡字，點擊範圍仍 ≥ 44px
+    assert.match(css, /\.tts-report-btn \{\n  position: relative;[^}]*border: 0;[^}]*color: var\(--text-muted\);/);
+    assert.match(css, /\.tts-report-btn::after \{ content: ''; position: absolute; inset: -8px -4px; \}/);
     assert.match(ttsSection, /ttsApi\('\/api\/tts\/report', \{ path: ttsRt\.path, i: it\.i, voice: v && v\.id, note: /);
   });
 
@@ -417,5 +452,163 @@ describe('入口與互動（2026-11-16 體驗審計第三批）', () => {
     const short = grab('ttsVoiceShortName');
     assert.equal(short('慧音（女聲・柔和）'), '慧音');
     assert.match(ttsSection, /ttsRt\.title = ttsCleanTitle\(/);
+  });
+});
+
+describe('2026-11-17 介面審計修正（讀者端）', () => {
+  test('手機最窄時播放列一定留著停止鍵（語速改在面板）；面板不再有第二顆「停止朗讀」', () => {
+    assert.doesNotMatch(css, /#ttsCloseBtn \{ display: none; \}/);
+    assert.match(css, /@media \(max-width: 380px\) \{[^}]*\}[^@]*#ttsRateBtn \{ display: none; \}/);
+    assert.doesNotMatch(html, /tts-stop-btn/);
+  });
+  test('語速全站寫成「1 倍」；面板進度列下方不重複剩餘時間', () => {
+    assert.match(html, /id="ttsRateBtn">1 倍</);
+    assert.match(ttsSection, /rateBtn\.textContent = `\$\{rate\} 倍`;/);
+    assert.match(html, /<span class="tts-seek-now" id="ttsSeekNow" aria-hidden="true"><\/span>/);
+  });
+  test('手機「回到朗讀位置」浮在播放列上方，不擠經名', () => {
+    assert.match(css, /#ttsBackBtn \{ position: absolute; left: 50%; bottom: calc\(100% \+ 10px\);/);
+  });
+  test('誦經模式的進度與播放列一致（剩餘時間，不顯示「+」）', () => {
+    const fn = ttsSection.slice(ttsSection.indexOf("$('ttsChantMeta')") - 200, ttsSection.indexOf("$('ttsChantMeta')") + 300);
+    assert.match(fn, /const remain = ttsFmtRemain\(ttsRemainingMs\(\)\);/);
+    assert.match(fn, /open && remain \? ''/);
+  });
+  test('選字工具列有朗讀時排六欄；右上角喇叭觸控範圍 44px；聽經標題不畫焦點框；字級至少 12px', () => {
+    assert.match(css, /body\.tts-enabled \.selection-share-popup\.touch:not\(\.hl-edit\) \.sel-actions \{ grid-template-columns: repeat\(6, 1fr\); \}/);
+    assert.match(css, /@media \(hover: none\) \{ \.header-right \.tts-start-btn::after \{ content: ''; position: absolute; inset: -8px -3px; \} \}/);
+    assert.match(css, /#listenTitle:focus \{ outline: none; \}/);
+    for (const c of ['tts-voice-tags', 'tts-row-sub', 'tts-menu-sub']) assert.match(css, new RegExp(`\\.${c} \\{ font-size: max\\(12px,`), c);
+  });
+  test('「從這段讀」寬螢幕放在段落左邊空白，不蓋住經文', () => {
+    assert.match(ttsSection, /if \(br\.left - w - 12 >= minLeft\)/);
+  });
+});
+
+
+describe('2026-11-17 介面審計修正（後台）', () => {
+  test('聽經目錄的「整個目錄」只有一個入口：朗讀頁的 🎧 區；用詞統一為「釘選」', () => {
+    assert.doesNotMatch(app, /data-lc-act="gen-all"/);
+    assert.match(app, /data-lc-act="goto-gen-all"/);
+    assert.match(app, /if \(act === 'goto-gen-all'\)[\s\S]{0,400}adminTtsLcGenTitle/);
+    assert.doesNotMatch(app, /固定保留/);
+    assert.match(app, /id="lcGenPin" checked data-no-dirty> 釘選（不被自動清除）/);
+  });
+  test('手機音色表改成卡片：每格有 data-label，600px 以下不靠橫向捲動', () => {
+    for (const lab of ['開放', '預設', '名稱', '中文名', '標籤', '預設語速', '版本', '試聽']) assert.match(app, new RegExp(`<td data-label="${lab}">`), lab);
+    assert.match(css, /@media \(max-width: 600px\) \{\n  \.admin-shell #adminTtsVoices, \.admin-shell #adminTtsVoices tbody \{ display: block; \}/);
+    assert.match(css, /#adminTtsVoices tr\[data-voice\] > td:nth-child\(3\) \{ order: -1; flex: 1 1 100%;/);
+  });
+  test('讀音校正：讀者回報排在最前面並顯示待處理數，內建表放最後；「生效」用綠色', () => {
+    const card = html.slice(html.indexOf('data-card="ttslexicon"'), html.indexOf('data-card="ttscache"'));
+    const at = (t) => card.indexOf(t);
+    assert.ok(at('id="adminTtsReports"') < at('id="adminTtsLexicon"') && at('id="adminTtsLexicon"') < at('id="adminTtsBuiltinTable"'));
+    assert.match(card, /id="adminTtsReportCount" hidden/);
+    assert.match(css, /\.tts-lex-state\.on \{ background: var\(--success-bg\); color: var\(--success\); \}/);
+  });
+  test('後台下拉一致樣式；開關有關聯的名稱；預先生成的釘選獨立一行', () => {
+    assert.match(css, /#adminTtsModel,\n#adminTtsAsrModel,\n#adminTtsJobVoice \{/);
+    for (const id of ['adminTtsEnabled', 'adminTtsAutoTranscribe', 'adminTtsBuiltinLexicon']) assert.match(html, new RegExp(`id="${id}" aria-labelledby="${id}Title"`), id);
+    assert.match(html, /id="adminTtsJobAddBtn" data-no-dirty>開始<\/button>\n\s*<\/div>\n\s*<label class="tts-lcgen-check tts-job-pin"><input type="checkbox" id="adminTtsJobPin"/);
+  });
+});
+
+describe('後台：開放的音色都找不到錄音時要警告', () => {
+  const start = app.indexOf('function ttsAdminUsableVoices(');
+  const src = app.slice(start, app.indexOf('\n  }\n', start) + 4);
+  const ctx = { Array, Set }; vm.createContext(ctx);
+  vm.runInContext(src + '\nthis.f = ttsAdminUsableVoices;', ctx);
+  const voices = [{ voice: 'RA-male-都A1', enabled: true }, { voice: 'RA-male-雙子男', enabled: true }, { voice: 'RA-m-米陸', enabled: false }];
+
+  test('白名單的錄音都已改名或刪除 → 讀者端沒有可用音色', () => {
+    assert.equal(ctx.f({ settings: { voices }, upstreamVoices: ['RA-m-米陸', 'RA-f-芙蓉'] }).length, 0);
+  });
+  test('還有錄音的已開放音色才算；不知道 audio.cpp 清單時不誤報', () => {
+    assert.equal(ctx.f({ settings: { voices }, upstreamVoices: ['RA-male-都A1'] }).length, 1);
+    assert.equal(ctx.f({ settings: { voices }, upstreamVoices: null }).length, 2);
+  });
+  test('狀態燈在這種情況亮紅燈並說明入口已隱藏', () => {
+    assert.match(app, /else if \(!ttsAdminUsableVoices\(d\)\.length\) setAdminCardLight\('tts', 'bad', '[^']*讀者端的朗讀入口已全部隱藏/);
+  });
+});
+
+describe('後台：讀者端沒有可用音色時顯示文字警告', () => {
+  test('朗讀服務卡與音色卡都有警告文字，預設隱藏', () => {
+    const warns = [...html.matchAll(/<p class="tts-admin-alert" data-tts-novoice-warn[^>]*hidden>([^<]+)<\/p>/g)];
+    assert.equal(warns.length, 2);
+    for (const [, text] of warns) assert.match(text, /讀者端目前看不到任何朗讀入口/);
+  });
+  test('狀態燈更新時依可用音色切換警告', () => {
+    assert.match(app, /const noVoice = !!s\.enabled && !ttsAdminUsableVoices\(d\)\.length;\s*document\.querySelectorAll\('\[data-tts-novoice-warn\]'\)\.forEach\(el => \{ el\.hidden = !noVoice; \}\);/);
+  });
+});
+
+describe('展開面板：窄版／寬版（2026-11-17 寬螢幕重新設計）', () => {
+  const wide = (() => {
+    const i = css.indexOf('@container tts-bar (min-width: 640px) {\n  .tts-panel {');
+    assert.ok(i > 0, '寬版面板要用播放列寬度的 container query，不是視窗寬');
+    return css.slice(i, css.indexOf('\n}\n', i));
+  })();
+
+  test('寬版：進度橫跨兩欄，左欄音色＋語速，右欄聆聽方式；沒有提示時不留空列', () => {
+    assert.match(wide, /grid-template-areas: "notice notice" "seek seek" "voice listen" "rate listen"/);
+    assert.match(wide, /\.tts-panel:has\(> \.tts-notice\[hidden\]\) \{ grid-template-areas: "seek seek" "voice listen" "rate listen"/);
+    for (const cls of ['tts-sec-seek', 'tts-voices', 'tts-sec-rate', 'tts-sec-listen']) assert.match(playerHtml, new RegExp(`class="tts-sec[^"]*${cls}`));
+    // DOM 順序＝鍵盤／VoiceOver 順序：進度 → 音色 → 語速 → 聆聽方式
+    const order = ['id="ttsSeek"', 'id="ttsVoiceCards"', 'id="ttsRatePresets"', 'id="ttsRate"', 'id="ttsChantBtn"', 'id="ttsMoreBtn"'].map(s => playerHtml.indexOf(s));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+  });
+
+  test('寬版音色膠囊換行，不橫向捲動；舊的 900px 視窗規則已移除', () => {
+    assert.match(wide, /\.tts-voice-cards \{ flex-wrap: wrap; overflow: visible;/);
+    assert.ok(!/@media \(min-width: 900px\) \{\n  \.tts-panel/.test(css));
+  });
+
+  test('語速常用鍵：toggle 按鈕（aria-pressed），值都在 TTS_RATES 裡，點了走 ttsSetRate', () => {
+    assert.match(playerHtml, /<div class="tts-rate-presets" id="ttsRatePresets" role="group" aria-label="常用語速">/);
+    const rates = [...playerHtml.matchAll(/class="tts-rate-preset" data-rate="([\d.]+)" aria-pressed="(?:true|false)" aria-label="\1 倍"/g)].map(m => Number(m[1]));
+    assert.deepEqual(rates, [0.85, 1, 1.1, 1.25]);
+    const list = JSON.parse(/const TTS_RATES = (\[[^\]]+\]);/.exec(app)[1]);
+    for (const r of rates) assert.ok(list.includes(r), `${r} 不在 TTS_RATES`);
+    // 滑桿的 HTML 初始值要對得上 TTS_RATES（max＝最後一格，value＝1 倍）
+    assert.match(playerHtml, new RegExp(`<input type="range" id="ttsRate" min="0" max="${list.length - 1}" step="1" value="${list.indexOf(1)}"`));
+    // 偏好設定的語速下拉選單：選項正好是 TTS_RATES（另加 0＝音色預設），存得住、讀得回
+    const sel = /<select id="settingTtsRate"[^>]*>([\s\S]*?)<\/select>/.exec(html)[1];
+    const opts = [...sel.matchAll(/<option value="([\d.]+)">/g)].map(m => Number(m[1]));
+    assert.deepEqual(opts, [0, ...list]);
+    assert.match(ttsSection, /on\('ttsRatePresets', 'click', [^\n]*ttsSetRate\(Number\(b\.dataset\.rate\)\)/);
+    assert.match(ttsSection, /#ttsRatePresets \[data-rate\]'\)\.forEach\(b => b\.setAttribute\('aria-pressed'/);
+  });
+
+  test('常用鍵外觀 36px、點擊範圍 44px；選中時用朱底＋ --tts-on-accent 字色', () => {
+    assert.match(css, /\.tts-rate-preset \{\n  position: relative; min-height: 36px;/);
+    assert.match(css, /\.tts-rate-preset::after \{ content: ''; position: absolute; inset: -4px 0; \}/);
+    assert.match(css, /\.tts-rate-preset\[aria-pressed="true"\] \{ background: var\(--tts-accent\); border-color: var\(--tts-accent\); color: var\(--tts-on-accent\);/);
+  });
+});
+
+describe('換音色／停止時不讓舊的生成繼續排在 audio.cpp 前面', () => {
+  test('token 一律經 ttsBumpToken 加一：中斷還在等的請求，並通知伺服器撤銷舊 gen', () => {
+    const bump = ttsSection.slice(ttsSection.indexOf('function ttsBumpToken()'), ttsSection.indexOf('function ttsResetSession('));
+    assert.doesNotMatch(ttsSection.replace(bump, ''), /ttsRt\.token\+\+|\+\+ttsRt\.token/);
+    assert.match(bump, /ttsRt\.ctl\.abort\(\)/);
+    assert.match(bump, /ttsCancelServer\(ttsRt\.listener, ttsRt\.token\)/);
+    for (const fn of ['function ttsResetSession(', 'function ttsHaltCurrent()', 'function ttsStop()', 'async function ttsSetVoice(']) {
+      const body = ttsSection.slice(ttsSection.indexOf(fn), ttsSection.indexOf(fn) + 900);
+      assert.match(body, /ttsBumpToken\(\)/, fn);
+    }
+  });
+
+  test('/api/tts/speak 帶 listener、gen 與 AbortSignal；cancelled 視同還在等', () => {
+    assert.match(ttsSection, /'\/api\/tts\/speak', \{ path, voice: v && v\.id, ids: [^}]*listener: ttsListener\(\), gen: token \}, ttsSignal\(\)\)/);
+    assert.match(ttsSection, /r\.state === 'pending' \|\| r\.state === 'cancelled'\) next\.push\(it\)/);
+  });
+
+  test('離線下載用自己的 listener，取消時中斷並通知伺服器', () => {
+    assert.match(ttsSection, /ttsRt\.offlineListener = ttsListenerId\('o'\)/);
+    assert.match(ttsSection, /listener: ttsRt\.offlineListener, gen: token \|\| 0 \}, ttsRt\.offlineCtl && ttsRt\.offlineCtl\.signal/);
+    const cancel = app.slice(app.indexOf("on('ttsOfflineCancel'"), app.indexOf("on('ttsOfflineCancel'") + 600);
+    assert.match(cancel, /offlineCtl\.abort\(\)/);
+    assert.match(cancel, /ttsCancelServer\(ttsRt\.offlineListener, ttsRt\.offlineToken\)/);
   });
 });

@@ -2893,8 +2893,38 @@ body.focus-mode .app {
   line-height: 1.5;
   opacity: 0.6;
   z-index: 10000;
-  pointer-events: none;
+  cursor: pointer;
   user-select: none;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* 點擊區至少 44px 高（pill 本身維持小巧，用透明的 ::before 擴大可點範圍） */
+.focus-mode-pill::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  right: -6px;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+/* 滑鼠移過、鍵盤聚焦或按下時變明顯，提示可以點 */
+.focus-mode-pill:hover,
+.focus-mode-pill:focus-visible {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.focus-mode-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.focus-mode-pill:active {
+  opacity: 1;
+  background: var(--bg-tertiary);
 }
 
 body.focus-mode .focus-mode-pill {
@@ -2908,8 +2938,6 @@ body.focus-mode .focus-mode-pill {
 /* iPhone / iPad 沒有 Esc：pill 變成可點的離開按鈕 */
 @media (hover: none), (pointer: coarse) {
   .focus-mode-pill {
-    pointer-events: auto;
-    cursor: pointer;
     padding: 6px 14px;
     font-size: 13px;
     opacity: 0.85;
@@ -8252,7 +8280,9 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 
 /* ── §32 Admin Analytics ────────────────────────────────────── */
 .admin-tz-select,
-#adminTtsModel {
+#adminTtsModel,
+#adminTtsAsrModel,
+#adminTtsJobVoice {
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -11982,6 +12012,8 @@ a.small-btn {
   grid-template-columns: repeat(5, 1fr);
   padding-top: 2px;
 }
+/* 網站開朗讀時多一顆「朗讀」：六顆排一列，「更多」不會單獨掉到第二行 */
+body.tts-enabled .selection-share-popup.touch:not(.hl-edit) .sel-actions { grid-template-columns: repeat(6, 1fr); }
 .selection-share-popup.touch.hl-edit .sel-actions { grid-template-columns: repeat(2, 1fr); }
 .selection-share-popup.touch .sel-actions button .sel-ico {
   width: 22px;
@@ -12661,7 +12693,12 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
 .tts-start-btn, #selectionReadBtn, .tts-head-btn { display: none; }
 body.tts-enabled .tts-start-btn { display: flex; }
 body.tts-enabled #selectionReadBtn { display: inline-flex; }
-body:not(.tts-enabled) #ttsSettings { display: none; }
+body:not(.tts-enabled) #ttsSettings, body:not(.tts-enabled) .tts-settings-tab { display: none; }
+/* 聽經頁標題只是程式聚焦的落點（VoiceOver 從這裡開始讀），不是可操作元件：不畫外框 */
+#listenTitle:focus { outline: none; }
+/* 右上角喇叭是唯一的朗讀入口：外觀不變，觸控點擊範圍加高到 44px（左右只多 3px，不吃到隔壁的搜尋鈕） */
+.header-right .tts-start-btn { position: relative; }
+@media (hover: none) { .header-right .tts-start-btn::after { content: ''; position: absolute; inset: -8px -3px; } }
 .toc-tts-btn { display: none; }
 body.tts-enabled .toc-tts-btn {
   display: inline-flex; flex: none; align-items: center; justify-content: center; margin-left: auto;
@@ -12742,7 +12779,8 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 .tts-bar:focus { outline: none; }
 .tts-progress { height: 3px; background: var(--border-subtle); border-radius: 14px 14px 0 0; overflow: hidden; }
 .tts-progress-fill { height: 100%; width: 0; background: var(--tts-accent); transition: width 0.25s ease; }
-.tts-mini { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
+/* 迷你列：上下各 6px＋44px 按鈕＝56px；左右 10px，讓前後兩端的圖示與圓角邊框等距 */
+.tts-mini { display: flex; align-items: center; gap: 4px; padding: 6px 10px; min-height: 56px; box-sizing: border-box; }
 .tts-btn {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 44px; height: 44px; padding: 0;
@@ -12755,12 +12793,14 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 .tts-btn.tts-play:hover { background: var(--tts-accent); color: var(--tts-on-accent); filter: brightness(0.94); }
 .tts-bar.is-waiting .tts-play { animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 50% { opacity: 0.55; } }
-.tts-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 0 6px; line-height: 1.3; }
+/* 標題區：和左邊的播放鍵多留一點距離，和右邊膠囊少一點，視覺上是一組 */
+.tts-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 0 8px 0 10px; line-height: 1.3; }
 .tts-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .tts-pos { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 0.86em; font-variant-numeric: tabular-nums; }
 .tts-bar.is-error .tts-pos { color: var(--danger, var(--tts-accent-text)); }
 .tts-chip {
-  flex: none; min-height: 32px; padding: 4px 10px;
+  position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  height: 32px; min-width: 44px; padding: 0 12px; box-sizing: border-box; line-height: 1;
   border: 1px solid var(--border); border-radius: 999px;
   background: var(--bg-primary); color: var(--text-secondary);
   font: inherit; font-size: 0.86em; cursor: pointer; white-space: nowrap;
@@ -12769,9 +12809,29 @@ body.tts-enabled .markdown-body .tts-head-btn:focus-visible {
 .tts-chip:hover { border-color: var(--tts-accent); color: var(--text-primary); }
 .tts-chip-accent { border-color: var(--tts-accent); color: var(--tts-accent-text); background: var(--tts-accent-bg); }
 .tts-chip[hidden] { display: none; }
-.tts-voice-chip { max-width: 8em; overflow: hidden; text-overflow: ellipsis; }
+.tts-chip::after { content: ''; position: absolute; inset: -6px -2px; } /* 外觀 32px，點擊範圍 44px */
+.tts-chip + .tts-chip { margin-left: 2px; } /* 膠囊之間 6px */
+.tts-chip + .tts-btn { margin-left: 4px; } /* 膠囊與展開鍵之間 8px */
+.tts-voice-chip { display: block; max-width: 8em; line-height: 30px; overflow: hidden; text-overflow: ellipsis; }
 .tts-bar.is-open #ttsExpandBtn svg { transform: rotate(180deg); }
 .tts-bar :is(button, select, input):focus-visible { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
+
+/* 桌面：依播放列本身的寬度（不是視窗寬）決定要不要放寬，側欄打開、閱讀區變窄時不會擠壞標題 */
+.tts-bar { container: tts-bar / inline-size; }
+@media (min-width: 769px) { :root { --tts-bar-h: 72px; } }
+@container tts-bar (min-width: 640px) {
+  /* 上下 10px、左右 16px、按鈕間 6px、播放鍵 48px */
+  .tts-mini { gap: 6px; padding: 10px 16px; min-height: 68px; }
+  .tts-btn.tts-play { width: 48px; height: 48px; }
+  .tts-info { gap: 2px; padding: 0 16px 0 14px; }
+  .tts-chip { height: 34px; padding: 0 14px; }
+  .tts-chip + .tts-chip { margin-left: 2px; } /* 膠囊之間 8px */
+  .tts-chip + .tts-btn { margin-left: 8px; } /* 膠囊與展開鍵之間 14px */
+  .tts-voice-chip { max-width: 9em; line-height: 32px; }
+}
+@container tts-bar (max-width: 560px) {
+  .tts-voice-chip { display: none; } /* 播放列太窄：音色改在面板裡選，把位置留給標題 */
+}
 
 /* 播放列出現時：內文留白，其他浮動元件（前後科、前後條、回到頂部、Toast）往上讓 */
 body.tts-active #markdownBody { padding-bottom: calc(var(--tts-bar-h) + 40px); }
@@ -12782,16 +12842,19 @@ body.focus-mode .tts-start-btn { display: none; }
 
 @media (max-width: 768px) {
   .tts-bar { left: 0; right: 0; transform: none; width: auto; border-left: 0; border-right: 0; border-radius: 12px 12px 0 0; }
-  .tts-mini { gap: 2px; padding: 6px 4px; }
+  .tts-mini { gap: 2px; padding: 6px 6px; }
+  .tts-info { padding: 0 4px 0 6px; }
   .tts-title { font-size: 0.95em; }
-  .tts-chip { min-height: 44px; padding: 4px 8px; }
+  .tts-chip { padding: 0 9px; }
+  .tts-chip + .tts-btn { margin-left: 2px; }
   /* 窄螢幕：音色改在展開的面板裡選，迷你列留給進度與語速 */
   .tts-voice-chip { display: none; }
   body.tts-active.has-kepan .back-to-top { bottom: calc(var(--tts-bar-h) + 76px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
+  .tts-mini { padding: 6px 4px; }
   .tts-mini .tts-btn:not(.tts-play) { width: 40px; }
-  #ttsCloseBtn { display: none; } /* 窄螢幕：停止改在展開的面板裡（Esc 或面板的「停止朗讀」） */
+  #ttsRateBtn { display: none; } /* 最窄的手機：語速改在面板裡調，迷你列一定留著停止鍵 */
 }
 @media (prefers-reduced-motion: reduce) {
   .tts-progress-fill, .tts-head-btn { transition: none; }
@@ -12811,6 +12874,29 @@ body.focus-mode .tts-start-btn { display: none; }
 
 /* §27c 朗讀後台（#adminPaneTts） */
 .admin-shell .tts-admin-table-wrap { overflow-x: auto; margin: 8px 0; }
+/* 手機、iPad 直向：音色表改成一張張卡片，標籤、語速、版本、試聽不再藏在橫向捲動後面 */
+@media (max-width: 600px) {
+  .admin-shell #adminTtsVoices, .admin-shell #adminTtsVoices tbody { display: block; }
+  .admin-shell #adminTtsVoices thead { display: none; }
+  .admin-shell #adminTtsVoices tr[data-voice] {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary);
+  }
+  .admin-shell #adminTtsVoices tr[data-voice] > td { display: flex; align-items: center; gap: 6px; padding: 0; border: 0; min-width: 0; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td::before { content: attr(data-label); font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  /* 順序：名稱一整列 → 開放、預設 → 中文名 → 標籤 → 語速、版本、試聽 */
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3) { order: -1; flex: 1 1 100%; flex-wrap: wrap; overflow-wrap: anywhere; font-weight: 600; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(3)::before { content: none; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(4),
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) { flex: 1 1 100%; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(4) input,
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(5) input { flex: 1; min-width: 0; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(7) input { width: 64px; }
+  .admin-shell #adminTtsVoices tr[data-voice] > td:nth-child(8) { margin-left: auto; }
+  /* 卡片標題列：狀態文字太長時換到下一行，標題不被擠成直排 */
+  .admin-shell .config-card-header { flex-wrap: wrap; }
+  .admin-shell .config-card-header .config-card-title { white-space: nowrap; }
+}
 .admin-shell .tts-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .admin-shell .tts-admin-table tr.is-gone td { opacity: 0.75; }
 .admin-shell .tts-admin-table tr.is-gone td:nth-child(3) { opacity: 1; }
@@ -12831,6 +12917,29 @@ body.focus-mode .tts-start-btn { display: none; }
 .admin-shell .tts-admin-table input[type="text"] { min-width: 8em; width: 100%; }
 .admin-shell .tts-admin-table input[type="number"] { width: 4.5em; }
 .admin-shell .tts-job progress { width: 100%; height: 6px; accent-color: var(--tts-accent); }
+.admin-shell .tts-job-report { margin-top: 4px; }
+.admin-shell .tts-job > div:first-child { flex: 1 1 auto; min-width: 0; }
+.admin-shell .tts-job > .account-inline-form { flex: 0 0 auto; align-self: flex-start; }
+.admin-shell .tts-job [data-job-action] { white-space: nowrap; }
+@media (max-width: 600px) {
+  .admin-shell .tts-job { flex-wrap: wrap; }
+  .admin-shell .tts-job > .account-inline-form { flex-basis: 100%; flex-wrap: wrap; }
+}
+.admin-shell .tts-job-fails summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
+.admin-shell .tts-job-fails ul { margin: 4px 0 0; padding: 6px 8px 6px 1.6em; border: 1px solid var(--border-subtle); border-radius: 8px; word-break: normal; font-size: 12px; line-height: 1.6; max-height: 14em; overflow: auto; }
+.admin-shell .tts-lcgen { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.admin-shell .tts-lcgen h4 { margin: 0 0 4px; font-size: 14px; }
+.admin-shell .tts-lcgen-voices { border: 0; margin: 6px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.admin-shell .tts-lcgen-voices legend { float: left; margin-right: 8px; color: var(--text-muted); font-size: 13px; }
+.admin-shell .tts-lcgen-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.admin-shell .tts-job-pin { display: flex; width: fit-content; margin: 6px 0 10px; }
+.admin-shell .tts-lcgen-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 6px; }
+.admin-shell .tts-lcgen-est:empty { display: none; }
+.admin-shell .tts-lcgen-est { margin-top: 8px; overflow-x: auto; }
+.admin-shell .tts-lcgen-table { border-collapse: collapse; font-size: 13px; }
+.admin-shell .tts-lcgen-table caption { text-align: left; color: var(--text-muted); padding-bottom: 4px; }
+.admin-shell .tts-lcgen-table th, .admin-shell .tts-lcgen-table td { padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); text-align: right; white-space: nowrap; }
+.admin-shell .tts-lcgen-table th[scope="row"], .admin-shell .tts-lcgen-table thead th:first-child { text-align: left; }
 .admin-shell #adminTtsLexicon { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .hw-tts-status { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
 
@@ -12877,6 +12986,16 @@ body.focus-mode .tts-start-btn { display: none; }
   background: var(--bg-secondary); border: 2px solid var(--tts-accent); box-shadow: 0 1px 3px var(--shadow-color);
 }
 .tts-sec-seek { gap: 2px; }
+/* 語速常用鍵：四等分膠囊；選中的實心朱色，字色和播放鍵一樣用 --tts-on-accent（亮色白字、暗色深字） */
+.tts-rate-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tts-rate-preset {
+  position: relative; min-height: 36px; padding: 0 6px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-secondary);
+  font: inherit; font-size: 0.9em; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.tts-rate-preset::after { content: ''; position: absolute; inset: -4px 0; } /* 點擊範圍 44px */
+.tts-rate-preset:hover { border-color: var(--tts-accent); color: var(--text-primary); }
+.tts-rate-preset[aria-pressed="true"] { background: var(--tts-accent); border-color: var(--tts-accent); color: var(--tts-on-accent); font-weight: 600; }
 .tts-seek-meta, .tts-scale { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* 音色：膠囊（原生 radio 疊在上面、透明，VoiceOver／鍵盤照常） */
@@ -12907,7 +13026,7 @@ body.focus-mode .tts-start-btn { display: none; }
 /* 名稱與標籤分兩行，名稱不再被截斷；標籤用次要字色（對比 ≥ 4.5:1） */
 .tts-voice-text { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; padding: 6px 0; }
 .tts-voice-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; line-height: 1.3; }
-.tts-voice-tags { font-size: 0.85em; color: var(--text-secondary); line-height: 1.3; }
+.tts-voice-tags { font-size: max(12px, 0.85em); color: var(--text-secondary); line-height: 1.3; }
 .tts-voice-sample {
   position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 44px; height: 44px; margin-right: 0; border: 0; border-radius: 999px;
@@ -12957,7 +13076,7 @@ div.tts-row-main { cursor: default; }
 }
 .tts-row-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.35; }
 .tts-row-title { font-weight: 600; }
-.tts-row-sub { font-size: 0.82em; font-weight: 400; color: var(--text-muted); }
+.tts-row-sub { font-size: max(12px, 0.82em); font-weight: 400; color: var(--text-muted); }
 .tts-row-chev { flex: none; color: var(--text-muted); display: inline-flex; padding-right: 4px; }
 .tts-row-select {
   flex: none; min-height: 36px; max-width: 9em; padding: 4px 28px 4px 12px; border-radius: 999px;
@@ -12976,23 +13095,6 @@ div.tts-row-main { cursor: default; }
 .tts-list .tts-switch { padding-left: 14px; }
 .tts-list .tts-switch + .tts-switch::before { left: 14px; }
 
-/* 更多設定 */
-.tts-more { gap: 0; }
-.tts-more-sum {
-  display: flex; align-items: center; justify-content: space-between; min-height: 44px;
-  list-style: none; cursor: pointer; color: var(--text-secondary); font-weight: 600; font-size: 0.92em;
-}
-.tts-more-sum::-webkit-details-marker { display: none; }
-.tts-more-sum svg { transition: transform 0.18s ease; color: var(--text-muted); }
-.tts-more[open] .tts-more-sum svg { transform: rotate(180deg); }
-.tts-more[open] .tts-more-sum { margin-bottom: 8px; }
-
-.tts-stop-btn {
-  justify-self: stretch; min-height: 44px; padding: 8px 16px; border-radius: var(--tts-radius);
-  border: 1px solid var(--border-subtle); background: transparent; color: var(--tts-accent-text);
-  font: inherit; font-weight: 600; cursor: pointer;
-}
-.tts-stop-btn:hover { background: var(--tts-accent-bg); border-color: var(--tts-accent); }
 .tts-panel :is(button, select, summary):focus-visible { outline: 2px solid var(--tts-accent); outline-offset: 2px; }
 
 @media (max-width: 480px) {
@@ -13005,6 +13107,7 @@ div.tts-row-main { cursor: default; }
   .tts-switch-ui { border: 1px solid ButtonText; }
   .tts-switch input:checked + .tts-switch-ui { background: Highlight; }
   .tts-voice-card:has(input:checked) { border: 2px solid Highlight; }
+  .tts-rate-preset[aria-pressed="true"] { border: 2px solid Highlight; }
 }
 
 .tts-chant {
@@ -13052,6 +13155,9 @@ body.tts-chant-open { overflow: hidden; }
 @media (max-width: 480px) {
   /* 「回到朗讀位置」出現時：語速改在面板裡調，迷你列把位置留給標題 */
   .tts-mini:has(#ttsBackBtn:not([hidden])) #ttsRateBtn { display: none; }
+  /* 手機：「回到朗讀位置」浮在播放列上方正中，不擠經名與進度 */
+  #ttsBackBtn { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); height: 36px; background: var(--bg-secondary); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16); }
+  .tts-chip + #ttsBackBtn, #ttsBackBtn + .tts-chip { margin-left: 0; }
 }
 
 /* §27c 朗讀選單（右上角喇叭）：浮在按鈕下方的紙卡；每項 ≥ 44px，標題＋副標 */
@@ -13073,7 +13179,7 @@ body.tts-chant-open { overflow: hidden; }
 .tts-menu-item:hover, .tts-menu-item:focus-visible { background: var(--tts-accent-bg); outline: none; }
 .tts-menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--tts-accent); }
 .tts-menu-title { font-weight: 600; }
-.tts-menu-sub { font-size: 0.82em; color: var(--text-muted); }
+.tts-menu-sub { font-size: max(12px, 0.82em); color: var(--text-muted); }
 .tts-menu-sep { height: 1px; margin: 6px 8px; background: var(--border-subtle); }
 .tts-menu-check { padding-right: 52px; }
 .tts-menu-tick {
@@ -13280,13 +13386,13 @@ body.tts-chant-open { overflow: hidden; }
 .admin-shell .tts-lex-table td.tts-lex-src { font-size: 0.85em; color: var(--text-muted); min-width: 10em; max-width: 16em; white-space: normal; line-height: 1.4; }
 .admin-shell .tts-lex-play, .admin-shell .tts-lex-act { white-space: nowrap; }
 .admin-shell .tts-lex-state { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
-.admin-shell .tts-lex-state.on { background: var(--tts-accent-bg); color: var(--tts-accent-text); }
+.admin-shell .tts-lex-state.on { background: var(--success-bg); color: var(--success); } /* 生效＝正常，用綠色，不要像錯誤 */
+.admin-shell .tts-lex-count { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--tts-accent-bg); color: var(--tts-accent-text); vertical-align: middle; }
+.admin-shell .tts-lex-count[hidden] { display: none; }
 .admin-shell .tts-lex-state.off { background: var(--hover-bg); color: var(--text-muted); }
 
 /* ── 朗讀體驗審計第三批：喇叭＋▾、點段落朗讀、首次提示、回報念錯、桌面面板 ── */
-.tts-caret-btn { min-width: 22px; padding: 0 3px; margin-left: -4px; }
-.tts-quick-btn.is-playing { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
-@media (hover: none) { .tts-caret-btn { min-width: 24px; } }
+#ttsStartBtn.is-playing { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
 .tts-jump-pill {
   position: fixed; z-index: 70; padding: 6px 14px; min-height: 36px;
   border: 1px solid var(--tts-accent); border-radius: 999px;
@@ -13304,16 +13410,46 @@ body.tts-chant-open { overflow: hidden; }
 }
 .tts-hint[hidden] { display: none; }
 .tts-hint button { flex: none; border: 0; border-radius: 8px; padding: 4px 10px; min-height: 32px; background: var(--tts-accent-bg); color: var(--tts-accent-text); font: inherit; cursor: pointer; }
-.tts-report { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
-.tts-report-form { display: flex; gap: 8px; flex: 1 1 240px; }
+.tts-report { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.tts-seek-now { font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 「念錯了」：次要動作，不搶眼。旗子＋短字、無框，平常是淡字，滑過或展開才上朱色；外觀 28px、點擊範圍 44px */
+.tts-report-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 4px;
+  min-height: 28px; padding: 0 8px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--text-muted); font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.tts-report-btn::after { content: ''; position: absolute; inset: -8px -4px; }
+.tts-report-btn:hover, .tts-report-btn[aria-expanded="true"] { color: var(--tts-accent-text); background: var(--tts-accent-bg); }
+.tts-report-form { display: flex; gap: 8px; flex: 1 1 100%; }
 .tts-report-form[hidden] { display: none; }
 .tts-report-form input { flex: 1; min-width: 0; min-height: 36px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .tts-report-table .tts-report-text { max-width: 420px; }
 
-/* 桌面寬螢幕：面板分兩欄、矮一點，不要蓋住大半篇經文 */
-@media (min-width: 900px) {
-  .tts-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; max-height: min(52vh, 480px); }
-  .tts-panel > .tts-notice, .tts-panel > .tts-sec-seek, .tts-panel > .tts-more, .tts-panel > .tts-stop-btn { grid-column: 1 / -1; }
+/* 寬版面板（桌面、iPad 橫向）：看播放列本身的寬度（≥ 640px），不是視窗寬，
+   側欄打開、閱讀區變窄時自動回到窄版。
+   版面：進度橫跨兩欄；左欄「怎麼聽」＝音色（膠囊換行，不橫向捲動）＋語速，
+   右欄「聆聽方式」清單。DOM 順序（進度 → 音色 → 語速 → 聆聽方式）不變，
+   鍵盤與 VoiceOver 的順序就是左欄由上而下、再到右欄。 */
+@container tts-bar (min-width: 640px) {
+  .tts-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "notice notice" "seek seek" "voice listen" "rate listen";
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 24px; row-gap: 16px; align-items: start;
+    padding: 16px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    max-height: min(62vh, 540px);
+  }
+  /* 沒有提示訊息時拿掉那一列，免得空列還吃掉一個 row-gap */
+  .tts-panel:has(> .tts-notice[hidden]) { grid-template-areas: "seek seek" "voice listen" "rate listen"; grid-template-rows: auto auto 1fr; }
+  .tts-panel > .tts-notice { grid-area: notice; }
+  .tts-panel > .tts-sec-seek { grid-area: seek; }
+  .tts-panel > .tts-voices { grid-area: voice; }
+  .tts-panel > .tts-sec-rate { grid-area: rate; }
+  .tts-panel > .tts-sec-listen { grid-area: listen; }
+  .tts-voice-cards { flex-wrap: wrap; overflow: visible; margin: 0; padding: 0; scroll-snap-type: none; }
+  .tts-voice-card label { padding: 0 14px; }
+  .tts-voice-text { padding: 4px 0; }
+  .tts-sec-rate .tts-scale { display: none; } /* 有常用鍵與數值，「慢／快」不必再標 */
 }
 
 /* ── §20a 螢幕鍵盤避讓（iPad／iPhone，app.js §20a）──────────────
@@ -13355,3 +13491,11 @@ html.kb-open .admin-palette {
 html.kb-open .admin-palette-box {
   max-height: 100%;
 }
+
+/* 後台朗讀：讀者端沒有可用音色（所有朗讀入口被隱藏）時的文字警告 */
+.tts-admin-alert {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--danger); background: var(--danger-bg); color: var(--danger);
+  font-weight: 600; line-height: 1.6;
+}
+.tts-admin-alert[hidden] { display: none; }

@@ -10248,7 +10248,7 @@
   const TTS_PREFETCH = 3;              // 預取後面幾句
   const TTS_GAP_MS = 220;              // 句間停頓（頁面可見時才插入；背景時計時器會被凍結）
   const TTS_GAP_BLOCK_MS = 480;        // 標題前後、偈頌之後的停頓
-  const TTS_RATES = [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7, 2];
+  const TTS_RATES = [0.7, 0.8, 0.85, 0.9, 1, 1.1, 1.2, 1.25, 1.3, 1.5, 1.7, 2]; // 只是播放時的 playbackRate，不影響生成與快取
   const TTS_USER_SCROLL_MS = 4000;     // 使用者自己捲動後，這麼久內不自動跟讀
   const TTS_SLOW_WAIT_MS = 8000;       // 第一句等超過這麼久，就提示「朗讀服務暖機中」
   const TTS_RETRY_MS = [5000, 15000, 35000]; // 一句失敗時自動重試的間隔（伺服器 30 秒內不重試同一句）
@@ -10271,7 +10271,9 @@
     statusAt: 0,
     audio: null,
     unlocked: false,
-    token: 0,              // 每次開始新的朗讀自增，過期的非同步回應據此丟棄
+    token: 0,              // 每次開始新的朗讀自增，過期的非同步回應據此丟棄；也是送給伺服器的 gen
+    listener: '',          // 這個分頁的隨機 id：伺服器據此知道哪些排隊的句子是誰要的（換音色時撤掉舊的）
+    ctl: null,             // 目前 token 的 AbortController：換 token 就中斷還在等的 /api/tts/speak
     active: false,         // 播放器是否開著（含暫停）
     playing: false,        // 使用者要不要它播（暫停＝false）
     path: null, title: '',
@@ -10334,8 +10336,8 @@
     setTimeout(() => { live.textContent = msg; }, 30);
   }
 
-  async function ttsApi(url, body) {
-    const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  async function ttsApi(url, body, signal) {
+    const res = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal } : (signal ? { signal } : undefined));
     let data = null;
     try { data = await res.json(); } catch (_) {}
     if (!res.ok) throw Object.assign(new Error((data && data.error) || `HTTP ${res.status}`), { status: res.status, data });
@@ -10349,7 +10351,14 @@
    */
   function tidyTtsVoiceName(name) {
     const t = String(name || '').replace(/^(?:ref[-_ ]*audio|ra)[-_ ]+/i, '').replace(/^(?:male|female|man|woman|voice)[-_ ]+/i, '');
-    return t.trim() || String(name || '');
+    return trimTtsVoiceName(t.trim() || String(name || ''));
+  }
+
+  /** 音色中文名：去掉前後的非中文字（RA-m-米陸 → 米陸），結尾數字保留（芙蓉2）；沒有中文就原樣。與 lib/tts.js trimVoiceName 同規則。 */
+  function trimTtsVoiceName(name) {
+    const s = String(name || '');
+    const t = s.replace(/^[^\p{Script=Han}]+/u, '').replace(/[^\p{Script=Han}\p{N}]+$/u, '');
+    return /\p{Script=Han}/u.test(t) ? t : s;
   }
   function tidyTtsVoiceNames(list) {
     if (!Array.isArray(list) || !list.length) return;
@@ -10449,8 +10458,33 @@
     return t || raw;
   }
 
-  function ttsResetSession(path) {
+  function ttsListenerId(prefix) {
+    const b = new Uint8Array(9);
+    try { crypto.getRandomValues(b); } catch (_) { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); }
+    return prefix + Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  }
+  function ttsListener() { if (!ttsRt.listener) ttsRt.listener = ttsListenerId('r'); return ttsRt.listener; }
+  function ttsSignal() { if (!ttsRt.ctl) ttsRt.ctl = new AbortController(); return ttsRt.ctl.signal; }
+
+  /** 告訴伺服器：這位讀者 gen 比這個舊的句子都不要了（還在排隊的就不會再送到 audio.cpp）。 */
+  function ttsCancelServer(listener, gen) {
+    if (!listener) return;
+    try { fetch('/api/tts/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listener, gen }), keepalive: true }).catch(() => {}); } catch (_) {}
+  }
+
+  /**
+   * 作廢目前這段朗讀的所有非同步工作：token 加一（過期的回應會被丟掉）、中斷還在等的 /api/tts/speak，
+   * 並請伺服器把舊 token 還在排隊的句子（例如舊音色的預取）移出佇列。已經在生成的那一句會生成完、留在快取。
+   */
+  function ttsBumpToken() {
     ttsRt.token++;
+    if (ttsRt.ctl) { try { ttsRt.ctl.abort(); } catch (_) {} ttsRt.ctl = null; }
+    if (ttsRt.listenerUsed) ttsCancelServer(ttsRt.listener, ttsRt.token);
+    return ttsRt.token;
+  }
+
+  function ttsResetSession(path) {
+    ttsBumpToken();
     clearTimeout(ttsRt.gapTimer);
     ttsRt.path = path;
     ttsRt.title = ttsCleanTitle(path.replace(/^dict:/, '').split('/').pop().replace(/\.md$/i, ''));
@@ -10469,7 +10503,7 @@
    * 只暫停、不清 src：iOS 已解鎖的 <audio> 保持可用。
    */
   function ttsHaltCurrent() {
-    ttsRt.token++;
+    ttsBumpToken();
     clearTimeout(ttsRt.gapTimer);
     const a = ttsRt.audio;
     if (a && a.dataset.ttsSha) {
@@ -10718,14 +10752,15 @@
     let todo = list.filter(it => ttsPlayable(it) && !it.cached);
     for (const it of list) if (it.cached) out.set(it, 'ready');
     for (let round = 0; todo.length && round < 12; round++) {
-      const d = await ttsApi('/api/tts/speak', { path, voice: v && v.id, ids: todo.map(it => it.id || it.i), priority });
+      ttsRt.listenerUsed = true;
+      const d = await ttsApi('/api/tts/speak', { path, voice: v && v.id, ids: todo.map(it => it.id || it.i), priority, listener: ttsListener(), gen: token }, ttsSignal());
       if (token !== ttsRt.token) return out;
       const next = [];
       d.items.forEach((r, n) => {
         const it = todo[n];
         if (!it) return;
         if (r.state === 'ready') { it.cached = true; it.sha = r.sha; it.ms = r.ms; out.set(it, 'ready'); }
-        else if (r.state === 'pending') next.push(it);
+        else if (r.state === 'pending' || r.state === 'cancelled') next.push(it); // cancelled：被較新的請求撤掉，token 沒變就再要一次
         else out.set(it, r.state);
       });
       todo = next;
@@ -10942,7 +10977,7 @@
 
   function ttsStop() {
     if (ttsRt.active) { ttsFlushListen(); if (ttsRt.playing) ttsTrack('end', { key: 'stopped' }); }
-    ttsRt.token++;
+    ttsBumpToken();
     clearTimeout(ttsRt.gapTimer);
     if (ttsRt.audio) { try { ttsRt.audio.pause(); ttsRt.audio.dataset.ttsSha = ''; ttsRt.audio.removeAttribute('src'); ttsRt.audio.load(); } catch (_) {} }
     ttsRt.unlocked = false;
@@ -10993,7 +11028,7 @@
     ttsAnnounce(`${v.name}，${ttsRate()} 倍`);
     renderTtsBar();
     if (!ttsRt.active || ttsRt.pos < 0) return;
-    const token = ++ttsRt.token; // 丟掉舊音色還在路上的回應
+    const token = ttsBumpToken(); // 丟掉舊音色還在路上的回應，伺服器也撤掉舊音色排隊中的預取
     clearTimeout(ttsRt.gapTimer);
     try { ttsRt.audio && ttsRt.audio.pause(); } catch (_) {}
     const cur = ttsRt.items[ttsRt.pos];
@@ -11123,7 +11158,7 @@
       const p = ttsPrefs(); p.continueNext = !p.continueNext; saveTtsPrefs();
       if (p.continueNext) ttsTrack('feature', { key: 'continue-next' });
       item.setAttribute('aria-checked', p.continueNext ? 'true' : 'false');
-      const c = $('ttsContinueNext'); if (c) c.checked = p.continueNext;
+      const c = $('settingTtsContinue'); if (c) c.checked = p.continueNext;
       ttsAnnounce(p.continueNext ? '讀完會接著讀下一篇' : '讀完這一篇就停');
       return;
     }
@@ -11160,7 +11195,7 @@
     const btn = $('ttsStartBtn'); const menu = $('ttsStartMenu');
     if (!btn || !menu) return;
     btn.addEventListener('pointerdown', () => { ttsRt.menuRange = ttsSelectionRangeInBody(); });
-    btn.addEventListener('click', () => { if (menu.hidden) { const keep = ttsRt.menuRange; openTtsStartMenu(false); ttsRt.menuRange = ttsRt.menuRange || keep; } else closeTtsStartMenu(true); });
+    btn.addEventListener('click', () => { hideTtsHint(true); if (menu.hidden) { const keep = ttsRt.menuRange; openTtsStartMenu(false); ttsRt.menuRange = ttsRt.menuRange || keep; } else closeTtsStartMenu(true); });
     btn.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openTtsStartMenu(e.key === 'ArrowUp'); }
     });
@@ -11284,7 +11319,7 @@
     const lang = isHansDisplay() ? 'zh-Hans' : 'zh-Hant';
     const body = $('markdownBody'); if (body && body.lang !== lang) body.lang = lang;
     const chant = $('ttsChantCurrent'); if (chant && chant.lang !== lang) chant.lang = lang;
-    if (ttsRt.active) renderTtsBar(); else syncTtsQuickBtn();
+    if (ttsRt.active) renderTtsBar(); else syncTtsStartBtn();
     if (state.currentFile && ttsEnabled()) setTimeout(maybeShowTtsHint, 1200);
   }
 
@@ -11498,7 +11533,7 @@
     const skip = $('ttsSkipLink');
     bar.hidden = !ttsRt.active;
     if (skip) skip.hidden = !ttsRt.active;
-    syncTtsQuickBtn();
+    syncTtsStartBtn();
     if (!ttsRt.active) return;
     const it = ttsRt.items[ttsRt.pos]; const { n, m, open } = ttsCounts();
     const playBtn = $('ttsPlayBtn');
@@ -11524,7 +11559,7 @@
     $('ttsLoginBtn').hidden = !needLogin;
     const rate = ttsRate(); const v = ttsVoice();
     const rateBtn = $('ttsRateBtn');
-    rateBtn.textContent = `${rate}×`; rateBtn.setAttribute('aria-label', `語速 ${rate} 倍，按一下調整`);
+    rateBtn.textContent = `${rate} 倍`; rateBtn.setAttribute('aria-label', `語速 ${rate} 倍，按一下調整`);
     const voiceBtn = $('ttsVoiceBtn');
     voiceBtn.textContent = v ? ttsVoiceShortName(v.name) : '音色'; voiceBtn.title = v ? v.name : ''; voiceBtn.setAttribute('aria-label', `音色：${v ? v.name : '未選擇'}，按一下更換`);
     const away = state.currentFile !== ttsRt.path || (!!ttsRt.lastRange && !ttsRangeVisible(ttsRt.lastRange)) || (!ttsRt.lastRange && !!it);
@@ -11535,16 +11570,13 @@
     const remainTxt = ttsFmtRemain(ttsRemainingMs());
     seek.setAttribute('aria-valuetext', `第 ${n} 句，共 ${m}${open ? ' 句以上' : ' 句'}${remainTxt ? `，${remainTxt}` : ''}`);
     seek.style.setProperty('--fill', m > 1 ? `${Math.round((Math.max(1, n) - 1) / (m - 1) * 100)}%` : '0%');
-    $('ttsSeekNow').textContent = n ? `第 ${n} 句` : '';
-    $('ttsSeekTotal').textContent = remainTxt || (m ? `共 ${m}${open ? '+' : ''} 句` : '');
+    $('ttsSeekNow').textContent = n ? `第 ${n} 句` : ''; // 剩餘時間只在播放列顯示，面板不重複
     const rs = $('ttsRate');
     rs.max = String(TTS_RATES.length - 1); rs.value = String(Math.max(0, TTS_RATES.findIndex(r => r >= rate - 0.001)));
     rs.setAttribute('aria-valuetext', `${rate} 倍`);
     rs.style.setProperty('--fill', `${Math.round(Number(rs.value) / Math.max(1, Number(rs.max)) * 100)}%`);
     $('ttsRateOut').textContent = `${rate} 倍`;
-    const p = ttsPrefs();
-    $('ttsFollow').checked = p.follow; $('ttsShortcuts').checked = p.shortcuts; $('ttsExact').checked = p.exact;
-    $('ttsContinueNext').checked = p.continueNext; $('ttsSelContinue').checked = p.selContinue;
+    document.querySelectorAll('#ttsRatePresets [data-rate]').forEach(b => b.setAttribute('aria-pressed', Math.abs(Number(b.dataset.rate) - rate) < 0.001 ? 'true' : 'false'));
     const sl = $('ttsSleep'); if (sl && document.activeElement !== sl) sl.value = !ttsRt.sleep ? '' : ttsRt.sleep.section ? 'section' : sl.value || '';
     if (!$('ttsPanel').hidden && !ttsRt.offlineBusy) renderTtsOffline();
     renderTtsChant();
@@ -11575,25 +11607,19 @@
     if (rect.bottom > top - 16) scroller.scrollBy({ top: rect.bottom - top + Math.min(120, top / 3), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
-  // ── 右上角：喇叭一按就從這裡朗讀（朗讀中＝暫停／繼續），旁邊的 ▾ 才是完整的朗讀選單 ──
+  // ── 右上角：喇叭一按就開朗讀選單（第一項＝從這裡讀；朗讀中＝暫停／繼續）；Alt+R 仍可直接開始／暫停 ──
   const TTS_HINT_KEY = 'mdWebview-tts-hint-seen';
-  function syncTtsQuickBtn() {
-    const b = $('ttsQuickBtn'); if (!b) return;
-    const label = !ttsRt.active ? '從這裡朗讀' : ttsRt.playing ? '暫停朗讀' : '繼續朗讀';
+  function syncTtsStartBtn() {
+    const b = $('ttsStartBtn'); if (!b) return;
+    const st = !ttsRt.active ? '' : ttsRt.playing ? '（朗讀中）' : '（已暫停）';
+    const label = `朗讀選單${st}`;
     if (b.getAttribute('aria-label') !== label) {
       b.setAttribute('aria-label', label);
-      b.title = ttsKeyLabel(`${label}（Alt+R）`);
+      b.title = ttsKeyLabel(`朗讀${st}・Alt+R 直接${ttsRt.active ? (ttsRt.playing ? '暫停' : '繼續') : '從這裡讀'}`);
     }
     b.classList.toggle('is-playing', !!ttsRt.active && !!ttsRt.playing);
   }
   function setupTtsQuickEntry() {
-    const q = $('ttsQuickBtn');
-    if (q) q.addEventListener('click', () => {
-      hideTtsHint(true);
-      if (ttsRt.active) return ttsTogglePlay();
-      ttsSetStartMode('here');
-      ttsStartFromVisible();
-    });
     const hc = $('ttsHintClose'); if (hc) hc.addEventListener('click', () => hideTtsHint(true));
     // 播放中點一下內文的某一段：旁邊出現「從這段讀」
     const pill = $('ttsJumpPill');
@@ -11612,8 +11638,15 @@
       pill.dataset.line = String(line);
       pill.hidden = false;
       const w = pill.offsetWidth || 90; const h = pill.offsetHeight || 36;
-      pill.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - w / 2)))}px`;
-      pill.style.top = `${Math.round(Math.max(56, e.clientY - h - 14))}px`;
+      // 寬螢幕：放在段落左邊的空白、對齊點的那一行，不蓋住經文；放不下（手機）才浮在點的位置上方
+      const br = block.getBoundingClientRect(); const cont = $('content'); const minLeft = (cont ? cont.getBoundingClientRect().left : 0) + 8;
+      if (br.left - w - 12 >= minLeft) {
+        pill.style.left = `${Math.round(br.left - w - 12)}px`;
+        pill.style.top = `${Math.round(Math.max(56, e.clientY - h / 2))}px`;
+      } else {
+        pill.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - w / 2)))}px`;
+        pill.style.top = `${Math.round(Math.max(56, e.clientY - h - 14))}px`;
+      }
       clearTimeout(ttsRt.jumpTimer);
       ttsRt.jumpTimer = setTimeout(() => { pill.hidden = true; }, 4000);
     });
@@ -11627,7 +11660,7 @@
   }
   /** 第一次看到朗讀入口時，提示一次喇叭與 ▾ 的差別（看過或按過就不再出現）。 */
   function maybeShowTtsHint() {
-    const hint = $('ttsHint'); const q = $('ttsQuickBtn');
+    const hint = $('ttsHint'); const q = $('ttsStartBtn');
     if (!hint || !q || !hint.hidden || ttsRt.active || !state.currentFile || !ttsEnabled()) return;
     if (storage.get(TTS_HINT_KEY)) return;
     const r = q.getBoundingClientRect();
@@ -11781,7 +11814,9 @@
     }
     const { n, m, open } = ttsCounts(); const v = ttsVoice();
     $('ttsChantTitle').textContent = ttsRt.title;
-    $('ttsChantMeta').textContent = `第 ${n}／${m}${open ? '+' : ''} 句${v ? `　${v.name}` : ''}${ttsRt.sleep ? `　${ttsSleepText()}` : ''}${ttsRt.waiting && ttsRt.playing ? '　生成中…' : ''}${ttsRt.error ? `　${ttsRt.error.msg}` : ''}`;
+    const remain = ttsFmtRemain(ttsRemainingMs());
+    // 與播放列一致：總句數還沒算完（「57+」）時改顯示剩下的時間
+    $('ttsChantMeta').textContent = `第 ${n}${open && remain ? '' : `／${m}${open ? '+' : ''}`} 句${remain ? `・${remain}` : ''}${v ? `　${v.name}` : ''}${ttsRt.sleep ? `　${ttsSleepText()}` : ''}${ttsRt.waiting && ttsRt.playing ? '　生成中…' : ''}${ttsRt.error ? `　${ttsRt.error.msg}` : ''}`;
     const play = $('ttsChantPlay');
     play.innerHTML = ttsRt.playing ? TTS_ICON.pause : TTS_ICON.play;
     play.setAttribute('aria-label', ttsRt.playing ? '暫停' : '播放');
@@ -11830,6 +11865,8 @@
     ttsTrack('feature', { key: 'offline' });
     if (!window.caches) { renderTtsOffline('這個瀏覽器不支援離線儲存。'); return; }
     const token = ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1;
+    if (!ttsRt.offlineListener) ttsRt.offlineListener = ttsListenerId('o'); // 跟播放分開：換音色不影響下載
+    ttsRt.offlineCtl = new AbortController();
     ttsRt.offlineBusy = true; renderTtsOffline('正在整理這一篇的句子…');
     try {
       const all = await ttsAllSentences(path, token);
@@ -11845,7 +11882,7 @@
         const batch = all.slice(i, i + 8);
         const need = batch.filter(s => !s.cached);
         if (need.length) {
-          const got = await ttsEnsureFor(path, v.id, need);
+          const got = await ttsEnsureFor(path, v.id, need, token);
           if (token !== ttsRt.offlineToken) return;
           for (const s of need) if (got.get(s) !== 'ready') failed++;
           if (need.some(s => ['login', 'quota', 'unavailable'].includes(got.get(s)))) {
@@ -11882,6 +11919,7 @@
       renderTtsOffline(failed ? `下載完成，但有 ${failed} 句失敗（${fmtTtsSize(bytes)}）。可以再按一次補下載。` : '');
       ttsAnnounce(failed ? '下載未完成' : '已下載，可離線收聽');
     } catch (err) {
+      if (token !== ttsRt.offlineToken) return; // 使用者按了取消：中斷的請求不算失敗
       renderTtsOffline(`下載失敗：${err.message}`);
     } finally {
       if (token === ttsRt.offlineToken && ttsRt.offlineBusy) { ttsRt.offlineBusy = false; renderTtsOffline(ttsRt.offlineMsg); }
@@ -11889,15 +11927,16 @@
   }
 
   /** 和 ttsEnsure 相同，但不綁目前的朗讀（下載的是面板上這一篇，不一定正在播）。 */
-  async function ttsEnsureFor(path, voiceId, list) {
+  async function ttsEnsureFor(path, voiceId, list, token) {
     const out = new Map(); let todo = list.slice();
     for (let round = 0; todo.length && round < 12; round++) {
-      const d = await ttsApi('/api/tts/speak', { path, voice: voiceId, ids: todo.map(s => s.i), priority: 'prefetch' });
+      if (token !== undefined && token !== ttsRt.offlineToken) break;
+      const d = await ttsApi('/api/tts/speak', { path, voice: voiceId, ids: todo.map(s => s.i), priority: 'prefetch', listener: ttsRt.offlineListener, gen: token || 0 }, ttsRt.offlineCtl && ttsRt.offlineCtl.signal);
       const next = [];
       d.items.forEach((r, n) => {
         const s = todo[n]; if (!s) return;
         if (r.state === 'ready') { s.cached = true; s.sha = r.sha; s.ms = r.ms; out.set(s, 'ready'); }
-        else if (r.state === 'pending') next.push(s); else out.set(s, r.state);
+        else if (r.state === 'pending' || r.state === 'cancelled') next.push(s); else out.set(s, r.state);
       });
       todo = next;
     }
@@ -11928,6 +11967,7 @@
     $('settingTtsSleep').value = p.sleepDefault || '';
     $('settingTtsFollow').checked = p.follow; $('settingTtsFocusFollow').checked = p.focusFollow;
     $('settingTtsContinue').checked = p.continueNext; $('settingTtsShortcuts').checked = p.shortcuts;
+    $('settingTtsSelContinue').checked = p.selContinue; $('settingTtsExact').checked = p.exact;
   }
 
   /** 大綱每一列加「朗讀本節」（hover／focus 才明顯；觸控一直可見）。 */
@@ -11951,8 +11991,8 @@
   function setupTtsPhase5() {
     const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
     on('ttsSleep', 'change', (e) => ttsSetSleep(e.target.value));
-    on('ttsContinueNext', 'change', (e) => { ttsPrefs().continueNext = e.target.checked; saveTtsPrefs(); if (e.target.checked) ttsTrack('feature', { key: 'continue-next' }); });
-    on('ttsSelContinue', 'change', (e) => { ttsPrefs().selContinue = e.target.checked; saveTtsPrefs(); });
+    // 面板只放音色、語速、聆聽方式；其他朗讀偏好集中在偏好設定的「朗讀」分頁
+    on('ttsMoreBtn', 'click', () => { const b = $('userMenuSettingsBtn'); if (b) b.click(); const t = $('settingsTab-tts'); if (t) { t.click(); t.focus(); } });
     on('ttsChantBtn', 'click', () => openTtsChant());
     // 偏好設定視窗的朗讀區（與面板同步）
     const prefSel = (id, key, cast) => on(id, 'change', (e) => { ttsPrefs()[key] = cast(e.target.value); saveTtsPrefs(); syncTtsSettings(); renderTtsBar(); });
@@ -11962,12 +12002,20 @@
     const prefChk = (id, key) => on(id, 'change', (e) => { ttsPrefs()[key] = e.target.checked; saveTtsPrefs(); renderTtsBar(); });
     prefChk('settingTtsFollow', 'follow'); prefChk('settingTtsFocusFollow', 'focusFollow');
     prefChk('settingTtsContinue', 'continueNext'); prefChk('settingTtsShortcuts', 'shortcuts');
+    prefChk('settingTtsSelContinue', 'selContinue'); prefChk('settingTtsExact', 'exact');
+    on('settingTtsContinue', 'change', (e) => { if (e.target.checked) ttsTrack('feature', { key: 'continue-next' }); });
+    on('settingTtsFollow', 'change', (e) => { if (e.target.checked) ttsBackToPosition(); });
     on('ttsChantClose', 'click', () => closeTtsChant());
     on('ttsChantPlay', 'click', () => { ttsTogglePlay(); renderTtsChant(); });
     on('ttsChantPrevBtn', 'click', () => ttsStep(-1));
     on('ttsChantNextBtn', 'click', () => ttsStep(1));
     on('ttsOfflineBtn', 'click', () => ttsDownloadOffline());
-    on('ttsOfflineCancel', 'click', () => { ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1; ttsRt.offlineBusy = false; renderTtsOffline('已取消下載。'); });
+    on('ttsOfflineCancel', 'click', () => {
+      ttsRt.offlineToken = (ttsRt.offlineToken || 0) + 1; ttsRt.offlineBusy = false;
+      if (ttsRt.offlineCtl) { try { ttsRt.offlineCtl.abort(); } catch (_) {} ttsRt.offlineCtl = null; }
+      ttsCancelServer(ttsRt.offlineListener, ttsRt.offlineToken); // 還沒生成的句子不再排在 audio.cpp 前面
+      renderTtsOffline('已取消下載。');
+    });
     on('ttsOfflineRemove', 'click', () => ttsRemoveOffline());
     const chant = $('ttsChant');
     if (chant) chant.addEventListener('keydown', (e) => {
@@ -11996,8 +12044,8 @@
   function ttsKeyLabel(text) { return TTS_IS_APPLE ? String(text).replace(/Alt（Option）\+|Alt\+/g, '⌥') : text; }
   function localizeTtsShortcutLabels() {
     if (!TTS_IS_APPLE) return;
-    for (const id of ['ttsQuickBtn', 'ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
-    for (const sel of ['#ttsShortcutsDesc', '#ttsSettings .setting-desc']) {
+    for (const id of ['ttsStartBtn', 'ttsPrevBtn', 'ttsNextBtn']) { const el = $(id); if (el && el.title) el.title = ttsKeyLabel(el.title); }
+    for (const sel of ['#ttsSettings .setting-desc']) {
       document.querySelectorAll(sel).forEach(el => { if (/Alt/.test(el.textContent)) el.textContent = ttsKeyLabel(el.textContent); });
     }
   }
@@ -12009,9 +12057,8 @@
     on('ttsPlayBtn', 'click', () => ttsTogglePlay());
     on('ttsPrevBtn', 'click', () => ttsStep(-1));
     on('ttsNextBtn', 'click', () => ttsStep(1));
-    const stopAndRefocus = () => { ttsStop(); const b = $('ttsQuickBtn'); if (b) b.focus(); };
+    const stopAndRefocus = () => { ttsStop(); const b = $('ttsStartBtn'); if (b) b.focus(); };
     on('ttsCloseBtn', 'click', stopAndRefocus);
-    on('ttsStopBtn', 'click', stopAndRefocus);
     on('ttsBackBtn', 'click', () => ttsBackToPosition());
     on('ttsRetryBtn', 'click', () => { ttsUnlock(); ttsRt.playing = true; ttsRt.failStreak = 0; const it = ttsRt.items[ttsRt.pos]; if (it) { it.retried = false; it.autoTries = 0; } ttsPlayAt(ttsRt.pos); });
     on('ttsLoginBtn', 'click', () => { ttsUnlock(); openAccountAuth('login', { afterLogin: 'tts' }); });
@@ -12036,14 +12083,12 @@
     });
     on('ttsSeek', 'input', (e) => { const r = e.target; r.style.setProperty('--fill', `${Math.round((Number(r.value) - 1) / Math.max(1, Number(r.max) - 1) * 100)}%`); });
     on('ttsRate', 'input', (e) => ttsSetRate(TTS_RATES[Number(e.target.value)] || 1));
+    on('ttsRatePresets', 'click', (e) => { const b = e.target.closest && e.target.closest('[data-rate]'); if (b) ttsSetRate(Number(b.dataset.rate)); });
     on('ttsSeek', 'change', (e) => { // 第 N 句（只算可朗讀的）
       let want = Number(e.target.value), k = -1;
       for (let j = 0; j < ttsRt.items.length && want > 0; j++) if (ttsPlayable(ttsRt.items[j])) { want--; k = j; }
       if (k >= 0) { ttsUnlock(); ttsRt.userScrollAt = 0; try { ttsRt.audio.pause(); } catch (_) {} ttsPlayAt(k); }
     });
-    on('ttsFollow', 'change', (e) => { ttsPrefs().follow = e.target.checked; saveTtsPrefs(); if (e.target.checked) ttsBackToPosition(); });
-    on('ttsShortcuts', 'change', (e) => { ttsPrefs().shortcuts = e.target.checked; saveTtsPrefs(); });
-    on('ttsExact', 'change', (e) => { ttsPrefs().exact = e.target.checked; saveTtsPrefs(); });
     setupTtsStartMenu();
     window.addEventListener('pagehide', () => ttsFlushListen());
 
@@ -13883,14 +13928,23 @@
       });
     }
 
-    // ── 專注模式：隱藏標題列與側邊欄，只留內文；只能按 Esc 離開 ──
+    // ── 專注模式：隱藏標題列與側邊欄，只留內文；按 Esc 或點右上角 pill 離開 ──
     const focusModeBtn = $('focusModeBtn');
     if (focusModeBtn) {
+      // 所有離開專注模式的路徑（Esc、pill、視窗變窄）都走這裡，狀態一致。
+      // restoreFocus：pill 消失後鍵盤焦點會掉到 body，改放回專注模式按鈕。
+      const exitFocusMode = ({ restoreFocus = false } = {}) => {
+        if (!document.body.classList.contains('focus-mode')) return;
+        document.body.classList.remove('focus-mode');
+        if (restoreFocus && document.activeElement === $('focusModeExit')) {
+          try { focusModeBtn.focus({ preventScroll: true }); } catch (_) {}
+        }
+      };
       // 手機寬度隱藏按鈕（見 style.css）。若在桌機進入專注模式後視窗縮到手機寬度
       // （例如平板轉直），就自動離開，免得沒有 Esc 可按而卡住。
       const focusModeNarrowMq = window.matchMedia('(max-width: 768px)');
       const exitFocusModeIfNarrow = () => {
-        if (focusModeNarrowMq.matches) document.body.classList.remove('focus-mode');
+        if (focusModeNarrowMq.matches) exitFocusMode();
       };
       focusModeNarrowMq.addEventListener('change', exitFocusModeIfNarrow);
       focusModeBtn.addEventListener('click', () => {
@@ -13898,17 +13952,17 @@
         document.body.classList.add('focus-mode');
         focusModeBtn.blur();
       });
-      // 觸控裝置沒有 Esc：點右上角的 pill 離開
+      // 右上角的 pill 是真正的 <button>：滑鼠點、觸控點、Enter／空白鍵都能離開
       const focusModeExit = $('focusModeExit');
       if (focusModeExit) {
         focusModeExit.addEventListener('click', () => {
-          document.body.classList.remove('focus-mode');
+          exitFocusMode({ restoreFocus: true });
         });
       }
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented) return;
         if (!document.body.classList.contains('focus-mode')) return;
-        document.body.classList.remove('focus-mode');
+        exitFocusMode({ restoreFocus: true });
         e.preventDefault();
       });
     }
@@ -18246,7 +18300,7 @@
   // §21.8 朗讀（TTS）後台：連線、音色白名單、規則、讀音字典、快取、預先生成
   // API 見 lib/tts.js 與 ARCHITECTURE §24.7；這一頁的設定走底部儲存列（data-save="tts"）。
   // ═══════════════════════════════════════════════════════════
-  const TTS_ADMIN_RATES = [0.8, 0.9, 1, 1.1, 1.2, 1.3];
+  const TTS_ADMIN_RATES = [0.8, 0.85, 0.9, 1, 1.1, 1.2, 1.25, 1.3];
   const ttsAdmin = { data: null, probe: null, wired: false, jobsTimer: null, previewAudio: null };
 
   /** accountApi 加上限流重試：開啟後台時各頁一起載入，常撞到每秒 30 次的 API 限流（429）。 */
@@ -18275,14 +18329,24 @@
     return m >= 60 ? `${Math.floor(m / 60)} 小時 ${m % 60} 分` : `${m} 分`;
   }
 
+  /** 讀者端實際看得到的音色：已開放、而且 audio.cpp 還有它的參考錄音（與伺服器 publicVoices 同一規則）。 */
+  function ttsAdminUsableVoices(d) {
+    const up = d && Array.isArray(d.upstreamVoices) ? new Set(d.upstreamVoices) : null;
+    return ((d && d.settings && d.settings.voices) || []).filter(v => v.enabled && (!up || up.has(v.voice)));
+  }
+
   /** 卡片狀態燈；總覽的「待處理」與導覽燈號從這裡來。 */
   function updateTtsAdminLights(d) {
     if (!d) return;
     const s = d.settings;
+    // 朗讀已開放但讀者端沒有可用音色時，前台會隱藏所有朗讀入口：後台用明顯的文字說清楚
+    const noVoice = !!s.enabled && !ttsAdminUsableVoices(d).length;
+    document.querySelectorAll('[data-tts-novoice-warn]').forEach(el => { el.hidden = !noVoice; });
     if (!s.enabled) setAdminCardLight('tts', 'off', '');
     else if (!s.baseUrl || !s.model) setAdminCardLight('tts', 'warn', '朗讀已開放，但還沒設定伺服器網址或模型');
     else if (!d.health.ok) setAdminCardLight('tts', 'bad', `朗讀服務無法使用：${d.health.error || '未知原因'}`);
     else if (!s.voices.some(v => v.enabled)) setAdminCardLight('tts', 'warn', '還沒有開放任何音色');
+    else if (!ttsAdminUsableVoices(d).length) setAdminCardLight('tts', 'bad', '開放的音色都找不到參考錄音（可能改名或刪除），讀者端的朗讀入口已全部隱藏；請在音色表勾選現有的音色並儲存');
     else if (!d.ffmpeg.ok) setAdminCardLight('tts', 'warn', '找不到 ffmpeg：音檔存成 WAV，約大十倍');
     else setAdminCardLight('tts', 'ok', `audio.cpp ${d.health.info && d.health.info.backend ? `（${d.health.info.backend}）` : ''}連線正常`);
     const chip = $('hwTtsStatus');
@@ -18312,14 +18376,14 @@
     const id = saved ? v.id : '';
     const rate = Number(v.rate) || 1;
     return `<tr data-voice="${escHtml(v.voice)}" data-id="${escHtml(id)}"${gone ? ' class="is-gone"' : ''}>
-      <td><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
-      <td><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
-      <td><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
-      <td><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
-      <td><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
-      <td><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
-      <td><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
-      <td><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id || !gone ? '' : 'disabled'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
+      <td data-label="開放"><input type="checkbox" class="tts-v-on" ${v.enabled ? 'checked' : ''} aria-label="開放 ${escHtml(v.voice)}"></td>
+      <td data-label="預設"><input type="radio" name="adminTtsDefault" class="tts-v-def" ${isDefault ? 'checked' : ''} aria-label="預設音色 ${escHtml(v.voice)}"></td>
+      <td data-label="名稱"><code>${escHtml(v.voice)}</code>${gone ? ` <span class="tts-v-gone">已不存在</span> <button type="button" class="modal-btn secondary-btn small-btn tts-v-remove" data-no-dirty aria-label="從清單移除 ${escHtml(v.voice)}">移除</button>` : ''}</td>
+      <td data-label="中文名"><input type="text" class="tts-v-name" value="${escHtml(v.name || '')}" maxlength="40" aria-label="${escHtml(v.voice)} 的中文名"></td>
+      <td data-label="標籤"><input type="text" class="tts-v-tags" value="${escHtml((v.tags || []).join('、'))}" aria-label="${escHtml(v.voice)} 的標籤"></td>
+      <td data-label="預設語速"><select class="tts-v-rate" aria-label="${escHtml(v.voice)} 的預設語速">${TTS_ADMIN_RATES.map(r => `<option value="${r}" ${Math.abs(r - rate) < 0.001 ? 'selected' : ''}>${r} 倍</option>`).join('')}</select></td>
+      <td data-label="版本"><input type="number" class="tts-v-rev" min="1" max="9999" value="${Number(v.rev) || 1}" aria-label="${escHtml(v.voice)} 的參考錄音版本"></td>
+      <td data-label="試聽"><button type="button" class="modal-btn secondary-btn small-btn tts-v-sample" data-no-dirty ${id || !gone ? '' : 'disabled'} aria-label="試聽 ${escHtml(v.name || v.voice)}">▶</button></td>
     </tr>`;
   }
 
@@ -18331,12 +18395,52 @@
     const isGone = (v) => !!upSet && !upSet.has(v.voice);
     const saved = s.voices.filter(v => !isGone(v)).concat(s.voices.filter(isGone));
     const names = new Set(saved.map(v => v.voice));
-    const extra = (up || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: '', tags: [], rate: 1, rev: 1, enabled: false }));
+    const extra = (up || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: trimTtsVoiceName(n) === n ? '' : trimTtsVoiceName(n), tags: [], rate: 1, rev: 1, enabled: false }));
     const body = $('adminTtsVoices').querySelector('tbody');
     body.innerHTML = saved.map(v => ttsAdminVoiceRow(v, true, v.id === s.defaultVoice, isGone(v))).join('') + extra.map(v => ttsAdminVoiceRow(v, false, false, false)).join('')
       || '<tr><td colspan="8" class="field-hint">還沒有音色。按「重新檢查連線」從 audio.cpp 抓回音色清單。</td></tr>';
     const opts = s.voices.filter(v => v.enabled).map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('');
     $('adminTtsJobVoice').innerHTML = opts; $('adminTtsPreviewVoice').innerHTML = opts;
+    renderTtsLcVoices();
+  }
+
+  // ── 聽經目錄一次預先生成：選音色 → 估算（已有／缺幾句、時間、空間）→ 開始（每個音色一個工作，依序跑）──
+  function renderTtsLcVoices() {
+    const box = $('adminTtsLcVoices'); const d = ttsAdmin.data; if (!box || !d) return;
+    const s = d.settings;
+    const prev = new Set([...box.querySelectorAll('input:checked')].map(i => i.value));
+    const list = s.voices.filter(v => v.enabled);
+    const pick = (v) => prev.size ? prev.has(v.id) : v.id === s.defaultVoice || (!list.some(x => x.id === s.defaultVoice) && v === list[0]);
+    box.innerHTML = '<legend>音色</legend>' + (list.length ? list.map(v => `<label class="tts-lcgen-check"><input type="checkbox" value="${escHtml(v.id)}" data-no-dirty ${pick(v) ? 'checked' : ''}> ${escHtml(v.name)}${v.id === s.defaultVoice ? '（預設）' : ''}</label>`).join('')
+      : '<span class="field-hint">還沒有開放的音色。</span>');
+  }
+
+  /** 預估時間：不到一分鐘、幾分、幾小時、超過兩天改說幾天。 */
+  function fmtTtsEta(ms) {
+    if (ms < 60000) return '不到 1 分鐘';
+    if (ms >= 48 * 3600000) return `約 ${(ms / 86400000).toFixed(1)} 天`;
+    return '約 ' + fmtTtsDuration(ms);
+  }
+
+  function ttsLcSelectedVoices() { return [...document.querySelectorAll('#adminTtsLcVoices input:checked')].map(i => i.value); }
+
+  function renderTtsLcEstimate(e) {
+    const el = $('adminTtsLcEstimate');
+    if (!e) { el.innerHTML = ''; return; }
+    const t = e.total;
+    const row = (v) => `<tr><th scope="row">${escHtml(v.name)}</th><td>${v.sentences.toLocaleString()}</td><td>${v.cached.toLocaleString()}</td><td><strong>${v.missing.toLocaleString()}</strong></td><td>${v.missingChars.toLocaleString()}</td><td>${v.missing ? fmtTtsEta(v.estMs) : '—'}</td><td>${v.missing ? '約 ' + fmtTtsBytes(v.estBytes) : '—'}</td></tr>`;
+    const after = e.cache.usedBytes + t.estBytes;
+    const over = e.cache.limitBytes && after > e.cache.limitBytes;
+    el.innerHTML = `<table class="tts-lcgen-table">
+        <caption>聽經目錄 ${e.files} 部經${e.missingFiles ? `（另有 ${e.missingFiles} 部找不到檔案，會略過）` : ''}，聽完一遍約 ${fmtTtsDuration(e.voices.length ? e.voices[0].audioMs : 0)}</caption>
+        <thead><tr><th scope="col">音色</th><th scope="col">句數</th><th scope="col">已生成</th><th scope="col">還缺</th><th scope="col">缺的字數</th><th scope="col">預估時間</th><th scope="col">預估空間</th></tr></thead>
+        <tbody>${e.voices.map(row).join('')}</tbody></table>
+      <p class="field-hint">${t.missing ? `共要生成 ${t.missing.toLocaleString()} 句，${fmtTtsEta(t.estMs)}、約 ${fmtTtsBytes(t.estBytes)}。` : '全部都已經生成好了，不用再生成。'}${e.rates.measured ? '依這台伺服器最近的生成速度估算。' : '還沒有足夠的生成紀錄，先用一般速度估算。'}一次只跑一個工作、依序生成，讀者的朗讀永遠優先；可隨時暫停、繼續。</p>
+      ${over ? `<p class="field-hint lc-err" role="alert">⚠️ 生成完約 ${fmtTtsBytes(after)}，超過快取上限 ${fmtTtsBytes(e.cache.limitBytes)}。建議勾「釘選」或先調高上限，不然較舊的音檔會被清掉。</p>` : ''}
+      <div class="account-inline-form">
+        ${t.missing ? `<button type="button" class="modal-btn submit-btn small-btn" id="adminTtsLcStartBtn" data-no-dirty>開始生成 ${t.missing.toLocaleString()} 句</button>` : ''}
+        <button type="button" class="modal-btn secondary-btn small-btn" id="adminTtsLcCloseBtn" data-no-dirty>${t.missing ? '取消' : '關閉'}</button>
+      </div>`;
   }
 
   function renderTtsAdminHealth() {
@@ -18499,7 +18603,7 @@
       if (!on && !id) return; // 沒開放、也沒存過：不必記
       const v = {
         voice: tr.dataset.voice, enabled: on,
-        name: tr.querySelector('.tts-v-name').value.trim() || tr.dataset.voice,
+        name: trimTtsVoiceName(tr.querySelector('.tts-v-name').value.trim() || tr.dataset.voice),
         tags: tr.querySelector('.tts-v-tags').value.split(/[、,，\s]+/).map(x => x.trim()).filter(Boolean),
         rate: Number(tr.querySelector('.tts-v-rate').value) || 1,
         rev: Number(tr.querySelector('.tts-v-rev').value) || 1
@@ -18568,16 +18672,22 @@
     const voices = (ttsAdmin.data && ttsAdmin.data.settings.voices) || [];
     const vname = (id) => (voices.find(v => v.id === id) || {}).name || id;
     el.innerHTML = d.jobs.length ? d.jobs.map(j => {
-      const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
+      const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.label || j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
       const acts = [];
       if (j.state === 'running' || j.state === 'queued') acts.push(['pause', '暫停']);
       if (j.state === 'paused') acts.push(['resume', '繼續']);
       if (j.state !== 'done' && j.state !== 'cancelled') acts.push(['cancel', '取消']);
+      if ((j.state === 'done' || j.state === 'cancelled') && j.failed > 0) acts.push(['retry', '重試失敗的句子']);
       if (j.state !== 'running') acts.push(['delete', '移除紀錄']);
+      // 完成報告：失敗的句子列出經名、行號、開頭幾個字和原因；被截斷（PR #250 起不存入快取）另外標出
+      const fails = j.failures || [];
+      const report = (j.state === 'done' || j.state === 'cancelled') ? `<div class="field-hint tts-job-report">${j.state === 'done' ? '✅ 完成' : '已取消'}：處理 ${j.sentencesDone.toLocaleString()} 句，新生成 ${j.generated.toLocaleString()} 句，原本已有 ${Math.max(0, j.sentencesDone - j.generated - j.failed).toLocaleString()} 句${j.failed ? `，<strong>失敗 ${j.failed} 句</strong>${j.truncated ? `（其中 ${j.truncated} 句聲音被截斷）` : ''}` : '，沒有失敗'}。</div>
+        ${fails.length ? `<details class="tts-job-fails"><summary>看失敗的句子（${fails.length}${j.failed > fails.length ? `／${j.failed}` : ''}）</summary><ul>${fails.map(f => `<li><a href="/?file=${encodeURIComponent(f.path)}&line=${f.line}" target="_blank" rel="noopener">${escHtml(f.label)} 第 ${f.line} 行</a>「${escHtml(f.text)}」— ${escHtml(f.reason)}</li>`).join('')}</ul></details>` : ''}` : '';
       return `<div class="account-row tts-job" data-job="${j.id}">
         <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
           <div class="field-hint">${TTS_JOB_STATE[j.state] || j.state}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
           <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
+          ${report}
         </div>
         <div class="account-inline-form">${acts.map(([a, label]) => `<button type="button" class="modal-btn ${a === 'cancel' ? 'cancel-btn' : 'secondary-btn'} small-btn" data-job-action="${a}" data-no-dirty>${label}</button>`).join('')}</div>
       </div>`;
@@ -18611,6 +18721,8 @@
           <button type="button" class="modal-btn secondary-btn small-btn tts-rep-done" data-no-dirty aria-label="標為已處理">已處理</button></td></tr>`;
     }).join('') || '<tr><td colspan="5" class="field-hint">目前沒有讀者回報。</td></tr>';
     ttsAdmin.reports = list;
+    const cnt = $('adminTtsReportCount'); // 待處理數放在標題旁，一打開這頁就看得到
+    if (cnt) { cnt.hidden = !list.length; cnt.textContent = list.length ? `${list.length} 則待處理` : ''; }
   }
 
   /** 讀音校正：自訂字典的文字框＋內建佛經讀音表。 */
@@ -18823,6 +18935,29 @@
       $('adminTtsJobScope').value = '';
       renderTtsAdminJobs(r.data);
     });
+    $('adminTtsLcEstimateBtn').addEventListener('click', async () => {
+      const voices = ttsLcSelectedVoices();
+      if (!voices.length) { showToast('請至少勾一個音色', 'info'); return; }
+      const b = $('adminTtsLcEstimateBtn'); b.disabled = true;
+      $('adminTtsLcEstimate').innerHTML = '<p class="field-hint">估算中…（逐句比對快取）</p>';
+      const r = await ttsAdminApi('/api/admin/tts/jobs/estimate', { method: 'POST', body: { scope: 'listen:catalog', voices } });
+      b.disabled = false;
+      if (!r.ok) { $('adminTtsLcEstimate').innerHTML = `<p class="field-hint lc-err" role="alert">${escHtml(r.data.error || '無法估算')}</p>`; return; }
+      ttsAdmin.lcVoices = voices;
+      renderTtsLcEstimate(r.data);
+      const start = $('adminTtsLcStartBtn'); (start || $('adminTtsLcCloseBtn')).focus();
+    });
+    $('adminTtsLcEstimate').addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.id === 'adminTtsLcCloseBtn') { renderTtsLcEstimate(null); $('adminTtsLcEstimateBtn').focus(); return; }
+      if (b.id !== 'adminTtsLcStartBtn') return;
+      b.disabled = true;
+      const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope: 'listen:catalog', voices: ttsAdmin.lcVoices || ttsLcSelectedVoices(), pin: $('adminTtsLcPin').checked } });
+      if (!r.ok) { b.disabled = false; showToast(`❌ ${r.data.error || '無法建立工作'}`, 'error', 5000); return; }
+      renderTtsLcEstimate(null);
+      showToast(`✅ 已排入 ${r.data.ids.length} 個預先生成工作（聽經目錄）`, 'success');
+      renderTtsAdminJobs(r.data);
+    });
     $('adminTtsJobs').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-job-action]');
       if (!b) return;
@@ -18993,11 +19128,11 @@
         <div><b>${totals && totals.v ? Math.floor(totals.c / totals.v * 100) + '%' : '—'}</b><span>整個目錄已生成${totals ? `（${totals.c.toLocaleString()}／${totals.v.toLocaleString()} 句）` : ''}</span></div>
       </div>
       <div class="lc-bar" role="progressbar" aria-label="這部經已生成" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${one ? pct(one) : 0}"><i style="width:${one ? pct(one) : 0}%"></i></div>
-      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。工作在背景依序進行，進度在「朗讀（TTS）」頁的預先生成區。</p>
+      <p class="field-hint">目錄裡的經最常被聽。先生成好，讀者按下就播，不用等。這裡用預設音色生成選中的這一部；整個目錄（可選多個音色、先估算時間與空間）在「朗讀（TTS）」頁的預先生成區。</p>
       <div class="lc-tool">
         <button type="button" class="modal-btn submit-btn small-btn" data-lc-act="gen-one" data-no-dirty ${it ? '' : 'disabled'}>預先生成這部經</button>
-        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="gen-all" data-no-dirty>整個目錄一起預先生成</button>
-        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 固定保留（不被快取清理刪掉）</label>
+        <label class="lc-check"><input type="checkbox" id="lcGenPin" checked data-no-dirty> 釘選（不被自動清除）</label>
+        <button type="button" class="modal-btn secondary-btn small-btn" data-lc-act="goto-gen-all" data-no-dirty>整個目錄：到朗讀頁選音色、估算後生成…</button>
       </div>`}`;
   }
 
@@ -19073,12 +19208,18 @@
         lcChanged(); renderLcAdmin(); return;
       }
       if (act === 'redetect') { lcDetect(true); return; }
-      if (act === 'gen-one' || act === 'gen-all') {
+      if (act === 'gen-one') {
         const it = lcItem();
-        if (act === 'gen-one' && lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
-        const scope = act === 'gen-one' ? it.path : 'listen:catalog';
-        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
-        if (r.ok) showToast(`✅ 已排入預先生成（${act === 'gen-one' ? it.name : '整個目錄'}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        if (lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const r = await ttsAdminApi('/api/admin/tts/jobs', { method: 'POST', body: { scope: it.path, voice: lcAdmin.voice, pin: !!($('lcGenPin') && $('lcGenPin').checked) } });
+        if (r.ok) showToast(`✅ 已排入預先生成（${it.name}）`, 'success'); else showToast(`❌ ${r.data.error || '無法排入'}`, 'error');
+        return;
+      }
+      // 整個目錄只有一個入口：朗讀頁的「🎧 聽經目錄」區（可選音色、先估算），這裡帶過去
+      if (act === 'goto-gen-all') {
+        if (lcDirty()) { showToast('請先儲存目錄，再預先生成', 'info'); return; }
+        const nav = document.querySelector('#adminShell .admin-nav-item[data-page="tts"]'); if (nav) nav.click();
+        setTimeout(() => { const t = $('adminTtsLcGenTitle'); if (t) { t.scrollIntoView({ block: 'center' }); const f = document.querySelector('#adminTtsLcVoices input'); if (f) f.focus({ preventScroll: true }); } }, 300);
         return;
       }
       const pact = b.dataset.lcPact; const it = lcItem();
