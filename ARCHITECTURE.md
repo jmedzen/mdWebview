@@ -721,6 +721,7 @@ if (existing === 'true' || existing === 'false') return false;
 **載入與防閃爍**
 
 - OpenCC（`vendor/opencc/t2cn.js`，opencc-js 1.4.2，約 110 KB，MIT／Apache-2.0）只在簡體顯示時才下載；Service Worker 仍預快取，離線時也能切換。
+- OpenCC 簡→繁（`vendor/opencc/cn2t.js`，opencc-js 1.4.2，約 1.1 MB）只在伺服器端用：audio.cpp ASR（qwen3-asr）回的簡體逐字稿轉成台灣繁體再寫進 `<音色>.txt`；第一次轉寫時才載入，瀏覽器不下載。
 - `i18n/boot.js` 於 `<head>` 同步執行：預判本次為簡體時先設 `data-display-script="hans"` 並預載 OpenCC，CSS 隱藏 body；`app.js` 轉換完成後設 `data-t2s-ready` 才顯示，4 秒保底。
 - 簡體顯示改用系統簡體字型（`--cjk-serif`／`--cjk-sans`），避免 Noto Serif TC 以台灣字形畫簡體字。
 - `<html lang>` 隨之切換為 `zh-Hans`／`zh-TW`；前端日期格式改用 `activeLocale()`。OpenCC 載入失敗時畫面退回繁體並提示，但不改寫偏好，下次進站再試。

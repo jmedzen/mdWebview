@@ -68,6 +68,7 @@ function startFake() {
         fake.speech.push(body);
         setTimeout(() => {
           if (fake.mode === '500') return json(500, { error: { message: 'model exploded', type: 'server_error' } });
+          if (fake.mode === 'noref') return json(400, { error: { message: 'Drama 3 reference audio requires reference_text', type: 'invalid_request_error' } });
           if (fake.mode === 'busy') return json(503, { error: { message: "model 'drama3' is busy", type: 'server_busy' } });
           if (fake.mode === 'json200') { res.writeHead(200, { 'Content-Type': 'audio/wav' }); return res.end(JSON.stringify({ error: { message: 'oops' } })); }
           if (fake.mode === 'html200') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<html>error</html>'); }
@@ -695,6 +696,49 @@ describe('朗讀（TTS）後端', () => {
       assert.equal((await request('/api/tts/status')).json.voices[0].sample, null);
     });
 
+    test('試聽：還沒存的新音色也能試；缺逐字稿回 NO_TRANSCRIPT 並說明；ASR 模型清單隨設定回傳', async () => {
+      tts._internals.setUpstreamVoices(fake.url, ['demo_1_man', 'demo_3_woman', 'RA-new']);
+      const r = await post('/api/admin/tts/sample', { voiceName: 'RA-new' }, admin);
+      assert.equal(r.status, 200);
+      assert.equal(fake.speech[fake.speech.length - 1].voice, 'RA-new');
+      assert.equal((await post('/api/admin/tts/sample', { voiceName: 'not-listed' }, admin)).status, 400);
+      assert.equal((await post('/api/admin/tts/sample', { voiceName: '../etc' }, admin)).status, 400);
+      fake.mode = 'noref'; tts._internals.failed.clear();
+      try {
+        const e = await post('/api/admin/tts/sample', { voice: 'v2' }, admin);
+        assert.equal(e.status, 409); assert.equal(e.json.code, 'NO_TRANSCRIPT');
+        assert.match(e.json.error, /逐字稿/);
+      } finally { fake.mode = 'ok'; tts._internals.failed.clear(); tts._internals.resetUpstreamVoices(); }
+      await request('/api/admin/tts/health', { headers: admin });
+      const g = await request('/api/admin/tts/settings', { headers: admin });
+      assert.deepEqual(g.json.asrModels, ['qwen3-asr']);
+      const h = await request('/api/admin/tts/health', { headers: admin });
+      assert.deepEqual(h.json.asrModels.map(m => m.id), ['qwen3-asr']);
+      assert.equal(h.json.models.some(m => m.id === 'qwen3-asr'), false, 'ASR 模型不混進朗讀模型');
+    });
+
+    test('後台改逐字稿：寫 .txt、重建 prompt_text；只能改資料夾裡有錄音的名稱', async () => {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+      fs.writeFileSync(path.join(d, 'RA-甲.wav'), makeWav(4000));
+      config.settings.tts = Object.assign({}, config.settings.tts, { voiceDir: d, autoTranscribe: false });
+      try {
+        const r = await post('/api/admin/tts/voicedir/transcript', { name: 'RA-甲', text: '如是我聞，\n一時佛在。' }, admin);
+        assert.equal(r.status, 200);
+        assert.equal(fs.readFileSync(path.join(d, 'RA-甲.txt'), 'utf8'), '如是我聞， 一時佛在。\n');
+        assert.equal(fs.readFileSync(path.join(d, 'prompt_text'), 'utf8'), 'RA-甲|如是我聞， 一時佛在。\n');
+        const v = r.json.voiceDir.voices[0];
+        assert.equal(v.text, '如是我聞， 一時佛在。'); assert.equal(v.inPrompt, true); assert.equal(v.stale, false);
+        assert.equal(v.audio.ms, 4000); assert.equal(v.audio.rate, 8000); assert.equal(v.audio.channels, 1);
+        assert.equal((await post('/api/admin/tts/voicedir/transcript', { name: '../config', text: 'x' }, admin)).status, 400);
+        assert.equal((await post('/api/admin/tts/voicedir/transcript', { name: 'RA-甲', text: '  ' }, admin)).status, 400);
+        assert.equal(fs.existsSync(path.join(d, '..', 'config.txt')), false);
+        assert.equal((await post('/api/admin/tts/voicedir/transcript', { name: 'RA-甲', text: 'x' })).status, 401);
+      } finally {
+        config.settings.tts = Object.assign({}, config.settings.tts, { voiceDir: '' });
+        fs.rmSync(d, { recursive: true, force: true });
+      }
+    });
+
     test('讀音字典：讀取、儲存、試聽套用字典', async () => {
       const g = await request('/api/admin/tts/lexicon', { headers: admin });
       assert.equal(g.json.exists, false); assert.ok(g.json.count > 5);
@@ -836,6 +880,55 @@ describe('lib/tts.js 純函式', () => {
       I.setFetch(null);
       fs.rmSync(d, { recursive: true, force: true });
     }
+  });
+
+  test('ASR 回的簡體字轉成台灣繁體；.txt 跟 prompt_text 不一致時算要重建', async () => {
+    assert.equal(I.toTraditional('今天我们要深入的是唐代，人类心理与宇宙实相'), '今天我們要深入的是唐代，人類心理與宇宙實相');
+    assert.equal(I.toTraditional('如是我聞，一時佛在舍衛國'), '如是我聞，一時佛在舍衛國');
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+    try {
+      fs.writeFileSync(path.join(d, 'RA-甲.wav'), 'RIFFfake');
+      fs.writeFileSync(path.join(d, 'RA-甲.txt'), '人類心理與宇宙實相\n');
+      fs.writeFileSync(path.join(d, 'prompt_text'), 'RA-甲|人类心理与呃宇宙实相\n');
+      const v = I.inspectVoiceDir(d).voices[0];
+      assert.equal(v.stale, true); assert.equal(v.text, '人類心理與宇宙實相');
+      // 不用 ASR，只重建 prompt_text（照 .txt）
+      I.setFetch(async () => { throw new Error('不該呼叫 ASR'); });
+      assert.equal(I.startVoiceTranscribe({ voiceDir: d, baseUrl: 'http://asr.test', asrModel: 'qwen3-asr' }, { force: true }), true);
+      for (let i = 0; i < 100 && I.voiceAsrState().running; i++) await new Promise(r => setTimeout(r, 10));
+      assert.equal(fs.readFileSync(path.join(d, 'prompt_text'), 'utf8'), 'RA-甲|人類心理與宇宙實相\n');
+      assert.equal(I.inspectVoiceDir(d).voices[0].stale, false);
+    } finally { I.setFetch(null); fs.rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test('指定音色重新 ASR：覆蓋原本的 .txt，簡體轉繁體', async () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+    try {
+      fs.writeFileSync(path.join(d, 'RA-甲.wav'), 'RIFFfake');
+      fs.writeFileSync(path.join(d, 'RA-乙.wav'), 'RIFFfake');
+      fs.writeFileSync(path.join(d, 'RA-甲.txt'), '舊稿\n');
+      fs.writeFileSync(path.join(d, 'RA-乙.txt'), '乙稿\n');
+      const calls = [];
+      I.setFetch(async () => { calls.push(1); return new Response(JSON.stringify({ text: '欢迎来到思辨之境' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); });
+      assert.equal(I.startVoiceTranscribe({ voiceDir: d, baseUrl: 'http://asr.test', asrModel: 'qwen3-asr' }, { force: true, names: ['RA-甲'] }), true);
+      for (let i = 0; i < 100 && I.voiceAsrState().running; i++) await new Promise(r => setTimeout(r, 10));
+      assert.equal(calls.length, 1);
+      assert.equal(fs.readFileSync(path.join(d, 'RA-甲.txt'), 'utf8'), '歡迎來到思辨之境\n');
+      assert.equal(fs.readFileSync(path.join(d, 'RA-乙.txt'), 'utf8'), '乙稿\n');
+      assert.equal(fs.readFileSync(path.join(d, 'prompt_text'), 'utf8'), 'RA-乙|乙稿\nRA-甲|歡迎來到思辨之境\n');
+      assert.equal(I.startVoiceTranscribe({ voiceDir: d, baseUrl: 'http://asr.test', asrModel: 'qwen3-asr' }, { force: true, names: ['不存在'] }), false);
+    } finally { I.setFetch(null); fs.rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test('readWavInfo 只讀檔頭算長度；不是 WAV 回 null', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-voices-'));
+    try {
+      fs.writeFileSync(path.join(d, 'a.wav'), makeWav(2500));
+      fs.writeFileSync(path.join(d, 'b.wav'), 'not a wav');
+      assert.deepEqual(I.readWavInfo(path.join(d, 'a.wav')), { rate: 8000, channels: 1, bits: 16, ms: 2500 });
+      assert.equal(I.readWavInfo(path.join(d, 'b.wav')), null);
+      assert.equal(I.readWavInfo(path.join(d, 'nope.wav')), null);
+    } finally { fs.rmSync(d, { recursive: true, force: true }); }
   });
 
   test('audio.cpp 已不再列出的音色算「已不存在」；清單未知或換了伺服器時不算', () => {
