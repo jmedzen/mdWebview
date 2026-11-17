@@ -10349,7 +10349,14 @@
    */
   function tidyTtsVoiceName(name) {
     const t = String(name || '').replace(/^(?:ref[-_ ]*audio|ra)[-_ ]+/i, '').replace(/^(?:male|female|man|woman|voice)[-_ ]+/i, '');
-    return t.trim() || String(name || '');
+    return trimTtsVoiceName(t.trim() || String(name || ''));
+  }
+
+  /** 音色中文名：去掉前後的非中文字（RA-m-米陸 → 米陸），結尾數字保留（芙蓉2）；沒有中文就原樣。與 lib/tts.js trimVoiceName 同規則。 */
+  function trimTtsVoiceName(name) {
+    const s = String(name || '');
+    const t = s.replace(/^[^\p{Script=Han}]+/u, '').replace(/[^\p{Script=Han}\p{N}]+$/u, '');
+    return /\p{Script=Han}/u.test(t) ? t : s;
   }
   function tidyTtsVoiceNames(list) {
     if (!Array.isArray(list) || !list.length) return;
@@ -18349,7 +18356,7 @@
     const isGone = (v) => !!upSet && !upSet.has(v.voice);
     const saved = s.voices.filter(v => !isGone(v)).concat(s.voices.filter(isGone));
     const names = new Set(saved.map(v => v.voice));
-    const extra = (up || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: '', tags: [], rate: 1, rev: 1, enabled: false }));
+    const extra = (up || []).filter(n => !names.has(n)).map(n => ({ voice: n, name: trimTtsVoiceName(n) === n ? '' : trimTtsVoiceName(n), tags: [], rate: 1, rev: 1, enabled: false }));
     const body = $('adminTtsVoices').querySelector('tbody');
     body.innerHTML = saved.map(v => ttsAdminVoiceRow(v, true, v.id === s.defaultVoice, isGone(v))).join('') + extra.map(v => ttsAdminVoiceRow(v, false, false, false)).join('')
       || '<tr><td colspan="8" class="field-hint">還沒有音色。按「重新檢查連線」從 audio.cpp 抓回音色清單。</td></tr>';
@@ -18557,7 +18564,7 @@
       if (!on && !id) return; // 沒開放、也沒存過：不必記
       const v = {
         voice: tr.dataset.voice, enabled: on,
-        name: tr.querySelector('.tts-v-name').value.trim() || tr.dataset.voice,
+        name: trimTtsVoiceName(tr.querySelector('.tts-v-name').value.trim() || tr.dataset.voice),
         tags: tr.querySelector('.tts-v-tags').value.split(/[、,，\s]+/).map(x => x.trim()).filter(Boolean),
         rate: Number(tr.querySelector('.tts-v-rate').value) || 1,
         rev: Number(tr.querySelector('.tts-v-rev').value) || 1
