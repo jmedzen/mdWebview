@@ -82,7 +82,7 @@ describe('朗讀播放器的無障礙語意', () => {
 
   test('朗讀中換一段新的（選字、朗讀本節）：馬上停掉正在播的舊句，ended 不會把新的第一句跳過', () => {
     const halt = ttsSection.slice(ttsSection.indexOf('function ttsHaltCurrent'), ttsSection.indexOf('async function ttsBegin'));
-    assert.match(halt, /ttsRt\.token\+\+/);
+    assert.match(halt, /ttsBumpToken\(\)/);
     assert.match(halt, /clearTimeout\(ttsRt\.gapTimer\)/);
     assert.match(halt, /a\.dataset\.ttsSha = ''/);
     assert.match(halt, /a\.pause\(\)/);
@@ -584,5 +584,31 @@ describe('展開面板：窄版／寬版（2026-11-17 寬螢幕重新設計）',
     assert.match(css, /\.tts-rate-preset \{\n  position: relative; min-height: 36px;/);
     assert.match(css, /\.tts-rate-preset::after \{ content: ''; position: absolute; inset: -4px 0; \}/);
     assert.match(css, /\.tts-rate-preset\[aria-pressed="true"\] \{ background: var\(--tts-accent\); border-color: var\(--tts-accent\); color: var\(--tts-on-accent\);/);
+  });
+});
+
+describe('換音色／停止時不讓舊的生成繼續排在 audio.cpp 前面', () => {
+  test('token 一律經 ttsBumpToken 加一：中斷還在等的請求，並通知伺服器撤銷舊 gen', () => {
+    const bump = ttsSection.slice(ttsSection.indexOf('function ttsBumpToken()'), ttsSection.indexOf('function ttsResetSession('));
+    assert.doesNotMatch(ttsSection.replace(bump, ''), /ttsRt\.token\+\+|\+\+ttsRt\.token/);
+    assert.match(bump, /ttsRt\.ctl\.abort\(\)/);
+    assert.match(bump, /ttsCancelServer\(ttsRt\.listener, ttsRt\.token\)/);
+    for (const fn of ['function ttsResetSession(', 'function ttsHaltCurrent()', 'function ttsStop()', 'async function ttsSetVoice(']) {
+      const body = ttsSection.slice(ttsSection.indexOf(fn), ttsSection.indexOf(fn) + 900);
+      assert.match(body, /ttsBumpToken\(\)/, fn);
+    }
+  });
+
+  test('/api/tts/speak 帶 listener、gen 與 AbortSignal；cancelled 視同還在等', () => {
+    assert.match(ttsSection, /'\/api\/tts\/speak', \{ path, voice: v && v\.id, ids: [^}]*listener: ttsListener\(\), gen: token \}, ttsSignal\(\)\)/);
+    assert.match(ttsSection, /r\.state === 'pending' \|\| r\.state === 'cancelled'\) next\.push\(it\)/);
+  });
+
+  test('離線下載用自己的 listener，取消時中斷並通知伺服器', () => {
+    assert.match(ttsSection, /ttsRt\.offlineListener = ttsListenerId\('o'\)/);
+    assert.match(ttsSection, /listener: ttsRt\.offlineListener, gen: token \|\| 0 \}, ttsRt\.offlineCtl && ttsRt\.offlineCtl\.signal/);
+    const cancel = app.slice(app.indexOf("on('ttsOfflineCancel'"), app.indexOf("on('ttsOfflineCancel'") + 600);
+    assert.match(cancel, /offlineCtl\.abort\(\)/);
+    assert.match(cancel, /ttsCancelServer\(ttsRt\.offlineListener, ttsRt\.offlineToken\)/);
   });
 });
