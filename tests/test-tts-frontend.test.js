@@ -497,3 +497,22 @@ describe('2026-11-17 介面審計修正（後台）', () => {
     assert.match(html, /id="adminTtsJobAddBtn" data-no-dirty>開始<\/button>\n\s*<\/div>\n\s*<label class="tts-lcgen-check tts-job-pin"><input type="checkbox" id="adminTtsJobPin"/);
   });
 });
+
+describe('後台：開放的音色都找不到錄音時要警告', () => {
+  const start = app.indexOf('function ttsAdminUsableVoices(');
+  const src = app.slice(start, app.indexOf('\n  }\n', start) + 4);
+  const ctx = { Array, Set }; vm.createContext(ctx);
+  vm.runInContext(src + '\nthis.f = ttsAdminUsableVoices;', ctx);
+  const voices = [{ voice: 'RA-male-都A1', enabled: true }, { voice: 'RA-male-雙子男', enabled: true }, { voice: 'RA-m-米陸', enabled: false }];
+
+  test('白名單的錄音都已改名或刪除 → 讀者端沒有可用音色', () => {
+    assert.equal(ctx.f({ settings: { voices }, upstreamVoices: ['RA-m-米陸', 'RA-f-芙蓉'] }).length, 0);
+  });
+  test('還有錄音的已開放音色才算；不知道 audio.cpp 清單時不誤報', () => {
+    assert.equal(ctx.f({ settings: { voices }, upstreamVoices: ['RA-male-都A1'] }).length, 1);
+    assert.equal(ctx.f({ settings: { voices }, upstreamVoices: null }).length, 2);
+  });
+  test('狀態燈在這種情況亮紅燈並說明入口已隱藏', () => {
+    assert.match(app, /else if \(!ttsAdminUsableVoices\(d\)\.length\) setAdminCardLight\('tts', 'bad', '[^']*讀者端的朗讀入口已全部隱藏/);
+  });
+});
