@@ -64,13 +64,16 @@ describe('辭典釋義面板', () => {
     assert.match(body, /\.modal-overlay/);
   });
 
-  test('查詞：精確命中直接開釋義、經文中的詞以 CSS Highlight 標示、不把焦點移進搜尋框', () => {
+  test('選字「辭典」：列出詞條清單（不直接開第一筆）、經文中的詞以 CSS Highlight 標示、不把焦點移進搜尋框', () => {
     const i = app.indexOf("dictBtn.addEventListener('click'");
     const body = app.slice(i, i + 2200);
     assert.match(body, /setDictLookupHighlight\(lookupRange\)/);
-    assert.match(body, /await lookupDictWord\(rawSelected\)/);
+    assert.match(body, /await lookupDictWord\(rawSelected\);/);
+    assert.doesNotMatch(body, /openExact: true/);
     assert.doesNotMatch(body, /dictInput\.focus\(\)/);
-    assert.match(fnBody('async function lookupDictWord('), /openDictExactMatch\(q\)/);
+    assert.match(fnBody('async function lookupDictWord('), /if \(opts\.openExact\) openDictExactMatch\(q\)/);
+    // 「最近查過」仍直接開釋義
+    assert.match(app, /lookupDictWord\(chip\.getAttribute\('data-dict-history'\), \{ openExact: true \}\)/);
     assert.match(css, /::highlight\(mdw-dict-lookup\)/);
   });
 
@@ -88,6 +91,20 @@ describe('辭典釋義面板', () => {
     assert.match(mobile, /\.dict-sidebar\.collapsed \{\s*transform: translateY\(100%\)/);
     assert.match(mobile, /\.dict-sidebar\.dict-showing-entry \.dict-tabs/);
     assert.doesNotMatch(fnBody('function updateSidebarBackdrop('), /rightOpen/);
+  });
+
+  test('按鈕文字為「全文開啟 ↖」', () => {
+    assert.match(html, /id="dictEntryOpen"[^>]*>全文開啟 ↖</);
+  });
+
+  test('辭典面板字級跟隨使用者的內文字級，沒有寫死的 px', () => {
+    const a = css.indexOf('/* ── §35 Dictionary Sidebar');
+    const b = css.indexOf('.entry-nav {', a);
+    const sec = css.slice(a, b);
+    assert.match(sec, /--dict-font-size: var\(--content-font-size, 16px\)/);
+    assert.doesNotMatch(sec, /font-size:\s*[0-9.]+px/, '面板內不得有固定 px 字級');
+    assert.doesNotMatch(sec, /var\(--sidebar-font-size\)/, '面板不再用檔案樹較小的字級');
+    assert.match(sec, /\.dict-entry-md \{[^}]*font-size: var\(--content-font-size, 16px\)/);
   });
 
   test('寬度不夠時收起左側欄，閱讀區不被擠窄', () => {
