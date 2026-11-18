@@ -8,6 +8,12 @@ RUN npm ci --omit=dev && npm cache clean --force \
  && apk add --no-cache su-exec ffmpeg
 # ffmpeg：朗讀（TTS）把 audio.cpp 回傳的 WAV 轉成 AAC（約十分之一大小）並做響度正規化；沒有它時改存 WAV。
 
+# edge-tts：朗讀的微軟 Edge 線上音色（edge-zh-*）。裝在獨立的 venv，lib/tts.js 會找 /opt/edge-tts/bin/edge-tts；
+# 微軟改協定時重建映像就會拿到新版。裝失敗不讓建置失敗——後台只是不會列出 edge 音色。
+RUN apk add --no-cache python3 \
+ && (python3 -m venv /opt/edge-tts && /opt/edge-tts/bin/pip install --no-cache-dir 'edge-tts>=7.3,<8' \
+     || (echo "WARNING: edge-tts install failed"; rm -rf /opt/edge-tts))
+
 # 早安圖（每日經句分享卡）由伺服器畫，需要宋體：建置時從 Google Fonts 下載 Noto Serif TC（SIL OFL）。
 # 下載失敗不讓建置失敗——之後也可以把字型放到 /data/fonts/。
 RUN mkdir -p /app/fonts && for w in 500 700 900; do \

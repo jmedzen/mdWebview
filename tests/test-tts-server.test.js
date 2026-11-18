@@ -20,6 +20,7 @@ process.env.MD_ROOT = VAULT;
 process.env.TTS_CACHE_DIR = path.join(TMP, 'tts-cache');
 process.env.TTS_LEXICON_PATH = path.join(TMP, 'tts-lexicon.txt');
 process.env.TTS_FFMPEG = 'off';
+process.env.TTS_EDGE_TTS = 'off'; // 本機裝了 edge-tts 也不要混進測試；edge 的測試用假的命令列工具
 delete process.env.TTS_BASE_URL; delete process.env.TTS_MODEL; delete process.env.TTS_CACHE_MB;
 
 const DOC = [
@@ -302,6 +303,87 @@ describe('朗讀（TTS）後端', () => {
       assert.equal((await speak([5], { voice: 'v2' })).json.items[0].state, 'failed');
       fake.mode = 'ok'; tts._internals.failed.clear();
       assert.equal((await speak([5], { voice: 'v2' })).json.items[0].state, 'ready');
+    });
+  });
+
+  describe('edge-tts 音色', () => {
+    // 假的 edge-tts：照 --write-media 寫一個假 MP3（每字 250 毫秒、48 kbps）；mode 檔寫 noaudio 時模擬微軟不回音訊
+    const EDGE_DIR = path.join(TMP, 'edge'); const EDGE_BIN = path.join(EDGE_DIR, 'edge-tts');
+    const EDGE_LOG = path.join(EDGE_DIR, 'calls.log'); const EDGE_MODE = path.join(EDGE_DIR, 'mode');
+    const edgeCalls = () => (fs.existsSync(EDGE_LOG) ? fs.readFileSync(EDGE_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+    const edgeSettings = () => {
+      const st = baseSettings();
+      st.voices.push({ id: 'v3', voice: 'edge-zh-CN-XiaoxiaoNeural', name: '曉曉', tags: [], rate: 1, enabled: true });
+      return st;
+    };
+    before(() => {
+      fs.mkdirSync(EDGE_DIR, { recursive: true });
+      fs.writeFileSync(EDGE_BIN, `#!${process.execPath}
+const fs = require('fs'); const a = process.argv.slice(2); const get = (k) => a[a.indexOf(k) + 1];
+fs.appendFileSync(${JSON.stringify(EDGE_LOG)}, JSON.stringify(a) + '\\n');
+let mode = ''; try { mode = fs.readFileSync(${JSON.stringify(EDGE_MODE)}, 'utf8').trim(); } catch (_) {}
+if (mode === 'noaudio') { process.stderr.write('edge_tts.exceptions.NoAudioReceived: No audio was received.\\n'); process.exit(1); }
+const n = Array.from(get('--text')).length * 1500; const b = Buffer.alloc(n, 0x55); b[0] = 0xff; b[1] = 0xf3;
+fs.writeFileSync(get('--write-media'), b);
+`);
+      fs.chmodSync(EDGE_BIN, 0o755);
+    });
+    beforeEach(() => {
+      fs.rmSync(EDGE_LOG, { force: true }); fs.rmSync(EDGE_MODE, { force: true });
+      tts._internals.setEdgeTts({ ok: true, path: EDGE_BIN });
+      config.settings.tts = edgeSettings();
+      tts._internals.setUpstreamVoices(fake.url, ['demo_1_man', 'demo_3_woman']);
+    });
+    after(() => { tts._internals.setEdgeTts({ ok: false }); tts._internals.resetUpstreamVoices(); });
+
+    test('裝了 edge-tts 時，後台音色清單多出 5 個 edge 音色；讀者看得到已開放的 edge 音色', async () => {
+      const names = tts._internals.edgeVoiceNames();
+      assert.deepEqual(names, ['edge-zh-CN-XiaoxiaoNeural', 'edge-zh-CN-XiaoyiNeural', 'edge-zh-CN-YunxiaNeural', 'edge-zh-CN-YunyangNeural', 'edge-zh-TW-YunJheNeural']);
+      const p = await tts._internals.probe(fake.url, 'drama3');
+      assert.deepEqual(p.voices, ['demo_1_man', 'demo_3_woman', ...names]);
+      const s = await request('/api/tts/status');
+      assert.deepEqual(s.json.voices.map((v) => v.id), ['v1', 'v2', 'v3']);
+      assert.ok(!s.body.toString('utf8').includes('Xiaoxiao'), '讀者看不到 edge 的音色代號');
+    });
+
+    test('沒有 edge-tts 時，edge 音色算「已不存在」：讀者看不到、不能生成', async () => {
+      tts._internals.setEdgeTts({ ok: false });
+      tts._internals.setUpstreamVoices(fake.url, ['demo_1_man', 'demo_3_woman']);
+      assert.deepEqual(tts._internals.edgeVoiceNames(), []);
+      assert.deepEqual((await request('/api/tts/status')).json.voices.map((v) => v.id), ['v1', 'v2']);
+      assert.ok((await speak([2], { voice: 'v3' })).status >= 400);
+      assert.equal(edgeCalls().length, 0);
+    });
+
+    test('edge 音色生成：呼叫 edge-tts（不經 audio.cpp），存成 MP3，第二次命中快取', async () => {
+      const r = await speak([2], { voice: 'v3' });
+      assert.equal(r.json.items[0].state, 'ready', JSON.stringify(r.json));
+      assert.equal(fake.speech.length, 0, '沒有送到 audio.cpp');
+      const calls = edgeCalls();
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].slice(0, 4), ['--voice', 'zh-CN-XiaoxiaoNeural', '--text', '一時，佛在舍衛國祇樹給孤獨園，與大比丘眾千二百五十人俱。']);
+      const a = await request(r.json.items[0].url);
+      assert.equal(a.status, 200); assert.equal(a.headers['content-type'], 'audio/mpeg');
+      assert.equal(a.body[0], 0xff);
+      assert.equal((await speak([2], { voice: 'v3' })).json.items[0].state, 'ready');
+      assert.equal(edgeCalls().length, 1, '已快取的句子不再呼叫 edge-tts');
+      const [x, y] = [(await sentences('v1'))[2].sha, (await sentences('v3'))[2].sha];
+      assert.notEqual(x, y, '快取鍵依音色分開');
+    });
+
+    test('微軟不回音訊（NoAudioReceived）：重試一次，仍失敗就標失敗並說明原因', async () => {
+      fs.writeFileSync(EDGE_MODE, 'noaudio');
+      const r = await speak([2], { voice: 'v3' });
+      assert.equal(r.json.items[0].state, 'failed');
+      assert.equal(edgeCalls().length, 2, '重試一次');
+      const f = [...tts._internals.failed.values()][0];
+      assert.match(String(f && f.error), /edge-tts 沒有回傳音訊/);
+    });
+
+    test('快取鍵：edge 音色不含模型與 seed；預設中文名', () => {
+      const I = tts._internals; const v = { voice: 'edge-zh-TW-YunJheNeural' };
+      assert.equal(I.voiceKey({ model: 'drama3', seed: 1 }, v), I.voiceKey({ model: 'other', seed: 2 }, v));
+      assert.deepEqual(I.sanitizeVoices([{ voice: 'edge-zh-TW-YunJheNeural', name: 'edge-zh-TW-YunJheNeural' }, { voice: 'edge-zh-CN-XiaoxiaoNeural' }, { voice: 'edge-zh-CN-YunyangNeural', name: '播音' }]).map((x) => x.name), ['雲哲', '曉曉', '播音']);
     });
   });
 
