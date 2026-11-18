@@ -86,6 +86,7 @@
     ADMIN_TZ: 'mdWebview-admin-tz',
     DICT_FILE_ORDER: 'mdWebview-dict-file-order',
     DICT_FILE_SELECT: 'mdWebview-dict-selected',
+    DICT_HISTORY: 'mdWebview-dict-history',
     FORCE_FULL: 'mdWebview-force-full',
     SEARCH_MODE: 'mdWebview-search-mode',
     ANNOUNCEMENT_ACK: 'mdWebview-announcement-modal-ack',
@@ -500,6 +501,9 @@
     dictSelected: null,
     dictFileOrder: null,
     dictSidebarOpen: false,
+    dictView: 'results',
+    dictEntry: null,
+    dictHistory: null,
     dictMode: 'prefix',
     dictAbortController: null,
     // 全文搜尋分頁快取：{ query, files, pageIndex, pages: [...] }。每頁各自保存
@@ -7553,8 +7557,8 @@
     if (!backdrop) return;
     const isNarrow = isMobileBrowser() || window.innerWidth <= 768;
     const leftOpen = !$('sidebar')?.classList.contains('collapsed');
-    const rightOpen = state.dictSidebarOpen && !$('dictSidebar')?.classList.contains('collapsed');
-    if (isNarrow && (leftOpen || rightOpen)) {
+    // 手機上辭典是底部抽屜，上半部的經文仍要能看、能選字，所以不蓋遮罩。
+    if (isNarrow && leftOpen) {
       backdrop.classList.add('active');
     } else {
       backdrop.classList.remove('active');
@@ -7592,9 +7596,21 @@
         }
       }
       sidebar.style.width = (!isNarrow && state.dictSidebarWidth) ? state.dictSidebarWidth + 'px' : '';
+      // 中等寬度（如 iPad 直放）左右兩欄同開時閱讀區會被擠得太窄：收起左側欄
+      if (!isNarrow) {
+        const leftSidebar = $('sidebar');
+        const panelW = state.dictSidebarWidth || 380;
+        if (leftSidebar && !leftSidebar.classList.contains('collapsed') &&
+            window.innerWidth - leftSidebar.getBoundingClientRect().width - panelW < 520) {
+          leftSidebar.classList.add('collapsed');
+          state.sidebarCollapsed = true;
+        }
+      }
     } else {
       sidebar.style.width = '';
+      sidebar.classList.remove('sheet-expanded');
       stopDictPolling();
+      clearDictLookupHighlight();
     }
     const handle = $('dictResizeHandle');
     if (handle) handle.style.display = (shouldOpen && !isNarrow) ? 'block' : 'none';
@@ -8332,6 +8348,443 @@
     const target = ei + delta;
     if (target < 0 || target >= v.entries.length) return;
     jumpToEntry(target);
+  }
+
+  // ── Dictionary definition view (inside the right panel) ──
+  // 點查詢結果時，釋義直接顯示在右側面板（手機為底部抽屜），經文留在主閱讀區不動；
+  // 「在辭典中全文開啟」才走舊路徑，把整部辭典開進主閱讀區。
+  const DICT_HISTORY_MAX = 12;
+  const DICT_LOOKUP_HL = 'mdw-dict-lookup';
+  let dictEntryAbort = null;
+  let dictEntrySeq = 0;
+
+  function isDictNarrow() {
+    return isMobileBrowser() || window.innerWidth <= 768;
+  }
+
+  // 'results'（查詢結果清單）或 'entry'（釋義）
+  function setDictView(view) {
+    const entry = $('dictEntry');
+    const results = $('dictResults');
+    if (!entry || !results) return;
+    const showEntry = view === 'entry';
+    state.dictView = showEntry ? 'entry' : 'results';
+    entry.hidden = !showEntry;
+    results.hidden = showEntry;
+    $('dictSidebar')?.classList.toggle('dict-showing-entry', showEntry);
+    if (!showEntry) {
+      state.dictEntry = null;
+      if (dictEntryAbort) { dictEntryAbort.abort(); dictEntryAbort = null; }
+    }
+    renderDictHistory();
+  }
+
+  // 每部辭典的詞條索引（依 ei 排序），供上一條／下一條與 line → ei 反查。
+  function dictEntriesForFile(fi) {
+    const idx = state.dictIndex;
+    if (!idx) return [];
+    if (!idx.byFile) {
+      idx.byFile = new Map();
+      for (const it of idx.sorted) {
+        let arr = idx.byFile.get(it.fi);
+        if (!arr) { arr = []; idx.byFile.set(it.fi, arr); }
+        arr.push(it);
+      }
+      for (const arr of idx.byFile.values()) arr.sort((a, b) => a.ei - b.ei);
+    }
+    return idx.byFile.get(fi) || [];
+  }
+
+  function dictFileIndexByPath(filePath) {
+    const files = (state.dictIndex && state.dictIndex.files) || [];
+    return files.findIndex(f => f && f.path === filePath);
+  }
+
+  // 依 ei（或退而用行號）找出詞條在該辭典索引中的位置。
+  function dictEntryPos(fi, ei, line) {
+    const arr = dictEntriesForFile(fi);
+    if (!arr.length) return -1;
+    if (Number.isFinite(ei) && ei >= 0) {
+      let lo = 0, hi = arr.length - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (arr[mid].ei === ei) return mid;
+        if (arr[mid].ei < ei) lo = mid + 1; else hi = mid - 1;
+      }
+    }
+    if (Number.isFinite(line) && line > 0) {
+      // 最後一個 line <= 目標行的詞條（全文結果的行號可能落在詞條內文中）
+      let lo = 0, hi = arr.length - 1, ans = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (arr[mid].line <= line) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+      }
+      return ans;
+    }
+    return -1;
+  }
+
+  // 所有辭典中詞頭完全相同的詞條（依使用者的辭典排序）。
+  function dictExactEntries(hw) {
+    const idx = state.dictIndex;
+    if (!idx || !hw) return [];
+    const arr = idx.sorted;
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid].hw < hw) lo = mid + 1; else hi = mid;
+    }
+    const out = [];
+    for (let i = lo; i < arr.length && arr[i].hw === hw; i++) out.push(arr[i]);
+    const order = dictFileOrderIndex();
+    const rank = new Map(order.map((fi, i) => [fi, i]));
+    out.sort((a, b) => ((rank.has(a.fi) ? rank.get(a.fi) : 1e9) - (rank.has(b.fi) ? rank.get(b.fi) : 1e9)) || (a.ei - b.ei));
+    return out;
+  }
+
+  async function fetchDictEntryHtml(filePath, ei, signal) {
+    const res = await fetch(`/api/render-chunk?path=${encodeURIComponent(filePath)}&from=${ei}&to=${ei}`, { signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.text();
+  }
+
+  function fillDictEntryBody(el, html, highlight) {
+    setSanitizedHTML(el, html);
+    postProcessMarkdownDOM(el);
+    // 行號錨點、行內分享按鈕在面板裡沒有意義
+    el.querySelectorAll('.line-anchor, .line-share-btn').forEach(n => n.remove());
+    // 面板內容不能帶 id：會和主閱讀區的行號錨點（#L123）、標題錨點撞號
+    el.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+    if (highlight) markDictQueryInEntry(el, highlight);
+  }
+
+  // 全文查詢開啟的釋義：把查詢字串在釋義中標出來，並捲到第一處。
+  function markDictQueryInEntry(root, q) {
+    const needle = String(q || '').trim();
+    if (!needle) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n.data.indexOf(needle) >= 0) hits.push(n);
+    }
+    let first = null;
+    for (const node of hits) {
+      const parts = node.data.split(needle);
+      const frag = document.createDocumentFragment();
+      parts.forEach((part, i) => {
+        if (part) frag.appendChild(document.createTextNode(part));
+        if (i < parts.length - 1) {
+          const m = document.createElement('mark');
+          m.className = 'dict-entry-hit';
+          m.textContent = needle;
+          frag.appendChild(m);
+          if (!first) first = m;
+        }
+      });
+      node.parentNode.replaceChild(frag, node);
+    }
+    if (first) requestAnimationFrame(() => first.scrollIntoView({ block: 'center' }));
+  }
+
+  /**
+   * 在面板中顯示一條釋義。
+   * @param {number} fi - 辭典檔索引
+   * @param {number} pos - 該辭典詞條陣列（dictEntriesForFile）中的位置
+   * @param {{highlight?: string}} [opts]
+   */
+  async function showDictEntry(fi, pos, opts = {}) {
+    const files = (state.dictIndex && state.dictIndex.files) || [];
+    const f = files[fi];
+    const arr = dictEntriesForFile(fi);
+    const it = arr[pos];
+    if (!f || !it) return;
+    state.dictEntry = { fi, pos, ei: it.ei, hw: it.hw, path: f.path, line: it.line, highlight: opts.highlight || null };
+    setDictView('entry');
+    pushDictHistory(it.hw);
+
+    const resultCount = $('dictResults')?.querySelectorAll('.dict-result-item').length || 0;
+    const back = $('dictEntryBack');
+    back.textContent = `‹ 查詢結果（${resultCount}）`;
+    back.hidden = resultCount <= 1;
+    $('dictEntrySource').textContent = `📖 ${f.name}`;
+    const same = dictExactEntries(it.hw);
+    const nFiles = new Set(same.map(s => s.fi)).size;
+    $('dictEntryCount').textContent = nFiles > 1 ? `${nFiles} 部辭典有此條` : '';
+    $('dictEntryPrev').disabled = pos <= 0;
+    $('dictEntryNext').disabled = pos >= arr.length - 1;
+
+    const others = $('dictEntryOthers');
+    others.innerHTML = '';
+    for (const o of same) {
+      if (o.fi === fi && o.ei === it.ei) continue;
+      const of = files[o.fi];
+      if (!of) continue;
+      const d = document.createElement('details');
+      d.className = 'dict-entry-other';
+      d.dataset.fi = String(o.fi);
+      d.dataset.ei = String(o.ei);
+      const s = document.createElement('summary');
+      s.textContent = `📖 ${of.name} · ${o.hw}`;
+      d.appendChild(s);
+      const body = document.createElement('div');
+      body.className = 'dict-entry-md';
+      d.appendChild(body);
+      d.addEventListener('toggle', async () => {
+        if (!d.open || d.dataset.loaded) return;
+        d.dataset.loaded = '1';
+        body.innerHTML = '<div class="dict-placeholder"><span>⏳</span><span>載入中…</span></div>';
+        try {
+          fillDictEntryBody(body, await fetchDictEntryHtml(of.path, o.ei));
+        } catch (_) {
+          delete d.dataset.loaded;
+          body.innerHTML = '<div class="dict-placeholder"><span>⚠️</span><span>載入失敗</span></div>';
+        }
+      });
+      others.appendChild(d);
+    }
+
+    const bodyEl = $('dictEntryBody');
+    const entryEl = $('dictEntry');
+    if (entryEl) entryEl.scrollTop = 0;
+    bodyEl.innerHTML = '<div class="dict-placeholder"><span>⏳</span><span>載入中…</span></div>';
+    if (dictEntryAbort) dictEntryAbort.abort();
+    const ctrl = new AbortController();
+    dictEntryAbort = ctrl;
+    const seq = ++dictEntrySeq;
+    try {
+      const html = await fetchDictEntryHtml(f.path, it.ei, ctrl.signal);
+      if (seq !== dictEntrySeq) return;
+      fillDictEntryBody(bodyEl, html, opts.highlight);
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      if (seq !== dictEntrySeq) return;
+      bodyEl.innerHTML = '<div class="dict-placeholder"><span>⚠️</span><span>釋義載入失敗</span></div>';
+    } finally {
+      if (dictEntryAbort === ctrl) dictEntryAbort = null;
+    }
+  }
+
+  // 由查詢結果清單的一列開啟釋義。
+  function openDictResultItem(item) {
+    const file = item.getAttribute('data-file');
+    if (!file) return false;
+    const fi = dictFileIndexByPath(file);
+    if (fi < 0) return false;
+    const ei = parseInt(item.getAttribute('data-entry'), 10);
+    const line = parseInt(item.getAttribute('data-line'), 10);
+    const pos = dictEntryPos(fi, ei, line);
+    if (pos < 0) return false;
+    const query = ($('dictSearchInput')?.value || '').trim();
+    sendDictEvent('lookup', { file, headword: item.getAttribute('data-headword') || '', query });
+    showDictEntry(fi, pos, { highlight: state.dictMode === 'fulltext' ? query : null });
+    return true;
+  }
+
+  // 精確命中時直接顯示釋義（清單仍在，按「‹ 查詢結果」回去）。
+  function openDictExactMatch(q) {
+    const want = cleanDictHeadword(q);
+    if (!want) return false;
+    const items = Array.from($('dictResults')?.querySelectorAll('.dict-result-item') || []);
+    const fold = window.mdSearchVariants && typeof window.mdSearchVariants.fold === 'function'
+      ? window.mdSearchVariants.fold : (s) => s;
+    const target = items.find(el => el.getAttribute('data-headword') === want) ||
+      items.find(el => fold(el.getAttribute('data-headword') || '') === fold(want));
+    return target ? openDictResultItem(target) : false;
+  }
+
+  // 查詢詞：在面板中以「詞條」模式查，精確命中就直接開釋義。
+  async function lookupDictWord(word) {
+    const q = String(word || '').trim();
+    if (!q) return;
+    const input = $('dictSearchInput');
+    if (input) input.value = q;
+    if (state.dictMode !== 'prefix') {
+      state.dictMode = 'prefix';
+      state.dictFulltextCache = null;
+      $$('.dict-tab', $('dictTabs')).forEach(t => t.classList.toggle('active', t.getAttribute('data-mode') === 'prefix'));
+    }
+    setDictView('results');
+    await runDictSearch(q);
+    openDictExactMatch(q);
+  }
+
+  function openDictEntryInReader() {
+    const e = state.dictEntry;
+    if (!e) return;
+    centerNextJumpUntil = Date.now() + 10000;
+    openFile(e.path, e.line || null, e.highlight || null);
+    if (isDictNarrow()) toggleDictSidebar(false);
+  }
+
+  function stepDictEntry(delta) {
+    const e = state.dictEntry;
+    if (!e) return;
+    const arr = dictEntriesForFile(e.fi);
+    const next = e.pos + delta;
+    if (next < 0 || next >= arr.length) return;
+    showDictEntry(e.fi, next);
+  }
+
+  // ── 最近查過 ──
+  function loadDictHistory() {
+    if (Array.isArray(state.dictHistory)) return state.dictHistory;
+    const saved = storage.getJson(STORAGE_KEYS.DICT_HISTORY, []);
+    state.dictHistory = Array.isArray(saved) ? saved.filter(s => typeof s === 'string' && s).slice(0, DICT_HISTORY_MAX) : [];
+    return state.dictHistory;
+  }
+
+  function pushDictHistory(hw) {
+    const w = cleanDictHeadword(hw);
+    if (!w) return;
+    const list = loadDictHistory().filter(x => x !== w);
+    list.unshift(w);
+    state.dictHistory = list.slice(0, DICT_HISTORY_MAX);
+    storage.setJson(STORAGE_KEYS.DICT_HISTORY, state.dictHistory);
+    renderDictHistory();
+  }
+
+  function renderDictHistory() {
+    const box = $('dictHistory');
+    if (!box) return;
+    const list = loadDictHistory();
+    if (!list.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const active = state.dictView === 'entry' && state.dictEntry ? state.dictEntry.hw : '';
+    box.hidden = false;
+    box.innerHTML = '<span class="dict-history-label">最近查過</span>' +
+      list.map(w => `<button type="button" class="dict-history-chip${w === active ? ' active' : ''}" data-dict-history="${escHtml(w)}">${escHtml(w)}</button>`).join('') +
+      '<button type="button" class="dict-history-clear" data-dict-history-clear title="清除查詢紀錄" aria-label="清除查詢紀錄">✕</button>';
+  }
+
+  // ── 經文中被查的詞：以 CSS Custom Highlight 標示（不改動 DOM，不影響虛擬捲動與朗讀） ──
+  function setDictLookupHighlight(range) {
+    if (!(window.CSS && CSS.highlights && typeof window.Highlight === 'function')) return;
+    try {
+      if (range && !range.collapsed) CSS.highlights.set(DICT_LOOKUP_HL, new Highlight(range.cloneRange()));
+      else CSS.highlights.delete(DICT_LOOKUP_HL);
+    } catch (_) { /* ignore */ }
+  }
+
+  function clearDictLookupHighlight() { setDictLookupHighlight(null); }
+
+  // 手機抽屜蓋住下半部：被查的詞若被擋住，就把經文捲到抽屜上方。
+  function revealDictLookupRange(range) {
+    if (!range) return;
+    const scroller = $('content');
+    if (!window.matchMedia('(max-width: 768px)').matches) {
+      // 桌機／平板：面板打開後閱讀區變窄、文字重排，被查的詞若跑出畫面就捲回來
+      if (!scroller) return;
+      const r = range.getBoundingClientRect();
+      const c = scroller.getBoundingClientRect();
+      if (!r || (!r.width && !r.height)) return;
+      if (r.top >= c.top + 8 && r.bottom <= c.bottom - 8) return;
+      scroller.scrollBy({ top: r.top - (c.top + c.height * 0.35), behavior: 'smooth' });
+      return;
+    }
+    const sheet = $('dictSidebar');
+    if (!scroller || !sheet) return;
+    const r = range.getBoundingClientRect();
+    if (!r || (!r.width && !r.height)) return;
+    const headerBottom = $('content').getBoundingClientRect().top;
+    const sheetTop = window.innerHeight - (sheet.offsetHeight || window.innerHeight * 0.55);
+    if (r.top >= headerBottom + 8 && r.bottom <= sheetTop - 12) return;
+    const target = headerBottom + Math.max(24, (sheetTop - headerBottom) * 0.3);
+    scroller.scrollBy({ top: r.top - target, behavior: 'smooth' });
+  }
+
+  function setupDictEntryPanel() {
+    const back = $('dictEntryBack');
+    if (back) back.addEventListener('click', () => setDictView('results'));
+    $('dictEntryPrev')?.addEventListener('click', () => stepDictEntry(-1));
+    $('dictEntryNext')?.addEventListener('click', () => stepDictEntry(1));
+    $('dictEntryOpen')?.addEventListener('click', openDictEntryInReader);
+
+    const hist = $('dictHistory');
+    if (hist) {
+      hist.addEventListener('click', (e) => {
+        if (e.target.closest('[data-dict-history-clear]')) {
+          state.dictHistory = [];
+          storage.setJson(STORAGE_KEYS.DICT_HISTORY, []);
+          renderDictHistory();
+          return;
+        }
+        const chip = e.target.closest('[data-dict-history]');
+        if (chip) lookupDictWord(chip.getAttribute('data-dict-history'));
+      });
+    }
+
+    // 釋義中的互見連結（[[佛光辭典#【一切】|一切]]）：留在面板裡查，不把整部辭典開進閱讀區。
+    const entry = $('dictEntry');
+    if (entry) {
+      entry.addEventListener('click', (e) => {
+        const link = e.target.closest('.wikilink');
+        if (!link) return;
+        e.preventDefault();
+        const fileName = (link.getAttribute('data-wikilink-file') || '').trim().replace(/\.md$/i, '');
+        const anchor = (link.getAttribute('data-wikilink-anchor') || '').replace(/^#/, '');
+        const files = (state.dictIndex && state.dictIndex.files) || [];
+        const isDictName = !fileName || files.some(f => f && String(f.name).replace(/\.md$/i, '').toLowerCase() === fileName.toLowerCase());
+        const word = cleanDictHeadword(anchor || (isDictName ? '' : fileName));
+        if (isDictName && word) {
+          const hits = dictExactEntries(word);
+          const cur = state.dictEntry;
+          const pick = hits.find(h => files[h.fi] && String(files[h.fi].name).replace(/\.md$/i, '').toLowerCase() === fileName.toLowerCase()) ||
+            hits.find(h => cur && h.fi === cur.fi) || hits[0];
+          if (pick) {
+            const input = $('dictSearchInput');
+            if (input) input.value = word;
+            runDictSearch(word).then(() => showDictEntry(pick.fi, dictEntryPos(pick.fi, pick.ei)));
+            return;
+          }
+          lookupDictWord(word);
+          return;
+        }
+        handleWikilinkClick(link);
+      });
+    }
+
+    // Esc：在釋義畫面先回到查詢結果。
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !state.dictSidebarOpen || state.dictView !== 'entry') return;
+      const ae = document.activeElement;
+      const sidebar = $('dictSidebar');
+      const inPanel = sidebar && ae && sidebar.contains(ae);
+      const idle = !ae || ae === document.body || ae === document.documentElement;
+      if (!inPanel && !idle) return;
+      // 有對話框開著時，Esc 留給對話框
+      if (Array.from(document.querySelectorAll('.modal-overlay')).some(m => getComputedStyle(m).display !== 'none')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDictView('results');
+      $('dictSearchInput')?.focus({ preventScroll: true });
+    }, true);
+
+    // 手機抽屜：點拉把切換半高／全高，往下滑收起或縮回半高。
+    const handle = $('dictSheetHandle');
+    const sidebar = $('dictSidebar');
+    if (handle && sidebar) {
+      handle.addEventListener('click', () => sidebar.classList.toggle('sheet-expanded'));
+      let startY = null;
+      const onStart = (e) => { if (isDictNarrow() && e.touches && e.touches.length === 1) startY = e.touches[0].clientY; };
+      const onEnd = (e) => {
+        if (startY === null) return;
+        const t = e.changedTouches && e.changedTouches[0];
+        const dy = t ? t.clientY - startY : 0;
+        startY = null;
+        if (dy > 60) {
+          if (sidebar.classList.contains('sheet-expanded')) sidebar.classList.remove('sheet-expanded');
+          else toggleDictSidebar(false);
+        } else if (dy < -60) {
+          sidebar.classList.add('sheet-expanded');
+        }
+      };
+      [handle, sidebar.querySelector('.dict-sidebar-header')].forEach(el => {
+        if (!el) return;
+        el.addEventListener('touchstart', onStart, { passive: true });
+        el.addEventListener('touchend', onEnd, { passive: true });
+      });
+    }
+    renderDictHistory();
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -13994,6 +14447,7 @@
         // full-text search starts fresh at page 0.
         state.dictFulltextCache = null;
         state.dictMode = newMode;
+        setDictView('results');
         $$('.dict-tab', dictTabs).forEach(t => t.classList.toggle('active', t === tab));
         runDictSearch($('dictSearchInput')?.value || '');
       });
@@ -14001,7 +14455,18 @@
     const dictSearchInput = $('dictSearchInput');
     if (dictSearchInput) {
       const debouncedDictSearch = debounce((v) => runDictSearch(v), 80);
-      dictSearchInput.addEventListener('input', (e) => debouncedDictSearch(e.target.value));
+      dictSearchInput.addEventListener('input', (e) => { setDictView('results'); debouncedDictSearch(e.target.value); });
+      // 點進搜尋框就回到查詢結果（釋義畫面的另一個返回方式）
+      dictSearchInput.addEventListener('focus', () => { if (state.dictView === 'entry') setDictView('results'); });
+      // Enter：精確命中就直接開釋義
+      dictSearchInput.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        e.preventDefault();
+        const q = dictSearchInput.value.trim();
+        if (!q) return;
+        await runDictSearch(q);
+        if (state.dictMode !== 'fulltext') openDictExactMatch(q);
+      });
     }
     const dictFileList = $('dictFileList');
     if (dictFileList) {
@@ -14018,6 +14483,7 @@
         state.dictFulltextScrollTop = 0;
         persistDictSelection();
         renderDictFileList();
+        setDictView('results');
         runDictSearch($('dictSearchInput')?.value || '');
       });
       dictFileList.addEventListener('click', (e) => {
@@ -14143,6 +14609,8 @@
         }
         const item = e.target.closest('.dict-result-item');
         if (!item) return;
+        // 釋義顯示在面板裡，經文留在主閱讀區；索引對不上時才退回舊路徑（整部辭典開進閱讀區）。
+        if (openDictResultItem(item)) return;
         const file = item.getAttribute('data-file');
         const line = item.getAttribute('data-line');
         if (!file) return;
@@ -14169,6 +14637,7 @@
     const entryNavNext = $('entryNavNext');
     if (entryNavPrev) entryNavPrev.addEventListener('click', () => dictNavStep(-1));
     if (entryNavNext) entryNavNext.addEventListener('click', () => dictNavStep(1));
+    setupDictEntryPanel();
     syncDictToggleVisibility();
 
     // ── Content Header Action Delegation (Copy-link & Bookmark) ──
@@ -22732,6 +23201,13 @@
     dictBtn.addEventListener('click', async () => {
       if (!currentSelectedText) return;
       const selectedText = currentSelectedText; // capture before popup hides
+      // 先記下選取範圍：彈窗收起、系統清掉選取後，經文中的詞仍要保持標示
+      let lookupRange = null;
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount && !sel.isCollapsed) lookupRange = sel.getRangeAt(0).cloneRange();
+      } catch (_) { /* ignore */ }
+      if (!lookupRange && currentRange) lookupRange = currentRange.cloneRange ? currentRange.cloneRange() : currentRange;
       hidePopup();
 
       // Enable dictionary and open right sidebar
@@ -22746,12 +23222,12 @@
 
       let rawSelected = (selectedText || '').trim();
       rawSelected = rawSelected.replace(/^[「『（("“'‘【《〈`*=_~#\s]+|[」』）)"”'’】》〉`*=_~#\s，、。；：！？!?.,;:]+$/g, '').trim();
-      const dictInput = $('dictSearchInput');
-      if (dictInput) {
-        dictInput.value = rawSelected;
-        dictInput.focus();
-      }
-      runDictSearch(rawSelected);
+      setDictLookupHighlight(lookupRange);
+      // 不把焦點移到搜尋框：手機會跳出鍵盤蓋住釋義，桌機則會讓 Esc／點框邏輯誤判
+      try { window.getSelection()?.removeAllRanges(); } catch (_) { /* ignore */ }
+      await lookupDictWord(rawSelected);
+      // 等抽屜滑上來再判斷被查的詞有沒有被擋住
+      if (lookupRange) setTimeout(() => revealDictLookupRange(lookupRange), 320);
     });
 
     // 3. 複製／附出處複製／分享／本行連結／本篇尋找

@@ -4558,31 +4558,50 @@ img.markdown-img:hover {
   }
 
   /* Dictionary Sidebar Mobile */
+  /* 手機：辭典改成底部抽屜（約半個螢幕），上半部的經文仍看得到、可以繼續選字 */
   .dict-sidebar {
     position: fixed;
-    top: calc(48px + env(safe-area-inset-top, 0px));
+    top: auto;
+    left: 0;
     right: 0;
     bottom: 0;
-    height: auto;
-    max-height: none;
-    width: 320px !important;
-    max-width: calc(100vw - 44px) !important;
+    height: 56vh;
+    height: 56dvh;
+    max-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px));
+    width: 100% !important;
+    max-width: none !important;
     z-index: 90 !important;
     background: var(--bg-secondary) !important;
-    box-shadow: -4px 0 24px var(--shadow-color);
-    transform: translateX(0);
-    transition: transform 0.3s ease, visibility 0.3s ease;
+    box-shadow: 0 -8px 28px var(--shadow-color);
+    border-radius: 16px 16px 0 0;
+    transform: translateY(0);
+    transition: transform 0.3s ease, height 0.25s ease, visibility 0.3s ease;
     visibility: visible;
-    border-left: 1px solid var(--border-subtle);
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  .dict-sidebar.sheet-expanded {
+    height: calc(100dvh - 56px - env(safe-area-inset-top, 0px));
+  }
   .dict-sidebar.collapsed {
-    transform: translateX(100%);
-    width: 320px !important;
+    transform: translateY(100%);
+    width: 100% !important;
     border-left: none;
     box-shadow: none;
     visibility: hidden;
     pointer-events: none;
+  }
+  .dict-sidebar .dict-sheet-handle {
+    display: flex;
+  }
+  .dict-sidebar .dict-sidebar-header {
+    padding-top: 0;
+  }
+  /* 抽屜高度有限：看釋義時收起查詢模式分頁，把空間留給內容 */
+  .dict-sidebar.dict-showing-entry .dict-tabs,
+  .dict-sidebar.dict-showing-entry .dict-file-list {
+    display: none;
   }
   .dict-resize-handle {
     display: none !important;
@@ -9110,7 +9129,7 @@ details.callout[open] > summary .callout-fold-icon {
 
 /* ── §35 Dictionary Sidebar ─────────────────────────────────── */
 .dict-sidebar {
-  width: 320px;
+  width: 380px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -9411,6 +9430,212 @@ details.callout[open] > summary .callout-fold-icon {
   flex: 1;
   overflow-y: auto;
   padding: 4px 12px 16px;
+}
+
+/* ── 釋義（面板內）── */
+.dict-results[hidden],
+.dict-entry[hidden],
+.dict-history[hidden] {
+  display: none !important;
+}
+
+.dict-sheet-handle {
+  display: none;
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.dict-sheet-handle span {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
+.dict-history {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 10px;
+  flex-shrink: 0;
+  max-height: 72px;
+  overflow: hidden;
+}
+.dict-history-label {
+  font-size: calc(var(--sidebar-font-size) * 11 / 13);
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+.dict-history-chip,
+.dict-history-clear {
+  font: inherit;
+  font-size: calc(var(--sidebar-font-size) * 12 / 13);
+  line-height: 1.5;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dict-history-chip:hover,
+.dict-history-clear:hover {
+  background: var(--hover-bg);
+}
+.dict-history-chip.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.dict-history-clear {
+  border-color: transparent;
+  color: var(--text-muted);
+  padding: 1px 6px;
+}
+
+.dict-entry {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 20px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.dict-entry-back {
+  display: inline-block;
+  font: inherit;
+  font-size: calc(var(--sidebar-font-size) * 12 / 13);
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.dict-entry-back[hidden] {
+  display: none;
+}
+.dict-entry-back:hover {
+  text-decoration: underline;
+}
+.dict-entry-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: calc(var(--sidebar-font-size) * 11.5 / 13);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+}
+.dict-entry-md {
+  font-family: var(--cjk-serif), serif;
+  font-size: 15.5px;
+  line-height: 1.85;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.dict-entry-md h1,
+.dict-entry-md h2,
+.dict-entry-md h3,
+.dict-entry-md h4 {
+  font-size: 1.35em;
+  font-weight: 700;
+  color: var(--h3-color, var(--accent));
+  margin: 0.3em 0 0.4em;
+  line-height: 1.4;
+  border: 0;
+  padding: 0;
+}
+.dict-entry-md p {
+  margin: 0 0 0.7em;
+}
+.dict-entry-md code {
+  font-family: inherit;
+  font-size: 0.86em;
+  color: var(--text-muted);
+  background: transparent;
+  padding: 0;
+}
+.dict-entry-md a.wikilink {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
+}
+.dict-entry-md mark.dict-entry-hit {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+.dict-entry-md .dict-placeholder {
+  font-family: inherit;
+}
+.dict-entry-others:empty {
+  display: none;
+}
+.dict-entry-other {
+  border-top: 1px solid var(--border-subtle);
+  padding: 8px 0;
+}
+.dict-entry-other summary {
+  cursor: pointer;
+  font-size: calc(var(--sidebar-font-size) * 13 / 13);
+  color: var(--text-secondary);
+}
+.dict-entry-other .dict-entry-md {
+  margin-top: 8px;
+}
+.dict-entry-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.dict-entry-btn {
+  font: inherit;
+  font-size: calc(var(--sidebar-font-size) * 12 / 13);
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dict-entry-btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.dict-entry-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dict-entry-back:focus-visible,
+.dict-entry-btn:focus-visible,
+.dict-history-chip:focus-visible,
+.dict-history-clear:focus-visible,
+.dict-sheet-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 經文中被查的詞：查詞後保持標示（CSS Custom Highlight，不改動 DOM） */
+::highlight(mdw-dict-lookup) {
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  text-decoration: underline 2px var(--accent);
+  text-underline-offset: 4px;
 }
 
 .dict-status {

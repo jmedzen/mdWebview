@@ -155,12 +155,35 @@ describe('存檔與讀者端目錄', () => {
     assert.deepEqual(c.items[1].parts, [{ head: '序品第一', line: 9, title: '', on: false }]);
   });
 
-  test('預設經目：16 部，普門品是節錄、壇經是手動 10 段', () => {
+  test('預設經目：15 部，普門品是節錄；收大品般若（T0223），不收楞嚴、壇經', () => {
     const d = defaultCatalog();
-    assert.equal(d.items.length, 16);
+    assert.equal(d.items.length, 15);
     const pm = d.items.find(i => i.name === '觀世音菩薩普門品');
     assert.ok(pm.range && pm.range.from.head.endsWith('普門品第二十五'));
-    assert.equal(d.items.find(i => i.name === '六祖大師法寶壇經').parts.length, 10);
+    const dp = d.items.find(i => i.path.includes('T0223'));
+    assert.equal(dp.name, '摩訶般若波羅蜜經');
+    assert.equal(dp.cat, 'bore');
+    assert.equal(dp.split, 'auto');
+    assert.equal(dp.path, '01-大正藏/03般若部類/T0223《摩訶般若波羅蜜經》.md');
+    assert.ok(!d.items.some(i => /T0945|T2008/.test(i.path)));
+    assert.ok(!d.items.some(i => /楞嚴|壇經/.test(i.name)));
+    assert.equal(new Set(d.items.map(i => i.id)).size, d.items.length);
+  });
+
+  test('品名尾端的校勘夾注（大品般若「習應品第三(丹本名為習相應品)」）不影響偵測，顯示名稱去掉夾注', () => {
+    const text = ['', '## 摩訶般若波羅蜜經卷第一', '', '後秦龜茲國三藏鳩摩羅什譯', '', '## 序品第一', '', '如是我聞。',
+      '', '## 摩訶般若波羅蜜經奉鉢品第二', '', '爾時世尊。', '', '## 摩訶般若波羅蜜經習應品第三(丹本名為習相應品)', '', '舍利弗。',
+      '', '## 摩訶般若經卷第一', '', '## 摩訶般若波羅蜜經卷第二', '', '## 往生品第四', '', '佛告舍利弗。',
+      '', '## 幻學品第十一（丹本云幻人品）', '', '須菩提白佛言。', ''].join('\n');
+    const e = entryOf(text, '01-大正藏/03般若部類/T0223.md');
+    const r = autoParts(e.units, 'auto', 0, e.units.length);
+    assert.equal(r.unit, '品');
+    assert.deepEqual(r.parts.map(p => p.title), ['序品第一', '奉鉢品第二', '習應品第三', '往生品第四', '幻學品第十一']);
+    assert.deepEqual(r.parts.map(p => p.juan), ['卷第一', '卷第一', '卷第一', '卷第二', '卷第二']);
+    // 錨點仍是原文（含夾注），存檔的覆寫對得回去
+    assert.equal(r.parts[2].head, '摩訶般若波羅蜜經習應品第三(丹本名為習相應品)');
+    const item = { split: 'auto', range: null, parts: [{ head: r.parts[2].head, line: r.parts[2].line, title: '習相應品第三', on: true }] };
+    assert.equal(resolveItem(item, e).parts[2].t, '習相應品第三');
   });
 
   test('讀者端只列出顯示中、檔案存在的經；空的分類不列', async () => {
