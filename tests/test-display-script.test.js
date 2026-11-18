@@ -502,7 +502,7 @@ describe('繁簡顯示 6：搜尋與偏好整合', () => {
   test('劃詞查詢送出還原後的繁體原文', () => {
     assert.match(appSource, /originalTextOfRange\(range\)/);
     assert.match(appSource, /activateSearchPanel\(rawSelected\)/);
-    assert.match(appSource, /runDictSearch\(rawSelected\)/);
+    assert.match(appSource, /(runDictSearch|lookupDictWord)\(rawSelected\)/);
   });
 
   test('wikilink 標題索引以原文建立', () => {
