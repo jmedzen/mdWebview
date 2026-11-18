@@ -19188,7 +19188,7 @@
         ${fails.length ? `<details class="tts-job-fails"><summary>看失敗的句子（${fails.length}${j.failed > fails.length ? `／${j.failed}` : ''}）</summary><ul>${fails.map(f => `<li><a href="/?file=${encodeURIComponent(f.path)}&line=${f.line}" target="_blank" rel="noopener">${escHtml(f.label)} 第 ${f.line} 行</a>「${escHtml(f.text)}」— ${escHtml(f.reason)}</li>`).join('')}</ul></details>` : ''}` : '';
       return `<div class="account-row tts-job" data-job="${j.id}">
         <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
-          <div class="field-hint">${stateLabel}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${active && j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          <div class="field-hint">${stateLabel}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（原本已有 ${Math.max(0, j.sentencesDone - j.generated - j.failed).toLocaleString()}、新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${active && j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
           ${pausedHint}
           <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
           ${report}
