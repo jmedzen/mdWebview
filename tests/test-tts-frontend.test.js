@@ -532,6 +532,31 @@ describe('後台：開放的音色都找不到錄音時要警告', () => {
   });
 });
 
+describe('後台：停用（未開放）的音色照樣可以預先生成', () => {
+  const grab = (name) => { const i = app.indexOf(`function ${name}(`); return app.slice(i, app.indexOf('\n  }\n', i) + 4); };
+  const ctx = { Array, Set }; vm.createContext(ctx);
+  vm.runInContext(grab('ttsAdminPregenVoices') + 'function ttsAdminVoiceLabel(v) ' + app.slice(app.indexOf('function ttsAdminVoiceLabel(v) ') + 31, app.indexOf('\n', app.indexOf('function ttsAdminVoiceLabel(v) '))) + '\nthis.f = ttsAdminPregenVoices; this.label = ttsAdminVoiceLabel;', ctx);
+  const voices = [{ id: 'a', voice: 'A', name: '甲', enabled: true }, { id: 'b', voice: 'B', name: '乙', enabled: false }, { id: 'c', voice: 'C', name: '丙', enabled: false }];
+  test('預先生成可選的音色含停用的，只排除參考錄音已刪除的', () => {
+    assert.deepEqual(ctx.f({ settings: { voices }, upstreamVoices: ['A', 'B'] }).map(v => v.id), ['a', 'b']);
+    assert.deepEqual(ctx.f({ settings: { voices }, upstreamVoices: null }).map(v => v.id), ['a', 'b', 'c']);
+    assert.deepEqual(ctx.f({ settings: { voices }, upstreamVoices: ['A'] }, ['A', 'C']).map(v => v.id), ['a', 'c'], '後台剛檢查過的清單優先');
+  });
+  test('停用的音色在後台選單標「未開放」', () => {
+    assert.equal(ctx.label(voices[0]), '甲'); assert.equal(ctx.label(voices[1]), '乙（未開放）');
+  });
+  test('預先生成、聽經目錄、試聽選單用 ttsAdminPregenVoices，不再只列開放的音色', () => {
+    for (const fn of ['renderTtsAdminVoices', 'renderTtsLcVoices', 'loadAdminListenPane']) {
+      assert.match(grab(fn), /ttsAdminPregenVoices\(/, fn);
+      assert.ok(!/voices\.filter\(v => v\.enabled\)/.test(grab(fn)), fn);
+    }
+  });
+  test('音色表與聽經目錄的說明寫明停用只影響讀者、後台照樣預先生成', () => {
+    assert.match(html, /沒勾「開放」的音色讀者看不到也選不到，但後台照樣可以預先生成/);
+    assert.match(html, /標「未開放」的音色讀者還看不到，可以先生成好再到音色表開放/);
+  });
+});
+
 describe('後台：讀者端沒有可用音色時顯示文字警告', () => {
   test('朗讀服務卡與音色卡都有警告文字，預設隱藏', () => {
     const warns = [...html.matchAll(/<p class="tts-admin-alert" data-tts-novoice-warn[^>]*hidden>([^<]+)<\/p>/g)];

@@ -2518,7 +2518,7 @@
             </div>
             <div class="config-card-body">
               <p class="tts-admin-alert" data-tts-novoice-warn hidden>⚠️ 讀者端目前看不到任何朗讀入口（右上角喇叭、右鍵選單、選取朗讀都已隱藏）：沒有可用的音色（還沒開放任何音色，或開放的音色找不到參考錄音，可能已改名或刪除）。請在這裡勾選現有的音色、選好預設，再按儲存。</p>
-              <p class="field-hint">勾選要開放給讀者的音色，填上中文名與標籤。音色就是 audio.cpp 音色資料夾（<code>--voice-dir</code>）裡的參考錄音；換了錄音請用新檔名，或把「版本」加一，舊的音檔才不會混進來。每多開放一個音色，快取與生成時間都會多一倍。</p>
+              <p class="field-hint">勾選要開放給讀者的音色，填上中文名與標籤。沒勾「開放」的音色讀者看不到也選不到，但後台照樣可以預先生成（包括聽經目錄與讀音訂正後補生成）：可以先停用、生成完再開放。音色就是 audio.cpp 音色資料夾（<code>--voice-dir</code>）裡的參考錄音；換了錄音請用新檔名，或把「版本」加一，舊的音檔才不會混進來。每多開放一個音色，快取與生成時間都會多一倍。</p>
               <div class="tts-admin-table-wrap"><table class="tts-admin-table" id="adminTtsVoices">
                 <thead><tr><th scope="col">開放</th><th scope="col">預設</th><th scope="col">audio.cpp 名稱</th><th scope="col">中文名</th><th scope="col">標籤（以頓號分隔）</th><th scope="col">預設語速</th><th scope="col">版本</th><th scope="col">試聽</th></tr></thead>
                 <tbody></tbody>
@@ -2659,7 +2659,7 @@
               <!-- 聽經目錄一次全部預先生成（app.js §21.8 ttsLcGen；POST /api/admin/tts/jobs/estimate → /jobs scope=listen:catalog） -->
               <section class="tts-lcgen" id="adminTtsLcGen" aria-labelledby="adminTtsLcGenTitle">
                 <h4 id="adminTtsLcGenTitle">🎧 聽經目錄</h4>
-                <p class="field-hint">首頁「聽經」裡顯示中的每一部經（節錄的只生成那一段），一次排入預先生成。已經生成的句子會跳過，所以也可以用來補齊快取被清掉的句子。</p>
+                <p class="field-hint">首頁「聽經」裡顯示中的每一部經（節錄的只生成那一段），一次排入預先生成。已經生成的句子會跳過，所以也可以用來補齊快取被清掉的句子。標「未開放」的音色讀者還看不到，可以先生成好再到音色表開放。</p>
                 <fieldset class="tts-lcgen-voices" id="adminTtsLcVoices"><legend>音色</legend></fieldset>
                 <div class="tts-lcgen-row">
                   <label class="tts-lcgen-check"><input type="checkbox" id="adminTtsLcPin" checked data-no-dirty> 釘選（不被自動清除）</label>
