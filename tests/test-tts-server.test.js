@@ -1252,7 +1252,7 @@ fs.writeFileSync(get('--write-media'), b);
       assert.ok(ents[0].from > 1 && ents[0].to > ents[0].from, JSON.stringify(ents[0]));
 
       // 估算：還沒生成；兩個音色各算一份
-      assert.equal((await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v9'] }, admin)).status, 400, '未開放的音色');
+      assert.equal((await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'vX'] }, admin)).status, 400, '音色表裡沒有的音色');
       const e1 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v2'] }, admin);
       assert.equal(e1.status, 200, JSON.stringify(e1.json));
       assert.equal(e1.json.files, 2);
@@ -1305,6 +1305,81 @@ fs.writeFileSync(get('--write-media'), b);
       const e3 = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v1', 'v2'] }, admin);
       assert.equal(e3.json.total.missing, 0);
       for (const j of [j1, j2, j3]) await post(`/api/admin/tts/jobs/${j.id}`, { action: 'delete' }, admin);
+      delete config.settings.listenCatalog;
+      store.clear();
+    });
+
+    test('停用（未開放）的音色：讀者看不到也用不了，後台照樣預先生成（單篇、聽經目錄、讀音訂正後補生成）', async () => {
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
+      store.clear();
+      tts._internals.setUpstreamVoices(fake.url, ['demo_1_man', 'demo_3_woman']);
+      config.settings.tts = baseSettings();
+      config.settings.tts.voices.find((v) => v.id === 'v2').enabled = false; // 法音：還在生成，先不開放
+      const waitJobs = async () => { for (let i = 0; i < 300 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 20)); };
+      fs.writeFileSync(path.join(VAULT, 'sub', 'off-voice.md'), '諸法因緣生，我說是因緣。\n\n因緣盡故滅，我作如是說。\n');
+      fs.mkdirSync(path.join(VAULT, 'lc2'), { recursive: true });
+      fs.writeFileSync(path.join(VAULT, 'lc2', 'heart.md'), '觀自在菩薩，行深般若波羅蜜多時。照見五蘊皆空，度一切苦厄。\n');
+      const lcMod = require('../lib/listen-catalog.js');
+      config.settings.listenCatalog = lcMod.sanitizeCatalog({ categories: [{ id: 'f', name: '經' }], items: [{ id: 'h', name: '心經', path: 'lc2/heart.md', cat: 'f' }] });
+      lcMod._internals.resolvedCache.clear();
+
+      // 讀者端：看不到、選不到、不能生成
+      const st = (await request('/api/tts/status')).json;
+      assert.deepEqual(st.voices.map((v) => v.id), ['v1']);
+      const r0 = await post('/api/tts/speak', { path: 'sub/off-voice.md', voice: 'v2', ids: [1], priority: 'now' });
+      assert.equal(r0.status, 400); assert.equal(r0.json.code, 'UNKNOWN_VOICE');
+      const rd = (await request('/api/tts/doc?chapter=0&voice=v2&path=sub/off-voice.md')).json;
+      assert.equal(rd.voice, null, '讀者要停用的音色：不給音色'); assert.ok(rd.sentences.every((x) => !x.sha && !x.cached));
+
+      // 後台：單篇預先生成
+      fake.mode = 'ok'; fake.speech.length = 0;
+      const job = await post('/api/admin/tts/jobs', { scope: 'sub/off-voice.md', voice: 'v2', pin: true }, admin);
+      assert.equal(job.status, 200, JSON.stringify(job.json));
+      await waitJobs();
+      const j = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((x) => x.id === job.json.id);
+      assert.equal(j.state, 'done', JSON.stringify(j)); assert.ok(j.generated >= 2, JSON.stringify(j));
+      assert.ok(fake.speech.length >= 2 && fake.speech.every((b) => b.voice === 'demo_1_man'), '用停用音色的參考錄音生成');
+
+      // 聽經目錄：估算與排入都接受停用的音色；後台覆蓋率看得到它的進度，讀者端只算開放的音色
+      const est = await post('/api/admin/tts/jobs/estimate', { scope: 'listen:catalog', voices: ['v2'] }, admin);
+      assert.equal(est.status, 200, JSON.stringify(est.json));
+      assert.deepEqual(est.json.voices.map((v) => v.voice), ['v2']);
+      const lc = await post('/api/admin/tts/jobs', { scope: 'listen:catalog', voices: ['v2'], pin: true }, admin);
+      assert.equal(lc.status, 200, JSON.stringify(lc.json));
+      await waitJobs();
+      assert.equal((await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((x) => x.id === lc.json.ids[0]).state, 'done');
+      const covAdmin = (await request('/api/admin/listen/coverage?voice=v2', { headers: admin })).json.items.h;
+      assert.equal(covAdmin.voice, 'v2'); assert.ok(covAdmin.voiced > 0 && covAdmin.cached === covAdmin.voiced, JSON.stringify(covAdmin));
+      assert.equal((await tts.coverage('lc2/heart.md', 'v2', 0, 0)).voice, 'v1', '讀者端覆蓋率不算停用的音色');
+      const ready = (await request('/api/listen/ready?voice=v2')).json;
+      assert.equal(ready.available, true); assert.equal(ready.items.h, 0, '讀者端看到的是預設音色（還沒生成）的進度');
+
+      // 讀音訂正後補生成：停用的音色也補
+      const saved = await post('/api/admin/tts/lexicon', { text: '因緣｜因圓\n' }, admin);
+      assert.equal(saved.status, 200);
+      let r;
+      for (let i = 0; i < 300; i++) { r = (await request('/api/admin/tts/refresh', { headers: admin })).json; if (r.state !== 'running') break; await new Promise((x) => setTimeout(x, 30)); }
+      const g = r.result.groups.find((x) => x.voice === 'v2');
+      assert.ok(g && g.usable && g.missing > 0, JSON.stringify(r.result.groups));
+      assert.ok(r.result.missing >= g.missing);
+      const n0 = fake.speech.length;
+      const ap = await post('/api/admin/tts/refresh', { action: 'apply' }, admin);
+      assert.equal(ap.status, 200, JSON.stringify(ap.json)); assert.ok(ap.json.ids.length >= 1);
+      await waitJobs();
+      assert.ok(fake.speech.slice(n0).some((b) => b.voice === 'demo_1_man' && String(b.input).includes('因圓')));
+
+      // 生成完再開放：讀者立刻聽得到已生成的句子
+      config.settings.tts.voices.find((v) => v.id === 'v2').enabled = true;
+      assert.deepEqual((await request('/api/tts/status')).json.voices.map((v) => v.id), ['v1', 'v2']);
+      const ss = (await request('/api/tts/doc?chapter=0&voice=v2&path=sub/off-voice.md')).json.sentences.filter((x) => x.sha);
+      assert.ok(ss.length && ss.every((x) => x.cached), JSON.stringify(ss));
+
+      // 音色表裡沒有的音色、參考錄音已刪除的音色仍然不能生成
+      assert.equal((await post('/api/admin/tts/jobs', { scope: 'sub/off-voice.md', voice: 'vX' }, admin)).status, 400);
+      assert.equal((await post('/api/admin/tts/jobs', { scope: 'sub/off-voice.md', voice: 'v9' }, admin)).status, 400, 'hidden_voice 在 audio.cpp 上不存在');
+
+      fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
+      for (const x of store.listJobs(1000)) store.deleteJob(x.id);
       delete config.settings.listenCatalog;
       store.clear();
     });

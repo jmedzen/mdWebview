@@ -18335,6 +18335,20 @@
     return ((d && d.settings && d.settings.voices) || []).filter(v => v.enabled && (!up || up.has(v.voice)));
   }
 
+  /**
+   * 後台預先生成、覆蓋率、試聽可選的音色：音色表裡參考錄音還在的音色，開放與否都算。
+   * 「開放」只管讀者看不看得到：還沒生成完的音色可以先不開放、在後台照樣預先生成，生成好再開放。
+   * @param {string[]|null} [upList] audio.cpp 回報的音色名稱（不給就用伺服器健康檢查的清單）
+   */
+  function ttsAdminPregenVoices(d, upList) {
+    const list = upList !== undefined ? upList : (d && Array.isArray(d.upstreamVoices) ? d.upstreamVoices : null);
+    const up = list ? new Set(list) : null;
+    return ((d && d.settings && d.settings.voices) || []).filter(v => !up || up.has(v.voice));
+  }
+
+  /** 後台音色選單上的名字：停用中的音色標「未開放」，提醒讀者還看不到。 */
+  function ttsAdminVoiceLabel(v) { return v.enabled ? v.name : `${v.name}（未開放）`; }
+
   /** 卡片狀態燈；總覽的「待處理」與導覽燈號從這裡來。 */
   function updateTtsAdminLights(d) {
     if (!d) return;
@@ -18404,7 +18418,8 @@
     const body = $('adminTtsVoices').querySelector('tbody');
     body.innerHTML = saved.map(v => ttsAdminVoiceRow(v, true, v.id === s.defaultVoice, isGone(v))).join('') + extra.map(v => ttsAdminVoiceRow(v, false, false, false)).join('')
       || '<tr><td colspan="8" class="field-hint">還沒有音色。按「重新檢查連線」從 audio.cpp 抓回音色清單。</td></tr>';
-    const opts = s.voices.filter(v => v.enabled).map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('');
+    // 預先生成與試聽：停用（未開放）的音色也能選，先生成好再開放給讀者
+    const opts = ttsAdminPregenVoices(d, up).map(v => `<option value="${escHtml(v.id)}">${escHtml(ttsAdminVoiceLabel(v))}</option>`).join('');
     $('adminTtsJobVoice').innerHTML = opts; $('adminTtsPreviewVoice').innerHTML = opts;
     renderTtsLcVoices();
   }
@@ -18414,10 +18429,10 @@
     const box = $('adminTtsLcVoices'); const d = ttsAdmin.data; if (!box || !d) return;
     const s = d.settings;
     const prev = new Set([...box.querySelectorAll('input:checked')].map(i => i.value));
-    const list = s.voices.filter(v => v.enabled);
+    const list = ttsAdminPregenVoices(d, ttsAdminUpstreamVoices()); // 含停用（未開放）的音色
     const pick = (v) => prev.size ? prev.has(v.id) : v.id === s.defaultVoice || (!list.some(x => x.id === s.defaultVoice) && v === list[0]);
-    box.innerHTML = '<legend>音色</legend>' + (list.length ? list.map(v => `<label class="tts-lcgen-check"><input type="checkbox" value="${escHtml(v.id)}" data-no-dirty ${pick(v) ? 'checked' : ''}> ${escHtml(v.name)}${v.id === s.defaultVoice ? '（預設）' : ''}</label>`).join('')
-      : '<span class="field-hint">還沒有開放的音色。</span>');
+    box.innerHTML = '<legend>音色</legend>' + (list.length ? list.map(v => `<label class="tts-lcgen-check"><input type="checkbox" value="${escHtml(v.id)}" data-no-dirty ${pick(v) ? 'checked' : ''}> ${escHtml(ttsAdminVoiceLabel(v))}${v.id === s.defaultVoice ? '（預設）' : ''}</label>`).join('')
+      : '<span class="field-hint">音色表裡還沒有音色。</span>');
   }
 
   /** 預估時間：不到一分鐘、幾分、幾小時、超過兩天改說幾天。 */
@@ -18858,7 +18873,7 @@
     // voiceId：讀者回報的「試聽」用回報時的音色（還開放的話），否則用試聽欄選的音色
     const sel = $('adminTtsPreviewVoice');
     const voice = voiceId && [...sel.options].some(o => o.value === voiceId) ? voiceId : sel.value;
-    if (!voice) { showToast('請先在「朗讀」頁開放至少一個音色', 'warn', 4000); return; }
+    if (!voice) { showToast('請先在「朗讀」頁的音色表加入至少一個音色', 'warn', 4000); return; }
     if (btn) btn.disabled = true;
     const r = await ttsAdminApi('/api/admin/tts/preview', { method: 'POST', body: { voice, text, raw: !!raw } });
     if (btn) btn.disabled = false;
@@ -19103,7 +19118,7 @@
     const ts = await ttsAdminApi('/api/admin/tts/settings').catch(() => null);
     if (ts && ts.ok) ttsAdmin.data = ts.data;
     const d = ts && ts.ok ? ts.data : null;
-    lcAdmin.voices = d ? ttsAdminUsableVoices(d) : [];
+    lcAdmin.voices = d ? ttsAdminPregenVoices(d) : []; // 含停用（未開放）的音色：可以先預先生成、看覆蓋率
     lcAdmin.ttsReady = !!(d && d.settings.baseUrl && d.settings.model && lcAdmin.voices.length);
     const def = d && lcAdmin.voices.find(v => v.id === d.settings.defaultVoice);
     lcAdmin.voice = def ? def.id : (lcAdmin.voices[0] ? lcAdmin.voices[0].id : '');
