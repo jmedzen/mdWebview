@@ -526,7 +526,9 @@
       <div class="dict-resize-handle" id="dictResizeHandle" style="display:none"></div>
 
       <!-- ── §DICT ─────────────────────────────────────────── -->
-      <aside class="dict-sidebar collapsed" id="dictSidebar">
+      <aside class="dict-sidebar collapsed" id="dictSidebar" aria-label="辭典">
+        <!-- 手機底部抽屜的拉把：點一下在半高／全高之間切換，往下滑收起 -->
+        <button type="button" class="dict-sheet-handle" id="dictSheetHandle" aria-label="展開或縮小辭典"><span></span></button>
         <div class="dict-sidebar-header">
           <div class="dict-sidebar-title">
             <h3>📖 辭典</h3>
@@ -547,8 +549,24 @@
         <div class="dict-search-wrap">
           <input type="text" id="dictSearchInput" class="dict-search-input" placeholder="輸入詞條…" autocomplete="off">
         </div>
+        <div class="dict-history" id="dictHistory" hidden></div>
         <div class="dict-results" id="dictResults">
           <div class="dict-placeholder"><span>📖</span><span>輸入詞條開始查詢</span></div>
+        </div>
+        <!-- 釋義：點查詢結果後直接在面板裡顯示，經文留在主閱讀區不動 -->
+        <div class="dict-entry" id="dictEntry" hidden>
+          <button type="button" class="dict-entry-back" id="dictEntryBack"></button>
+          <div class="dict-entry-meta">
+            <span class="dict-entry-source" id="dictEntrySource"></span>
+            <span class="dict-entry-count" id="dictEntryCount"></span>
+          </div>
+          <div class="dict-entry-md" id="dictEntryBody" lang="zh-Hant"></div>
+          <div class="dict-entry-others" id="dictEntryOthers"></div>
+          <div class="dict-entry-actions">
+            <button type="button" class="dict-entry-btn" id="dictEntryPrev" title="同一部辭典的前一條">‹ 上一條</button>
+            <button type="button" class="dict-entry-btn" id="dictEntryOpen" title="在主閱讀區開啟整部辭典，定位到這一條">在辭典中全文開啟 ↗</button>
+            <button type="button" class="dict-entry-btn" id="dictEntryNext" title="同一部辭典的後一條">下一條 ›</button>
+          </div>
         </div>
       </aside>
     </div>
