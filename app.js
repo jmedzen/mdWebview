@@ -8352,7 +8352,7 @@
 
   // ── Dictionary definition view (inside the right panel) ──
   // 點查詢結果時，釋義直接顯示在右側面板（手機為底部抽屜），經文留在主閱讀區不動；
-  // 「在辭典中全文開啟」才走舊路徑，把整部辭典開進主閱讀區。
+  // 「全文開啟」才走舊路徑，把整部辭典開進主閱讀區。
   const DICT_HISTORY_MAX = 12;
   const DICT_LOOKUP_HL = 'mdw-dict-lookup';
   let dictEntryAbort = null;
@@ -8593,8 +8593,9 @@
     return target ? openDictResultItem(target) : false;
   }
 
-  // 查詢詞：在面板中以「詞條」模式查，精確命中就直接開釋義。
-  async function lookupDictWord(word) {
+  // 查詢詞：在面板中以「詞條」模式查。opts.openExact 為真時（點「最近查過」），
+  // 精確命中就直接開釋義；選字選單的「辭典」只列出詞條清單，由讀者自己挑。
+  async function lookupDictWord(word, opts = {}) {
     const q = String(word || '').trim();
     if (!q) return;
     const input = $('dictSearchInput');
@@ -8606,7 +8607,8 @@
     }
     setDictView('results');
     await runDictSearch(q);
-    openDictExactMatch(q);
+    if (opts.openExact) openDictExactMatch(q);
+    else $('dictResults')?.scrollTo?.(0, 0);
   }
 
   function openDictEntryInReader() {
@@ -8709,7 +8711,7 @@
           return;
         }
         const chip = e.target.closest('[data-dict-history]');
-        if (chip) lookupDictWord(chip.getAttribute('data-dict-history'));
+        if (chip) lookupDictWord(chip.getAttribute('data-dict-history'), { openExact: true });
       });
     }
 
