@@ -51,8 +51,8 @@ describe('手機版本排版與 RWD 審計自動化測試 (Mobile Layout & RWD A
     // 驗證行動端 .sidebar 的 z-index 必須為 90 !important
     assert.match(cssContent, /\.sidebar\s*\{[^}]*z-index:\s*90\s*!important;/s, '行動端 sidebar 必須有 z-index: 90 !important');
 
-    // 驗證行動端 .dict-search-input 具備 16px !important，防止 iOS Safari 點擊聚焦時自動放大畫面
-    assert.match(cssContent, /\.dict-search-input\s*\{[^}]*font-size:\s*16px\s*!important;/s, '行動端字典輸入框必須設為 16px !important 防止 iOS 自動放大');
+    // 驗證行動端 .dict-search-input 至少 16px !important（可隨使用者字級放大），防止 iOS Safari 點擊聚焦時自動放大畫面
+    assert.match(cssContent, /\.dict-search-input\s*\{[^}]*font-size:\s*(?:16px|max\(16px,[^;]*\))\s*!important;/s, '行動端字典輸入框必須至少 16px !important 防止 iOS 自動放大');
   });
   test('7. 內文標頭「連結」與「加書籤」按鈕共用尺寸，高度與垂直置中一致', () => {
     const shared = cssContent.match(/\.copy-link-btn,\s*\.bookmark-btn\s*\{([^}]*)\}/);

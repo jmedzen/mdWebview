@@ -380,6 +380,25 @@ fs.writeFileSync(get('--write-media'), b);
       assert.match(String(f && f.error), /edge-tts 沒有回傳音訊/);
     });
 
+    test('預先生成 edge 音色：audio.cpp 停了也照樣生成（不等 audio.cpp 恢復）', async () => {
+      const admin = session('edgejob-tok', 'admin');
+      fs.writeFileSync(path.join(VAULT, 'sub', 'edge-job.md'), '諸行無常，是生滅法。\n\n生滅滅已，寂滅為樂。\n');
+      tts._internals.setHealth({ ok: false, error: 'ECONNREFUSED' });
+      try {
+        const r = await post('/api/admin/tts/jobs', { scope: 'sub/edge-job.md', voice: 'v3' }, admin);
+        assert.equal(r.status, 200, JSON.stringify(r.json));
+        for (let i = 0; i < 300 && tts._internals.jobRt.running; i++) await new Promise((x) => setTimeout(x, 20));
+        const j = (await request('/api/admin/tts/jobs', { headers: admin })).json.jobs.find((x) => x.id === r.json.id);
+        assert.equal(j.state, 'done', JSON.stringify(j));
+        assert.ok(j.generated >= 2 && edgeCalls().length >= 2, JSON.stringify(j));
+        assert.equal(fake.speech.length, 0, '沒有送到 audio.cpp');
+        await post(`/api/admin/tts/jobs/${r.json.id}`, { action: 'delete' }, admin);
+      } finally {
+        tts._internals.setHealth({ ok: true });
+        fs.unlinkSync(path.join(VAULT, 'sub', 'edge-job.md'));
+      }
+    });
+
     test('快取鍵：edge 音色不含模型與 seed；預設中文名', () => {
       const I = tts._internals; const v = { voice: 'edge-zh-TW-YunJheNeural' };
       assert.equal(I.voiceKey({ model: 'drama3', seed: 1 }, v), I.voiceKey({ model: 'other', seed: 2 }, v));
@@ -776,6 +795,69 @@ fs.writeFileSync(get('--write-media'), b);
       assert.ok(await jobOf(admin, n.json.id), '完成的紀錄保留');
       for (const id of [n.json.id, m.json.id]) await post(`/api/admin/tts/jobs/${id}`, { action: 'delete' }, admin);
       fs.unlinkSync(path.join(VAULT, 'sub', 'pc.md'));
+    });
+    test('範圍內容變了（改過聽經目錄）再按開始：新工作取代同音色還沒做完的舊工作，只留一列，已生成的句子不重做', async () => {
+      const admin = session('supersede-tok', 'admin');
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
+      store.clear();
+      fs.mkdirSync(path.join(VAULT, 'lc3'), { recursive: true });
+      fs.writeFileSync(path.join(VAULT, 'lc3', 'a.md'), many(6, '阿') + '\n');
+      fs.writeFileSync(path.join(VAULT, 'lc3', 'b.md'), many(30, '楞') + '\n'); // 之後從目錄移除
+      fs.writeFileSync(path.join(VAULT, 'lc3', 'c.md'), many(3, '般') + '\n'); // 之後加入
+      const lcMod = require('../lib/listen-catalog.js');
+      const setCatalog = (ids) => {
+        config.settings.listenCatalog = lcMod.sanitizeCatalog({ categories: [{ id: 'f', name: '經' }], items: ids.map((k) => ({ id: k, name: k, path: `lc3/${k}.md`, cat: 'f' })) });
+        lcMod._internals.resolvedCache.clear();
+      };
+      setCatalog(['a', 'b']);
+      fake.delayMs = 30;
+      const old = await post('/api/admin/tts/jobs', { scope: 'listen:catalog', voices: ['v1'], pin: true }, admin);
+      const oldId = old.json.ids[0];
+      assert.ok(await waitFor(async () => (await jobOf(admin, oldId)).fileIndex >= 1), '舊工作做完第一部、正在做第二部');
+      // 改目錄：拿掉 b、加入 c，再按一次開始
+      setCatalog(['a', 'c']);
+      const neu = await post('/api/admin/tts/jobs', { scope: 'listen:catalog', voices: ['v1'], pin: true }, admin);
+      const newId = neu.json.ids[0];
+      assert.notEqual(newId, oldId);
+      const rows = neu.json.jobs.filter((j) => j.scope === '聽經目錄' && j.voice === 'v1');
+      assert.deepEqual(rows.map((j) => j.id), [newId], '同一個音色只留新的那一列（舊的被取代後移除）');
+      fake.delayMs = 0;
+      assert.ok(await waitFor(async () => (await jobOf(admin, newId)).state === 'done'));
+      const d = await jobOf(admin, newId);
+      assert.equal(d.files, 2);
+      assert.equal(d.sentencesDone, 9);
+      assert.equal(d.generated, 3, '只生成新加入的那部；第一部原本已有：' + JSON.stringify(d));
+      assert.ok(!fake.speech.slice(-3).some((b) => /楞/.test(b.input)), '移除的經不再生成');
+      const lastLeng = fake.speech.filter((b) => /楞/.test(b.input)).length;
+      assert.ok(lastLeng < 30, '舊工作被取代後就停了，不會照舊清單把移除的經做完');
+      await post(`/api/admin/tts/jobs/${newId}`, { action: 'delete' }, admin);
+      delete config.settings.listenCatalog;
+      fs.rmSync(path.join(VAULT, 'lc3'), { recursive: true, force: true });
+      store.clear();
+    });
+
+    test('先排新工作、後取消舊工作：取消時也整理，同音色不會留兩筆已取消紀錄（釘選設定不同也算同一列）', async () => {
+      const admin = session('prunecancel-tok', 'admin');
+      for (const j of store.listJobs(1000)) store.deleteJob(j.id);
+      fs.writeFileSync(path.join(VAULT, 'sub', 'pq.md'), many(3, '丁') + '\n');
+      // 模擬舊版留下的狀態：同一範圍、同一音色，一筆已取消（不釘選）、一筆暫停中（釘選）
+      const a = store.createJob({ scope: 'sub/pq.md', voice: 'v1', pin: false, files: ['sub/pq.md'], createdBy: 't' });
+      store.updateJob(a.id, { state: 'cancelled' });
+      const b = store.createJob({ scope: 'sub/pq.md', voice: 'v1', pin: true, files: ['sub/pq.md'], createdBy: 't' });
+      store.updateJob(b.id, { state: 'paused' });
+      const r = await post(`/api/admin/tts/jobs/${b.id}`, { action: 'cancel' }, admin);
+      assert.equal(r.status, 200);
+      const rows = r.json.jobs.filter((j) => j.scope === 'sub/pq.md' && j.voice === 'v1');
+      assert.deepEqual(rows.map((j) => j.id), [b.id], '只留最新的那一筆');
+      // 釘選設定不同、同一範圍再按開始：取代還沒做完的舊工作，不另排第二個
+      const c = store.createJob({ scope: 'sub/pq.md', voice: 'v1', pin: false, files: ['sub/pq.md'], createdBy: 't' });
+      store.updateJob(c.id, { state: 'paused' });
+      const n = await post('/api/admin/tts/jobs', { scope: 'sub/pq.md', voice: 'v1', pin: true }, admin);
+      assert.notEqual(n.json.id, c.id);
+      assert.deepEqual(n.json.jobs.filter((j) => j.scope === 'sub/pq.md' && j.voice === 'v1').map((j) => j.id), [n.json.id]);
+      assert.ok(await waitFor(async () => (await jobOf(admin, n.json.id)).state === 'done'));
+      await post(`/api/admin/tts/jobs/${n.json.id}`, { action: 'delete' }, admin);
+      fs.unlinkSync(path.join(VAULT, 'sub', 'pq.md'));
     });
   });
 
