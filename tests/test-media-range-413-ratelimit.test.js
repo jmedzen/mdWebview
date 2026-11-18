@@ -60,9 +60,15 @@ describe('/api/media Range and oversized-body handling over HTTP', () => {
       }, (res) => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+        res.on('end', () => {
+          resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) });
+          if (options.partialBody) req.destroy(); // 413 已收到：剩下的 body 不必再送
+        });
       });
-      req.on('error', reject);
+      // partialBody：只送前 64 KiB 就等回應。伺服器看到 Content-Length 超過上限就回 413 並關閉連線，
+      // 若用戶端還在寫整包 2 MiB，Node 26 會在回應交出前先拋 EPIPE（寫入端被關），測試就變成不穩定。
+      req.on('error', (err) => { if (!options.partialBody || !['EPIPE', 'ECONNRESET'].includes(err.code)) reject(err); });
+      if (options.partialBody) { req.write(options.body.subarray(0, 64 * 1024)); return; }
       if (options.body) req.write(options.body);
       req.end();
     });
@@ -144,7 +150,7 @@ describe('/api/media Range and oversized-body handling over HTTP', () => {
       const r = await request(route, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': String(big.length) },
-        body: big
+        body: big, partialBody: true
       });
       assert.equal(r.statusCode, 413, route);
       assert.equal(JSON.parse(r.body.toString()).code, 'PAYLOAD_TOO_LARGE', route);
