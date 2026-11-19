@@ -962,6 +962,51 @@ fs.writeFileSync(get('--write-media'), b);
       assert.equal((await request('/api/admin/tts/analytics')).status, 401);
     });
 
+    test('「1 天」畫成最近 24 小時：按小時分 24 格，標籤用指定時區，總數與明細一致', async () => {
+      const r = await request(`/api/admin/tts/analytics?range=1d&tz=${encodeURIComponent('Asia/Taipei')}`, { headers: admin });
+      assert.equal(r.status, 200);
+      const d = r.json;
+      assert.equal(d.granularity, 'hour');
+      assert.equal(d.tz, 'Asia/Taipei');
+      assert.equal(d.hourly.length, 24);
+      const H = 3600000;
+      for (let i = 1; i < 24; i++) assert.equal(d.hourly[i].t - d.hourly[i - 1].t, H);
+      assert.equal(d.hourly[23].t, Math.floor(Date.now() / H) * H, '最後一格是目前這一小時');
+      const tw = new Date(d.hourly[23].t + 8 * H).toISOString();
+      assert.equal(d.hourly[23].hour, `${tw.slice(11, 13)}:00`);
+      assert.equal(d.hourly[23].day, tw.slice(5, 10));
+      // 上一個測試記的事件都落在這 24 小時內
+      assert.equal(d.totals.starts, 3);
+      assert.equal(d.hourly.reduce((x, b) => x + b.starts, 0), 3);
+      assert.equal(d.totals.sentences, 12);
+      assert.deepEqual(d.kinds.mode, { section: 1, sentence: 1, here: 1 });
+      assert.ok(Array.isArray(d.voices));
+      // 不合法的時區退回 UTC
+      const u = await request('/api/admin/tts/analytics?range=1d&tz=Not%2FA_Zone', { headers: admin });
+      assert.equal(u.json.tz, 'UTC');
+      assert.equal(u.json.hourly[23].hour, `${new Date(u.json.hourly[23].t).toISOString().slice(11, 13)}:00`);
+    });
+
+    test('按小時明細：UTC 整點分格、超出範圍不算；舊資料的每日後備彙總', () => {
+      const H = 3600000;
+      const base = Date.parse('2026-01-05T00:00:00Z');
+      store.addHourly('mode', 'here', 2, base + 30 * 60000);
+      store.addHourly('stat', 'hits', 5, base + 2 * H + 1);
+      store.addHourly('voice', 'v1', 1, base + 2 * H + 2);
+      store.addHourly('mode', 'here', 9, base + 5 * H); // 範圍外
+      const r = store.hourlyReport(base, base + 3 * H, { bucketCount: 3, bucketOf: (t) => Math.floor((t - base) / H) });
+      assert.equal(r.totals.starts, 2);
+      assert.equal(r.totals.hits, 5);
+      assert.deepEqual(r.buckets.map((b) => b.starts), [2, 0, 0]);
+      assert.equal(r.buckets[2].hits, 5);
+      assert.deepEqual(r.kinds, { mode: { here: 2 }, voice: { v1: 1 } });
+      assert.ok(r.earliest <= base);
+      const today = new Date().toISOString().slice(0, 10);
+      const dr = store.dailyRangeReport(today, today);
+      assert.ok(dr.totals.starts >= 3);
+      assert.ok(dr.kinds.mode.here >= 1);
+    });
+
     test('讀者回報念錯：只收這篇的句子序號，文字由伺服器取；同一句合併計數；後台可列出與處理', async () => {
       const doc = await request(`/api/tts/doc?path=${encodeURIComponent(P)}&voice=v1&chapter=0`);
       const s0 = doc.json.sentences.find((x) => x.kind !== 'skip');
