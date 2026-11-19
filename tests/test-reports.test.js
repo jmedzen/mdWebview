@@ -346,3 +346,76 @@ describe('report admin API', () => {
     assert.equal(send.json.status.history[0].trigger, 'test');
   });
 });
+
+describe('report TTS section', () => {
+  const ttsStore = require('../lib/tts-store.js');
+  const TTS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-reports-tts-'));
+  const yesterday = Date.parse('2026-10-30T16:00:00Z'); // 台北 10/31 00:00
+  const settings = { enabled: true, voices: [{ id: 'v1', name: '芙蓉' }, { id: 'v2', name: '米陸' }] };
+  before(() => {
+    assert.ok(ttsStore.open(TTS_DIR));
+    const add = (h, kind, key, n = 1) => ttsStore.addHourly(kind, key, n, yesterday + h * HOUR + 60000);
+    add(-30, 'total', 'listenMs', 1); // 最早的一筆在前一期之前：兩期都有按小時明細
+    add(1, 'mode', 'section'); add(1, 'voice', 'v1'); add(1, 'doc', '經藏/金剛經.md'); add(1, 'total', 'listeners');
+    add(9, 'mode', 'here', 2); add(9, 'voice', 'v2', 2); add(9, 'doc', '經藏/心經.md', 2); add(9, 'total', 'listeners');
+    add(9, 'total', 'sentences', 40); add(9, 'voiceSentences', 'v2', 40); add(9, 'total', 'listenMs', 600000);
+    add(9, 'stat', 'hits', 30); add(9, 'stat', 'misses', 10); add(9, 'stat', 'generated', 10); add(9, 'stat', 'genMs', 25000); add(9, 'stat', 'failed', 1);
+    add(9, 'end', 'finished'); add(9, 'feature', 'sleep');
+    add(-2, 'mode', 'here'); add(-2, 'doc', '經藏/金剛經.md'); // 前一天
+    add(25, 'mode', 'here'); // 今天，不算
+  });
+  after(() => { ttsStore.close(); fs.rmSync(TTS_DIR, { recursive: true, force: true }); });
+
+  test('daily report buckets TTS usage by local hour and compares with the previous day', async () => {
+    const p = reports.computePeriod('daily', NOW, TZ);
+    const tt = reports.collectTts(p, { bucketCount: 24, bucketOf: t => reports.tzParts(t, TZ).h, prevBucketOf: t => reports.tzParts(t, TZ).h }, { store: ttsStore, settings });
+    assert.equal(tt.cur.starts, 3);
+    assert.equal(tt.prev.starts, 1);
+    assert.equal(tt.cur.listeners, 2);
+    assert.equal(tt.cur.sentences, 40);
+    assert.equal(tt.cur.hits, 30);
+    assert.equal(tt.cur.generated, 10);
+    assert.equal(tt.approximate, false);
+    assert.equal(tt.buckets.length, 24);
+    assert.equal(tt.buckets[1].starts, 1, '01:00 local hour');
+    assert.equal(tt.buckets[9].starts, 2);
+    assert.deepEqual(tt.voices.map(v => [v.name, v.n, v.sentences]), [['米陸', 2, 40], ['芙蓉', 1, 0]]);
+    assert.deepEqual(tt.docs[1], { key: '經藏/金剛經.md', name: '金剛經', n: 1, path: '經藏/金剛經.md', prev: 1 });
+    assert.equal(tt.modes[0].name, '從這裡讀到結尾');
+  });
+
+  test('daily and weekly mail include the TTS section, chart and plain-text line', async () => {
+    for (const kind of ['daily', 'weekly']) {
+      const r = await reports.buildReport(kind, { now: NOW, settings: reports.normalizeSettings({ timezone: TZ }) });
+      assert.ok(r.tts, kind);
+      assert.equal(r.tts.buckets.length, kind === 'weekly' ? 7 : 24);
+      const out = reports.renderReport(r, { imageSrc: c => `cid:report-${c.id}` });
+      assert.match(out.html, /🔊 朗讀/);
+      assert.match(out.html, /快取命中率/);
+      assert.match(out.html, /75%/); // 30／40
+      assert.match(out.html, /熱門朗讀文件 Top 10/);
+      assert.ok(out.charts.some(c => c.id === 'tts'), `${kind} TTS chart`);
+      assert.ok(out.html.includes('src="cid:report-tts"'));
+      assert.match(out.text, kind === 'weekly' ? /朗讀：4 次/ : /朗讀：3 次（前一天 1）/);
+    }
+  });
+
+  test('falls back to daily totals (approximate) before hourly records began', async () => {
+    const p = reports.computePeriod('daily', NOW, TZ);
+    const fake = {
+      hourlyReport: () => ({ available: true, totals: {}, kinds: {}, buckets: Array.from({ length: 24 }, () => ({ starts: 0, listeners: 0, sentences: 0, generated: 0, failed: 0 })), earliest: null }),
+      dailyRangeReport: () => ({ available: true, totals: { starts: 5, listeners: 2, sentences: 0, listenMs: 0, hits: 0, misses: 0, generated: 0, failed: 0, genMs: 0 }, kinds: { mode: { here: 5 } } }),
+      usage: () => ({ available: false })
+    };
+    const tt = reports.collectTts(p, { bucketCount: 24, bucketOf: () => 0, prevBucketOf: () => 0 }, { store: fake, settings });
+    assert.equal(tt.approximate, true);
+    assert.equal(tt.cur.starts, 5);
+    const html = reports.renderReport(Object.assign(await reports.buildReport('daily', { now: NOW, settings: reports.normalizeSettings({ timezone: TZ }) }), { tts: tt }), { imageSrc: c => `cid:${c.id}` }).html;
+    assert.match(html, /概估/);
+  });
+
+  test('no TTS cache → no TTS section', () => {
+    const p = reports.computePeriod('daily', NOW, TZ);
+    assert.equal(reports.collectTts(p, { bucketCount: 24, bucketOf: () => 0, prevBucketOf: () => 0 }, null), null);
+  });
+});

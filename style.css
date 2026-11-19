@@ -13443,6 +13443,8 @@ body.tts-chant-open { overflow: hidden; }
 .tts-trend-starts { fill: var(--tts-accent); opacity: 0.85; }
 .tts-trend-listeners { fill: var(--bg-secondary); stroke: var(--text-primary); stroke-width: 1.5; }
 .tts-trend-axis { stroke: var(--border); }
+.tts-trend-daysep { stroke: var(--border); stroke-dasharray: 3 3; }
+.tts-analytics-since { margin: 4px 0 0; }
 .tts-trend-label { font-size: 11px; fill: var(--text-muted); }
 .tts-analytics-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
 .tts-legend-starts, .tts-legend-listeners { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--tts-accent); }
