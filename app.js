@@ -16900,22 +16900,44 @@
     return `<div class="tts-analytics-block"><h4 class="tts-analytics-sub">${escHtml(title)}</h4><div class="analytics-table-wrapper"><table class="analytics-table"><thead><tr><th style="width:44px;text-align:center">#</th><th>項目</th><th style="width:90px;text-align:right">${escHtml(unit)}</th><th style="width:64px;text-align:right">占比</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
   }
 
-  /** 每日長條：朗讀次數（實心）與收聽人數（外框），標籤寫在 title 與表格摘要裡，螢幕閱讀器讀得到。 */
-  function ttsAnalyticsTrend(daily) {
-    if (!daily.length) return '';
-    const w = 640, h = 140, pad = 24; const n = daily.length;
-    const max = Math.max(1, ...daily.map(d => Math.max(d.starts, d.listeners)));
+  /**
+   * 趨勢長條：朗讀次數（實心）與收聽人數（圓點）。
+   * 「1 天」傳 hourly（24 格，每小時一格）；其他範圍傳 daily（每天一格）。
+   * 標籤寫在 title 與 aria-label 裡，螢幕閱讀器讀得到。
+   */
+  function ttsAnalyticsTrend(d) {
+    const hourly = Array.isArray(d.hourly);
+    const rows = hourly ? d.hourly : (d.daily || []);
+    if (!rows.length) return '';
+    const w = 640, h = 150, pad = 24, padB = 30; const n = rows.length;
+    const max = Math.max(1, ...rows.map(r => Math.max(r.starts, r.listeners)));
     const bw = Math.min(24, Math.max(2, (w - pad * 2) / n * 0.7));
     const x = (i) => pad + (i + 0.5) * (w - pad * 2) / n - bw / 2;
-    const y = (v) => h - pad - (h - pad * 2) * v / max;
-    const bars = daily.map((d, i) => `<rect class="tts-trend-starts" x="${x(i).toFixed(1)}" y="${y(d.starts).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - pad - y(d.starts)).toFixed(1)}" rx="2"><title>${d.day}：朗讀 ${d.starts} 次、收聽 ${d.listeners} 人</title></rect>`
-      + (d.listeners ? `<circle class="tts-trend-listeners" cx="${(x(i) + bw / 2).toFixed(1)}" cy="${y(d.listeners).toFixed(1)}" r="3"></circle>` : '')).join('');
-    const first = daily[0].day.slice(5); const last = daily[n - 1].day.slice(5);
-    return `<figure class="tts-analytics-trend"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="每日朗讀次數與收聽人數，${daily[0].day} 到 ${daily[n - 1].day}，最高 ${max}">
-      <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" class="tts-trend-axis"/>${bars}
-      <text x="${pad}" y="${h - 6}" class="tts-trend-label">${first}</text><text x="${w - pad}" y="${h - 6}" text-anchor="end" class="tts-trend-label">${last}</text>
+    const y = (v) => h - padB - (h - pad - padB) * v / max;
+    const name = (r) => hourly ? `${r.day} ${r.hour}` : r.day;
+    const bars = rows.map((r, i) => `<rect class="tts-trend-starts" x="${x(i).toFixed(1)}" y="${y(r.starts).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - padB - y(r.starts)).toFixed(1)}" rx="2"><title>${escHtml(name(r))}：朗讀 ${r.starts} 次、${hourly ? '當天首次收聽' : '收聽'} ${r.listeners} 人</title></rect>`
+      + (r.listeners ? `<circle class="tts-trend-listeners" cx="${(x(i) + bw / 2).toFixed(1)}" cy="${y(r.listeners).toFixed(1)}" r="3"></circle>` : '')).join('');
+    let ticks;
+    if (hourly) {
+      // 每 3 小時一個刻度；跨日的那一格加上日期
+      ticks = rows.map((r, i) => {
+        if (i % 3 !== 0 && i !== n - 1) return '';
+        const cx = x(i) + bw / 2;
+        const newDay = i > 0 && r.day !== rows[i - 1].day;
+        return `<text x="${cx.toFixed(1)}" y="${h - padB + 13}" text-anchor="middle" class="tts-trend-label">${escHtml(r.hour.slice(0, 2))}</text>`
+          + (i === 0 || newDay ? `<text x="${cx.toFixed(1)}" y="${h - padB + 25}" text-anchor="middle" class="tts-trend-label">${escHtml(r.day)}</text>` : '');
+      }).join('');
+      // 換日的地方畫一條細虛線
+      ticks += rows.map((r, i) => (i > 0 && r.day !== rows[i - 1].day) ? `<line x1="${(x(i) - (w - pad * 2) / n * 0.15).toFixed(1)}" y1="${pad}" x2="${(x(i) - (w - pad * 2) / n * 0.15).toFixed(1)}" y2="${h - padB}" class="tts-trend-daysep"/>` : '').join('');
+    } else {
+      ticks = `<text x="${pad}" y="${h - padB + 16}" class="tts-trend-label">${rows[0].day.slice(5)}</text><text x="${w - pad}" y="${h - padB + 16}" text-anchor="end" class="tts-trend-label">${rows[n - 1].day.slice(5)}</text>`;
+    }
+    const aria = hourly ? `最近 24 小時每小時朗讀次數與收聽人數，${name(rows[0])} 到 ${name(rows[n - 1])}，最高 ${max}` : `每日朗讀次數與收聽人數，${rows[0].day} 到 ${rows[n - 1].day}，最高 ${max}`;
+    const since = hourly && d.since ? `<p class="field-hint tts-analytics-since">按小時的紀錄從 ${escHtml(new Date(d.since).toLocaleString())} 開始，之前的時段顯示為 0。</p>` : '';
+    return `<figure class="tts-analytics-trend"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${escHtml(aria)}">
+      <line x1="${pad}" y1="${h - padB}" x2="${w - pad}" y2="${h - padB}" class="tts-trend-axis"/>${ticks}${bars}
       <text x="${pad}" y="14" class="tts-trend-label">${max}</text></svg>
-      <figcaption class="tts-analytics-legend"><span class="tts-legend-starts"></span>朗讀次數　<span class="tts-legend-listeners"></span>收聽人數</figcaption></figure>`;
+      <figcaption class="tts-analytics-legend">${hourly ? '最近 24 小時（每小時）　' : ''}<span class="tts-legend-starts"></span>朗讀次數　<span class="tts-legend-listeners"></span>收聽人數</figcaption>${since}</figure>`;
   }
 
   async function loadTtsAnalytics() {
@@ -16923,7 +16945,7 @@
     if (!box || !body) return;
     let d;
     try {
-      const res = await fetch(`/api/admin/tts/analytics?range=${encodeURIComponent(stateAnalyticsRange)}`);
+      const res = await fetch(`/api/admin/tts/analytics?range=${encodeURIComponent(stateAnalyticsRange)}&tz=${encodeURIComponent(getEffectiveTimezone())}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       d = await res.json();
     } catch (_) { box.hidden = true; return; }
@@ -16948,7 +16970,7 @@
     const sortRows = (obj, label) => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => [label(k), n]);
     const docs = sortRows(d.kinds.doc, k => k.replace(/\.md$/i, '')).slice(0, 20);
     body.innerHTML = `<div class="analytics-cards-grid tts-analytics-cards">${cards.map(([i, v, l]) => `<div class="analytics-card"><div class="analytics-card-icon" aria-hidden="true">${i}</div><div class="analytics-card-content"><div class="analytics-card-value">${escHtml(v)}</div><div class="analytics-card-label">${escHtml(l)}</div></div></div>`).join('')}</div>
-      ${ttsAnalyticsTrend(d.daily || [])}
+      ${ttsAnalyticsTrend(d)}
       <div class="tts-analytics-grid">
         ${ttsAnalyticsTable('啟動方式', sortRows(d.kinds.mode, k => TTS_MODE_LABELS[k] || k), '次')}
         ${ttsAnalyticsTable('音色（開始朗讀時）', sortRows(d.kinds.voice, k => vname.get(k) || `（已移除 ${k}）`), '次')}
