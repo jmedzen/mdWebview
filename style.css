@@ -2554,7 +2554,7 @@ section.chunk.chunk-error {
   text-decoration-thickness: 1px;
 }
 
-/* 釋義最多四行，詳情點進條目看 */
+/* 釋義顯示全文（不截斷），保留條目裡的換行 */
 .home-word-def {
   margin: 10px 0 0;
   font-size: calc(14px * var(--ui-font-scale, 1));
@@ -2562,11 +2562,8 @@ section.chunk.chunk-error {
   letter-spacing: 0.02em;
   text-align: justify;
   color: var(--text-secondary);
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .home-word-more {

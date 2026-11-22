@@ -102,6 +102,31 @@ describe('lib/home：辭典釋義摘要', () => {
     assert.equal(await home.readDictExcerpt(file, NaN, 10), '');
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  test('每日一詞讀出條目全文：不截斷、不加刪節號、保留換行', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdw-home-'));
+    const file = path.join(dir, 'dict.md');
+    const head = '# 辭典\n\n';
+    const long = '念'.repeat(300);
+    const entry = '## 佛在佛滅供養得福較量\n\n念佛三昧寶王論卷下（四七．一四三中．二四）\n\n子問佛在滅後　獻福何多者。\n' + long + '\n\n';
+    fs.writeFileSync(file, head + entry + '## 下一條\n\n內容。\n');
+    const text = await home.readDictEntryText(file, Buffer.byteLength(head), Buffer.byteLength(entry));
+    assert.equal(text, '念佛三昧寶王論卷下（四七．一四三中．二四）\n子問佛在滅後 獻福何多者。\n' + long);
+    assert.ok(!text.includes('…'));
+    assert.equal(await home.readDictEntryText(file, NaN, 10), '');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('max 0 時摘要不截斷', () => {
+    assert.equal(home.excerptFromMarkdown('甲'.repeat(100), 0), '甲'.repeat(100));
+  });
+
+  test('首頁每日一詞釋義的 CSS 不再限制行數', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf-8');
+    const rule = css.match(/\.home-word-def\s*\{[^}]*\}/)[0];
+    assert.ok(!/line-clamp/.test(rule), rule);
+    assert.ok(/white-space:\s*pre-line/.test(rule), rule);
+  });
 });
 
 describe('首頁：問候、日期與節氣', () => {
