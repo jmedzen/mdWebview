@@ -4386,8 +4386,8 @@ async function getDailyWords() {
         dictName: dict.name,
         line: entry.lineStart,
         type: 'dict',
-        // 首頁「每日一詞」卡片顯示的釋義摘要（只讀條目前 4KB）
-        excerpt: await home.readDictExcerpt(dict.fullPath, entry.offset, entry.len)
+        // 首頁「每日一詞」卡片顯示條目全文（不截斷，保留換行）
+        excerpt: await home.readDictEntryText(dict.fullPath, entry.offset, entry.len)
       });
     }
   }
