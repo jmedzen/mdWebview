@@ -12902,6 +12902,43 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
   --tts-padded-bg: rgba(240, 138, 120, 0.1);
   --tts-on-accent: #1b1410;
 }
+/* 亮色主題各配一個較安靜的讀經強調色（取代共用的朱色 #c8442b）；按鈕上的字用該主題的紙色 --bg-primary。
+   選色報告：/mnt/project-files/listen-accent/（2026-11-22） */
+[data-theme="paper"] { /* 素紙・沉朱 */
+  --tts-accent: #a5493a;
+  --tts-accent-text: #a5493a;
+  --tts-accent-bg: rgba(165, 73, 58, 0.14);
+  --tts-padded-bg: rgba(165, 73, 58, 0.07);
+  --tts-on-accent: #fbf9f4;
+}
+[data-theme="zen"] { /* 禪風・焦茶 */
+  --tts-accent: #7a5236;
+  --tts-accent-text: #7a5236;
+  --tts-accent-bg: rgba(122, 82, 54, 0.14);
+  --tts-padded-bg: rgba(122, 82, 54, 0.07);
+  --tts-on-accent: #f5f0e8;
+}
+[data-theme="obsidian-light"] { /* 霧灰・黛藍 */
+  --tts-accent: #3b5b84;
+  --tts-accent-text: #3b5b84;
+  --tts-accent-bg: rgba(59, 91, 132, 0.14);
+  --tts-padded-bg: rgba(59, 91, 132, 0.07);
+  --tts-on-accent: #f7f7f6;
+}
+[data-theme="moon"] { /* 月白・青瓷 */
+  --tts-accent: #2f6f78;
+  --tts-accent-text: #2e6c74;
+  --tts-accent-bg: rgba(47, 111, 120, 0.14);
+  --tts-padded-bg: rgba(47, 111, 120, 0.07);
+  --tts-on-accent: #f2f5fa;
+}
+[data-theme="bamboo"] { /* 竹青・青黛 */
+  --tts-accent: #2f6a64;
+  --tts-accent-text: #2f6a64;
+  --tts-accent-bg: rgba(47, 106, 100, 0.14);
+  --tts-padded-bg: rgba(47, 106, 100, 0.07);
+  --tts-on-accent: #f2f4ec;
+}
 
 /* 跟讀高亮：目前句＝淡朱底色＋朱筆底線；補讀的句子＝更淡的底色。和劃重點（mdw-hl-*）可疊加 */
 ::highlight(mdw-tts-padded) { background-color: var(--tts-padded-bg); }
