@@ -12893,14 +12893,28 @@ body.has-kepan #markdownBody { padding-bottom: 88px; }
   --tts-on-accent: #ffffff;
   --tts-bar-h: 60px;
 }
-[data-theme="obsidian-dark"],
-[data-theme="solarized"],
-[data-theme="gruvbox"] {
-  --tts-accent: #f08a78;
-  --tts-accent-text: #f08a78;
-  --tts-accent-bg: rgba(240, 138, 120, 0.22);
-  --tts-padded-bg: rgba(240, 138, 120, 0.1);
-  --tts-on-accent: #1b1410;
+/* 暗色主題各配一個讀經強調色（取代共用的珊瑚紅 #f08a78）；淡底 16%，按鈕上的字用該主題的紙色 --bg-primary。
+   選色報告：/mnt/project-files/listen-accent/讀經強調色方案-暗色.html（2026-11-22） */
+[data-theme="obsidian-dark"] { /* 夜藍・燭金 */
+  --tts-accent: #d6b98a;
+  --tts-accent-text: #d6b98a;
+  --tts-accent-bg: rgba(214, 185, 138, 0.16);
+  --tts-padded-bg: rgba(214, 185, 138, 0.08);
+  --tts-on-accent: #141b2b;
+}
+[data-theme="solarized"] { /* 苔夜・水青 */
+  --tts-accent: #8fc3ba;
+  --tts-accent-text: #8fc3ba;
+  --tts-accent-bg: rgba(143, 195, 186, 0.16);
+  --tts-padded-bg: rgba(143, 195, 186, 0.08);
+  --tts-on-accent: #1a1f1a;
+}
+[data-theme="gruvbox"] { /* Gruvbox・麥黃 */
+  --tts-accent: #d8a657;
+  --tts-accent-text: #d8a657;
+  --tts-accent-bg: rgba(216, 166, 87, 0.16);
+  --tts-padded-bg: rgba(216, 166, 87, 0.08);
+  --tts-on-accent: #282828;
 }
 /* 亮色主題各配一個較安靜的讀經強調色（取代共用的朱色 #c8442b）；按鈕上的字用該主題的紙色 --bg-primary。
    選色報告：/mnt/project-files/listen-accent/（2026-11-22） */
