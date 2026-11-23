@@ -2455,11 +2455,11 @@
               <div class="config-card-body">
                 <div class="lc-tool">
                   <button type="button" class="modal-btn submit-btn small-btn" id="lcAddBtn" data-no-dirty>＋ 加入經</button>
-                  <button type="button" class="modal-btn secondary-btn small-btn" id="lcCatsBtn" data-no-dirty aria-expanded="false" aria-controls="lcCats">分類…</button>
+                  <button type="button" class="modal-btn secondary-btn small-btn" id="lcAddCatBtn" data-no-dirty>＋ 新增群組</button>
                 </div>
-                <div class="lc-cats" id="lcCats" hidden></div>
+                <p class="lc-totals field-hint" id="lcTotals" aria-live="polite"></p>
                 <div id="lcList" class="lc-list"></div>
-                <p class="field-hint">用 ↑↓ 排序。燈號：綠＝正常、黃＝檔案改過或有品卷對不到、紅＝找不到檔案；刪除線＝暫不顯示。</p>
+                <p class="field-hint">群組就是讀者頁上的分類標題：✎ 改名與說明、⇡⇣ 整組排序、✕ 刪除（裡面的經移到相鄰的群組）。經用 ↑↓ 排序，排到群組頭尾再按一次就移到上一個或下一個群組。燈號：綠＝正常、黃＝檔案改過或有品卷對不到、紅＝找不到檔案或要先修正；刪除線＝暫不顯示。</p>
               </div>
             </div>
             <div class="lc-right">
@@ -2468,6 +2468,7 @@
               <div data-card="listengen" class="config-card" id="lcGenCard"><div class="config-card-body" id="lcGen"></div></div>
             </div>
           </div>
+          <div class="lc-issues" id="lcIssues" role="status" aria-live="polite" hidden></div>
           <div class="lc-savebar">
             <span class="lc-dirty" id="lcDirty" role="status" aria-live="polite"></span>
             <button type="button" class="modal-btn secondary-btn" id="lcPreviewBtn" data-no-dirty>看讀者頁</button>

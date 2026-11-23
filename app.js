@@ -19593,13 +19593,26 @@
   // （POST /api/admin/listen/detect），所以畫面上的起點行號、長度和讀者端一致。
   // 自動分段時只存管理員的覆寫（改名、不收錄），以「開頭文字＋行號」對應，檔案改版也找得回來。
   // ═══════════════════════════════════════════════════════════
-  const lcAdmin = { cat: null, saved: '', status: {}, sel: null, detect: null, detectKey: '', coverage: null, voice: '', voices: [], ttsReady: false, wired: false, catsOpen: false };
+  const lcAdmin = { cat: null, saved: '', status: {}, sel: null, detect: null, detectKey: '', coverage: null, voice: '', voices: [], ttsReady: false, wired: false, editCat: null };
   const LC_SPLITS = [['auto', '自動・有品依品'], ['juan', '自動・依卷'], ['none', '不分段'], ['manual', '手動']];
 
   function lcDirty() { return !!lcAdmin.cat && JSON.stringify(lcAdmin.cat) !== lcAdmin.saved; }
   function lcItem() { return lcAdmin.cat && lcAdmin.cat.items.find(i => i.id === lcAdmin.sel); }
-  function lcMarkDirty() { const d = $('lcDirty'); if (d) d.textContent = lcDirty() ? '有尚未儲存的變更' : ''; }
+  function lcMarkDirty() { const d = $('lcDirty'); if (d) d.textContent = lcDirty() ? '有尚未儲存的變更' : ''; renderLcIssues(); }
   function lcNewId() { return Math.random().toString(16).slice(2, 12); }
+
+  /** 加一部新的經到某個群組的最後（沒指定就是第一個群組），選起來、游標放到經文檔案。 */
+  function lcAddItem(catId) {
+    const c = lcAdmin.cat; if (!c || !c.categories.length) return;
+    const cat = c.categories.find(x => x.id === catId) || c.categories[0];
+    const it = { id: lcNewId(), name: '新的經', sub: '', cat: cat.id, path: '', enabled: true, split: 'auto', range: null, parts: [] };
+    const dest = c.items.filter(x => x.cat === cat.id); const last = dest[dest.length - 1];
+    c.items.splice(last ? c.items.indexOf(last) + 1 : c.items.length, 0, it);
+    lcAdmin.sel = it.id; lcAdmin.detect = { error: '請填入經文檔案（可以從清單挑選）。' }; lcAdmin.detectKey = '';
+    lcChanged(); renderLcList(); renderLcEdit(); renderLcParts(); renderLcGen();
+    const p = $('lcPath'); if (p) p.focus();
+    a11yAnnounce(`已在群組「${cat.name}」加入一部新的經`);
+  }
 
   async function loadAdminListenPane() {
     setupAdminListenEvents();
@@ -19643,40 +19656,108 @@
     return ['ok', '正常'];
   }
 
-  function renderLcList() {
-    const box = $('lcList'); const c = lcAdmin.cat; if (!box || !c) return;
-    box.innerHTML = c.categories.map(cat => {
-      const items = c.items.filter(i => i.cat === cat.id);
-      return `<div class="lc-catname" role="heading" aria-level="4">${escHtml(cat.name)} <span>（${items.length}）</span></div>
-        <ul class="lc-rows">${items.map((it, k) => {
-          const [lv, lt] = lcLight(it); const s = lcAdmin.status[it.id];
-          const info = it.range ? '節錄' : (s && s.ok && s.parts && s.parts.length ? `${s.parts.filter(p => !p.off).length} ${s.unit || '段'}` : '整部');
-          return `<li class="lc-row${it.id === lcAdmin.sel ? ' sel' : ''}${it.enabled === false ? ' off' : ''}" data-lc-id="${escHtml(it.id)}">
-            <span class="status-light ${lv}" role="img" aria-label="${escHtml(lt)}" title="${escHtml(lt)}"></span>
-            <button type="button" class="lc-row-name" data-lc-act="select" data-no-dirty aria-current="${it.id === lcAdmin.sel ? 'true' : 'false'}">${escHtml(it.name)}<small>${escHtml(info)}${it.enabled === false ? '・不顯示' : ''}</small></button>
-            <button type="button" class="lc-mini" data-lc-act="up" data-no-dirty aria-label="上移 ${escHtml(it.name)}" ${k === 0 ? 'disabled' : ''}>↑</button>
-            <button type="button" class="lc-mini" data-lc-act="down" data-no-dirty aria-label="下移 ${escHtml(it.name)}" ${k === items.length - 1 ? 'disabled' : ''}>↓</button>
-          </li>`;
-        }).join('')}</ul>`;
-    }).join('') || '<p class="field-hint">還沒有經。按「＋ 加入經」。</p>';
+  /**
+   * 存檔前的檢查（和伺服器 lib/listen-catalog.js validateCatalog() 同樣的規則）：
+   * errors 擋住儲存，warnings 只提示。每筆 { msg, cat?, item? }，清單上對應的群組／經會標紅或標黃。
+   */
+  function lcValidate(c) {
+    const errors = []; const warnings = [];
+    if (!c) return { errors, warnings };
+    const t = (v) => String(v == null ? '' : v).trim();
+    if (!c.categories.length) errors.push({ msg: '至少要有一個群組' });
+    const names = new Set();
+    for (const cat of c.categories) {
+      const n = t(cat.name);
+      if (!n) { errors.push({ msg: '有群組沒有名稱', cat: cat.id }); continue; }
+      if (names.has(n)) errors.push({ msg: `群組名稱「${n}」重複`, cat: cat.id });
+      names.add(n);
+    }
+    const seen = new Map();
+    for (const it of c.items) {
+      const n = t(it.name); const label = n || '（沒有名稱）'; const p = t(it.path);
+      if (!n) errors.push({ msg: '有經沒有顯示名稱', item: it.id });
+      if (!p) errors.push({ msg: `「${label}」沒有經文檔案`, item: it.id });
+      else if (!/\.md$/i.test(p)) errors.push({ msg: `「${label}」的經文檔案要是 .md`, item: it.id });
+      if (!c.categories.some(x => x.id === it.cat)) errors.push({ msg: `「${label}」不在任何群組裡`, item: it.id });
+      if (p && it.enabled !== false) {
+        const key = p + '|' + JSON.stringify(it.range || null);
+        if (seen.has(key)) warnings.push({ msg: `「${label}」和「${seen.get(key)}」是同一個檔案的同一段`, item: it.id });
+        else seen.set(key, label);
+      }
+    }
+    for (const cat of c.categories) {
+      if (t(cat.name) && !c.items.some(i => i.cat === cat.id && i.enabled !== false)) warnings.push({ msg: `群組「${t(cat.name)}」沒有顯示中的經，讀者頁不會出現`, cat: cat.id });
+    }
+    return { errors, warnings };
   }
 
-  function renderLcCats() {
-    const box = $('lcCats'); const c = lcAdmin.cat; if (!box || !c) return;
-    box.hidden = !lcAdmin.catsOpen;
-    $('lcCatsBtn').setAttribute('aria-expanded', String(lcAdmin.catsOpen));
-    if (!lcAdmin.catsOpen) return;
-    box.innerHTML = `<ul class="lc-cat-edit">${c.categories.map((cat, k) => {
-      const used = c.items.filter(i => i.cat === cat.id).length;
-      return `<li data-lc-cat="${escHtml(cat.id)}">
-        <input type="text" class="lc-in" data-lc-cf="name" value="${escHtml(cat.name)}" aria-label="分類名稱" maxlength="30" data-no-dirty>
-        <input type="text" class="lc-in lc-in-note" data-lc-cf="note" value="${escHtml(cat.note || '')}" aria-label="${escHtml(cat.name)} 的說明" placeholder="說明（可空白）" maxlength="40" data-no-dirty>
-        <button type="button" class="lc-mini" data-lc-cact="up" data-no-dirty aria-label="上移分類 ${escHtml(cat.name)}" ${k === 0 ? 'disabled' : ''}>↑</button>
-        <button type="button" class="lc-mini" data-lc-cact="down" data-no-dirty aria-label="下移分類 ${escHtml(cat.name)}" ${k === c.categories.length - 1 ? 'disabled' : ''}>↓</button>
-        <button type="button" class="lc-mini" data-lc-cact="del" data-no-dirty aria-label="刪除分類 ${escHtml(cat.name)}" ${used || c.categories.length < 2 ? `disabled title="${used ? '分類裡還有經' : '至少要有一個分類'}"` : ''}>✕</button>
-      </li>`;
-    }).join('')}</ul>
-    <button type="button" class="modal-btn secondary-btn small-btn" data-lc-cact="add" data-no-dirty>＋ 新增分類</button>`;
+  function renderLcIssues() {
+    const box = $('lcIssues'); if (!box) return;
+    const v = lcValidate(lcAdmin.cat);
+    const li = (x, kind) => `<li class="${kind}"><button type="button" class="lc-issue-go" data-lc-go-item="${escHtml(x.item || '')}" data-lc-go-cat="${escHtml(x.cat || '')}" data-no-dirty>${escHtml(x.msg)}</button></li>`;
+    box.hidden = !v.errors.length && !v.warnings.length;
+    box.innerHTML = v.errors.length || v.warnings.length
+      ? `<p class="lc-issues-title">${v.errors.length ? `有 ${v.errors.length} 個問題要先修正才能儲存` : '提醒'}</p><ul>${v.errors.map(x => li(x, 'err')).join('')}${v.warnings.map(x => li(x, 'warn')).join('')}</ul>`
+      : '';
+    const save = $('lcSaveBtn'); if (save) save.setAttribute('aria-describedby', v.errors.length ? 'lcIssues' : 'lcDirty');
+    return v;
+  }
+
+  /** 顯示中的經數與總長度（用伺服器上次檢查的字數；沒存過的新經不算）。 */
+  function lcTotals() {
+    const c = lcAdmin.cat; if (!c) return '';
+    const on = c.items.filter(i => i.enabled !== false && c.categories.some(x => x.id === i.cat));
+    const chars = on.reduce((n, i) => n + ((lcAdmin.status[i.id] && lcAdmin.status[i.id].chars) || 0), 0);
+    const unknown = on.filter(i => !(lcAdmin.status[i.id] && lcAdmin.status[i.id].ok)).length;
+    return `${c.categories.length} 個群組・${on.length} 部經顯示中${chars ? `・全部讀完${listenDuration(chars)}` : ''}${unknown ? `（${unknown} 部儲存後才算得出長度）` : ''}`;
+  }
+
+  function renderLcList() {
+    const box = $('lcList'); const c = lcAdmin.cat; if (!box || !c) return;
+    const v = lcValidate(c);
+    const badCat = new Set(v.errors.filter(x => x.cat).map(x => x.cat));
+    const warnCat = new Set(v.warnings.filter(x => x.cat).map(x => x.cat));
+    const badItem = new Set(v.errors.filter(x => x.item).map(x => x.item));
+    const order = c.categories.map(cat => cat.id);
+    box.innerHTML = c.categories.map((cat, ck) => {
+      const items = c.items.filter(i => i.cat === cat.id);
+      const editing = lcAdmin.editCat === cat.id;
+      const name = cat.name.trim() || '（沒有名稱）';
+      const prevCat = c.categories[ck - 1]; const nextCat = c.categories[ck + 1];
+      const head = editing
+        ? `<div class="lc-group-edit">
+            <label><span>群組名稱</span><input type="text" class="lc-in" data-lc-cf="name" value="${escHtml(cat.name)}" maxlength="30" ${badCat.has(cat.id) ? 'aria-invalid="true"' : ''} data-no-dirty></label>
+            <label><span>說明</span><input type="text" class="lc-in" data-lc-cf="note" value="${escHtml(cat.note || '')}" placeholder="讀者頁群組標題旁的小字（可空白）" maxlength="40" data-no-dirty></label>
+            <button type="button" class="modal-btn submit-btn small-btn" data-lc-cact="done" data-no-dirty>完成</button>
+          </div>`
+        : `<div class="lc-group-head${badCat.has(cat.id) ? ' bad' : ''}">
+            <span class="lc-group-title" role="heading" aria-level="4">${escHtml(name)}${cat.note ? `<small>${escHtml(cat.note)}</small>` : ''}</span>
+            <span class="lc-group-count">${items.length} 部${warnCat.has(cat.id) && !badCat.has(cat.id) ? '・讀者看不到' : ''}</span>
+            <button type="button" class="lc-mini" data-lc-cact="edit" data-no-dirty aria-label="改群組名稱 ${escHtml(name)}" title="改名稱與說明">✎</button>
+            <button type="button" class="lc-mini" data-lc-cact="up" data-no-dirty aria-label="群組 ${escHtml(name)} 往上" title="整個群組往上" ${ck === 0 ? 'disabled' : ''}>⇡</button>
+            <button type="button" class="lc-mini" data-lc-cact="down" data-no-dirty aria-label="群組 ${escHtml(name)} 往下" title="整個群組往下" ${ck === order.length - 1 ? 'disabled' : ''}>⇣</button>
+            <button type="button" class="lc-mini" data-lc-cact="del" data-no-dirty aria-label="刪除群組 ${escHtml(name)}" title="刪除群組" ${c.categories.length < 2 ? 'disabled' : ''}>✕</button>
+          </div>`;
+      return `<section class="lc-group" data-lc-cat="${escHtml(cat.id)}" aria-label="群組 ${escHtml(name)}">${head}
+        <ul class="lc-rows">${items.map((it, k) => {
+          const [lv, lt] = badItem.has(it.id) ? ['bad', '要先修正才能儲存'] : lcLight(it); const s = lcAdmin.status[it.id];
+          const info = it.range ? '節錄' : (s && s.ok && s.parts && s.parts.length ? `${s.parts.filter(p => !p.off).length} ${s.unit || '段'}` : '整部');
+          // 群組裡第一部再往上＝移到上一個群組的最後；最後一部再往下＝移到下一個群組的最前
+          const upTo = k === 0 && prevCat ? prevCat : null; const downTo = k === items.length - 1 && nextCat ? nextCat : null;
+          const upLbl = upTo ? `把 ${it.name} 移到群組「${upTo.name}」` : `上移 ${it.name}`;
+          const downLbl = downTo ? `把 ${it.name} 移到群組「${downTo.name}」` : `下移 ${it.name}`;
+          return `<li class="lc-row${it.id === lcAdmin.sel ? ' sel' : ''}${it.enabled === false ? ' off' : ''}" data-lc-id="${escHtml(it.id)}">
+            <span class="status-light ${lv}" role="img" aria-label="${escHtml(lt)}" title="${escHtml(lt)}"></span>
+            <button type="button" class="lc-row-name" data-lc-act="select" data-no-dirty aria-current="${it.id === lcAdmin.sel ? 'true' : 'false'}">${escHtml(it.name || '（沒有名稱）')}<small>${escHtml(info)}${it.enabled === false ? '・不顯示' : ''}</small></button>
+            <button type="button" class="lc-mini${upTo ? ' cross' : ''}" data-lc-act="up" data-no-dirty aria-label="${escHtml(upLbl)}" title="${escHtml(upTo ? `移到「${upTo.name}」` : '上移')}" ${k === 0 && !prevCat ? 'disabled' : ''}>↑</button>
+            <button type="button" class="lc-mini${downTo ? ' cross' : ''}" data-lc-act="down" data-no-dirty aria-label="${escHtml(downLbl)}" title="${escHtml(downTo ? `移到「${downTo.name}」` : '下移')}" ${k === items.length - 1 && !nextCat ? 'disabled' : ''}>↓</button>
+          </li>`;
+        }).join('')}</ul>
+        <button type="button" class="lc-add-in" data-lc-cact="additem" data-no-dirty>＋ 加入經到「${escHtml(name)}」</button>
+      </section>`;
+    }).join('') || '<p class="field-hint">還沒有群組。按「＋ 新增群組」。</p>';
+    const tot = $('lcTotals'); if (tot) tot.textContent = lcTotals();
+    renderLcIssues();
   }
 
   function renderLcEdit() {
@@ -19689,7 +19770,7 @@
       <div class="lc-form">
         <label for="lcName">顯示名稱</label><input type="text" class="lc-in" id="lcName" data-lc-f="name" value="${escHtml(it.name)}" maxlength="60" data-no-dirty>
         <label for="lcSub">副標</label><input type="text" class="lc-in" id="lcSub" data-lc-f="sub" value="${escHtml(it.sub || '')}" maxlength="60" placeholder="譯者，例如：姚秦 鳩摩羅什 譯" data-no-dirty>
-        <label for="lcCat">分類</label><select class="lc-in" id="lcCat" data-lc-f="cat" data-no-dirty>${c.categories.map(cat => `<option value="${escHtml(cat.id)}" ${cat.id === it.cat ? 'selected' : ''}>${escHtml(cat.name)}</option>`).join('')}</select>
+        <label for="lcCat">群組</label><select class="lc-in" id="lcCat" data-lc-f="cat" data-no-dirty>${c.categories.map(cat => `<option value="${escHtml(cat.id)}" ${cat.id === it.cat ? 'selected' : ''}>${escHtml(cat.name)}</option>`).join('')}</select>
         <label for="lcPath">經文檔案</label><div class="lc-path"><input type="text" class="lc-in" id="lcPath" data-lc-f="path" value="${escHtml(it.path)}" list="lcPathList" spellcheck="false" data-no-dirty><a class="modal-btn secondary-btn small-btn" href="/?file=${encodeURIComponent(it.path)}" target="_blank" rel="noopener">開啟</a></div>
         <span class="lc-label">顯示</span><label class="lc-check"><input type="checkbox" data-lc-f="enabled" ${it.enabled !== false ? 'checked' : ''} data-no-dirty> 在聽經頁顯示</label>
         <span class="lc-label" id="lcRangeLbl">範圍</span>
@@ -19762,7 +19843,7 @@
   }
 
   function renderLcAdmin() {
-    renderLcList(); renderLcCats(); renderLcEdit(); renderLcParts(); renderLcGen();
+    renderLcList(); renderLcEdit(); renderLcParts(); renderLcGen();
     lcDetect();
   }
 
@@ -19814,14 +19895,29 @@
         const id = row.dataset.lcId; const it = c.items.find(x => x.id === id);
         if (act === 'select') { lcAdmin.sel = id; lcAdmin.detect = null; lcAdmin.detectKey = ''; renderLcAdmin(); const n = $('lcName'); if (n && isAdminNarrow()) n.focus(); return; }
         if (act === 'up' || act === 'down') {
-          const same = c.items.filter(x => x.cat === it.cat); const k = same.indexOf(it); const other = same[k + (act === 'up' ? -1 : 1)];
-          if (!other) return;
-          const a = c.items.indexOf(it); const bI = c.items.indexOf(other);
-          c.items[a] = other; c.items[bI] = it;
+          const up = act === 'up';
+          const same = c.items.filter(x => x.cat === it.cat); const k = same.indexOf(it); const other = same[k + (up ? -1 : 1)];
+          let msg;
+          if (other) {
+            const a = c.items.indexOf(it); const bI = c.items.indexOf(other);
+            c.items[a] = other; c.items[bI] = it;
+            msg = `${it.name} 已${up ? '上移' : '下移'}`;
+          } else {
+            // 跨群組：移到上一個群組的最後，或下一個群組的最前
+            const ck = c.categories.findIndex(x => x.id === it.cat); const to = c.categories[ck + (up ? -1 : 1)];
+            if (!to) return;
+            c.items.splice(c.items.indexOf(it), 1);
+            const dest = c.items.filter(x => x.cat === to.id);
+            it.cat = to.id;
+            if (up) { const last = dest[dest.length - 1]; c.items.splice(last ? c.items.indexOf(last) + 1 : c.items.length, 0, it); }
+            else { const first = dest[0]; c.items.splice(first ? c.items.indexOf(first) : c.items.length, 0, it); }
+            msg = `${it.name} 已移到群組「${to.name}」`;
+            if (id === lcAdmin.sel) renderLcEdit(); // 右邊的「群組」選單跟著變
+          }
           lcChanged({ list: true });
           const nb = $('lcList').querySelector(`[data-lc-id="${CSS.escape(id)}"] [data-lc-act="${act}"]`);
           (nb && !nb.disabled ? nb : $('lcList').querySelector(`[data-lc-id="${CSS.escape(id)}"] .lc-row-name`)).focus();
-          a11yAnnounce(`${it.name} 已${act === 'up' ? '上移' : '下移'}`);
+          a11yAnnounce(msg);
           return;
         }
       }
@@ -19864,13 +19960,45 @@
       }
       const cact = b.dataset.lcCact;
       if (cact) {
-        const li = b.closest('[data-lc-cat]'); const k = li ? c.categories.findIndex(x => x.id === li.dataset.lcCat) : -1;
-        if (cact === 'add') c.categories.push({ id: lcNewId(), name: '新分類', note: '' });
-        else if (cact === 'del' && k >= 0) c.categories.splice(k, 1);
-        else if ((cact === 'up' || cact === 'down') && k >= 0) { const j = k + (cact === 'up' ? -1 : 1); if (j < 0 || j >= c.categories.length) return; [c.categories[k], c.categories[j]] = [c.categories[j], c.categories[k]]; }
-        lcChanged({ list: true, edit: true }); renderLcCats();
-        if (cact === 'add') { const ins = $('lcCats').querySelectorAll('[data-lc-cf="name"]'); const last = ins[ins.length - 1]; if (last) { last.focus(); last.select(); } }
-        return;
+        const sec = b.closest('[data-lc-cat]'); const k = sec ? c.categories.findIndex(x => x.id === sec.dataset.lcCat) : -1;
+        const cat = c.categories[k];
+        const focusCat = (cid, sel) => { const el = $('lcList').querySelector(`[data-lc-cat="${CSS.escape(cid)}"] ${sel}`); if (el) { el.focus(); if (el.select) el.select(); } };
+        if (cact === 'add') {
+          const nc = { id: lcNewId(), name: '新群組', note: '' };
+          c.categories.push(nc); lcAdmin.editCat = nc.id;
+          lcChanged({ list: true, edit: true });
+          focusCat(nc.id, '[data-lc-cf="name"]');
+          return;
+        }
+        if (!cat) return;
+        if (cact === 'edit') { lcAdmin.editCat = cat.id; renderLcList(); focusCat(cat.id, '[data-lc-cf="name"]'); return; }
+        if (cact === 'done') { lcAdmin.editCat = null; lcChanged({ list: true, edit: true }); focusCat(cat.id, '[data-lc-cact="edit"]'); return; }
+        if (cact === 'additem') { lcAddItem(cat.id); return; }
+        if (cact === 'up' || cact === 'down') {
+          const j = k + (cact === 'up' ? -1 : 1); if (j < 0 || j >= c.categories.length) return;
+          [c.categories[k], c.categories[j]] = [c.categories[j], c.categories[k]];
+          lcChanged({ list: true, edit: true });
+          const nb = $('lcList').querySelector(`[data-lc-cat="${CSS.escape(cat.id)}"] [data-lc-cact="${cact}"]`);
+          (nb && !nb.disabled ? nb : $('lcList').querySelector(`[data-lc-cat="${CSS.escape(cat.id)}"] [data-lc-cact="edit"]`)).focus();
+          a11yAnnounce(`群組「${cat.name}」已${cact === 'up' ? '上移' : '下移'}`);
+          return;
+        }
+        if (cact === 'del') {
+          if (c.categories.length < 2) return;
+          const inside = c.items.filter(i => i.cat === cat.id);
+          const to = c.categories[k - 1] || c.categories[k + 1];
+          if (inside.length && !confirm(`群組「${cat.name}」裡還有 ${inside.length} 部經。刪除群組後，這些經會移到「${to.name}」。（經文檔案不會被刪除）`)) return;
+          // 移到目的群組的最後，順序不變
+          for (const it of inside) { c.items.splice(c.items.indexOf(it), 1); it.cat = to.id; }
+          const dest = c.items.filter(x => x.cat === to.id); const last = dest[dest.length - 1];
+          c.items.splice(last ? c.items.indexOf(last) + 1 : c.items.length, 0, ...inside);
+          c.categories.splice(k, 1);
+          if (lcAdmin.editCat === cat.id) lcAdmin.editCat = null;
+          lcChanged({ list: true, edit: true });
+          focusCat(to.id, '[data-lc-cact="edit"]');
+          a11yAnnounce(`已刪除群組「${cat.name}」${inside.length ? `，${inside.length} 部經移到「${to.name}」` : ''}`);
+          return;
+        }
       }
     });
     pane.addEventListener('input', (e) => {
@@ -19891,11 +20019,24 @@
         lcMarkDirty();
       }
     });
+    pane.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      const t = e.target; if (!t.dataset || !t.dataset.lcCf) return;
+      e.preventDefault();
+      const done = t.closest('[data-lc-cat]') && t.closest('[data-lc-cat]').querySelector('[data-lc-cact="done"]');
+      if (done) done.click();
+    });
     pane.addEventListener('change', (e) => {
       const t = e.target; const it = lcItem(); if (!lcAdmin.cat) return;
-      if (t.dataset.lcCf) { lcChanged({ list: true, edit: true }); return; }
+      if (t.dataset.lcCf) { lcChanged({ edit: true }); return; } // 名稱改完：右邊「群組」選單跟著變；清單等按「完成」再重畫，不搶焦點
       if (!it) return;
-      if (t.dataset.lcF === 'cat') { it.cat = t.value; lcChanged({ list: true }); return; }
+      if (t.dataset.lcF === 'cat') { // 換群組：排到新群組的最後
+        const c = lcAdmin.cat; c.items.splice(c.items.indexOf(it), 1); it.cat = t.value;
+        const dest = c.items.filter(x => x.cat === it.cat); const last = dest[dest.length - 1];
+        c.items.splice(last ? c.items.indexOf(last) + 1 : c.items.length, 0, it);
+        lcChanged({ list: true }); return;
+      }
+      if (t.dataset.lcF === 'name') { renderLcList(); return; }
       if (t.dataset.lcF === 'enabled') { it.enabled = t.checked; lcChanged({ list: true }); return; }
       if (t.dataset.lcF === 'path') { it.path = t.value.trim(); it.parts = it.split === 'manual' ? [] : it.parts; it.range = null; lcChanged({ edit: true, detect: true }); return; }
       if (t.name === 'lcRange') {
@@ -19924,14 +20065,24 @@
       }
       if (t.dataset.lcPf === 'title') lcDetect();
     });
-    $('lcAddBtn').addEventListener('click', () => {
+    $('lcAddBtn').addEventListener('click', () => { const cur = lcItem(); lcAddItem(cur ? cur.cat : null); });
+    $('lcAddCatBtn').addEventListener('click', () => {
       const c = lcAdmin.cat; if (!c) return;
-      const it = { id: lcNewId(), name: '新的經', sub: '', cat: c.categories[0].id, path: '', enabled: true, split: 'auto', range: null, parts: [] };
-      c.items.push(it); lcAdmin.sel = it.id; lcAdmin.detect = { error: '請填入經文檔案（可以從清單挑選）。' }; lcAdmin.detectKey = '';
-      lcChanged(); renderLcList(); renderLcEdit(); renderLcParts(); renderLcGen();
-      const p = $('lcPath'); if (p) p.focus();
+      const nc = { id: lcNewId(), name: '新群組', note: '' };
+      c.categories.push(nc); lcAdmin.editCat = nc.id;
+      lcChanged({ list: true, edit: true });
+      const el = $('lcList').querySelector(`[data-lc-cat="${CSS.escape(nc.id)}"] [data-lc-cf="name"]`); if (el) { el.focus(); el.select(); }
     });
-    $('lcCatsBtn').addEventListener('click', () => { lcAdmin.catsOpen = !lcAdmin.catsOpen; renderLcCats(); if (lcAdmin.catsOpen) { const f = $('lcCats').querySelector('input'); if (f) f.focus(); } });
+    $('lcIssues').addEventListener('click', (e) => {
+      const b = e.target.closest('.lc-issue-go'); if (!b) return;
+      if (b.dataset.lcGoItem) {
+        lcAdmin.sel = b.dataset.lcGoItem; lcAdmin.detect = null; lcAdmin.detectKey = ''; renderLcAdmin();
+        const f = $('lcName'); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); }
+      } else if (b.dataset.lcGoCat) {
+        lcAdmin.editCat = b.dataset.lcGoCat; renderLcList();
+        const f = $('lcList').querySelector(`[data-lc-cat="${CSS.escape(b.dataset.lcGoCat)}"] [data-lc-cf="name"]`); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); }
+      }
+    });
     $('lcRevertBtn').addEventListener('click', () => {
       if (!lcDirty()) return;
       lcAdmin.cat = JSON.parse(lcAdmin.saved); if (!lcItem()) lcAdmin.sel = lcAdmin.cat.items.length ? lcAdmin.cat.items[0].id : null;
@@ -19941,14 +20092,20 @@
     $('lcPreviewBtn').addEventListener('click', () => window.open('/?listen', '_blank', 'noopener'));
     $('lcSaveBtn').addEventListener('click', async () => {
       const c = lcAdmin.cat; if (!c) return;
-      const bad = c.items.find(i => !i.name.trim() || !/\.md$/i.test(i.path || ''));
-      if (bad) { lcAdmin.sel = bad.id; renderLcAdmin(); showToast('每部經都要有名稱和 .md 經文檔案', 'warn'); return; }
+      const v = lcValidate(c);
+      if (v.errors.length) {
+        renderLcIssues(); showToast(`還有 ${v.errors.length} 個問題，修正後才能儲存`, 'warn');
+        const first = $('lcIssues').querySelector('.err .lc-issue-go'); if (first) first.focus();
+        return;
+      }
+      lcAdmin.editCat = null;
       const btn = $('lcSaveBtn'); btn.disabled = true;
       const r = await ttsAdminApi('/api/admin/listen/catalog', { method: 'POST', body: { catalog: c } });
       btn.disabled = false;
-      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error'); return; }
+      if (!r.ok) { showToast(`❌ ${r.data.error || '儲存失敗'}`, 'error', 5000); return; }
       lcApplyServer(r.data);
       listenRt.data = null; // 讀者頁下次重新讀取
+      renderTtsLcEstimate(null); // 朗讀頁的「預先生成聽經目錄」估算是舊目錄的，收起來重估
       showToast('✅ 聽經目錄已儲存', 'success');
       lcLoadCoverage();
     });

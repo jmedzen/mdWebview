@@ -272,3 +272,85 @@ describe('後台：聽經目錄一次預先生成（app.js §21.8）', () => {
     assert.match(app, /聲音被截斷/);
   });
 });
+
+describe('後台：直接編輯群組與經目（validateCatalog、app.js §21.9 lcValidate）', () => {
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  // 前端的 lcValidate 抽出來在 vm 裡跑，和伺服器用同一批案例比對
+  const src = app.slice(app.indexOf('  function lcValidate(c) {'), app.indexOf('  function renderLcIssues() {'));
+  const lcValidate = vm.runInNewContext(`(${src.trim()})`);
+  const good = () => ({
+    categories: [{ id: 'a', name: '淨土', note: '' }, { id: 'b', name: '般若', note: '' }],
+    items: [
+      { id: 'i1', name: '阿彌陀經', cat: 'a', path: 'x/T0366.md', enabled: true, range: null },
+      { id: 'i2', name: '心經', cat: 'b', path: 'x/T0251.md', enabled: true, range: null }
+    ]
+  });
+  const both = (c) => { const s = lc.validateCatalog(c); const f = JSON.parse(JSON.stringify(lcValidate(c))); return { s, f }; };
+  const codes = (v) => JSON.parse(JSON.stringify(v.errors.map(e => e.msg).sort()));
+
+  test('正常的目錄沒有錯誤也沒有提醒', () => {
+    const { s, f } = both(good());
+    assert.deepEqual(s, { errors: [], warnings: [] });
+    assert.deepEqual(f, { errors: [], warnings: [] });
+  });
+
+  test('群組名稱空白或重複是錯誤（前後端訊息一致）', () => {
+    const c = good(); c.categories[1].name = '  ';
+    let { s, f } = both(c);
+    assert.deepEqual(s.errors.map(e => e.msg), ['有群組沒有名稱']);
+    assert.deepEqual(codes(f), codes(s));
+    const d = good(); d.categories[1].name = '淨土';
+    ({ s, f } = both(d));
+    assert.equal(s.errors[0].code, 'group-dup');
+    assert.equal(s.errors[0].cat, 'b');
+    assert.deepEqual(codes(f), codes(s));
+  });
+
+  test('經沒有名稱、檔案不是 .md、群組不存在都是錯誤', () => {
+    const c = good();
+    c.items[0].name = ''; c.items[1].path = 'x/T0251.txt'; c.items.push({ id: 'i3', name: '孤兒', cat: 'zz', path: 'x/a.md' });
+    const { s, f } = both(c);
+    assert.deepEqual(s.errors.map(e => e.code).sort(), ['item-group', 'item-name', 'item-path']);
+    assert.deepEqual(codes(f), codes(s));
+  });
+
+  test('同一檔案同一段重複、群組沒有顯示中的經只是提醒', () => {
+    const c = good();
+    c.items.push({ id: 'i4', name: '阿彌陀經（重複）', cat: 'a', path: 'x/T0366.md', enabled: true, range: null });
+    c.items[1].enabled = false; // 般若群組只剩不顯示的經
+    const { s, f } = both(c);
+    assert.equal(s.errors.length, 0);
+    assert.deepEqual(s.warnings.map(w => w.code).sort(), ['group-empty', 'item-dup']);
+    assert.deepEqual(f.warnings.map(w => w.msg).sort(), s.warnings.map(w => w.msg).sort());
+    // 不同段（節錄）不算重複
+    c.items[2].range = { from: { head: '普門品', line: 10 }, to: null };
+    assert.equal(lc.validateCatalog(c).warnings.filter(w => w.code === 'item-dup').length, 0);
+  });
+
+  test('存檔 API：有錯誤時回 400 不存，沒錯誤才寫入設定', () => {
+    const route = lc.handle.toString();
+    assert.match(route, /const v = validateCatalog\(body\.catalog\);\s*if \(v\.errors\.length\) \{ sendJSON\(res, 400, \{ error: v\.errors\[0\]\.msg, code: 'INVALID_CATALOG'/);
+  });
+
+  test('畫面：群組在經目清單上直接改名、排序、刪除、加經；不再藏在「分類…」裡', () => {
+    assert.match(html, /id="lcAddCatBtn"[^>]*>＋ 新增群組</);
+    assert.doesNotMatch(html, /id="lcCatsBtn"/);
+    assert.match(html, /id="lcIssues" role="status" aria-live="polite" hidden/);
+    assert.match(html, /id="lcTotals"/);
+    for (const a of ['edit', 'done', 'up', 'down', 'del', 'additem']) assert.match(app, new RegExp(`data-lc-cact="${a}"`));
+    assert.match(app, /<label for="lcCat">群組<\/label>/);
+  });
+
+  test('經排到群組頭尾再按一次就移到相鄰群組；刪除群組時裡面的經移到相鄰群組', () => {
+    assert.match(app, /跨群組：移到上一個群組的最後，或下一個群組的最前/);
+    assert.match(app, /const to = c\.categories\[k - 1\] \|\| c\.categories\[k \+ 1\];/);
+    assert.match(app, /disabled' : ''}>↑<\/button>/);
+  });
+
+  test('儲存前跑 lcValidate，有錯誤不送出；存好後收起朗讀頁的舊估算', () => {
+    const at = app.indexOf("$('lcSaveBtn').addEventListener"); const save = app.slice(at, at + 2000);
+    assert.match(save, /const v = lcValidate\(c\);\s*if \(v\.errors\.length\) \{/);
+    assert.match(save, /renderTtsLcEstimate\(null\);/);
+  });
+});
