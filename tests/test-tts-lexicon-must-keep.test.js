@@ -146,3 +146,14 @@ test('自訂字典只寫斷句保護（預設內容）時，不會擋掉內建�
   assert.equal(say('解脫諸縛，破無明闇'), '解脫諸父，破無明暗');
   fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
 });
+
+test('規則不會被轉兩次：前面規則的輸出不含後面規則的詞（會被二次轉換的規則要寫在讀音表「最後區段」）', () => {
+  const e = lexicon.entries(true).filter((r) => r[1] && r[0] !== r[1]);
+  const bad = [];
+  for (let i = 0; i < e.length; i++) {
+    for (let j = i + 1; j < e.length; j++) {
+      if (e[i][1].includes(e[j][0]) && !e[i][0].includes(e[j][0])) bad.push(`${e[i][0]}→${e[i][1]} 之後被 ${e[j][0]}→${e[j][1]} 再改`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
