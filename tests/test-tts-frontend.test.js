@@ -263,25 +263,40 @@ describe('朗讀的配色對比（WCAG AA）', () => {
     return new RegExp(`--${name}: (#[0-9a-fA-F]{6})`).exec(block)[1];
   };
   const ttsVar = (dark, name) => {
-    const block = dark
-      ? /\/\* =+\s*§27c[\s\S]*?\[data-theme="obsidian-dark"\],\s*\[data-theme="solarized"\],\s*\[data-theme="gruvbox"\] \{([\s\S]*?)\}/.exec(css)[1]
-      : /\/\* =+\s*§27c[\s\S]*?:root \{([\s\S]*?)\}/.exec(css)[1];
+    const block = /\/\* =+\s*§27c[\s\S]*?:root \{([\s\S]*?)\}/.exec(css)[1];
     return new RegExp(`--${name}: (#[0-9a-fA-F]{6})`).exec(block)[1];
   };
 
-  for (const theme of ['paper', 'moon', 'bamboo', 'obsidian-light', 'zen']) {
-    test(`${theme}：朱色文字 ≥ 4.5:1、朱色圖形 ≥ 3:1`, () => {
+  // 每個主題在 §27c 各自覆寫 --tts-*（見 style.css「亮色主題各配…」「暗色主題各配…」）
+  const ttsLightVar = (theme, name) => {
+    const sec = css.slice(css.search(/\/\* =+\s*§27c/));
+    const m = new RegExp(`\\[data-theme="${theme}"\\] \\{[^}]*?--${name}: (#[0-9a-fA-F]{6})`).exec(sec);
+    return m ? m[1] : ttsVar(false, name);
+  };
+  for (const theme of ['paper', 'moon', 'bamboo', 'obsidian-light', 'zen', 'obsidian-dark', 'solarized', 'gruvbox']) {
+    test(`${theme}：讀經強調色文字 ≥ 4.5:1、圖形 ≥ 3:1`, () => {
       const bg = themeVar(theme, 'bg-secondary');
-      assert.ok(ratio(ttsVar(false, 'tts-accent-text'), bg) >= 4.5, `${theme} 文字對比不足`);
-      assert.ok(ratio(ttsVar(false, 'tts-accent'), bg) >= 3, `${theme} 控制元件對比不足`);
-      assert.ok(ratio(ttsVar(false, 'tts-on-accent'), ttsVar(false, 'tts-accent')) >= 4.5, '播放鍵圖示對比不足');
+      assert.ok(ratio(ttsLightVar(theme, 'tts-accent-text'), bg) >= 4.5, `${theme} 文字對比不足`);
+      assert.ok(ratio(ttsLightVar(theme, 'tts-accent'), bg) >= 3, `${theme} 控制元件對比不足`);
+      assert.ok(ratio(ttsLightVar(theme, 'tts-on-accent'), ttsLightVar(theme, 'tts-accent')) >= 4.5, '播放鍵圖示對比不足');
+    });
+    test(`${theme}：有自己的讀經強調色，按鈕字用紙色`, () => {
+      assert.notEqual(ttsLightVar(theme, 'tts-accent'), ttsVar(false, 'tts-accent'));
+      assert.equal(ttsLightVar(theme, 'tts-on-accent'), themeVar(theme, 'bg-primary'));
     });
   }
+  // 暗色主題：「繼續收聽」與跟讀高亮的淡底（--tts-accent-bg 疊在紙色上）上的文字也要 ≥ 4.5:1
+  const blend = (rgba, bg) => {
+    const [r, g, b, a] = /rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/.exec(rgba).slice(1).map(Number);
+    return '#' + [r, g, b].map((v, i) => Math.round(v * a + parseInt(bg.slice(1 + i * 2, 3 + i * 2), 16) * (1 - a)).toString(16).padStart(2, '0')).join('');
+  };
   for (const theme of ['obsidian-dark', 'solarized', 'gruvbox']) {
-    test(`${theme}：朱色文字 ≥ 4.5:1`, () => {
-      const bg = themeVar(theme, 'bg-secondary');
-      assert.ok(ratio(ttsVar(true, 'tts-accent-text'), bg) >= 4.5);
-      assert.ok(ratio(ttsVar(true, 'tts-on-accent'), ttsVar(true, 'tts-accent')) >= 4.5);
+    test(`${theme}：淡底上的強調色文字 ≥ 4.5:1`, () => {
+      const sec = css.slice(css.search(/\/\* =+\s*§27c/));
+      const bgRgba = new RegExp(`\\[data-theme="${theme}"\\] \\{[^}]*?--tts-accent-bg: (rgba\\([^)]*\\))`).exec(sec)[1];
+      const tinted = blend(bgRgba, themeVar(theme, 'bg-primary'));
+      assert.ok(ratio(ttsLightVar(theme, 'tts-accent-text'), tinted) >= 4.5, `${theme} 淡底文字對比不足`);
+      assert.ok(ratio(themeVar(theme, 'text-primary'), tinted) >= 4.5, `${theme} 跟讀高亮經文對比不足`);
     });
   }
 });
