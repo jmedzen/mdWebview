@@ -1729,13 +1729,13 @@ describe('lib/tts.js 純函式', () => {
     assert.equal(say('南無阿彌陀佛', true), '拿摩阿彌陀佛');          // 預設字典裡「南無」只是斷句保護，不擋內建讀法
     assert.equal(say('般若波羅蜜多心經', true), '波惹波羅蜜多心經');
     assert.equal(say('摩訶迦葉', true), '摩呵迦攝');                 // 長詞先換
-    assert.equal(say('佛在舍衛國祇樹給孤獨園', true), '佛在社衛國旗樹擠孤獨園');
+    assert.equal(say('佛在舍衛國祇樹給孤獨園', true), '佛在社卫國旗树挤孤独園');
     assert.equal(say('瑜伽行者', true), '瑜伽行者');                 // 一般「瑜伽」不改
     // 聽經目錄全面校對補充的條目
-    assert.equal(say('維摩詰稽首佛足', true), '維摩潔啟首佛足');
-    assert.equal(say('發大乘心，說一乘法', true), '發大聖心，說一聖法');
+    assert.equal(say('維摩詰稽首佛足', true), '维摩洁啟首佛足');
+    assert.equal(say('發大乘心，說一乘法', true), '發大圣心，說一圣法');
     assert.equal(say('毘盧遮那佛', true), '皮盧遮那佛');
-    assert.equal(say('優婆塞、優婆夷', true), '優婆色、優婆夷');
+    assert.equal(say('優婆塞、優婆夷', true), '优婆色、優婆夷');
     assert.equal(say('解脫諸縛，破無明闇', true), '解脫諸父，破無明暗');
     assert.equal(say('金銀七寶', true), '金吟七寶');
     assert.equal(say('般若', false), '般若');                        // 關掉內建
