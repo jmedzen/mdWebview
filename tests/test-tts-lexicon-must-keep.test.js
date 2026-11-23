@@ -90,6 +90,23 @@ test('實際朗讀（字典＋罕見字表）真的照清單念', () => {
   assert.equal(say('娑婆莎訶'), '娑婆梭呵');
   assert.equal(say('臝形，臝劣，飢臝'), '裸形，盈劣，飢盈');
   assert.equal(say('宁'), '宁');
+  // 第五批臺灣讀音（2026-11-23）：單字換字（替代字皆單一讀音）、多音字依詞分開
+  assert.equal(say('驟雨，淑女'), '奏雨，塾女');
+  assert.equal(say('夾山寺，夾雜'), '郟山寺，夾雜');
+  assert.equal(say('肋骨，肋下，雞肋'), '淚骨，淚下，雞淚');
+  assert.equal(say('僧衹，衹園，衹有'), '僧旗，旗園，指有');
+  assert.equal(say('爿聲，爿音，從爿'), '牆聲，牆音，從牆');
+  assert.equal(say('樸素，樸實'), '普素，普實');
+  // 吷泬烕→謔 與 謔→虐 成組放在讀音表最後區段：吷泬烕 只轉一次（念 謔），戲謔 仍是 虐
+  assert.equal(say('吷氣，泬寥，烕，戲謔'), '謔氣，謔寥，謔，戲虐');
+  assert.equal(say('風穴'), '風穴');
+  assert.equal(say('梵夾，和煦，溫煦'), '梵郟，和栩，溫栩');
+  assert.equal(say('擿迦，制擿迦'), '至加，制至加');
+  assert.equal(say('沉痾，朴氏，朴翁，朴禪，朴素'), '沉屙，瓢氏，瓢翁，瓢禪，普素');
+  assert.equal(say('檔案，檔次，搭檔'), '黨案，黨次，搭黨');
+  // 擿 多音字詞：ㄊㄧˋ→替、ㄓㄜˊ→謫、ㄓˊ→直；沒列的詞照單字規則 擿→替（ㄊㄧˋ）
+  assert.equal(say('指擿，擿齒，擿罰，擿取，擿下，擿也'), '指替，替齒，謫罰，謫取，直下，直也');
+  assert.equal(say('擿迦，擿'), '至加，替');
   // 讀誦→獨送（2026-11-17 使用者指定）；含「讀誦」的詞都念「獨送」，單獨的「讀」「誦」不變（大乘的乘另有 乘→聖）
   assert.equal(say('受持讀誦，為他人說'), '受持獨送，為他人說');
   assert.equal(say('讀誦大乘，書寫讀誦經典'), '獨送大聖，書寫獨送經典');
@@ -135,4 +152,15 @@ test('自訂字典只寫斷句保護（預設內容）時，不會擋掉內建�
   lexicon.resetCache();
   assert.equal(say('解脫諸縛，破無明闇'), '解脫諸父，破無明暗');
   fs.rmSync(process.env.TTS_LEXICON_PATH, { force: true }); lexicon.resetCache();
+});
+
+test('規則不會被轉兩次：前面規則的輸出不含後面規則的詞（會被二次轉換的規則要寫在讀音表「最後區段」）', () => {
+  const e = lexicon.entries(true).filter((r) => r[1] && r[0] !== r[1]);
+  const bad = [];
+  for (let i = 0; i < e.length; i++) {
+    for (let j = i + 1; j < e.length; j++) {
+      if (e[i][1].includes(e[j][0]) && !e[i][0].includes(e[j][0])) bad.push(`${e[i][0]}→${e[i][1]} 之後被 ${e[j][0]}→${e[j][1]} 再改`);
+    }
+  }
+  assert.deepEqual(bad, []);
 });
