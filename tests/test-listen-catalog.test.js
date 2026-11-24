@@ -337,6 +337,38 @@ describe('經文起訖：略過他人寫的序與經後附錄（autoBounds）', 
     assert.equal(b.skipped.tail, null);
   });
 
+  test('經文中間插入的序（法華經普門品前的御製序）到下一個品題之前不讀：區間、字數、預先生成都扣掉', () => {
+    const t = ['妙法蓮華經', '', '姚秦三藏法師鳩摩羅什譯', '', '## 妙音菩薩品第二十四', '', '爾時釋迦牟尼佛放大人相肉髻光明。',
+      '', '御製觀世音普門品經序', '', '觀世音菩薩，以爍迦羅心應變無窮，為諸佛之所稱讚。', '', '永樂九年五月初一日',
+      '', '隋北天竺沙門闍那崛多譯重頌', '', '## 觀世音菩薩普門品第二十五', '', '爾時無盡意菩薩即從座起。', ''].join('\n');
+    const e = entryOf(t, 'x.md');
+    const r = resolveItem(item(), e);
+    const a = lineOf(t, '御製觀世音普門品經序'); const b = lineOf(t, '## 觀世音菩薩普門品第二十五');
+    assert.deepEqual(r.skip, [[a, b]]);
+    assert.equal(r.skipped.mid[0].text, '御製觀世音普門品經序');
+    const off = resolveItem(item({ trim: false }), e);
+    assert.equal(r.chars, off.chars - r.skipped.mid[0].chars);
+    assert.equal(r.parts[0].chars + r.parts[1].chars, r.chars);
+    assert.deepEqual(lc._internals.readSegments(r), [[r.line, a], [b, 0]]);
+  });
+
+  test('經名夾注裡有逗號也認得；譯者行之前已是經文（品題、如是我聞）就不動起點', () => {
+    const t1 = ['賢劫經卷第一(亦名颰陀劫三昧，晉曰賢劫定意經)', '', '西晉月氏三藏竺法護譯', '', '聞如是：一時佛遊王舍城。', ''].join('\n');
+    const r1 = resolveItem(item(), entryOf(t1, 'x.md'));
+    assert.equal(r1.line, 1); assert.equal(r1.skipped.head, null);
+    const t2 = ['## 中阿含經卷第一', '', '東晉孝武及安帝世隆安元年十一月至二年六月了於東亭寺罽賓三藏瞿曇僧伽提婆譯道祖筆受', '',
+      '## 中阿含七法品第一', '', '我聞如是：一時，佛遊舍衛國。', '', '## 中阿含經卷第二', '', '東晉罽賓三藏瞿曇僧伽提婆譯', '', '我聞如是：一時，佛遊拘樓瘦。', ''].join('\n');
+    const r2 = resolveItem(item(), entryOf(t2, 'x.md'));
+    assert.equal(r2.line, 1); assert.equal(r2.skipped.head, null);
+  });
+
+  test('讀者端照 skip 跳過：ttsPlayable 排除略過的行，聽經播放把 item.skip 傳給朗讀', () => {
+    const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    assert.match(app, /function ttsPlayable\(it\) \{ return !!it && it\.kind !== 'skip' && !ttsInSkip\(it\); \}/);
+    assert.match(app, /ttsRt\.skipLines = null;/);
+    assert.match(app, /if \(item\.skip && item\.skip\.length\) ro\.skip = item\.skip;/);
+  });
+
   test('存檔保留 trim；預設經目都是 trim:true；後台有開關與說明', () => {
     const c = lc.sanitizeCatalog({ categories: [{ id: 'a', name: 'A' }], items: [{ name: 'x', path: 'a.md', cat: 'a', trim: false }, { name: 'y', path: 'b.md', cat: 'a' }] });
     assert.equal(c.items[0].trim, false); assert.equal(c.items[1].trim, true);
