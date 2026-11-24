@@ -10887,7 +10887,9 @@
 
   function ttsEnabled() { return !!(ttsRt.status && ttsRt.status.enabled && ttsVoices().length); }
 
-  function ttsPlayable(it) { return !!it && it.kind !== 'skip'; }
+  /** 聽經目錄：經文中間插入的序（ttsRt.skipLines＝[[起行, 止行), …]）不讀，也不算進句數與剩餘時間。 */
+  function ttsInSkip(it) { const sk = ttsRt.skipLines; return !!(sk && sk.length && sk.some(([a, b]) => it.line >= a && it.line < b)); }
+  function ttsPlayable(it) { return !!it && it.kind !== 'skip' && !ttsInSkip(it); }
 
   function ttsNextPlayable(from, dir) {
     let k = from;
@@ -10996,6 +10998,7 @@
     ttsRt.selFrom = -1; ttsRt.selTo = -1; ttsRt.flags = null; ttsRt.error = null; ttsRt.waiting = false; ttsRt.selOnly = false;
     ttsRt.userScrollAt = 0; ttsRt.stopAtUnit = undefined; ttsRt.sectionStart = undefined; ttsRt.sectionStartUnit = undefined; ttsRt.lastRange = null;
     ttsRt.stopLine = 0; // 聽經目錄：讀到這一行（不含）就停；0＝不限
+    ttsRt.skipLines = null; // 聽經目錄：中間不讀的行號區間
     ttsRt.listen = ttsRt.nextListen || null; ttsRt.nextListen = null; // 聽經目錄的經與品（播放列標題、收聽進度）
     if (ttsRt.listen) ttsRt.title = ttsRt.listen.name;
     return ttsRt.token;
@@ -11078,6 +11081,7 @@
       if (k < 0) k = 0;
       const first = ttsNextPlayable(k, 1);
       if (opts && opts.one && first >= 0) ttsRt.endIndex = first; // 朗讀本句：只到這一句
+      if (opts && Array.isArray(opts.skip) && opts.skip.length) ttsRt.skipLines = opts.skip;
       if (opts && opts.stopLine > line) { ttsRt.stopLine = opts.stopLine; ttsFillToLine(token); } // 聽經目錄：只讀這一品／節錄的範圍
       if (section && first >= 0) {
         const head = ttsRt.items[first];
@@ -12783,7 +12787,10 @@
     ttsRt.nextListen = { id: item.id, name: item.name, part: listenPartAt(item, line), partTitle: part ? part.t : '', only };
     ttsSetStartMode('listen');
     ttsAnnounce(`開始讀誦 ${item.name}${part ? ` ${part.t}` : ''}`);
-    await ttsStartFromLine(line, false, stopLine ? { stopLine } : undefined);
+    const ro = {};
+    if (stopLine) ro.stopLine = stopLine;
+    if (item.skip && item.skip.length) ro.skip = item.skip;
+    await ttsStartFromLine(line, false, Object.keys(ro).length ? ro : undefined);
     ttsRt.nextListen = null; // 沒開始成功（例如網站沒開朗讀）時不要留給下一次朗讀
   }
 
@@ -19749,12 +19756,26 @@
             <label>從 <select class="lc-in" data-lc-range="from" data-no-dirty>${heads.map(h => opt(h, it.range.from)).join('')}</select></label>
             <label>到（不含）<select class="lc-in" data-lc-range="to" data-no-dirty><option value="">檔案結尾</option>${heads.map(h => opt(h, it.range.to)).join('')}</select></label>
           </div>` : '<p class="field-hint">節錄例：普門品＝法華經第二十五品；普賢行願品＝四十華嚴卷四十。</p>'}
+          <label class="lc-check"><input type="checkbox" data-lc-f="trim" ${it.trim !== false ? 'checked' : ''} data-no-dirty> 略過經前與經文中間他人寫的序、經後的後序與品目清單</label>
+          <p class="field-hint">${lcSkippedHint(it, d)}</p>
         </div>
         <span class="lc-label" id="lcSplitLbl">分段方式</span>
         <div><div class="lc-seg" role="radiogroup" aria-labelledby="lcSplitLbl">${LC_SPLITS.map(([v, t]) => `<label><input type="radio" name="lcSplit" value="${v}" ${it.split === v ? 'checked' : ''} data-no-dirty> ${t}</label>`).join('')}</div>
           <p class="field-hint">${d && d.resolved ? (d.resolved.parts.length ? `偵測到 ${d.resolved.parts.length} ${escHtml(d.resolved.unit || '段')}；全部約 ${listenMinutes(d.resolved.chars)} 分鐘。` : `不分段；全部約 ${listenMinutes(d.resolved.chars)} 分鐘。`) : '偵測中…'}${it.split === 'manual' ? ' 手動：在下方用「＋ 加一段」挑每一段的開頭。' : ''}</p></div>
       </div>
       <div class="lc-edit-foot"><button type="button" class="modal-btn cancel-btn small-btn" data-lc-act="delete" data-no-dirty>從目錄移除這部經</button></div>`;
+  }
+
+  /** 自動略過了哪些（經名前的序、經名後的附錄），讓管理員看得到、不對可以關掉或改用節錄。 */
+  function lcSkippedHint(it, d) {
+    if (it.trim === false) return '整個範圍都讀，包括經名前的序與經後的附錄。';
+    const sk = d && d.resolved && d.resolved.skipped;
+    if (!sk) return '自動找「經名＋譯者」那一行當起點、最後一個經名行當終點。';
+    const out = [];
+    if (sk.head) out.push(`經前第 ${sk.head.line}–${sk.head.endLine - 1} 行（約 ${sk.head.chars} 字，從「${escHtml(sk.head.text)}」起）`);
+    if (sk.tail) out.push(`經後第 ${sk.tail.line} 行起（約 ${sk.tail.chars} 字，從「${escHtml(sk.tail.text)}」起）`);
+    for (const m of sk.mid || []) out.push(`經文中間第 ${m.line}–${m.endLine - 1} 行（約 ${m.chars} 字，「${escHtml(m.text)}」）`);
+    return out.length ? '不讀：' + out.join('；') + '。' : '這部沒有序或附錄要略過。';
   }
 
   function renderLcParts() {
@@ -19818,10 +19839,10 @@
   /** 依目前（可能還沒存）的設定請伺服器偵測品卷；設定沒變就不重送。 */
   async function lcDetect(force) {
     const it = lcItem(); if (!it) return;
-    const key = JSON.stringify([it.path, it.split, it.range, it.parts]);
+    const key = JSON.stringify([it.path, it.split, it.range, it.parts, it.trim !== false]);
     if (!force && key === lcAdmin.detectKey) return;
     lcAdmin.detectKey = key;
-    const r = await ttsAdminApi('/api/admin/listen/detect', { method: 'POST', body: { path: it.path, split: it.split, range: it.range, parts: it.parts } });
+    const r = await ttsAdminApi('/api/admin/listen/detect', { method: 'POST', body: { path: it.path, split: it.split, range: it.range, parts: it.parts, trim: it.trim } });
     if (key !== lcAdmin.detectKey) return;
     lcAdmin.detect = r.ok ? r.data : { error: r.status === 404 ? '找不到這個檔案。請確認路徑（可以從清單挑選）。' : (r.data.error || '偵測失敗') };
     renderLcEdit(); renderLcParts();
@@ -19946,6 +19967,7 @@
       if (!it) return;
       if (t.dataset.lcF === 'cat') { it.cat = t.value; lcChanged({ list: true }); return; }
       if (t.dataset.lcF === 'enabled') { it.enabled = t.checked; lcChanged({ list: true }); return; }
+      if (t.dataset.lcF === 'trim') { it.trim = t.checked; lcChanged({ edit: true, detect: true }); return; }
       if (t.dataset.lcF === 'path') { it.path = t.value.trim(); it.parts = it.split === 'manual' ? [] : it.parts; it.range = null; lcChanged({ edit: true, detect: true }); return; }
       if (t.name === 'lcRange') {
         if (t.value === 'all') it.range = null;
@@ -19975,7 +19997,7 @@
     });
     $('lcAddBtn').addEventListener('click', () => {
       const c = lcAdmin.cat; if (!c) return;
-      const it = { id: lcNewId(), name: '新的經', sub: '', cat: c.categories[0].id, path: '', enabled: true, split: 'auto', range: null, parts: [] };
+      const it = { id: lcNewId(), name: '新的經', sub: '', cat: c.categories[0].id, path: '', enabled: true, split: 'auto', range: null, parts: [], trim: true };
       c.items.push(it); lcAdmin.sel = it.id; lcAdmin.detect = { error: '請填入經文檔案（可以從清單挑選）。' }; lcAdmin.detectKey = '';
       lcChanged(); renderLcList(); renderLcEdit(); renderLcParts(); renderLcGen();
       const p = $('lcPath'); if (p) p.focus();
