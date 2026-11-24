@@ -16148,6 +16148,11 @@
         rows += `<span class="chart-tt-row chart-tt-total"><span>合計</span>` +
                 `<b class="chart-tt-num">${sum.toLocaleString()}</b></span>`;
       }
+      if (typeof opts.tooltipExtra === 'function') {
+        const extra = opts.tooltipExtra(idx) || [];
+        rows += extra.map(([k, v], ei) => `<span class="chart-tt-row chart-tt-extra${ei === 0 ? ' is-first' : ''}"><span>${escHtml(k)}</span>` +
+          `<b class="chart-tt-num">${escHtml(String(v))}</b></span>`).join('');
+      }
       tooltip.innerHTML = `<span class="chart-tt-date">${escHtml(String(labels[idx] ?? ''))}</span>${rows}`;
       tooltip.style.display = 'block';
 
@@ -16228,6 +16233,7 @@
 
   function renderHardwareDashboard(data) {
     if (!data) return;
+    updateHardwarePageLight(data);
 
     // Header & Docker badge
     const dockerBadge = $('hwDockerBadge');
@@ -16845,6 +16851,7 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       stateAdminLogs = Array.isArray(data.logs) ? data.logs : [];
+      updateLogsPageLight(data);
       renderAdminLogs();
     } catch (err) {
       viewer.innerHTML = `<div class="panel-placeholder"><span class="placeholder-icon">⚠️</span><span>無法讀取系統日誌: ${escHtml(err.message)}</span></div>`;
@@ -16957,43 +16964,47 @@
   }
 
   /**
-   * 趨勢長條：朗讀次數（實心）與收聽人數（圓點）。
+   * 趨勢圖：朗讀次數（長條）與收聽人數（線），用後台共用的互動圖表畫，
+   * 滑過（或手指點按）任一格會顯示那一格的明細，和上面兩張圖一致。
    * 「1 天」傳 hourly（24 格，每小時一格）；其他範圍傳 daily（每天一格）。
-   * 標籤寫在 title 與 aria-label 裡，螢幕閱讀器讀得到。
+   * 這裡只回傳外框，畫圖在 renderTtsAnalyticsTrend（要等外框放進頁面、量得到寬度）。
    */
   function ttsAnalyticsTrend(d) {
     const hourly = Array.isArray(d.hourly);
     const rows = hourly ? d.hourly : (d.daily || []);
     if (!rows.length) return '';
-    const w = 640, h = 150, pad = 24, padB = 30; const n = rows.length;
-    const max = Math.max(1, ...rows.map(r => Math.max(r.starts, r.listeners)));
-    const bw = Math.min(24, Math.max(2, (w - pad * 2) / n * 0.7));
-    const x = (i) => pad + (i + 0.5) * (w - pad * 2) / n - bw / 2;
-    const y = (v) => h - padB - (h - pad - padB) * v / max;
-    const name = (r) => hourly ? `${r.day} ${r.hour}` : r.day;
-    const bars = rows.map((r, i) => `<rect class="tts-trend-starts" x="${x(i).toFixed(1)}" y="${y(r.starts).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - padB - y(r.starts)).toFixed(1)}" rx="2"><title>${escHtml(name(r))}：朗讀 ${r.starts} 次、${hourly ? '當天首次收聽' : '收聽'} ${r.listeners} 人</title></rect>`
-      + (r.listeners ? `<circle class="tts-trend-listeners" cx="${(x(i) + bw / 2).toFixed(1)}" cy="${y(r.listeners).toFixed(1)}" r="3"></circle>` : '')).join('');
-    let ticks;
-    if (hourly) {
-      // 每 3 小時一個刻度；跨日的那一格加上日期
-      ticks = rows.map((r, i) => {
-        if (i % 3 !== 0 && i !== n - 1) return '';
-        const cx = x(i) + bw / 2;
-        const newDay = i > 0 && r.day !== rows[i - 1].day;
-        return `<text x="${cx.toFixed(1)}" y="${h - padB + 13}" text-anchor="middle" class="tts-trend-label">${escHtml(r.hour.slice(0, 2))}</text>`
-          + (i === 0 || newDay ? `<text x="${cx.toFixed(1)}" y="${h - padB + 25}" text-anchor="middle" class="tts-trend-label">${escHtml(r.day)}</text>` : '');
-      }).join('');
-      // 換日的地方畫一條細虛線
-      ticks += rows.map((r, i) => (i > 0 && r.day !== rows[i - 1].day) ? `<line x1="${(x(i) - (w - pad * 2) / n * 0.15).toFixed(1)}" y1="${pad}" x2="${(x(i) - (w - pad * 2) / n * 0.15).toFixed(1)}" y2="${h - padB}" class="tts-trend-daysep"/>` : '').join('');
-    } else {
-      ticks = `<text x="${pad}" y="${h - padB + 16}" class="tts-trend-label">${rows[0].day.slice(5)}</text><text x="${w - pad}" y="${h - padB + 16}" text-anchor="end" class="tts-trend-label">${rows[n - 1].day.slice(5)}</text>`;
-    }
-    const aria = hourly ? `最近 24 小時每小時朗讀次數與收聽人數，${name(rows[0])} 到 ${name(rows[n - 1])}，最高 ${max}` : `每日朗讀次數與收聽人數，${rows[0].day} 到 ${rows[n - 1].day}，最高 ${max}`;
     const since = hourly && d.since ? `<p class="field-hint tts-analytics-since">按小時的紀錄從 ${escHtml(new Date(d.since).toLocaleString())} 開始，之前的時段顯示為 0。</p>` : '';
-    return `<figure class="tts-analytics-trend"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${escHtml(aria)}">
-      <line x1="${pad}" y1="${h - padB}" x2="${w - pad}" y2="${h - padB}" class="tts-trend-axis"/>${ticks}${bars}
-      <text x="${pad}" y="14" class="tts-trend-label">${max}</text></svg>
-      <figcaption class="tts-analytics-legend">${hourly ? '最近 24 小時（每小時）　' : ''}<span class="tts-legend-starts"></span>朗讀次數　<span class="tts-legend-listeners"></span>收聽人數</figcaption>${since}</figure>`;
+    return `<div class="analytics-share-chart-box tts-analytics-trend">
+      <div class="analytics-share-chart-title">${hourly ? '最近 24 小時（每小時）朗讀次數與收聽人數' : '每日朗讀次數與收聽人數'}</div>
+      <div class="analytics-share-chart" id="analyticsTtsTrendChart"></div>${since}</div>`;
+  }
+
+  function renderTtsAnalyticsTrend(d) {
+    const el = $('analyticsTtsTrendChart');
+    if (!el) return;
+    const hourly = Array.isArray(d.hourly);
+    const rows = hourly ? d.hourly : (d.daily || []);
+    const fmtListen = (ms) => (ms || 0) < 60000 ? `${Math.round((ms || 0) / 1000)} 秒` : fmtTtsDuration(ms);
+    renderInteractiveChart(el, {
+      ariaLabel: hourly ? '最近 24 小時每小時朗讀次數與收聽人數' : '每日朗讀次數與收聽人數',
+      labels: rows.map(r => hourly ? `${r.day} ${r.hour}` : r.day),
+      axisLabels: rows.map(r => hourly ? `${String(r.hour).slice(0, 2)}時` : shareSlotLabel(r.day)),
+      zeroText: '這段期間還沒有朗讀紀錄', emptyText: '這段期間還沒有朗讀紀錄', height: 210,
+      series: [
+        { name: '朗讀次數', tone: 'accent', type: 'bar', values: rows.map(r => r.starts) },
+        { name: hourly ? '收聽人數（當天首次）' : '收聽人數', tone: 'cyan', values: rows.map(r => r.listeners) }
+      ],
+      // 提示框多列幾項明細：播放句數、收聽時間、快取命中、新生成與失敗
+      tooltipExtra: (i) => {
+        const r = rows[i] || {};
+        const look = (r.hits || 0) + (r.misses || 0);
+        const out = [['播放句數', (r.sentences || 0).toLocaleString()], ['收聽時間', fmtListen(r.listenMs)]];
+        if (look) out.push(['快取命中', `${Math.round((r.hits || 0) / look * 100)}%（${(r.hits || 0).toLocaleString()}／${look.toLocaleString()}）`]);
+        if (r.generated) out.push(['新生成', `${r.generated.toLocaleString()} 句・平均 ${((r.genMs || 0) / r.generated / 1000).toFixed(1)} 秒`]);
+        if (r.failed) out.push(['生成失敗', `${r.failed.toLocaleString()} 句`]);
+        return out;
+      }
+    });
   }
 
   async function loadTtsAnalytics() {
@@ -17034,6 +17045,7 @@
         ${ttsAnalyticsTable('結束方式', sortRows(ends, k => TTS_END_LABELS[k] || k), '次')}
       </div>
       ${ttsAnalyticsTable('熱門朗讀文件 Top 20', docs, '次')}`;
+    renderTtsAnalyticsTrend(d);
   }
 
   async function loadAdminAnalytics() {
@@ -17546,6 +17558,16 @@
     if (btn) showAdminPage(btn.dataset.page);
   }
 
+  /**
+   * 沒有卡片燈號的頁面（系統狀態、日誌、數據分析、推薦閱讀…）由這裡回報整頁的燈。
+   * 和卡片燈號一起比較，取最嚴重的那個。
+   */
+  const adminPageLights = {};
+  function setAdminPageLight(page, level, text) {
+    adminPageLights[page] = { level, text: text || '' };
+    updateAdminNavLights();
+  }
+
   /** 導覽上的燈號：取該頁所有卡片裡最嚴重的燈。 */
   let adminNavLightsQueued = false;
   function updateAdminNavLights() {
@@ -17571,8 +17593,14 @@
           }
         });
         if (btn.dataset.page === 'overview') return; // 總覽的燈號由待辦決定
-        dot.className = `admin-nav-light${worst === 'off' ? '' : ` ${worst}`}`;
-        dot.title = worst === 'off' ? '' : ADMIN_LIGHT_LABEL[worst];
+        const pageLight = adminPageLights[btn.dataset.page];
+        if (pageLight && (ADMIN_LIGHT_RANK[pageLight.level] > ADMIN_LIGHT_RANK[worst] || (worst === 'off' && !worstText))) {
+          worst = pageLight.level;
+          worstText = pageLight.text;
+        }
+        // 灰色空心燈＝沒有需要注意的事、或這項功能沒有啟用；讀取完之前也先顯示灰燈
+        dot.className = `admin-nav-light ${worst}`;
+        dot.title = worstText || ADMIN_LIGHT_LABEL[worst] || '';
         btn.dataset.light = worst;
         btn.dataset.lightText = worstText;
       });
@@ -17645,14 +17673,17 @@
     if (count) { count.hidden = !todos.length; count.textContent = String(todos.length); }
     const homeBtn = adminNavItem('overview');
     const homeDot = homeBtn && homeBtn.querySelector('.admin-nav-light');
-    if (homeDot) homeDot.className = `admin-nav-light${todos.length ? ` ${todos[0].level}` : ''}`;
+    if (homeDot) {
+      homeDot.className = `admin-nav-light ${todos.length ? todos[0].level : 'ok'}`;
+      homeDot.title = todos.length ? `${todos.length} 件需要處理` : '目前沒有需要處理的事';
+    }
 
     const pages = $('ovPages');
     if (pages) {
       pages.innerHTML = adminNavItems().filter(b => b.dataset.page !== 'overview' && isAdminNavAvailable(b)).map(b => {
         const lv = b.dataset.light || 'off';
         return `<button type="button" class="ov-page" data-goto-page="${escHtml(b.dataset.page)}">
-          <span class="admin-nav-light${lv === 'off' ? '' : ` ${lv}`}"></span>
+          <span class="admin-nav-light ${lv}"></span>
           <span class="ov-page-label">${escHtml(b.querySelector('.admin-nav-label').textContent)}</span>
           <span class="ov-page-text">${escHtml(b.dataset.lightText || '')}</span></button>`;
       }).join('');
@@ -17682,31 +17713,148 @@
       <div class="ov-trend-axis">${trend.map(d => `<span title="${escHtml(d.date)}：${(d.views || 0).toLocaleString()}">${escHtml(String(d.date).slice(5).replace('-', '/'))}</span>`).join('')}</div>`;
   }
 
-  function renderOverviewHealth(hw, db) {
-    const box = $('ovHealth');
-    if (!box) return;
-    if (!hw) { box.innerHTML = '<div class="ov-empty">無法取得系統狀態</div>'; return; }
+  /** 系統健康的各列：[名稱, 燈號, 數值, 是否算進「系統狀態」頁的燈]。總覽與系統狀態頁共用。 */
+  function adminHealthRows(hw, db) {
     const lvPct = (v, warn, bad) => v >= bad ? 'bad' : v >= warn ? 'warn' : 'ok';
     const rows = [];
     const cpu = Number(hw.cpu && hw.cpu.usagePct) || 0;
-    rows.push(['CPU', lvPct(cpu, 70, 90), `${cpu.toFixed(1)}%`]);
+    rows.push(['CPU', lvPct(cpu, 70, 90), `${cpu.toFixed(1)}%`, true]);
     const mem = hw.memory || {};
-    rows.push(['記憶體', lvPct(Number(mem.rssUsagePct) || 0, 75, 90), formatBytes(mem.rss || 0)]);
+    rows.push(['記憶體', lvPct(Number(mem.rssUsagePct) || 0, 75, 90), formatBytes(mem.rss || 0), true]);
     const disk = hw.storage && hw.storage.vaultFs ? Number(hw.storage.vaultFs.usagePct) || 0 : null;
-    if (disk !== null) rows.push(['磁碟', lvPct(disk, 80, 92), `${disk}%`]);
+    if (disk !== null) rows.push(['磁碟', lvPct(disk, 80, 92), `${disk}%`, true]);
     const idx = hw.index || {};
-    rows.push(['全文索引', idx.ready ? 'ok' : idx.building ? 'warn' : 'bad', idx.ready ? '就緒' : idx.building ? '建立中' : '未建立']);
+    rows.push(['全文索引', idx.ready ? 'ok' : idx.building ? 'warn' : 'bad', idx.ready ? '就緒' : idx.building ? '建立中' : '未建立', true]);
     const di = hw.dictIndex || {};
-    if (di.enabled) rows.push(['辭典索引', di.ready ? 'ok' : di.building ? 'warn' : 'bad', di.ready ? '就緒' : di.building ? '建立中' : '未建立']);
+    if (di.enabled) rows.push(['辭典索引', di.ready ? 'ok' : di.building ? 'warn' : 'bad', di.ready ? '就緒' : di.building ? '建立中' : '未建立', true]);
+    // 每分鐘請求數：原本只在系統狀態頁的「網路流量」裡，總覽也看得到
+    const net = hw.network || {};
+    rows.push(['請求', 'ok', `${(Number(net.requestsPerMin) || 0).toLocaleString()} req/min`, false]);
     if (db) rows.push(['帳號資料庫', db.available ? (db.backupsEnabled ? 'ok' : 'warn') : 'bad',
-      db.available ? (db.backupsEnabled ? `${db.users} 位使用者` : '自動備份未開啟') : '無法使用']);
-    rows.push(['已運作', 'ok', formatUptime(hw.system ? hw.system.processUptime : 0)]);
-    box.innerHTML = rows.map(([label, lv, val]) => `<div class="ov-health-row"><span class="admin-nav-light ${lv}"></span><span>${escHtml(label)}</span><span class="ov-health-val">${escHtml(val)}</span></div>`).join('');
+      db.available ? (db.backupsEnabled ? `${db.users} 位使用者` : '自動備份未開啟') : '無法使用', false]);
+    rows.push(['已運作', 'ok', formatUptime(hw.system ? hw.system.processUptime : 0), false]);
+    return rows;
+  }
+
+  /** 系統狀態頁在導覽上的燈：CPU、記憶體、磁碟、索引裡最嚴重的那個。 */
+  function updateHardwarePageLight(hw) {
+    if (!hw) { setAdminPageLight('hardware', 'warn', '無法取得系統狀態'); return; }
+    const rows = adminHealthRows(hw, null).filter(r => r[3]);
+    const worst = rows.reduce((a, r) => (ADMIN_LIGHT_RANK[r[1]] > ADMIN_LIGHT_RANK[a] ? r[1] : a), 'ok');
+    const notes = rows.filter(r => r[1] === worst && worst !== 'ok').map(r => `${r[0]} ${r[2]}`);
+    setAdminPageLight('hardware', worst, notes.length ? notes.join('、') : `CPU ${rows[0][2]}・記憶體 ${rows[1][2]}`);
+  }
+
+  function renderOverviewHealth(hw, db) {
+    const box = $('ovHealth');
+    updateHardwarePageLight(hw);
+    if (!box) return;
+    if (!hw) { box.innerHTML = '<div class="ov-empty">無法取得系統狀態</div>'; return; }
+    box.innerHTML = adminHealthRows(hw, db).map(([label, lv, val]) => `<div class="ov-health-row"><span class="admin-nav-light ${lv}"></span><span>${escHtml(label)}</span><span class="ov-health-val">${escHtml(val)}</span></div>`).join('');
+  }
+
+  // ── 總覽：朗讀預先生成 ──
+  // 有預先生成的工作（生成中、排隊中、已暫停）時才出現，可以直接暫停、繼續；
+  // 和「朗讀」頁的預先生成工作清單用同一組 API（/api/admin/tts/jobs）。
+  const OV_PREGEN_ACTIVE = ['running', 'queued', 'paused'];
+  let ovPregenTimer = null;
+  let ovPregenWired = false;
+
+  async function loadOverviewPregen() {
+    clearTimeout(ovPregenTimer);
+    if (!$('ovPregenCard')) return;
+    const r = await ttsAdminApi('/api/admin/tts/jobs').catch(() => null);
+    renderOverviewPregen(r && r.ok ? r.data : null);
+  }
+
+  function renderOverviewPregen(d) {
+    const card = $('ovPregenCard');
+    const list = $('ovPregenList');
+    if (!card || !list) return;
+    clearTimeout(ovPregenTimer);
+    const rank = { running: 0, queued: 1, paused: 2 };
+    const jobs = ((d && d.jobs) || []).filter(j => OV_PREGEN_ACTIVE.includes(j.state))
+      .sort((a, b) => (rank[a.state] - rank[b.state]) || (a.id - b.id));
+    card.hidden = !jobs.length;
+    if (!jobs.length) { list.innerHTML = ''; return; }
+    const voices = (ttsAdmin.data && ttsAdmin.data.settings && ttsAdmin.data.settings.voices) || [];
+    const vname = (id) => { const v = voices.find(x => x.id === id); return v ? (v.name || v.voice) : id; };
+    const count = (st) => jobs.filter(j => j.state === st).length;
+    const parts = [];
+    if (count('running')) parts.push(`${count('running')} 個生成中`);
+    if (count('queued')) parts.push(`${count('queued')} 個排隊`);
+    if (count('paused')) parts.push(`${count('paused')} 個已暫停`);
+    $('ovPregenSub').textContent = parts.join('・');
+    const canPause = jobs.some(j => j.state !== 'paused');
+    const canResume = jobs.some(j => j.state === 'paused');
+    $('ovPregenAll').innerHTML = jobs.length > 1
+      ? (canPause ? '<button type="button" class="modal-btn cancel-btn small-btn" data-ov-job-all="pause">⏸ 全部暫停</button>' : '')
+        + (canResume ? '<button type="button" class="modal-btn cancel-btn small-btn" data-ov-job-all="resume">▶ 全部繼續</button>' : '')
+      : '';
+    let ahead = count('running');
+    list.innerHTML = jobs.map(j => {
+      const cur = j.current && j.current.total ? j.current : null;
+      const frac = j.files ? Math.min(1, (j.fileIndex + (cur ? cur.done / cur.total : 0)) / j.files) : 0;
+      const pct = Math.floor(frac * 100);
+      let stateLabel = TTS_JOB_STATE[j.state] || j.state;
+      if (j.state === 'queued') { stateLabel = ahead ? `排隊中（前面還有 ${ahead} 個）` : '排隊中'; ahead++; }
+      const kept = Math.max(0, j.sentencesDone - j.generated - j.failed);
+      const detail = [`第 ${Math.min(j.fileIndex + 1, j.files)}／${j.files} 篇`, `已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、原本已有 ${kept.toLocaleString()}${j.failed ? `、失敗 ${j.failed}` : ''}）`];
+      if (cur) detail.push(`目前：${cur.label || String(cur.file || '').split('/').pop()} ${cur.done}／${cur.total} 句`);
+      const pause = j.state !== 'paused';
+      const who = `${j.scope} ${vname(j.voice)}`;
+      return `<div class="ov-pregen-row is-${j.state}" data-job="${j.id}">
+        <div class="ov-pregen-main">
+          <div class="ov-pregen-head"><strong>${escHtml(j.scope)}</strong><span class="ov-todo-page">${escHtml(vname(j.voice))}</span><span class="ov-pregen-state">${escHtml(stateLabel)}</span><span class="ov-pregen-pct">${pct}%</span></div>
+          <progress max="100" value="${pct}" aria-label="${escHtml(`${who} 進度 ${pct}%`)}"></progress>
+          <small>${escHtml(detail.join('・'))}${j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</small>
+        </div>
+        <button type="button" class="modal-btn ${pause ? 'cancel-btn' : 'submit-btn'} small-btn" data-ov-job-action="${pause ? 'pause' : 'resume'}" aria-label="${escHtml(`${pause ? '暫停' : '繼續'}：${who}`)}">${pause ? '⏸ 暫停' : '▶ 繼續'}</button>
+      </div>`;
+    }).join('');
+    if (jobs.some(j => j.state !== 'paused') && adminCurrentPage === 'overview') {
+      ovPregenTimer = setTimeout(() => { if (adminCurrentPage === 'overview') loadOverviewPregen(); }, 5000);
+    }
+  }
+
+  function wireOverviewPregen() {
+    if (ovPregenWired || !$('ovPregenCard')) return;
+    ovPregenWired = true;
+    $('ovPregenCard').addEventListener('click', async (e) => {
+      const one = e.target.closest('[data-ov-job-action]');
+      const all = e.target.closest('[data-ov-job-all]');
+      if (!one && !all) return;
+      const btn = one || all;
+      btn.disabled = true;
+      let ids;
+      let action;
+      if (one) {
+        ids = [one.closest('[data-job]').dataset.job];
+        action = one.dataset.ovJobAction;
+      } else {
+        action = all.dataset.ovJobAll;
+        ids = Array.from(document.querySelectorAll('#ovPregenList [data-job]'))
+          .filter(row => (action === 'resume') === row.classList.contains('is-paused'))
+          .map(row => row.dataset.job);
+      }
+      let last = null;
+      for (const id of ids) {
+        const r = await ttsAdminApi(`/api/admin/tts/jobs/${id}`, { method: 'POST', body: { action } });
+        if (!r.ok) { showToast(`❌ ${r.data.error || '操作失敗'}`, 'error'); break; }
+        last = r.data;
+      }
+      if (last) {
+        renderOverviewPregen(last);
+        showToast(action === 'pause' ? '⏸ 已暫停預先生成' : '▶ 已繼續預先生成', 'success', 2500);
+      } else btn.disabled = false;
+    });
   }
 
   async function loadAdminOverview() {
     renderAdminOverviewStatus();
-    refreshTtsAdminLight().then(renderAdminOverviewStatus); // 朗讀服務連不上時列入待處理
+    wireOverviewPregen();
+    // 朗讀服務連不上時列入待處理；音色名稱讀到之後再畫預先生成
+    refreshTtsAdminLight().then(() => { renderAdminOverviewStatus(); loadOverviewPregen(); });
     const web = !state.isSingleUser;
     const get = async (url) => {
       try { const r = await fetch(url); return r.ok ? await r.json() : null; } catch (_) { return null; }
@@ -17733,6 +17881,7 @@
       $('ovKpiUsersNote').textContent = c ? `未驗證 ${c.unverified}・停用 ${c.disabled}` : '';
       renderOverviewTrend(trend);
       adminOverviewExtra.adminNeedsEmail = !!(ov && ov.adminNeedsEmail);
+      updateAnalyticsPageLight(today);
     }
     renderOverviewHealth(hw, ov && ov.database);
     renderAdminOverviewStatus();
@@ -17751,7 +17900,72 @@
     }
     await Promise.allSettled(jobs);
     renderAdminOverviewStatus();
+    // 等上面那一批讀完再一個一個讀，不然打開後台的瞬間請求太多，會撞到每秒 30 次的 API 限速
+    await preloadAdminPageLights();
   }
+
+  /** 日誌頁的燈：近 24 小時有錯誤就亮黃燈。 */
+  function updateLogsPageLight(data) {
+    if (!data) { setAdminPageLight('logs', 'warn', '無法讀取系統日誌'); return; }
+    const since = Date.now() - 24 * 3600 * 1000;
+    const errs = (Array.isArray(data.logs) ? data.logs : []).filter(l => l && l.level === 'ERROR' && Date.parse(l.timestamp) >= since).length;
+    setAdminPageLight('logs', errs ? 'warn' : 'ok', errs ? `近 24 小時有 ${errs} 筆錯誤` : '近 24 小時沒有錯誤');
+  }
+
+  /** 數據分析頁的燈：讀得到今天的數據就是綠燈。 */
+  function updateAnalyticsPageLight(today) {
+    if (!today || !today.summary) { setAdminPageLight('analytics', 'warn', '無法讀取數據分析'); return; }
+    setAdminPageLight('analytics', 'ok', `今日 ${(today.summary.totalViews || 0).toLocaleString()} 次閱讀`);
+  }
+
+  function updateReadingPageLight() {
+    const theme = $('settingsTheme');
+    const font = $('settingsFontSize');
+    const themeName = theme && theme.selectedOptions[0] ? theme.selectedOptions[0].textContent.trim() : '';
+    setAdminCardLight('reading', 'ok', `預設${themeName ? `主題 ${themeName}` : '主題'}${font && font.value ? `・字級 ${font.value}` : ''}`);
+  }
+
+  /**
+   * 沒有卡片燈號的頁面：打開後台時在背後各讀一次，導覽的紅綠燈才會一開始就齊全
+   * （系統狀態、日誌、數據分析、推薦閱讀、聽經目錄、朗讀、讀音校正）。
+   */
+  async function preloadAdminPageLights() {
+    const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const get = async (url) => {
+      for (let n = 0; n < 3; n++) {
+        try {
+          const r = await fetch(url);
+          if (r.status === 429) { await wait(1100); continue; }
+          return r.ok ? await r.json() : null;
+        } catch (_) { return null; }
+      }
+      return null;
+    };
+    const steps = [];
+    if (adminCurrentPane !== 'hardware' && adminCurrentPane !== 'overview') steps.push(() => get('/api/admin/hardware').then(updateHardwarePageLight));
+    if (adminCurrentPane !== 'logs') steps.push(() => get('/api/admin/logs').then(updateLogsPageLight));
+    if (!state.isSingleUser && adminCurrentPane !== 'overview' && adminCurrentPane !== 'analytics') {
+      steps.push(() => get(`/api/admin/analytics?range=1d&tz=${encodeURIComponent(getEffectiveTimezone())}`).then(updateAnalyticsPageLight));
+    }
+    if (adminCurrentPane !== 'suggest') steps.push(() => loadDailyVerseStatus());
+    if (adminCurrentPane !== 'listen') {
+      steps.push(() => ttsAdminApi('/api/admin/listen/catalog').then(r => {
+        if (r.ok) updateListenCatalogLight(r.data);
+        else setAdminCardLight('listenlist', 'bad', r.data.error || '無法載入');
+      }));
+    }
+    if (adminCurrentPane !== 'tts') {
+      if (adminCurrentPane !== 'overview') steps.push(() => refreshTtsAdminLight());
+      steps.push(() => refreshTtsReportsLight());
+    }
+    // 打開後台的第一秒已經有幾十個請求：先等過這一秒，之後每項間隔一下，避免撞到每秒 30 次的限速
+    await wait(1100);
+    for (const step of steps) {
+      try { await step(); } catch (_) { /* 單一頁讀不到不影響其他頁 */ }
+      await wait(120);
+    }
+  }
+
 
   /** 左欄底部顯示目前登入的管理員；單機模式沒有登入，也就沒有登出。 */
   function renderAdminSideUser() {
@@ -18508,6 +18722,7 @@
     } catch (_) {
       light.className = 'status-light warn';
       text.textContent = '無法讀取經句來源';
+      setAdminPageLight('suggest', 'warn', '無法讀取每日經句來源');
       light.setAttribute('aria-label', '狀態：無法讀取經句來源');
       return null;
     }
@@ -18546,6 +18761,7 @@
     light.setAttribute('aria-label', `狀態：${ADMIN_LIGHT_LABEL[level] || ''}，${msg}`);
     text.textContent = msg;
     text.title = d.current ? `目前：${d.current.text}${d.current.source ? `《${d.current.source}》` : ''}` : '';
+    setAdminPageLight('suggest', level, `每日經句：${msg}`);
     return d;
   }
 
@@ -19288,6 +19504,19 @@
     else $('adminTtsJobs').innerHTML = `<div class="field-hint">${escHtml(r.data.error || '無法讀取預先生成工作')}</div>`;
   }
 
+  /** 讀音校正頁的燈：有讀者回報「念錯了」還沒處理就亮黃燈（處理完的回報會被移除）。 */
+  function updateTtsReportsLight(list) {
+    const n = (list || []).length;
+    setAdminCardLight('ttslexicon', n ? 'warn' : 'ok', n ? `${n} 則讀者回報念錯，待處理` : '沒有待處理的讀者回報');
+  }
+
+  async function refreshTtsReportsLight() {
+    const d = ttsAdmin.data;
+    if (d && !(d.settings.enabled || (d.settings.baseUrl && d.settings.model))) { setAdminCardLight('ttslexicon', 'off', '朗讀尚未設定'); return; }
+    const r = await ttsAdminApi('/api/admin/tts/reports');
+    if (r.ok) updateTtsReportsLight(r.data.reports || []);
+  }
+
   /** 讀音校正：讀者回報念錯的句子。 */
   async function loadTtsAdminReports() {
     const tb = $('adminTtsReports') && $('adminTtsReports').querySelector('tbody');
@@ -19295,6 +19524,7 @@
     const r = await ttsAdminApi('/api/admin/tts/reports');
     if (!r.ok) { tb.innerHTML = `<tr><td colspan="6" class="field-hint">${escHtml(r.data.error || '無法讀取')}</td></tr>`; return; }
     const list = r.data.reports || [];
+    updateTtsReportsLight(list);
     const vname = Object.fromEntries((r.data.voices || []).map(v => [v.id, v.name]));
     // 音色：回報當時記下的名稱優先（之後改名或移除仍看得出是哪個聲音），舊的回報只有 id 時用目前的名稱
     for (const x of list) x.voiceLabel = x.voiceName || (x.voice && vname[x.voice]) || x.voice || '';
@@ -19697,11 +19927,17 @@
     lcAdmin.detect = null; lcAdmin.detectKey = '';
     renderLcAdmin();
     lcMarkDirty();
-    const bad = Object.values(lcAdmin.status).filter(s => !s.ok).length;
-    const warn = Object.values(lcAdmin.status).filter(s => s.ok && s.issues && s.issues.length).length;
+    updateListenCatalogLight(data);
+  }
+
+  /** 經目卡片（與導覽「聽經目錄」）的燈號：找不到檔案是紅燈、品卷對不到是黃燈。 */
+  function updateListenCatalogLight(data) {
+    const status = Object.values(data.status || {});
+    const bad = status.filter(s => !s.ok).length;
+    const warn = status.filter(s => s.ok && s.issues && s.issues.length).length;
     if (bad) setAdminCardLight('listenlist', 'bad', `${bad} 部經找不到檔案`);
     else if (warn) setAdminCardLight('listenlist', 'warn', `${warn} 部經有品卷對不到`);
-    else setAdminCardLight('listenlist', 'ok', `${lcAdmin.cat.items.filter(i => i.enabled !== false).length} 部經顯示中${data.seeded ? '（預設經目，尚未存檔）' : ''}`);
+    else setAdminCardLight('listenlist', 'ok', `${((data.catalog && data.catalog.items) || []).filter(i => i.enabled !== false).length} 部經顯示中${data.seeded ? '（預設經目，尚未存檔）' : ''}`);
   }
 
   function lcLight(it) {
@@ -20199,13 +20435,22 @@
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    try {
-      const res = await fetch(url, opts);
-      let data = {};
-      try { data = await res.json(); } catch (_) {}
-      return { ok: res.ok, status: res.status, data };
-    } catch (_) {
-      return { ok: false, status: 0, data: { error: '網路連線失敗，請稍後再試' } };
+    for (let n = 0; ; n++) {
+      try {
+        const res = await fetch(url, opts);
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+        // 全站 API 限速（每秒 30 次）擋下的讀取：等一秒再讀。打開後台時各頁同時預載，
+        // 以前這些請求被擋掉後燈號就缺了（寄信、登入方式、條款等顯示成灰燈）。
+        // 只重試 GET，登入等動作自己的限速（另有錯誤碼）不在此列。
+        if (res.status === 429 && method === 'GET' && n < 2 && data && data.error === 'Too Many Requests') {
+          await new Promise(r => setTimeout(r, 1100 + n * 400));
+          continue;
+        }
+        return { ok: res.ok, status: res.status, data };
+      } catch (_) {
+        return { ok: false, status: 0, data: { error: '網路連線失敗，請稍後再試' } };
+      }
     }
   }
 
@@ -21694,6 +21939,9 @@
       const header = card.querySelector('.config-card-header');
       if (!header) return;
       card.dataset.lightsReady = '1';
+      // HTML 裡已經寫好燈號的卡片（朗讀服務、音檔快取、經目）不要再補一顆：
+      // 兩顆燈都用 margin-left:auto，會把看得見的那顆擠到標題列正中間。
+      if (header.querySelector(':scope > .status-light')) { setAdminCardCollapsed(card, false, false); renderAdminCardLight(card.dataset.card); return; }
       const light = document.createElement('span');
       light.className = 'status-light off';
       light.setAttribute('role', 'img');
@@ -21745,7 +21993,7 @@
     const L = setAdminCardLight;
     L('site', !val('settingsMdRoot') ? 'bad' : !val('settingsSiteUrl') ? 'warn' : 'ok',
       !val('settingsMdRoot') ? '尚未設定經文目錄' : !val('settingsSiteUrl') ? '未設定網站網址（影響驗證信連結與 SEO）' : '經文目錄與網址都已設定');
-    L('reading', 'off');
+    updateReadingPageLight();
     const footerIssues = [];
     if (val('settingsEnableDownload') && !val('settingsDownloadUrl')) footerIssues.push('已開啟離線下載但沒有填下載網址');
     if (val('settingsEnableDictionary') && !val('settingsDictionaryPath')) footerIssues.push('已開啟辭典但沒有填辭典路徑');

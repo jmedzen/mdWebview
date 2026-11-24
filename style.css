@@ -6912,6 +6912,8 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
 .admin-nav-light.ok { background: #2e9e5b; }
 .admin-nav-light.warn { background: #e0a100; }
 .admin-nav-light.bad { background: #d64545; }
+/* 灰色空心燈：這頁沒有需要注意的事，或這項功能沒有啟用（例如選用的登入方式、Turnstile） */
+.admin-nav-light.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-muted); opacity: 0.55; }
 
 .admin-nav-chev {
   display: none;
@@ -7762,6 +7764,95 @@ html:not([data-deploy-target="single-user"]):not([data-deploy-target="win-app"])
   border-radius: 9px;
   padding: 0 7px;
   white-space: nowrap;
+}
+
+/* 總覽：朗讀預先生成（有工作時才出現） */
+.ov-pregen-all {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ov-pregen-all:empty {
+  display: none;
+}
+
+.ov-pregen-all + .ov-link {
+  margin-left: 6px;
+}
+
+.ov-pregen-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ov-pregen-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ov-pregen-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.ov-pregen-head .ov-todo-page {
+  margin-left: 0;
+}
+
+.ov-pregen-state {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.ov-pregen-row.is-running .ov-pregen-state {
+  color: var(--status-ok, #2e9e5b);
+  font-weight: 600;
+}
+
+.ov-pregen-row.is-paused .ov-pregen-state {
+  color: var(--status-warn, #e0a100);
+  font-weight: 600;
+}
+
+.ov-pregen-pct {
+  margin-left: auto;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-pregen-main progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+
+.ov-pregen-main small {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ov-pregen-row > .modal-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .ov-pregen .ov-title {
+    flex-wrap: wrap;
+  }
 }
 
 .ov-kpis {
@@ -10517,6 +10608,13 @@ linearGradient[class*="ichart-tone-"] .trend-grad-2 { stop-color: currentColor; 
 }
 
 .chart-tt-swatch[class*="ichart-tone-"] { background: currentColor; }
+
+.chart-tt-extra { color: var(--text-secondary); }
+.chart-tt-extra.is-first {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border-subtle);
+}
 
 .chart-tt-total {
   margin-top: 2px;
@@ -13487,16 +13585,7 @@ body.tts-chant-open { overflow: hidden; }
 .tts-analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
 .tts-analytics-sub { margin: 0 0 8px; font-size: 0.95em; color: var(--text-secondary); }
 .tts-analytics-trend { margin: 16px 0 0; }
-.tts-analytics-trend svg { width: 100%; height: auto; max-height: 180px; display: block; }
-.tts-trend-starts { fill: var(--tts-accent); opacity: 0.85; }
-.tts-trend-listeners { fill: var(--bg-secondary); stroke: var(--text-primary); stroke-width: 1.5; }
-.tts-trend-axis { stroke: var(--border); }
-.tts-trend-daysep { stroke: var(--border); stroke-dasharray: 3 3; }
 .tts-analytics-since { margin: 4px 0 0; }
-.tts-trend-label { font-size: 11px; fill: var(--text-muted); }
-.tts-analytics-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
-.tts-legend-starts, .tts-legend-listeners { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--tts-accent); }
-.tts-legend-listeners { border-radius: 50%; background: var(--bg-secondary); border: 1.5px solid var(--text-primary); margin-left: 8px; }
 
 /* ── 無障礙：側欄樹狀列（檔案樹、大綱、搜尋結果）的鍵盤焦點框 ── */
 #fileTree [role="treeitem"]:focus-visible,
