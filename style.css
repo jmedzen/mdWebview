@@ -13596,8 +13596,6 @@ body.tts-chant-open { overflow: hidden; }
 .lc-tool { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
 .lc-in { font: inherit; font-size: 14px; background: var(--input-bg, var(--bg-primary)); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0; }
 .lc-in:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.lc-catname { font-size: 12px; color: var(--text-muted); margin: 12px 0 4px; letter-spacing: .08em; }
-.lc-catname span { letter-spacing: 0; }
 .lc-rows { list-style: none; margin: 0; padding: 0; }
 .lc-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 8px; }
 .lc-row.sel { background: var(--active-bg, var(--hover-bg)); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -13609,11 +13607,32 @@ body.tts-chant-open { overflow: hidden; }
 .lc-row-name:focus-visible, .lc-mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lc-mini { font: inherit; font-size: 13px; min-width: 32px; min-height: 32px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 .lc-mini:disabled { opacity: .35; cursor: default; }
-.lc-cats { border: 1px dashed var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.lc-cat-edit { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.lc-cat-edit li { display: flex; gap: 6px; align-items: center; }
-.lc-cat-edit .lc-in { flex: 1; width: 0; }
-.lc-cat-edit .lc-in-note { flex: 1.3; }
+/* 群組：清單上直接改名、排序、刪除、加經 */
+.lc-totals { margin: 0 0 4px; }
+.lc-group { border-top: 1px solid var(--border-subtle, var(--border)); padding: 8px 0 6px; }
+.lc-group:first-child { border-top: 0; }
+.lc-group-head { display: flex; align-items: center; gap: 4px; margin: 2px 0 4px; }
+.lc-group-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text-secondary); letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-group-title small { font-weight: 400; color: var(--text-muted); margin-left: 6px; letter-spacing: 0; }
+.lc-group-count { flex: none; font-size: 12px; color: var(--text-muted); margin-right: 2px; }
+.lc-group-head.bad .lc-group-title { color: var(--danger); }
+.lc-group-head .lc-mini { min-width: 30px; min-height: 30px; font-size: 12px; }
+.lc-group-edit { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 8px; margin: 2px 0 6px; border: 1px dashed var(--accent); border-radius: 10px; }
+.lc-group-edit label { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-secondary); }
+.lc-group-edit .lc-in[aria-invalid="true"] { border-color: var(--danger); }
+.lc-group-edit .modal-btn { justify-self: end; }
+.lc-mini.cross { border-style: dashed; }
+.lc-add-in { font: inherit; font-size: 12.5px; color: var(--text-muted); background: transparent; border: 1px dashed transparent; border-radius: 8px; padding: 6px 8px; margin-top: 2px; cursor: pointer; min-height: 32px; }
+.lc-add-in:hover, .lc-add-in:focus-visible { color: var(--accent); border-color: var(--border); outline: none; }
+.lc-issues { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-top: 12px; background: var(--bg-secondary); font-size: 13px; }
+.lc-issues[hidden] { display: none; }
+.lc-issues-title { margin: 0 0 4px; font-weight: 600; }
+.lc-issues ul { margin: 0; padding-left: 18px; }
+.lc-issues li.err { color: var(--danger); }
+.lc-issues li.warn { color: var(--text-secondary); }
+.lc-issues li.warn::marker { color: var(--status-warn, #e0a100); }
+.lc-issue-go { font: inherit; color: inherit; background: none; border: 0; padding: 3px 0; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+@media (hover: none) { .lc-group-head .lc-mini, .lc-add-in { min-height: 40px; } .lc-group-head .lc-mini { min-width: 36px; } }
 .lc-edit-title { margin: 0 0 12px; font-size: 17px; }
 .lc-form { display: grid; grid-template-columns: 96px 1fr; gap: 10px 12px; align-items: center; }
 .lc-form > label, .lc-form .lc-label { color: var(--text-secondary); font-size: 13.5px; align-self: start; padding-top: 8px; }
