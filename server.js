@@ -4614,6 +4614,11 @@ async function handleShareCardImage(req, res, query) {
       // 瀏覽器開發工具「Timing」看得到：解碼背景圖／畫圖／JPEG 編碼各花幾毫秒（快取命中則只有 cache）
       'Server-Timing': shareCardServerTiming(timing)
     }, SECURITY_HEADERS);
+    // dl=1：手機「存圖片」的「直接下載」按鈕。用 attachment 讓瀏覽器（含華為瀏覽器）交給下載管理員存檔
+    if (query.dl === '1') {
+      const fn = `share-card-${p.date}-${p.layout}${p.base !== 'cream' ? `-${p.base}` : ''}.${p.webp ? 'webp' : 'jpg'}`;
+      headers['Content-Disposition'] = `attachment; filename="${fn.replace(/[^\w.-]/g, '')}"`;
+    }
     // og 尺寸 = 分享連結的預覽圖（LINE／FB 預覽機器人來抓）；面板內的直式預覽不記，
     // 它們是每次打開面板自動畫的，真正的分享動作由前端回報。
     if (p.size === 'og' && req.method === 'GET') {
