@@ -2233,7 +2233,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | `GET /api/listen/catalog` | 讀者端：`{ categories, items: [{ id, name, sub, cat, path, line, endLine, lastLine, chars, unit, parts: [{ t, juan, line, endLine, chars }] }] }`。只列顯示中且檔案存在的經；空的分類不列。`endLine`＝停止的行（不含），0＝讀到檔尾 |
 | `GET /api/listen/ready?voice=` | 讀者端：每部經在該音色下已生成的百分比 `{ available, items: { <id>: 0–100 } }`，依音色快取 10 分鐘。前端只在 `canGenerate:false`（訪客）時查詢，在目錄上標「可直接聽」「已備好 N%」「登入後可聽」 |
 | `GET /api/admin/listen/catalog` | 後台：完整目錄＋每部經的解析結果與問題（`status[id].issues`：`missing`、`range-start`、`range-end`、`part:<文字>`） |
-| `POST /api/admin/listen/catalog {catalog}` | 驗證後存檔（`sanitizeCatalog`：沒有名稱或不是 `.md` 的丟掉、未知分類歸第一類、id 重複會換掉；上限 200 部、每部 400 段、30 類） |
+| `POST /api/admin/listen/catalog {catalog}` | 先 `validateCatalog()`：有錯誤回 400 `{ code:'INVALID_CATALOG', errors, warnings }` 不存；再存檔（`sanitizeCatalog`：沒有名稱或不是 `.md` 的丟掉、未知分類歸第一類、id 重複會換掉；上限 200 部、每部 400 段、30 類） |
 | `POST /api/admin/listen/catalog/reset` | 回到預設經目 |
 | `POST /api/admin/listen/detect {path, split, range, parts}` | 不存檔，依目前（還沒存的）設定偵測；另回傳所有可當錨點的標題與獨立成行的「…第N」，供手動分段與節錄挑選 |
 | `GET /api/admin/listen/coverage?voice=` | 每部經在某音色下已生成幾句（`tts.coverage()`，重複句只算一次） |
@@ -2259,7 +2259,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 
 ### 25.6 後台（`app.js` §21.9、`#adminPaneListen`）
 
-「網站」群組的「🎧 聽經目錄」。左邊經目依分類分組（燈號：綠正常、黃有錨點對不到、紅找不到檔案；刪除線＝不顯示；↑↓ 在同一分類內排序，鍵盤可用）；「分類…」可改名、加說明、排序、刪除空的分類。右邊編輯選取的經（名稱、副標、分類、檔案（`datalist` 列出全部經文）、顯示、範圍、分段方式），品卷表可改名、取消收錄、看起點（連到經文該行），手動模式可從標題清單加一段或刪除。最下面是預先生成這部經（預設音色、可釘選）；整個目錄只有一個入口：按鈕帶到「朗讀（TTS）」頁的 🎧 區（可選音色、先估算）。編輯的是本地副本，按「儲存」才送出（不走底部儲存列，輸入框都標 `data-no-dirty`）。
+「網站」群組的「🎧 聽經目錄」。左邊經目依群組（＝讀者頁的分類）分組，群組直接在清單上編輯：標題列 ✎ 原地改名稱與說明（Enter／Esc／「完成」收起）、⇡⇣ 整組排序、✕ 刪除（裡面還有經時確認後移到相鄰的群組，順序不變）、每組底下「＋ 加入經到「X」」；工具列「＋ 新增群組」。經的 ↑↓ 在群組內排序，排到群組頭尾再按一次就移到上一組的最後／下一組的最前（按鈕是虛線框，`aria-label` 說出目的群組）；右邊改「群組」選單也會把經排到新群組的最後。燈號：綠正常、黃有錨點對不到、紅找不到檔案或要先修正；刪除線＝不顯示。清單上方顯示「N 個群組・N 部經顯示中・全部讀完約 X」（字數用上次儲存時伺服器算的）。存檔前 `lcValidate()`（和伺服器 `validateCatalog()` 同規則，測試用同一批案例比對兩邊）：群組名稱空白或重複、經沒有名稱、檔案不是 `.md`、群組不存在＝錯誤，擋住儲存並列在儲存列上方（點一下跳到那個群組或經）；同檔同段重複、群組沒有顯示中的經＝提醒。存好後清掉讀者頁快取與朗讀頁「預先生成聽經目錄」的舊估算。右邊編輯選取的經（名稱、副標、分類、檔案（`datalist` 列出全部經文）、顯示、範圍、分段方式），品卷表可改名、取消收錄、看起點（連到經文該行），手動模式可從標題清單加一段或刪除。最下面是預先生成這部經（預設音色、可釘選）；整個目錄只有一個入口：按鈕帶到「朗讀（TTS）」頁的 🎧 區（可選音色、先估算）。編輯的是本地副本，按「儲存」才送出（不走底部儲存列，輸入框都標 `data-no-dirty`）。
 
 
 ## 26. 罕見字：顯示與朗讀
