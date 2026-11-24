@@ -272,3 +272,77 @@ describe('後台：聽經目錄一次預先生成（app.js §21.8）', () => {
     assert.match(app, /聲音被截斷/);
   });
 });
+
+describe('經文起訖：略過他人寫的序與經後附錄（autoBounds）', () => {
+  /** 仿大正藏心經：CBETA 檔頭、兩篇序（含作者行「…撰」）、經名＋譯者、經文、經名、品目清單。 */
+  function heart() {
+    return ['//【經文資訊】大正藏第 8 冊 No. 251 般若波羅蜜多心經', '', 'No. 251 [Nos. 250, 252-255, 257]',
+      '大明太祖高皇帝御製般若心經序', '', '二儀久判，萬物備周，子民者君君，育民者法其法也。',
+      '', '般若波羅蜜多心經序', '', '唐釋慧忠撰', '', '夫法性無邊，豈藉心之所度；真如非相，詎假言之所詮。',
+      '', '般若波羅蜜多心經', '', '唐三藏法師玄奘譯', '', '觀自在菩薩行深般若波羅蜜多時，照見五蘊皆空，度一切苦厄。',
+      '', '「揭帝　揭帝　般羅揭帝　般羅僧揭帝　菩提　僧莎訶」', '', '般若波羅蜜多心經',
+      '', '大明太祖高皇帝御製序', '般若波羅蜜多心經序', ''].join('\n');
+  }
+  const item = (extra) => Object.assign({ id: 'h', name: '心經', path: 'x.md', split: 'auto', range: null, parts: [] }, extra || {});
+  const lineOf = (text, s) => text.split('\n').indexOf(s) + 1;
+
+  test('從「經名＋譯者」讀起，讀到最後一個經名行為止；後台看得到略過了什麼', () => {
+    const t = heart(); const e = entryOf(t, 'x.md');
+    const r = resolveItem(item(), e);
+    assert.equal(r.line, lineOf(t, '般若波羅蜜多心經'));
+    assert.equal(r.endLine, lineOf(t, '大明太祖高皇帝御製序'));
+    assert.equal(r.skipped.head.line, lineOf(t, '大明太祖高皇帝御製般若心經序'));
+    assert.equal(r.skipped.head.endLine, r.line);
+    assert.ok(r.skipped.head.chars > 30);
+    assert.equal(r.skipped.tail.text, '大明太祖高皇帝御製序');
+  });
+
+  test('trim:false 整個檔案都讀（舊行為）', () => {
+    const e = entryOf(heart(), 'x.md');
+    const r = resolveItem(item({ trim: false }), e);
+    assert.equal(r.endLine, 0);
+    assert.equal(r.skipped.head, null);
+    assert.ok(r.chars > resolveItem(item(), e).chars);
+  });
+
+  test('沒有序的經（經名＋譯者就在開頭）範圍不變、不報略過', () => {
+    const t = ['No. 366', '佛說阿彌陀經', '', '姚秦龜茲三藏鳩摩羅什譯', '', '如是我聞：一時，佛在舍衛國。', '', '佛說阿彌陀經', ''].join('\n');
+    const r = resolveItem(item(), entryOf(t, 'x.md'));
+    assert.equal(r.line, 2); assert.equal(r.endLine, 0);
+    assert.equal(r.skipped.head, null); assert.equal(r.skipped.tail, null);
+  });
+
+  test('經末卷名行（「維摩詰經卷下」）之後的品目清單不讀；經名帶夾注也認得', () => {
+    const t = ['維摩詰所說經(一名不可思議解脫上卷)', '', '姚秦三藏鳩摩羅什譯', '', '## 佛國品第一', '', '如是我聞：一時，佛在毘耶離菴羅樹園。',
+      '', '## 維摩詰經卷下', '', '1 佛國品', '2 方便品', ''].join('\n');
+    const r = resolveItem(item(), entryOf(t, 'x.md'));
+    assert.equal(r.line, 1);
+    assert.equal(r.endLine, lineOf(t, '1 佛國品'));
+  });
+
+  test('沒有譯者行就不動起點；序作者行「…撰」「…述」不算譯者行', () => {
+    const t = ['某某序', '', '唐終南山釋道宣述', '', '序文，說明來歷。', '', '經文第一段，如是我聞。', ''].join('\n');
+    const r = resolveItem(item(), entryOf(t, 'x.md'));
+    assert.equal(r.line, 1); assert.equal(r.skipped.head, null);
+  });
+
+  test('節錄指定了終點就不套用；只指定起點時仍截掉經後附錄', () => {
+    const t = heart(); const e = entryOf(t, 'x.md');
+    const from = { head: '般若波羅蜜多心經', line: lineOf(t, '般若波羅蜜多心經') };
+    const a = resolveItem(item({ range: { from, to: null } }), e);
+    assert.equal(a.line, from.line); // 起點照節錄
+    assert.equal(a.endLine, lineOf(t, '大明太祖高皇帝御製序'));
+    const b = resolveItem(item({ range: { from, to: { head: '大明太祖高皇帝御製序', line: 99 } } }), e);
+    assert.equal(b.line, from.line); assert.equal(b.endLine, lineOf(t, '大明太祖高皇帝御製序'));
+    assert.equal(b.skipped.tail, null);
+  });
+
+  test('存檔保留 trim；預設經目都是 trim:true；後台有開關與說明', () => {
+    const c = lc.sanitizeCatalog({ categories: [{ id: 'a', name: 'A' }], items: [{ name: 'x', path: 'a.md', cat: 'a', trim: false }, { name: 'y', path: 'b.md', cat: 'a' }] });
+    assert.equal(c.items[0].trim, false); assert.equal(c.items[1].trim, true);
+    assert.ok(defaultCatalog().items.every(i => i.trim === true));
+    const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    assert.match(app, /data-lc-f="trim"/);
+    assert.match(app, /function lcSkippedHint\(it, d\)/);
+  });
+});
