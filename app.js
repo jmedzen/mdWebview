@@ -3089,8 +3089,14 @@
     if (shareRt.blobs.has(key)) return shareRt.blobs.get(key);
     const job = (async () => {
       if (shareRt.serverOk) {
-        const r = await fetch(`/api/share-card.jpg?${shareCardQuery(layout, size)}`);
-        if (r.ok) return r.blob();
+        const src = `/api/share-card.jpg?${shareCardQuery(layout, size)}`;
+        const r = await fetch(src);
+        if (r.ok) {
+          const b = await r.blob();
+          // 記下這張圖的一般網址：手機「存圖片」大圖用它，不用 blob:（華為瀏覽器、微信等長按存不了 blob:）
+          try { b.srcUrl = new URL(src, window.location.href).href; } catch (_) {}
+          return b;
+        }
         if (r.status !== 503) throw new Error(`HTTP ${r.status}`);
         shareRt.serverOk = false;
       }
@@ -3524,21 +3530,64 @@
   // 手機：網頁不能直接寫進相簿。「存圖片」顯示大圖，請使用者長按選「加入照片／儲存到相簿」，
   // 跟「傳到 LINE」（系統分享選單）做出區別。電腦版維持下載檔案。
   function isPhoneOrTablet() {
-    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') ||
+    // 純血鴻蒙（HarmonyOS NEXT）的華為瀏覽器 UA 沒有 Android，只有 OpenHarmony／ArkWeb
+    return /Android|iPhone|iPad|iPod|OpenHarmony|HarmonyOS|ArkWeb/i.test(navigator.userAgent || '') ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = () => reject(fr.error || new Error('read'));
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  /**
+   * 手機上把圖片直接下載成檔案（「存圖片」大圖的備援按鈕）。
+   * 伺服器畫的圖用一般網址加 dl=1（伺服器回 Content-Disposition: attachment），
+   * 交給瀏覽器自己的下載管理員；華為瀏覽器等不收 blob: 下載的也能存。
+   */
+  function downloadShareImage(blob) {
+    const name = shareCardFileName();
+    if (blob && blob.srcUrl) {
+      const a = document.createElement('a');
+      a.href = `${blob.srcUrl}&dl=1`;
+      a.download = name;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+    downloadBlob(blob, name);
+  }
+
+  /**
+   * 顯示全尺寸大圖讓使用者長按存下。圖片網址的選擇（重要）：
+   * 華為瀏覽器、微信、QQ／UC 等的長按「保存圖片」會交給系統下載器重新抓網址，
+   * blob: 網址抓不到，就出現「保存圖片到手機失敗」。所以伺服器畫的圖用一般 https 網址
+   * （剛抓過，瀏覽器有快取，顯示不會變慢）；瀏覽器自己畫的才用 data: 網址，最後才退回 blob:。
+   */
   function showSaveImageOverlay(blob, tip, actions) {
     const old = document.getElementById('shareSaveOverlay');
     if (old) old.remove();
-    const url = URL.createObjectURL(blob);
+    let objUrl = '';
     const ov = document.createElement('div');
     ov.id = 'shareSaveOverlay';
     ov.className = 'share-save-overlay';
-    ov.innerHTML = '<p class="share-save-tip">長按下方圖片，選「加入照片」（iPhone）或「下載圖片／儲存到相簿」（Android）</p><img alt="早安圖"><button type="button" class="share-save-close">完成</button>';
+    ov.innerHTML = '<p class="share-save-tip">長按下方圖片，選「加入照片」（iPhone）或「下載圖片／儲存到相簿」（Android）。長按存不下來時，請按「直接下載」</p><img alt="早安圖"><button type="button" class="share-save-close">完成</button>';
     if (tip) ov.querySelector('.share-save-tip').textContent = tip;
-    ov.querySelector('img').src = url;
-    const close = () => { ov.remove(); URL.revokeObjectURL(url); };
+    const img = ov.querySelector('img');
+    const useObjUrl = () => { if (!objUrl) objUrl = URL.createObjectURL(blob); img.src = objUrl; };
+    if (blob && blob.srcUrl) {
+      img.onerror = () => { img.onerror = null; useObjUrl(); };   // 網址突然抓不到（離線）：至少還看得到
+      img.src = blob.srcUrl;
+    } else {
+      blobToDataUrl(blob).then(d => { img.src = d; }).catch(useObjUrl);
+    }
+    const close = () => { ov.remove(); if (objUrl) URL.revokeObjectURL(objUrl); };
     const doneBtn = ov.querySelector('.share-save-close');
     for (const a of actions || []) {
       const b = document.createElement('button');
@@ -3548,7 +3597,7 @@
       b.addEventListener('click', e => { e.stopPropagation(); a.onClick(); });
       ov.insertBefore(b, doneBtn);
     }
-    ov.querySelector('.share-save-close').addEventListener('click', close);
+    doneBtn.addEventListener('click', close);
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     document.body.appendChild(ov);
   }
@@ -3557,7 +3606,7 @@
     try {
       const blob = await getShareCardBlob(shareRt.layout, 'portrait');
       if (isPhoneOrTablet()) {
-        showSaveImageOverlay(blob);
+        showSaveImageOverlay(blob, '', [{ label: '直接下載', onClick: () => downloadShareImage(blob) }]);
         sendShareEvent('save');
         return;
       }

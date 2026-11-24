@@ -412,9 +412,26 @@ describe('首頁與伺服器接線', () => {
     assert.match(appJs, /function showSaveImageOverlay\(blob, tip, actions\)/);
     const fn = appJs.slice(appJs.indexOf('async function saveShareImage()'), appJs.indexOf('async function copyShareImage()'));
     assert.match(fn, /isPhoneOrTablet\(\)/);
-    assert.match(fn, /showSaveImageOverlay\(blob\)/);
+    assert.match(fn, /showSaveImageOverlay\(blob, '', \[\{ label: '直接下載', onClick: \(\) => downloadShareImage\(blob\) \}\]\)/);
     assert.doesNotMatch(fn, /navigator\.share/, '存圖片不再叫分享選單，避免和傳到 LINE 一樣');
     assert.match(fn, /downloadBlob\(blob, shareCardFileName\(\)\)/);
+  });
+
+  test('華為瀏覽器：存圖片大圖不用 blob: 網址（長按「保存圖片到手機失敗」），另有「直接下載」', () => {
+    const ov = appJs.slice(appJs.indexOf('function showSaveImageOverlay('), appJs.indexOf('async function saveShareImage()'));
+    // 伺服器畫的圖：大圖用一般網址；瀏覽器自己畫的：data: 網址；blob: 只當最後備援
+    assert.match(ov, /img\.src = blob\.srcUrl/);
+    assert.match(ov, /blobToDataUrl\(blob\)\.then/);
+    assert.doesNotMatch(ov.slice(0, ov.indexOf('const useObjUrl')), /createObjectURL/, '一開始不可以直接用 blob:');
+    const get = appJs.slice(appJs.indexOf('function getShareCardBlob('), appJs.indexOf('function shareCardFileName()'));
+    assert.match(get, /b\.srcUrl = new URL\(src, window\.location\.href\)\.href/);
+    const dl = appJs.slice(appJs.indexOf('function downloadShareImage('), appJs.indexOf('function showSaveImageOverlay('));
+    assert.match(dl, /`\$\{blob\.srcUrl\}&dl=1`/);
+    assert.match(dl, /downloadBlob\(blob, name\)/);
+    assert.match(serverJs, /if \(query\.dl === '1'\) \{/);
+    assert.match(serverJs, /headers\['Content-Disposition'\] = `attachment; filename="/);
+    // 純血鴻蒙 UA 沒有 Android
+    assert.match(appJs, /Android\|iPhone\|iPad\|iPod\|OpenHarmony\|HarmonyOS\|ArkWeb/);
   });
 
   test('分享面板只載小預覽、選中的先載；傳出去／存下來的仍是全尺寸', () => {

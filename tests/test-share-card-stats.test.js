@@ -233,7 +233,7 @@ describe('伺服器：POST /api/share-card/event、og:image、分享連結進站
       const req = http.request(new URL(p, baseUrl), { agent: false, ...options, headers: { Connection: 'close', ...(options.headers || {}) } }, res => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve({ statusCode: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+        res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
       });
       req.on('error', reject);
       if (options.body) req.write(options.body);
@@ -306,8 +306,13 @@ describe('伺服器：POST /api/share-card/event、og:image、分享連結進站
 
     // 面板裡的直式預覽不記
     const n = shareEntries().length;
-    await request(`/api/share-card.jpg?id=${verseId}&layout=A&size=portrait&d=2026-11-02`);
+    const full = await request(`/api/share-card.jpg?id=${verseId}&layout=A&size=portrait&d=2026-11-02`);
     assert.equal(shareEntries().length, n);
+    assert.equal(full.headers['content-disposition'], undefined, '一般顯示不加 attachment');
+    // 手機「直接下載」：dl=1 回 attachment（華為瀏覽器等交給下載管理員存檔）
+    const dl = await request(`/api/share-card.jpg?id=${verseId}&layout=A&size=portrait&d=2026-11-02&dl=1`);
+    assert.equal(dl.statusCode, 200);
+    assert.equal(dl.headers['content-disposition'], 'attachment; filename="share-card-2026-11-02-A.jpg"');
   });
 
   test('流量統計 API 的資料裡有 shareCard 摘要', async () => {
