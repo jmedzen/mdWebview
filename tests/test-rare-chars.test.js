@@ -94,3 +94,15 @@ test('罕見字讀音表格式：一字一條、改讀為是常用字或「-」'
     assert.ok(to === '-' || /^[一-鿿]$/.test(to), l);
   }
 });
+
+test('罕見字表在讀音表之後套用：改讀為不可是讀音表有單字規則的字（要寫最終讀法）', () => {
+  // charMap 在讀音表之後才換字，換出來的字不會再經過讀音表；
+  // 例：𣸩→突，但讀音表 突→圖（臺灣讀音），𣸩 就會被念成大陸音。
+  const lexicon = require('../lib/tts-lexicon');
+  const single = new Map(lexicon.entries(true).filter(([w]) => Array.from(w).length === 1));
+  const bad = [];
+  for (const [ch, to] of Object.entries(lexicon.charMap(true))) {
+    if (to && single.has(to) && single.get(to) !== to) bad.push(`${ch}→${to}（讀音表 ${to}→${single.get(to)}）`);
+  }
+  assert.deepStrictEqual(bad, []);
+});
