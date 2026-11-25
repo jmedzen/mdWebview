@@ -272,6 +272,14 @@ describe('account HTTP API', () => {
     assert.equal(list.status, 200);
     assert.equal(list.json.users[0].email, 'plain@example.org');
     assert.equal((await request('/api/admin/settings', { cookie: adminCookie })).status, 200);
+    // 活躍使用者統計：剛登入的帳號都算在日活躍；一般使用者不能看
+    assert.equal((await request('/api/admin/users/activity', { cookie: userCookie })).status, 401);
+    const act = await request('/api/admin/users/activity?days=14', { cookie: adminCookie });
+    assert.equal(act.status, 200);
+    assert.ok(act.json.dau.count >= 2, 'the plain user and the admin both logged in just now');
+    assert.ok(act.json.wau.count >= act.json.dau.count);
+    assert.equal(act.json.daily.length, 14);
+    assert.ok(act.json.dau.admins >= 1);
 
     const status = await request('/api/admin/status', { cookie: adminCookie });
     assert.equal(status.json.isAuthenticated, true);

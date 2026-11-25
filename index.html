@@ -2023,6 +2023,22 @@
               <span class="account-badge" id="adminUsersTotal"></span>
             </div>
             <div class="config-card-body">
+              <section class="admin-users-activity" id="adminUsersActivity" aria-labelledby="adminUsersActivityTitle">
+                <div class="admin-users-activity-head">
+                  <h4 id="adminUsersActivityTitle">活躍使用者</h4>
+                  <span class="field-hint" id="adminUsersActivityHint">有登入或已登入使用網站的帳號，每人只算一次</span>
+                </div>
+                <div class="ov-kpis admin-users-kpis">
+                  <div class="ov-kpi"><div class="ov-kpi-label">日活躍<span class="admin-kpi-span">過去 24 小時</span></div><div class="ov-kpi-value" id="adminDauValue">—</div><div class="ov-kpi-note" id="adminDauNote"></div></div>
+                  <div class="ov-kpi"><div class="ov-kpi-label">週活躍<span class="admin-kpi-span">過去 7 天</span></div><div class="ov-kpi-value" id="adminWauValue">—</div><div class="ov-kpi-note" id="adminWauNote"></div></div>
+                  <div class="ov-kpi"><div class="ov-kpi-label">月活躍<span class="admin-kpi-span">過去 30 天</span></div><div class="ov-kpi-value" id="adminMauValue">—</div><div class="ov-kpi-note" id="adminMauNote"></div></div>
+                  <div class="ov-kpi"><div class="ov-kpi-label">黏著度<span class="admin-kpi-span">日活 ÷ 月活</span></div><div class="ov-kpi-value" id="adminStickValue">—</div><div class="ov-kpi-note" id="adminStickNote"></div></div>
+                </div>
+                <div class="admin-users-daily">
+                  <div class="admin-users-daily-title">最近 14 天每日活躍人數 <span class="field-hint" id="adminUsersDailyTz"></span></div>
+                  <div class="admin-users-daily-bars" id="adminUsersDailyBars" role="list" aria-label="最近 14 天每日活躍人數"></div>
+                </div>
+              </section>
               <div class="admin-users-filters">
                 <input type="search" id="adminUsersSearch" placeholder="搜尋 Email、名稱或帳號名稱" aria-label="搜尋使用者">
                 <select id="adminUsersStatus" aria-label="狀態">
