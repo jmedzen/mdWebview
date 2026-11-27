@@ -2081,7 +2081,7 @@ TTS_CACHE_DIR（Docker：/data/tts-cache；否則 <MDW_USER_DATA>/tts-cache）
 | `defaultVoice` | — | 預設音色代號 |
 | `seed` | `1234` | 固定 seed（進快取鍵） |
 | `concurrency` | `1` | 同時送往 audio.cpp 的請求數（1–4） |
-| `maxSentenceChars` | `120` | 句長硬上限（40–200）。調整後只有超過新上限的長句會重切、重生 |
+| `maxSentenceChars` | `100` | 句長硬上限（40–200）。調整後只有超過新上限的長句會重切、重生 |
 | `guestGenerate` | `false` | 訪客能否生成新音檔（否則只能播已快取的） |
 | `perUserHour`、`perIpHour` | `600`、`900` | 每小時可生成的句數；快取命中不計；單機模式不限 |
 | `cacheMb` | `20480` | 快取上限（MB）；`TTS_CACHE_MB` 優先 |
