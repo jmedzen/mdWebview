@@ -17794,12 +17794,12 @@
     let ahead = count('running');
     list.innerHTML = jobs.map(j => {
       const cur = j.current && j.current.total ? j.current : null;
-      const frac = j.files ? Math.min(1, (j.fileIndex + (cur ? cur.done / cur.total : 0)) / j.files) : 0;
-      const pct = Math.floor(frac * 100);
+      const prog = ttsJobProgress(j);
+      const pct = prog.pct;
       let stateLabel = TTS_JOB_STATE[j.state] || j.state;
       if (j.state === 'queued') { stateLabel = ahead ? `排隊中（前面還有 ${ahead} 個）` : '排隊中'; ahead++; }
       const kept = Math.max(0, j.sentencesDone - j.generated - j.failed);
-      const detail = [`第 ${Math.min(j.fileIndex + 1, j.files)}／${j.files} 篇`, `已處理 ${j.sentencesDone.toLocaleString()} 句（新生成 ${j.generated.toLocaleString()}、原本已有 ${kept.toLocaleString()}${j.failed ? `、失敗 ${j.failed}` : ''}）`];
+      const detail = [prog.total !== null ? `已處理 ${prog.done.toLocaleString()}／${prog.total.toLocaleString()} 句` : `已處理 ${prog.done.toLocaleString()} 句（總句數計算中）`, `新生成 ${j.generated.toLocaleString()}、原本已有 ${kept.toLocaleString()}${j.failed ? `、失敗 ${j.failed}` : ''}`];
       if (cur) detail.push(`目前：${cur.label || String(cur.file || '').split('/').pop()} ${cur.done}／${cur.total} 句`);
       const pause = j.state !== 'paused';
       const who = `${j.scope} ${vname(j.voice)}`;
@@ -19452,6 +19452,30 @@
 
   const TTS_JOB_STATE = { queued: '排隊中', running: '生成中', paused: '已暫停', done: '完成', cancelled: '已取消' };
 
+  /**
+   * 預先生成工作的進度，用「句」算：已處理幾句／共幾句。經的長短差很多（一部大經就有幾千句），
+   * 用「第幾部」算會讓進度條在大經上停很久。伺服器還沒算出總句數（sentencesTotal 為 null）時，
+   * 先用篇數粗估百分比，文字只說已處理幾句。
+   * @returns {{ done:number, total:number|null, pct:number, text:string }}
+   */
+  function ttsJobProgress(j) {
+    const done = j.sentencesDone || 0;
+    const total = j.sentencesTotal == null ? null : Math.max(j.sentencesTotal, done);
+    let frac;
+    if (j.state === 'done') frac = 1;
+    else if (total) frac = done / total;
+    else if (total === 0) frac = 0;
+    else {
+      const cur = j.current && j.current.total ? j.current : null;
+      frac = j.files ? (j.fileIndex + (cur ? cur.done / cur.total : 0)) / j.files : 0;
+    }
+    const pct = Math.max(0, Math.min(100, Math.floor(frac * 100)));
+    const text = total !== null
+      ? `已處理 ${done.toLocaleString()}／${total.toLocaleString()} 句（${pct}%）`
+      : `已處理 ${done.toLocaleString()} 句（總句數計算中）`;
+    return { done, total, pct, text };
+  }
+
   function renderTtsAdminJobs(d) {
     const el = $('adminTtsJobs');
     const voices = (ttsAdmin.data && ttsAdmin.data.settings.voices) || [];
@@ -19472,6 +19496,7 @@
       const stateLabel = j.state === 'queued' && ahead ? `排隊中（前面還有 ${ahead} 個）` : (TTS_JOB_STATE[j.state] || j.state);
       const pausedHint = j.state === 'paused' ? '<div class="field-hint">已暫停：其他工作照常進行；按「繼續」會排回佇列，從停下的那一句接著做。</div>' : '';
       const cur = j.current && j.current.total ? `（目前：${escHtml(j.current.label || j.current.file.split('/').pop())} ${j.current.done}／${j.current.total} 句）` : '';
+      const prog = ttsJobProgress(j);
       const acts = [];
       if (j.state === 'running' || j.state === 'queued') acts.push(['pause', '暫停']);
       if (j.state === 'paused') acts.push(['resume', '繼續']);
@@ -19484,9 +19509,9 @@
         ${fails.length ? `<details class="tts-job-fails"><summary>看失敗的句子（${fails.length}${j.failed > fails.length ? `／${j.failed}` : ''}）</summary><ul>${fails.map(f => `<li><a href="/?file=${encodeURIComponent(f.path)}&line=${f.line}" target="_blank" rel="noopener">${escHtml(f.label)} 第 ${f.line} 行</a>「${escHtml(f.text)}」— ${escHtml(f.reason)}</li>`).join('')}</ul></details>` : ''}` : '';
       return `<div class="account-row tts-job" data-job="${j.id}">
         <div><strong>${escHtml(j.scope)}</strong>　${escHtml(vname(j.voice))}${j.pin ? '　📌 釘選' : ''}
-          <div class="field-hint">${stateLabel}　第 ${Math.min(j.fileIndex + (j.state === 'done' ? 0 : 1), j.files)}／${j.files} 篇，已處理 ${j.sentencesDone.toLocaleString()} 句（原本已有 ${Math.max(0, j.sentencesDone - j.generated - j.failed).toLocaleString()}、新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}）${cur}${active && j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
+          <div class="field-hint">${stateLabel}　${prog.text}；原本已有 ${Math.max(0, j.sentencesDone - j.generated - j.failed).toLocaleString()}、新生成 ${j.generated.toLocaleString()}、失敗 ${j.failed}${cur}${active && j.error ? `　⚠️ ${escHtml(j.error)}` : ''}</div>
           ${pausedHint}
-          <progress max="${j.files}" value="${j.state === 'done' ? j.files : j.fileIndex}" aria-label="第 ${j.fileIndex} 篇，共 ${j.files} 篇"></progress>
+          <progress max="100" value="${prog.pct}" aria-label="${escHtml(prog.total !== null ? `已處理 ${prog.done} 句，共 ${prog.total} 句，${prog.pct}%` : `已處理 ${prog.done} 句`)}"></progress>
           ${report}
         </div>
         <div class="account-inline-form">${acts.map(([a, label]) => `<button type="button" class="modal-btn ${a === 'cancel' ? 'cancel-btn' : 'secondary-btn'} small-btn" data-job-action="${a}" data-no-dirty>${label}</button>`).join('')}</div>
@@ -21617,7 +21642,50 @@
     enhanceAdminCards();
     adminUsersState.page = 1;
     $('adminUserDetail').hidden = true;
-    await Promise.all([loadAdminUsers(), loadAdminRegistration(), loadAdminInvites(), loadAdminBotStats(), loadAdminLockouts(), loadAdminEvents(true)]);
+    await Promise.all([loadAdminUsers(), loadAdminUserActivity(), loadAdminRegistration(), loadAdminInvites(), loadAdminBotStats(), loadAdminLockouts(), loadAdminEvents(true)]);
+  }
+
+  /** 日活躍／週活躍／月活躍與最近 14 天每日活躍人數（/api/admin/users/activity）。 */
+  function adminActivityDelta(cur, prev, label) {
+    const diff = cur - prev;
+    if (!prev && !cur) return '';
+    if (diff === 0) return `與${label}持平`;
+    return `比${label}${diff > 0 ? '多' : '少'} ${Math.abs(diff)} 位`;
+  }
+
+  async function loadAdminUserActivity() {
+    const r = await accountApi('/api/admin/users/activity?days=14');
+    const box = $('adminUsersActivity');
+    if (!box) return;
+    if (!r.ok) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const a = r.data;
+    const adminNote = (w) => (w.admins ? `，含管理員 ${w.admins} 位` : '');
+    $('adminDauValue').textContent = String(a.dau.count);
+    $('adminDauNote').textContent = adminActivityDelta(a.dau.count, a.dau.previous, '再前 24 小時') + adminNote(a.dau);
+    $('adminWauValue').textContent = String(a.wau.count);
+    $('adminWauNote').textContent = adminActivityDelta(a.wau.count, a.wau.previous, '再前 7 天') + adminNote(a.wau);
+    $('adminMauValue').textContent = String(a.mau.count);
+    $('adminMauNote').textContent = a.total ? `占全部 ${a.total} 位的 ${Math.round(a.mau.count / a.total * 100)}%` : '';
+    $('adminStickValue').textContent = a.mau.count ? `${Math.round(a.dau.count / a.mau.count * 100)}%` : '—';
+    $('adminStickNote').textContent = a.mau.count ? '越高代表越多人天天回來' : '還沒有活躍資料';
+    $('adminUsersDailyTz').textContent = `（${a.tz} 時區切日，與報表信相同）`;
+    const bars = $('adminUsersDailyBars');
+    const max = Math.max(1, ...a.daily.map(d => d.count));
+    bars.innerHTML = a.daily.map(d => {
+      const [, m, day] = d.date.split('-');
+      const label = `${Number(m)}/${Number(day)}`;
+      const pct = d.count ? Math.max(4, Math.round(d.count / max * 100)) : 0;
+      const wd = '日一二三四五六'[new Date(`${d.date}T12:00:00Z`).getUTCDay()];
+      return `<div class="admin-daily-bar" role="listitem" tabindex="0" title="${escHtml(`${label}（${wd}）${d.count} 位`)}" aria-label="${escHtml(`${label} 星期${wd}，${d.count} 位活躍`)}">
+        <span class="admin-daily-bar-n">${d.count || ''}</span>
+        <span class="admin-daily-bar-track"><span class="admin-daily-bar-fill" style="height:${pct}%"></span></span>
+        <span class="admin-daily-bar-date${wd === '日' ? ' is-sunday' : ''}">${escHtml(label)}</span>
+      </div>`;
+    }).join('');
   }
 
   async function loadAdminUsers() {
