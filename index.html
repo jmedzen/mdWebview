@@ -2023,6 +2023,22 @@
               <span class="account-badge" id="adminUsersTotal"></span>
             </div>
             <div class="config-card-body">
+              <section class="admin-users-activity" id="adminUsersActivity" aria-labelledby="adminUsersActivityTitle">
+                <div class="admin-users-activity-head">
+                  <h4 id="adminUsersActivityTitle">活躍使用者</h4>
+                  <span class="field-hint" id="adminUsersActivityHint">有登入或已登入使用網站的帳號，每人只算一次</span>
+                </div>
+                <div class="ov-kpis admin-users-kpis">
+                  <div class="ov-kpi"><div class="ov-kpi-label">日活躍<span class="admin-kpi-span">過去 24 小時</span></div><div class="ov-kpi-value" id="adminDauValue">—</div><div class="ov-kpi-note" id="adminDauNote"></div></div>
+                  <div class="ov-kpi"><div class="ov-kpi-label">週活躍<span class="admin-kpi-span">過去 7 天</span></div><div class="ov-kpi-value" id="adminWauValue">—</div><div class="ov-kpi-note" id="adminWauNote"></div></div>
+                  <div class="ov-kpi"><div class="ov-kpi-label">月活躍<span class="admin-kpi-span">過去 30 天</span></div><div class="ov-kpi-value" id="adminMauValue">—</div><div class="ov-kpi-note" id="adminMauNote"></div></div>
+                  <div class="ov-kpi"><div class="ov-kpi-label">黏著度<span class="admin-kpi-span">日活 ÷ 月活</span></div><div class="ov-kpi-value" id="adminStickValue">—</div><div class="ov-kpi-note" id="adminStickNote"></div></div>
+                </div>
+                <div class="admin-users-daily">
+                  <div class="admin-users-daily-title">最近 14 天每日活躍人數 <span class="field-hint" id="adminUsersDailyTz"></span></div>
+                  <div class="admin-users-daily-bars" id="adminUsersDailyBars" role="list" aria-label="最近 14 天每日活躍人數"></div>
+                </div>
+              </section>
               <div class="admin-users-filters">
                 <input type="search" id="adminUsersSearch" placeholder="搜尋 Email、名稱或帳號名稱" aria-label="搜尋使用者">
                 <select id="adminUsersStatus" aria-label="狀態">
@@ -2563,7 +2579,7 @@
             </div>
             <div class="config-card-body">
               <div class="setup-form-row">
-                <div><label class="field-hint" for="adminTtsMaxChars">每句最多幾個字（40–200）</label><input type="number" id="adminTtsMaxChars" min="40" max="200" step="1"></div>
+                <div><label class="field-hint" for="adminTtsMaxChars">每句最多幾個字（40–200，預設 100）</label><input type="number" id="adminTtsMaxChars" min="40" max="200" step="1"></div>
                 <div><label class="field-hint" for="adminTtsConcurrency">同時送往 audio.cpp 的句數（1–4）</label><input type="number" id="adminTtsConcurrency" min="1" max="4" step="1"></div>
               </div>
               <p class="field-hint">句子越長，第一句要等越久（實測 120 字約 17 秒）。調整後只有超過新上限的長句會重新切、重新生成。</p>

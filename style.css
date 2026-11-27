@@ -11917,6 +11917,120 @@ a.small-btn {
   text-decoration: none;
 }
 
+/* 使用者頁：活躍使用者（日活躍／週活躍／月活躍＋最近 14 天） */
+.admin-users-activity {
+  margin-bottom: 18px;
+}
+
+.admin-users-activity[hidden] {
+  display: none;
+}
+
+.admin-users-activity-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 10px;
+}
+
+.admin-users-activity-head h4 {
+  margin: 0;
+  font-size: calc(15px * var(--ui-font-scale, 1));
+  color: var(--text-primary);
+}
+
+.admin-kpi-span {
+  margin-left: 6px;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.admin-users-daily {
+  margin-top: 14px;
+  padding: 12px 14px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+}
+
+.admin-users-daily-title {
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.admin-users-daily-bars {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 2px;
+  align-items: end;
+}
+
+.admin-daily-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  border-radius: 4px;
+  outline-offset: 2px;
+}
+
+.admin-daily-bar:hover .admin-daily-bar-fill,
+.admin-daily-bar:focus-visible .admin-daily-bar-fill {
+  opacity: 1;
+}
+
+.admin-daily-bar-n {
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.4em;
+}
+
+.admin-daily-bar-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  height: 72px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-daily-bar-fill {
+  display: block;
+  width: min(70%, 22px);
+  background: var(--accent);
+  opacity: 0.8;
+  border-radius: 4px 4px 0 0;
+}
+
+.admin-daily-bar-date {
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 窄畫面（iPad 直向、手機）：期間說明換行，日期隔一天標一次（今天一定有） */
+@media (max-width: 1100px) {
+  .admin-daily-bar:nth-child(odd) .admin-daily-bar-date {
+    visibility: hidden;
+  }
+
+  .admin-kpi-span {
+    display: block;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-users-daily-bars {
+    column-gap: 0;
+  }
+}
+
 .admin-users-filters {
   display: flex;
   flex-wrap: wrap;
