@@ -21642,7 +21642,50 @@
     enhanceAdminCards();
     adminUsersState.page = 1;
     $('adminUserDetail').hidden = true;
-    await Promise.all([loadAdminUsers(), loadAdminRegistration(), loadAdminInvites(), loadAdminBotStats(), loadAdminLockouts(), loadAdminEvents(true)]);
+    await Promise.all([loadAdminUsers(), loadAdminUserActivity(), loadAdminRegistration(), loadAdminInvites(), loadAdminBotStats(), loadAdminLockouts(), loadAdminEvents(true)]);
+  }
+
+  /** 日活躍／週活躍／月活躍與最近 14 天每日活躍人數（/api/admin/users/activity）。 */
+  function adminActivityDelta(cur, prev, label) {
+    const diff = cur - prev;
+    if (!prev && !cur) return '';
+    if (diff === 0) return `與${label}持平`;
+    return `比${label}${diff > 0 ? '多' : '少'} ${Math.abs(diff)} 位`;
+  }
+
+  async function loadAdminUserActivity() {
+    const r = await accountApi('/api/admin/users/activity?days=14');
+    const box = $('adminUsersActivity');
+    if (!box) return;
+    if (!r.ok) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const a = r.data;
+    const adminNote = (w) => (w.admins ? `，含管理員 ${w.admins} 位` : '');
+    $('adminDauValue').textContent = String(a.dau.count);
+    $('adminDauNote').textContent = adminActivityDelta(a.dau.count, a.dau.previous, '再前 24 小時') + adminNote(a.dau);
+    $('adminWauValue').textContent = String(a.wau.count);
+    $('adminWauNote').textContent = adminActivityDelta(a.wau.count, a.wau.previous, '再前 7 天') + adminNote(a.wau);
+    $('adminMauValue').textContent = String(a.mau.count);
+    $('adminMauNote').textContent = a.total ? `占全部 ${a.total} 位的 ${Math.round(a.mau.count / a.total * 100)}%` : '';
+    $('adminStickValue').textContent = a.mau.count ? `${Math.round(a.dau.count / a.mau.count * 100)}%` : '—';
+    $('adminStickNote').textContent = a.mau.count ? '越高代表越多人天天回來' : '還沒有活躍資料';
+    $('adminUsersDailyTz').textContent = `（${a.tz} 時區切日，與報表信相同）`;
+    const bars = $('adminUsersDailyBars');
+    const max = Math.max(1, ...a.daily.map(d => d.count));
+    bars.innerHTML = a.daily.map(d => {
+      const [, m, day] = d.date.split('-');
+      const label = `${Number(m)}/${Number(day)}`;
+      const pct = d.count ? Math.max(4, Math.round(d.count / max * 100)) : 0;
+      const wd = '日一二三四五六'[new Date(`${d.date}T12:00:00Z`).getUTCDay()];
+      return `<div class="admin-daily-bar" role="listitem" tabindex="0" title="${escHtml(`${label}（${wd}）${d.count} 位`)}" aria-label="${escHtml(`${label} 星期${wd}，${d.count} 位活躍`)}">
+        <span class="admin-daily-bar-n">${d.count || ''}</span>
+        <span class="admin-daily-bar-track"><span class="admin-daily-bar-fill" style="height:${pct}%"></span></span>
+        <span class="admin-daily-bar-date${wd === '日' ? ' is-sunday' : ''}">${escHtml(label)}</span>
+      </div>`;
+    }).join('');
   }
 
   async function loadAdminUsers() {
