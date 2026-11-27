@@ -1054,7 +1054,7 @@ fs.writeFileSync(get('--write-media'), b);
     test('讀設定：含欄位範圍、健康狀態、ffmpeg 狀態', async () => {
       const r = await request('/api/admin/tts/settings', { headers: admin });
       assert.equal(r.status, 200);
-      assert.equal(r.json.settings.maxSentenceChars, 120);
+      assert.equal(r.json.settings.maxSentenceChars, 100);
       assert.equal(r.json.settings.cacheMb, 20480);
       assert.deepEqual(r.json.bounds.maxSentenceChars, [40, 200]);
       assert.equal(r.json.ffmpeg.ok, false);

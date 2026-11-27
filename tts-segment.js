@@ -19,10 +19,10 @@
   'use strict';
 
   /** 規則版本：只供除錯與後台顯示，不進快取鍵（規則改了只有切法變動的句子重生）。 */
-  const RULES_VERSION = '2'; // 2：編號咒語逐句切
+  const RULES_VERSION = '3'; // 2：編號咒語逐句切；3：超長句先在引號內的句讀切，不在詞中間硬切
 
   const DEFAULTS = {
-    maxLen: 120,        // 句長硬上限（後台可調，40–200）
+    maxLen: 100,        // 句長硬上限（後台可調，40–200）
     minLen: 8,          // 不足此長度的片段併入同一行的鄰句
     fixedLen: 36,       // 完全沒有切點時的固定長度（四字格對齊）
     longLine: 400,      // 單行偈頌的長度上限；超過視為散文
@@ -43,6 +43,9 @@
   const QUOTE_RE = /[「」]/g;
 
   const STRONG = new Set('。！？；');
+  // 句子超長、沒有正式切點時的備用切點（含引號內的句讀）：先逗號類，再頓號、空白
+  const SOFT_TIERS = [new Set('，。；：！？,;:!?'), new Set('、 ')];
+  const SOFT = new Set('，。、；：！？,;:!? ');
   const CLOSERS = new Set('」』）》〕】)”’');
   const PAIRS = { '「': '」', '『': '』', '《': '》', '（': '）', '〔': '〕', '【': '】', '(': ')', '“': '”', '‘': '’' };
   const CLOSE2OPEN = {};
@@ -234,9 +237,20 @@
         if (v === s && k >= a + o.minLen && k <= b - o.minLen && Math.abs(k - mid) < bd) { bd = Math.abs(k - mid); best = k; }
       });
     }
-    if (best < 0) { // 最後手段：固定長度
+    if (best < 0) { // 引號內的逗號、頓號平常不切（避免把短引文切碎），但句子太長時寧可切在這裡，也不在詞中間硬切
+      for (let tier = 0; tier < SOFT_TIERS.length && best < 0; tier++) { // 先逗號類，再頓號、空白
+        let bd = Infinity;
+        for (let k = a + o.minLen; k <= b - o.minLen; k++) {
+          if (!prot[k] && SOFT_TIERS[tier].has(t[k - 1]) && Math.abs(k - mid) < bd) { bd = Math.abs(k - mid); best = k; }
+        }
+      }
+      if (best >= 0) while (best < b && CLOSERS.has(t[best])) best++;
+    }
+    if (best < 0) { // 最後手段：有句讀就切在上限內最後一個句讀後，否則固定長度
       st.hardCuts++;
-      best = a + (/[，。、；：！？ ]/.test(t.slice(a, b)) ? o.maxLen : Math.min(o.fixedLen, o.maxLen));
+      best = -1;
+      for (let k = Math.min(b - 1, a + o.maxLen); k > a; k--) if (SOFT.has(t[k - 1]) && !prot[k]) { best = k; break; }
+      if (best < 0) best = a + Math.min(o.fixedLen, o.maxLen);
       while (best > a + 1 && prot[best]) best--;
     }
     splitLong(t, a, best, pts, prot, out, st, o); splitLong(t, best, b, pts, prot, out, st, o);

@@ -104,11 +104,29 @@ describe('散文切分', () => {
     assert.equal(u.join(''), long);
   });
 
+  test('藥師經：引號內的超長句切在逗號，不在「三惡趣」中間硬切（預設上限 100）', () => {
+    const line = '「復次，曼殊室利！若有淨信善男子、善女人等，乃至盡形不事餘天，惟當一心歸佛、法、僧，受持禁戒，若五戒、十戒、菩薩四百戒、苾芻二百五十戒、苾芻尼五百戒，於所受中或有毀犯，怖墮惡趣，若能專念彼佛名號，恭敬供養者，必定不受三惡趣生。或有女人，臨當產時，受於極苦；若能至心稱名禮讚，恭敬供養彼如來者，眾苦皆除。所生之子，身分具足，形色端正，見者歡喜，利根聰明，安隱少病，無有非人，奪其精氣。」';
+    for (const maxLen of [undefined, 100, 80, 60, 40]) {
+      const d = Seg.segmentDoc(line + '\n', maxLen ? { maxLen } : {});
+      const u = d.units.map((x) => x.text);
+      assert.equal(u.join(''), line);
+      assert.ok(u.every((t) => t.length <= (maxLen || 100)), `${maxLen}: ${u.map((t) => t.length).join(',')}`);
+      assert.ok(u.some((t) => t.includes('必定不受三惡趣生。')), `${maxLen}: ${u.join(' | ')}`);
+      assert.ok(u.every((t) => /[，。、；：！？」]$/.test(t)), `${maxLen}: 沒切在標點後：${u.join(' | ')}`);
+      assert.equal(d.stats.hardCuts, 0);
+    }
+  });
+
+  test('預設句長上限是 100', () => {
+    assert.equal(Seg.DEFAULTS.maxLen, 100);
+    assert.ok(texts('如是，'.repeat(100)).every((t) => t.length <= 100));
+  });
+
   test('無標點的長行：每 36 字固定切，並標示斷句為自動推測', () => {
     const line = '觀自在菩薩行深般若波羅蜜多時照見五蘊皆空度一切苦厄'.repeat(8);
     const d = Seg.segmentDoc(line + '\n');
     const u = d.units.map((x) => x.text);
-    assert.ok(u.every((t) => t.length <= 120));
+    assert.ok(u.every((t) => t.length <= 100));
     assert.ok(d.stats.hardCuts > 0);
     assert.equal(d.stats.guessed, true);
     assert.equal(u.join(''), line);
