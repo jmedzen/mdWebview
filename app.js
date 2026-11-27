@@ -19294,7 +19294,7 @@
           else if (!v.inPrompt) notes.push('prompt_text 還沒有這一行（audio.cpp 讀不到）');
           else if (v.stale) notes.push('.txt 跟 prompt_text 不一致（audio.cpp 用的是 prompt_text）');
           if (up.size && !up.has(v.name)) notes.push('audio.cpp 沒有列出');
-          const meta = ttsVoiceDirAudioMeta(v.audio, v.budget, (d.settings && d.settings.maxSentenceChars) || 120);
+          const meta = ttsVoiceDirAudioMeta(v.audio, v.budget, (d.settings && d.settings.maxSentenceChars) || 100);
           if (meta.warn) notes.push(meta.warn);
           if (!saved.has(v.name) && v.transcript && (!up.size || up.has(v.name))) notes.push('還沒加進下方「音色」清單');
           const tid = 'ttsVd-' + v.name.replace(/[^\w-]/g, c => c.charCodeAt(0).toString(16));

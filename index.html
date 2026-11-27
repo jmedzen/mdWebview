@@ -2563,7 +2563,7 @@
             </div>
             <div class="config-card-body">
               <div class="setup-form-row">
-                <div><label class="field-hint" for="adminTtsMaxChars">每句最多幾個字（40–200）</label><input type="number" id="adminTtsMaxChars" min="40" max="200" step="1"></div>
+                <div><label class="field-hint" for="adminTtsMaxChars">每句最多幾個字（40–200，預設 100）</label><input type="number" id="adminTtsMaxChars" min="40" max="200" step="1"></div>
                 <div><label class="field-hint" for="adminTtsConcurrency">同時送往 audio.cpp 的句數（1–4）</label><input type="number" id="adminTtsConcurrency" min="1" max="4" step="1"></div>
               </div>
               <p class="field-hint">句子越長，第一句要等越久（實測 120 字約 17 秒）。調整後只有超過新上限的長句會重新切、重新生成。</p>
